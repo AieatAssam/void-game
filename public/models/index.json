@@ -1,0 +1,22 @@
+{
+ "heli": {
+  "tier": 3.2,
+  "mass": 18,
+  "kind": "unit",
+  "unit": "heli",
+  "tris": 13088,
+  "bytes": 93912,
+  "clips": [
+   "rotor",
+   "tail"
+  ]
+ },
+ "hydrant": {
+  "tier": 0.2,
+  "mass": 0.25,
+  "kind": "prop",
+  "tris": 4252,
+  "bytes": 33472,
+  "clips": []
+ }
+}

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Toybox Showroom</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #f4dcc0; font: 13px/1.4 ui-rounded, system-ui, sans-serif; color: #3e4150; }
+    canvas { display: block; width: 100%; height: 100%; }
+    #list { position: fixed; top: 12px; left: 12px; max-height: calc(100% - 24px); overflow: auto; background: #fff8eecc;
+      border-radius: 12px; padding: 8px; backdrop-filter: blur(6px); }
+    #list button { display: grid; grid-template-columns: 1fr auto; gap: 12px; width: 100%; border: 0; background: none;
+      padding: 4px 8px; border-radius: 8px; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+    #list button:hover, #list button.on { background: #f7d774; }
+    #list small { opacity: .6; }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="list"></div>
+  <script type="module" src="/src/gallery.js"></script>
+</body>
+</html>
