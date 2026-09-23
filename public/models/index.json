@@ -1,22 +1,478 @@
 {
+ "apartment": {
+  "tier": 5.7,
+  "mass": 938.448,
+  "kind": "prop",
+  "height": 19.6,
+  "tris": 9492,
+  "bytes": 111524,
+  "clips": []
+ },
+ "barricade": {
+  "tier": 1.11,
+  "mass": 0.923,
+  "kind": "hazard",
+  "height": 1.223,
+  "effect": "toll",
+  "tris": 4016,
+  "bytes": 33444,
+  "clips": [
+   "blink.003"
+  ]
+ },
+ "bench": {
+  "tier": 0.8,
+  "mass": 0.341,
+  "kind": "prop",
+  "height": 0.935,
+  "tris": 2444,
+  "bytes": 20192,
+  "clips": []
+ },
+ "bicycle": {
+  "tier": 0.9,
+  "mass": 0.396,
+  "kind": "prop",
+  "height": 1.1,
+  "tris": 3084,
+  "bytes": 30192,
+  "clips": []
+ },
+ "bus": {
+  "tier": 5.35,
+  "mass": 40.636,
+  "kind": "prop",
+  "height": 3.45,
+  "tris": 7116,
+  "bytes": 50628,
+  "clips": []
+ },
+ "cafe": {
+  "tier": 4.2,
+  "mass": 172.543,
+  "kind": "prop",
+  "height": 7,
+  "tris": 5400,
+  "bytes": 46628,
+  "clips": []
+ },
+ "car": {
+  "tier": 2.11,
+  "mass": 5.808,
+  "kind": "prop",
+  "height": 1.564,
+  "tris": 4912,
+  "bytes": 36280,
+  "clips": []
+ },
+ "car_b": {
+  "tier": 1.91,
+  "mass": 7.72,
+  "kind": "prop",
+  "height": 2.35,
+  "tris": 5100,
+  "bytes": 37560,
+  "clips": []
+ },
+ "cement_truck": {
+  "tier": 4.222,
+  "mass": 40.227,
+  "kind": "unit",
+  "height": 4.354,
+  "unit": "cement",
+  "tris": 7064,
+  "bytes": 55904,
+  "clips": [
+   "drum.001"
+  ]
+ },
+ "clock_tower": {
+  "tier": 4.3,
+  "mass": 800.247,
+  "kind": "prop",
+  "height": 27.05,
+  "tris": 11632,
+  "bytes": 132708,
+  "clips": [
+   "hands0.001",
+   "hands1.001",
+   "hands2.001",
+   "hands3.001"
+  ]
+ },
+ "concrete_plug": {
+  "tier": 1,
+  "mass": 2.071,
+  "kind": "fx",
+  "height": 1.152,
+  "tris": 1316,
+  "bytes": 17272,
+  "clips": []
+ },
+ "cone": {
+  "tier": 0.19,
+  "mass": 0.05,
+  "kind": "prop",
+  "height": 0.535,
+  "tris": 666,
+  "bytes": 9680,
+  "clips": []
+ },
+ "dog": {
+  "tier": 0.638,
+  "mass": 0.08,
+  "kind": "prop",
+  "height": 0.59,
+  "tris": 4640,
+  "bytes": 36892,
+  "clips": []
+ },
+ "flower_pot": {
+  "tier": 0.37,
+  "mass": 0.241,
+  "kind": "prop",
+  "height": 1.1,
+  "tris": 1456,
+  "bytes": 17584,
+  "clips": []
+ },
+ "fountain": {
+  "tier": 2.3,
+  "mass": 27.085,
+  "kind": "prop",
+  "height": 3.2,
+  "tris": 2488,
+  "bytes": 29316,
+  "clips": [
+   "water.001"
+  ]
+ },
+ "gas_can": {
+  "tier": 0.243,
+  "mass": 0.1,
+  "kind": "poison",
+  "height": 0.65,
+  "effect": "shrink",
+  "tris": 1384,
+  "bytes": 14152,
+  "clips": []
+ },
  "heli": {
   "tier": 3.2,
   "mass": 18,
   "kind": "unit",
+  "height": 2.65,
   "unit": "heli",
   "tris": 13088,
-  "bytes": 93912,
+  "bytes": 91340,
   "clips": [
-   "rotor",
-   "tail"
+   "rotor.002",
+   "tail.002"
   ]
+ },
+ "hole_rim": {
+  "tier": 1,
+  "mass": 0.264,
+  "kind": "fx",
+  "height": 0.14,
+  "tris": 4992,
+  "bytes": 48276,
+  "clips": []
+ },
+ "hotdog_cart": {
+  "tier": 1.112,
+  "mass": 4.664,
+  "kind": "prop",
+  "height": 2.62,
+  "tris": 3348,
+  "bytes": 27852,
+  "clips": []
+ },
+ "hotel": {
+  "tier": 8.25,
+  "mass": 2077.845,
+  "kind": "prop",
+  "height": 24.5,
+  "tris": 14372,
+  "bytes": 199884,
+  "clips": []
+ },
+ "house": {
+  "tier": 3.346,
+  "mass": 93.537,
+  "kind": "prop",
+  "height": 5.775,
+  "tris": 2800,
+  "bytes": 33348,
+  "clips": []
  },
  "hydrant": {
   "tier": 0.2,
   "mass": 0.25,
   "kind": "prop",
+  "height": 0.74,
   "tris": 4252,
-  "bytes": 33472,
+  "bytes": 33484,
+  "clips": []
+ },
+ "icecream_van": {
+  "tier": 2.6,
+  "mass": 31.36,
+  "kind": "prop",
+  "height": 5.37,
+  "tris": 7068,
+  "bytes": 51268,
+  "clips": []
+ },
+ "kiosk": {
+  "tier": 1.5,
+  "mass": 9.793,
+  "kind": "prop",
+  "height": 3.05,
+  "tris": 3072,
+  "bytes": 29452,
+  "clips": []
+ },
+ "lamp": {
+  "tier": 0.3,
+  "mass": 0.1,
+  "kind": "prop",
+  "height": 3.02,
+  "tris": 836,
+  "bytes": 9992,
+  "clips": []
+ },
+ "mailbox": {
+  "tier": 0.2,
+  "mass": 0.12,
+  "kind": "prop",
+  "height": 1.095,
+  "tris": 944,
+  "bytes": 11360,
+  "clips": []
+ },
+ "newsbox": {
+  "tier": 0.3,
+  "mass": 0.141,
+  "kind": "prop",
+  "height": 1.02,
+  "tris": 1304,
+  "bytes": 14800,
+  "clips": []
+ },
+ "office": {
+  "tier": 6.75,
+  "mass": 2532.6,
+  "kind": "prop",
+  "height": 35,
+  "tris": 5076,
+  "bytes": 48776,
+  "clips": []
+ },
+ "peg_a": {
+  "tier": 0.175,
+  "mass": 0.06,
+  "kind": "prop",
+  "height": 0.651,
+  "tris": 2040,
+  "bytes": 19880,
+  "clips": []
+ },
+ "peg_b": {
+  "tier": 0.16,
+  "mass": 0.06,
+  "kind": "prop",
+  "height": 0.74,
+  "tris": 1972,
+  "bytes": 19556,
+  "clips": []
+ },
+ "peg_c": {
+  "tier": 0.16,
+  "mass": 0.06,
+  "kind": "prop",
+  "height": 0.72,
+  "tris": 2020,
+  "bytes": 19600,
+  "clips": []
+ },
+ "phone_booth": {
+  "tier": 0.51,
+  "mass": 1.248,
+  "kind": "prop",
+  "height": 3,
+  "tris": 3248,
+  "bytes": 30328,
+  "clips": []
+ },
+ "picnic_table": {
+  "tier": 1.3,
+  "mass": 2.091,
+  "kind": "prop",
+  "height": 1.058,
+  "tris": 2568,
+  "bytes": 21408,
+  "clips": []
+ },
+ "pigeon": {
+  "tier": 0.268,
+  "mass": 0.05,
+  "kind": "prop",
+  "height": 0.375,
+  "tris": 1888,
+  "bytes": 19580,
+  "clips": []
+ },
+ "planter": {
+  "tier": 0.695,
+  "mass": 0.305,
+  "kind": "prop",
+  "height": 0.885,
+  "tris": 1740,
+  "bytes": 18280,
+  "clips": []
+ },
+ "police_car": {
+  "tier": 2.25,
+  "mass": 8.942,
+  "kind": "unit",
+  "height": 2.16,
+  "unit": "police",
+  "tris": 6040,
+  "bytes": 46596,
+  "clips": [
+   "beacon.001"
+  ]
+ },
+ "scooter": {
+  "tier": 0.675,
+  "mass": 0.399,
+  "kind": "prop",
+  "height": 1.23,
+  "tris": 3212,
+  "bytes": 26392,
+  "clips": []
+ },
+ "shop": {
+  "tier": 4.168,
+  "mass": 153.07,
+  "kind": "prop",
+  "height": 5.55,
+  "tris": 5104,
+  "bytes": 42204,
+  "clips": []
+ },
+ "skyscraper": {
+  "tier": 9.45,
+  "mass": 9352.778,
+  "kind": "prop",
+  "height": 71.1,
+  "tris": 9144,
+  "bytes": 87964,
+  "clips": []
+ },
+ "spiky": {
+  "tier": 0.746,
+  "mass": 1.706,
+  "kind": "poison",
+  "height": 1.957,
+  "effect": "jam",
+  "tris": 2128,
+  "bytes": 21004,
+  "clips": []
+ },
+ "tank": {
+  "tier": 3.6,
+  "mass": 39.514,
+  "kind": "unit",
+  "height": 3.92,
+  "unit": "tank",
+  "tris": 8920,
+  "bytes": 78396,
+  "clips": [
+   "fire.002"
+  ]
+ },
+ "taxi": {
+  "tier": 2.26,
+  "mass": 8.941,
+  "kind": "prop",
+  "height": 2.15,
+  "tris": 5980,
+  "bytes": 51292,
+  "clips": []
+ },
+ "tile_lot": {
+  "tier": 20,
+  "mass": 0,
+  "kind": "tile",
+  "height": 0.172,
+  "tris": 2602,
+  "bytes": 24192,
+  "clips": []
+ },
+ "tile_park": {
+  "tier": 20,
+  "mass": 0,
+  "kind": "tile",
+  "height": 0.33,
+  "tris": 7244,
+  "bytes": 57788,
+  "clips": []
+ },
+ "tile_plaza": {
+  "tier": 20,
+  "mass": 0,
+  "kind": "tile",
+  "height": 0.17,
+  "tris": 4160,
+  "bytes": 31764,
+  "clips": []
+ },
+ "toxic_barrel": {
+  "tier": 0.32,
+  "mass": 0.15,
+  "kind": "poison",
+  "height": 0.74,
+  "effect": "reverse",
+  "tris": 2320,
+  "bytes": 23016,
+  "clips": []
+ },
+ "trashcan": {
+  "tier": 0.26,
+  "mass": 0.12,
+  "kind": "prop",
+  "height": 0.858,
+  "tris": 976,
+  "bytes": 13232,
+  "clips": []
+ },
+ "tree_big": {
+  "tier": 2.257,
+  "mass": 4,
+  "kind": "prop",
+  "height": 5.61,
+  "tris": 2112,
+  "bytes": 18636,
+  "clips": []
+ },
+ "tree_small": {
+  "tier": 1.46,
+  "mass": 1.2,
+  "kind": "prop",
+  "height": 3.3,
+  "tris": 1732,
+  "bytes": 16096,
+  "clips": []
+ },
+ "vending": {
+  "tier": 0.43,
+  "mass": 0.507,
+  "kind": "prop",
+  "height": 1.9,
+  "tris": 2956,
+  "bytes": 24728,
   "clips": []
  }
 }

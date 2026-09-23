@@ -3,3 +3,4 @@ dist
 assets-raw
 *.blend1
 .DS_Store
+__pycache__

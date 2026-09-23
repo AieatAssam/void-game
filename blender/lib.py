@@ -205,8 +205,26 @@ def lathe(name, profile, loc=(0, 0, 0), color='cream', seg=32, rot=(0, 0, 0)):
     return _obj(name, bm, color, loc, rot)
 
 
+def mesh(name, verts, faces, color='cream', loc=(0, 0, 0), rot=(0, 0, 0)):
+    bm = bmesh.new()
+    vs = [bm.verts.new(v) for v in verts]
+    for f in faces:
+        bm.faces.new([vs[i] for i in f])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return _obj(name, bm, color, loc, rot)
+
+
+def prism(name, w, d, h, loc=(0, 0, 0), color='terracotta', rot=(0, 0, 0), bev=0.06):
+    """Gable roof: triangle (width w along Y, height h) extruded length d along X, base at loc."""
+    x, y = d / 2, w / 2
+    ob = mesh(name, [(-x, -y, 0), (-x, y, 0), (-x, 0, h), (x, -y, 0), (x, y, 0), (x, 0, h)],
+              [(0, 1, 2), (3, 5, 4), (0, 3, 4, 1), (1, 4, 5, 2), (2, 5, 3, 0)], color, loc, rot)
+    return bevel(ob, bev, 2) if bev else ob
+
+
 def join(parts, name):
     """Merge parts into one mesh object (one draw call). Returns the new object."""
+    bpy.context.view_layer.update()  # fresh objects without modifiers have stale matrix_world
     bm = bmesh.new()
     for p in parts:
         apply_mods(p)
@@ -219,8 +237,17 @@ def join(parts, name):
     return _obj(name, bm, None, (0, 0, 0), (0, 0, 0))
 
 
-def finish(ob, tier, mass, kind='prop', smooth_angle=35, **extra):
-    """Smooth shading + weighted normals, metadata for the game."""
+def bounds(ob):
+    bpy.context.view_layer.update()
+    pts = [o.matrix_world @ Vector(c) for o in [ob] + list(ob.children_recursive) if o.type == 'MESH' for c in o.bound_box]
+    lo = Vector((min(p.x for p in pts), min(p.y for p in pts), min(p.z for p in pts)))
+    hi = Vector((max(p.x for p in pts), max(p.y for p in pts), max(p.z for p in pts)))
+    return lo, hi
+
+
+def finish(ob, tier=None, mass=None, kind='prop', smooth_angle=35, **extra):
+    """Smooth shading + weighted normals, metadata for the game.
+    tier (footprint radius, m) and mass (growth value) default to values measured from the model."""
     for o in [ob] + list(ob.children_recursive):
         if o.type != 'MESH':
             continue
@@ -229,13 +256,21 @@ def finish(ob, tier, mass, kind='prop', smooth_angle=35, **extra):
         wn = o.modifiers.new('wn', 'WEIGHTED_NORMAL')
         wn.keep_sharp = True
         apply_mods(o)
+    lo, hi = bounds(ob)
+    d = hi - lo
+    if tier is None:
+        tier = round(0.5 * max(d.x, d.y), 3)
+    if mass is None:
+        mass = round(d.x * d.y * d.z * 0.4, 3)
     ob['tier'], ob['mass'], ob['kind'] = float(tier), float(mass), kind
+    ob['height'] = round(d.z, 3)
     for k, v in extra.items():
         ob[k] = v
     return ob
 
 
 def parent(child, root):
+    bpy.context.view_layer.update()
     mw = child.matrix_world.copy()
     child.parent = root
     child.matrix_world = mw
@@ -314,6 +349,9 @@ def focus(*names):
 def run(name, grid=(0, 0)):
     """Build blender/assets/<name>.py, export, park on the showroom grid."""
     sys.path.insert(0, os.path.join(ROOT, 'blender', 'assets'))
+    for dep in ('kit', 'peg'):
+        if dep in sys.modules:
+            importlib.reload(sys.modules[dep])
     mod = importlib.import_module(name)
     importlib.reload(mod)
     begin('A_' + name)
@@ -323,3 +361,14 @@ def run(name, grid=(0, 0)):
     root.location = (grid[0] * 12, grid[1] * 12, 0)
     return {'name': name, 'tris': tris(root), 'bytes': os.path.getsize(path),
             'tier': root.get('tier'), 'kind': root.get('kind')}
+
+
+def run_all(names, cols=8):
+    out = []
+    for i, n in enumerate(names):
+        try:
+            out.append(run(n, (i % cols, i // cols)))
+        except Exception as e:
+            import traceback
+            out.append({'name': n, 'error': traceback.format_exc(limit=3)})
+    return out
