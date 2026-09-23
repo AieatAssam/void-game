@@ -2,6 +2,8 @@
 import * as THREE from 'three';
 import { COLORS } from './look.js';
 
+export const GROWTH = 0.25;
+
 const voidMaterial = new THREE.ShaderMaterial({
   side: THREE.BackSide,
   uniforms: { uTime: { value: 0 }, uLilac: { value: new THREE.Color(COLORS.lilac) }, uVoid: { value: new THREE.Color(COLORS.void) } },
@@ -27,6 +29,7 @@ export class Hole {
   constructor(assets, x = 0, z = 0, r = 0.45) {
     this.x = x;
     this.z = z;
+    this.vx = this.vz = 0;
     this.area = Math.PI * r * r;
     this.uniform = { value: new THREE.Vector3(x, z, r) };
     this.group = new THREE.Group();
@@ -50,9 +53,9 @@ export class Hole {
 
   get r() { return Math.sqrt(this.area / Math.PI); }
 
-  grow(mass) {
-    // Growth slows as the hole gets big so every size tier gets its moment.
-    this.area += mass * 1.4 / (1 + this.r * 0.08);
+  /** Swallowing adds a share of the object's footprint, so every tier feels the same relative bite. */
+  grow(tier) {
+    this.area += Math.PI * tier * tier * GROWTH;
   }
 
   update(dt, time, hunger = 0) {

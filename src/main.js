@@ -3,6 +3,8 @@ import { createRenderer, createScene, followSun } from './look.js';
 import { loadAll } from './assets.js';
 import { City } from './city.js';
 import { Hole } from './hole.js';
+import { Director } from './director.js';
+import { installBot } from './bot.js';
 
 const $ = (id) => document.getElementById(id);
 const renderer = createRenderer($('c'));
@@ -11,28 +13,32 @@ const camera = new THREE.PerspectiveCamera(38, 1, 0.3, 900);
 const PITCH = THREE.MathUtils.degToRad(55);
 
 // ---------- starvation tuning (PLAN.md: keep moving or the ground seals) ----------
-const FULL_FOR = 6; // seconds a meal keeps the belly meter from emptying
-const DECAY_FED = 0.012; // area fraction lost per second while fed
-const DECAY_STARVING = 0.09; // ... while the meter is empty
+const BELLY_DRAIN = 1 / 7; // a full belly lasts 7s
+const MEAL = 0.12; // eating this fraction of the hole's own area fills the belly
+const DECAY_FED = 0.012; // area fraction lost per second while the belly has food
+const DECAY_STARVING = 0.09; // ... while it is empty
 const DEAD_R = 0.26;
+const MAX_HIT = 0.25; // rule 3: no single hit takes more than 25%
 
 const assets = await loadAll((p) => { $('load').querySelector('b').textContent = `${Math.round(p * 100)}%`; });
 $('load').hidden = true;
 $('play').hidden = false;
 
-let city, hole, state;
+let city, hole, state, director;
 function newRun(seed = (Math.random() * 2 ** 31) | 0) {
-  if (city) { scene.remove(city.group, hole.group); city.dispose(); hole.dispose(); }
+  if (city) { scene.remove(city.group, hole.group); city.dispose(); hole.dispose(); director.dispose(); }
   hole = new Hole(assets, 6, 4);
   city = new City(assets, seed, hole.uniform);
+  director = new Director(city, scene, { hurt, toll });
   const plaza = city.tiles.find((t) => t.type === 'plaza');
   hole.x = plaza.cx + 7;
   hole.z = plaza.cz + 5;
   scene.add(city.group, hole.group);
-  state = { playing: false, time: 0, sinceMeal: 0, eaten: 0, best: hole.r, reverse: 0 };
+  state = { playing: false, time: 0, belly: 1, eaten: 0, score: 0, best: hole.r, reverse: 0, jam: 0, slow: 0, invuln: 0, shake: 0, hits: [] };
 }
 newRun();
-window.__game = () => ({ hole, city, state, renderer }); // debug + playtest hook
+window.__game = () => ({ hole, city, state, renderer, director });
+if (location.search.includes('bot')) installBot(); // debug + playtest hook
 
 // ---------- input: steer toward pointer / drag / keys ----------
 const input = { x: 0, z: 0, keys: new Set(), drag: null, mouse: null };
@@ -68,9 +74,43 @@ function steer() {
 function hud() {
   $('size').querySelector('b').textContent = hole.r.toFixed(2);
   $('eaten').querySelector('b').textContent = state.eaten;
-  const full = Math.max(0, 1 - state.sinceMeal / FULL_FOR);
-  $('hunger').style.width = `${full * 100}%`;
-  $('hunger').parentElement.classList.toggle('low', full < 0.3);
+  $('hunger').style.width = `${state.belly * 100}%`;
+  $('hunger').parentElement.classList.toggle('low', state.belly < 0.3);
+  $('stars').textContent = '★'.repeat(director.stars) + '☆'.repeat(4 - director.stars);
+  const st = [state.reverse > 0 && 'Controls reversed', state.jam > 0 && 'Jammed', state.slow > 0 && 'Slowed'].filter(Boolean);
+  $('status').textContent = st.join(' · ');
+}
+
+// ---------- damage (PLAN.md rule 3: capped, never chained) ----------
+function hurt(frac, why) {
+  if (!state.playing || state.invuln > 0) return;
+  hole.area *= 1 - Math.min(frac, MAX_HIT);
+  state.hits.push(why);
+  state.invuln = 1.2;
+  state.shake = 0.5;
+  flash(why);
+}
+function toll() {
+  if (hole.r < DEAD_R * 1.6) return; // a toll alone can never end the run
+  hole.area *= 0.96;
+  state.slow = 0.8;
+  state.hits.push('toll');
+  flash('Barricade!');
+}
+function flash(text) {
+  const el = $('toast');
+  el.textContent = text;
+  el.classList.remove('show');
+  void el.offsetWidth;
+  el.classList.add('show');
+  document.body.classList.remove('hurt');
+  void document.body.offsetWidth;
+  document.body.classList.add('hurt');
+}
+function poison(effect) {
+  if (effect === 'shrink') hurt(0.12, 'Gas can! Shrunk');
+  if (effect === 'reverse') { state.reverse = 3; flash('Toxic! Controls reversed'); }
+  if (effect === 'jam') { state.jam = 2; flash('Spiky art! Jammed'); }
 }
 
 $('play').onclick = () => {
@@ -109,33 +149,40 @@ function frame(dt) {
 
   if (state.playing) {
     state.time += dt;
-    state.sinceMeal += dt;
-    state.reverse = Math.max(0, state.reverse - dt);
-    const [sx, sz] = steer();
-    const speed = 5 + hole.r * 1.6;
+    for (const k of ['reverse', 'jam', 'slow', 'invuln', 'shake']) state[k] = Math.max(0, state[k] - dt);
+    state.belly = Math.max(0, state.belly - BELLY_DRAIN * dt);
+    const [sx, sz] = window.__bot ? window.__bot(hole, city) : steer();
+    const speed = (5 + hole.r * 1.6) * (state.slow > 0 ? 0.45 : 1);
     const lim = city.half - 2;
+    const px = hole.x, pz = hole.z;
     hole.x = THREE.MathUtils.clamp(hole.x + sx * speed * dt, -lim, lim);
     hole.z = THREE.MathUtils.clamp(hole.z + sz * speed * dt, -lim, lim);
+    hole.vx = (hole.x - px) / dt;
+    hole.vz = (hole.z - pz) / dt;
 
-    const hungry = state.sinceMeal > FULL_FOR;
-    hole.area *= 1 - (hungry ? DECAY_STARVING : DECAY_FED) * dt;
+    hole.area *= 1 - (state.belly > 0 ? DECAY_FED : DECAY_STARVING) * dt;
+    director.update(dt, hole, state);
     if (hole.r < DEAD_R) gameOver();
   }
 
-  const eaten = city.update(dt, hole);
+  const eaten = city.update(dt, hole, state.jam > 0);
   for (const e of eaten) {
-    hole.grow(e.meta.mass);
+    if (e.meta.kind === 'poison') { poison(e.meta.effect); continue; }
+    const before = hole.area;
+    hole.grow(e.meta.tier);
+    state.belly = Math.min(1, state.belly + (hole.area - before) / (before * MEAL));
     state.eaten++;
-    state.sinceMeal = 0;
+    state.score += Math.PI * e.meta.tier ** 2;
   }
   state.best = Math.max(state.best, hole.r);
   city.mixers.forEach((m) => m.update(dt));
-  hole.update(dt, state.time, Math.max(0, state.sinceMeal / FULL_FOR - 0.5));
+  hole.update(dt, state.time, Math.max(0, 0.5 - state.belly) * 2);
 
   // camera: pull back as the hole grows
   camDist += (14 + hole.r * 8 - camDist) * Math.min(1, dt * 2);
   camTarget.lerp(_v.set(hole.x, 0, hole.z), Math.min(1, dt * 6));
-  camera.position.set(camTarget.x, Math.sin(PITCH) * camDist, camTarget.z + Math.cos(PITCH) * camDist);
+  const sh = state.shake * camDist * 0.02;
+  camera.position.set(camTarget.x + (Math.random() - 0.5) * sh, Math.sin(PITCH) * camDist, camTarget.z + Math.cos(PITCH) * camDist + (Math.random() - 0.5) * sh);
   camera.lookAt(camTarget);
   city.budget(camera, hole.r);
   followSun(sun, camTarget);
@@ -143,5 +190,5 @@ function frame(dt) {
   if (sc.right !== ext) { sc.left = sc.bottom = -ext; sc.right = sc.top = ext; sc.updateProjectionMatrix(); }
 
   if (state.playing) hud();
-  renderer.render(scene, camera);
+  if (!window.__headless) renderer.render(scene, camera);
 }

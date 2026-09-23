@@ -85,6 +85,9 @@ const PARK = ['tree_small', 'tree_big', 'bench', 'picnic_table', 'flower_pot', '
 const TRAFFIC = ['car', 'car_b', 'taxi', 'car', 'car_b', 'icecream_van', 'bus'];
 const PEDS = ['peg_a', 'peg_b', 'peg_c'];
 const CLONED = new Set(['fountain', 'clock_tower']);
+const SNACKS = [['peg_a', 8], ['peg_b', 8], ['peg_c', 8], ['pigeon', 8], ['dog', 6], ['scooter', 6], ['bicycle', 6],
+  ['car_b', 6], ['car', 6], ['taxi', 6], ['icecream_van', 4], ['bus', 4]];
+export const SNACK_NAMES = SNACKS.map(([n]) => n);
 
 export class City {
   constructor(assets, seed, holeUniform, N = 6) {
@@ -128,6 +131,62 @@ export class City {
       this.sidewalk(t);
     }
     this.traffic();
+    this.reserves();
+  }
+
+  /** Hidden wanderers the snack floor revives just off-screen (PLAN.md rule 2). */
+  reserves() {
+    for (const [name, n] of SNACKS) {
+      for (let k = 0; k < n; k++) {
+        this.add(name, 0, 0, 0, { type: 'wander', h: 0, v: 0, reserve: true });
+        const e = this.entities.at(-1);
+        e.alive = false;
+        e.s = 0;
+      }
+    }
+  }
+
+  /** Revive a dead reserve of `name` at (x, z) heading roughly toward (tx, tz). */
+  revive(name, x, z, tx, tz) {
+    const e = this.entities.find((q) => !q.alive && q.name === name && q.mover?.reserve);
+    if (!e) return null;
+    const m = e.mover;
+    Object.assign(e, { x, z, y: 0, s: 1, tilt: 0, alive: true, falling: false, vy: 0 });
+    m.h = Math.atan2(-(tz - z), tx - x) + (this.r() - 0.5) * 1.2;
+    m.v = name.startsWith('peg') || name === 'pigeon' || name === 'dog' ? this.r.range(1, 1.8) : this.r.range(3, 5);
+    m.t = this.r() * 10;
+    this.place(e);
+    return e;
+  }
+
+  /** Spawn a cloned, animated entity (units, barricades, plugs). */
+  spawn(name, x, z, rot = 0, extra = {}) {
+    const a = this.assets[name];
+    const e = { name, meta: a.meta, x, z, y: 0, rot, tilt: 0, tiltDir: 0, s: 1, alive: true, falling: false, vy: 0, mover: null, ...extra };
+    e.obj = a.scene.clone();
+    this.group.add(e.obj);
+    e.actions = {};
+    if (a.clips.length) {
+      e.mixer = new THREE.AnimationMixer(e.obj);
+      for (const c of a.clips) {
+        const act = e.mixer.clipAction(c);
+        e.actions[c.name] = act;
+        if (c.name !== 'fire') act.play();
+      }
+      this.mixers.push(e.mixer);
+    }
+    this.entities.push(e);
+    this.place(e);
+    return e;
+  }
+
+  remove(e) {
+    e.alive = false;
+    if (e.obj) {
+      this.group.remove(e.obj);
+      if (e.mixer) { e.mixer.stopAllAction(); this.mixers.splice(this.mixers.indexOf(e.mixer), 1); }
+      this.entities.splice(this.entities.indexOf(e), 1);
+    }
   }
 
   tile(t) {
@@ -241,7 +300,7 @@ export class City {
         this.place(e);
         continue;
       }
-      const roams = e.mover?.type === 'drive';
+      const roams = e.mover?.type === 'drive' || e.mover?.type === 'wander';
       const home = e.mover?.type === 'walk' ? chunkKey(e.mover.cx, e.mover.cz) : chunkKey(e.x, e.z);
       const k = roams ? `${e.name}|roam` : `${e.name}|${home}|${e.mover ? 'm' : 's'}`;
       if (!groups.has(k)) groups.set(k, { name: e.name, list: [], mover: !!e.mover, roams });
@@ -307,10 +366,11 @@ export class City {
   }
 
   /** Movers + falling + swallow checks. Returns list of entities consumed this frame. */
-  update(dt, hole) {
+  update(dt, hole, jammed = false) {
     const eaten = [];
     const H = this.half;
-    for (const e of this.entities) {
+    for (let i = this.entities.length - 1; i >= 0; i--) {
+      const e = this.entities[i];
       if (!e.alive) continue;
       const m = e.mover;
       if (e.falling) {
@@ -336,6 +396,14 @@ export class City {
           if (m.axis === 'x') { e.x += d; if (e.x > H) e.x -= 2 * H; if (e.x < -H) e.x += 2 * H; e.rot = m.dir > 0 ? 0 : Math.PI; }
           else { e.z -= d; if (e.z > H) e.z -= 2 * H; if (e.z < -H) e.z += 2 * H; e.rot = m.dir > 0 ? Math.PI / 2 : -Math.PI / 2; }
           e.y = Math.abs(Math.sin(m.t * 7)) * 0.03;
+        } else if (m.type === 'wander') {
+          m.h += Math.sin(m.t * 0.7 + e.x) * dt * 0.6;
+          if (Math.abs(e.x) > H - 4 || Math.abs(e.z) > H - 4) m.h = Math.atan2(e.z, -e.x); // steer back to town
+          e.x += Math.cos(m.h) * m.v * dt;
+          e.z -= Math.sin(m.h) * m.v * dt;
+          e.rot = m.h;
+          const w = m.t * 9;
+          e.y = e.meta.tier < 0.3 ? Math.abs(Math.sin(w)) * 0.07 : Math.abs(Math.sin(m.t * 7)) * 0.03;
         } else if (m.type === 'peck') {
           e.y = Math.max(0, Math.sin(m.t * 3)) * 0.02;
           e.s = 1;
@@ -343,9 +411,11 @@ export class City {
         }
         this.place(e);
       }
-      // swallow test: fits in the hole and mostly over it
+      if (jammed || e.noSwallow) continue;
+      // swallow test: fits in the hole and mostly over it (flying things only when the vortex is big)
       const dx = e.x - hole.x, dz = e.z - hole.z;
       const tier = e.meta.tier;
+      if (e.flying && hole.r < tier * 1.6) continue;
       if (tier < hole.r * 0.95 && dx * dx + dz * dz < (hole.r - tier * 0.5) ** 2) {
         e.falling = true;
         e.vy = 0;
@@ -366,10 +436,11 @@ export class City {
     e.tilt = Math.min(1.2, e.tilt + dt * 3);
     this.place(e);
     if (e.y < -(e.meta.height + 1.5)) {
-      e.alive = false;
       e.s = 0;
       this.place(e);
       eaten.push(e);
+      if (e.obj) this.remove(e);
+      else e.alive = false;
     }
   }
 }
