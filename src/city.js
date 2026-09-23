@@ -416,7 +416,7 @@ export class City {
       const dx = e.x - hole.x, dz = e.z - hole.z;
       const tier = e.meta.tier;
       if (e.flying && hole.r < tier * 1.6) continue;
-      if (tier < hole.r * 0.95 && dx * dx + dz * dz < (hole.r - tier * 0.5) ** 2) {
+      if (tier < hole.r * 0.95 && dx * dx + dz * dz < (hole.r * (hole.pull || 1) - tier * 0.5) ** 2) {
         e.falling = true;
         e.vy = 0;
         e.tiltDir = Math.atan2(dz, dx);

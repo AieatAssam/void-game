@@ -5,6 +5,8 @@ import { City } from './city.js';
 import { Hole } from './hole.js';
 import { Director } from './director.js';
 import { installBot } from './bot.js';
+import { UPGRADES, save, persist, level, buy, todaySeed } from './meta.js';
+import * as sfx from './sfx.js';
 
 const $ = (id) => document.getElementById(id);
 const renderer = createRenderer($('c'));
@@ -22,27 +24,32 @@ const MAX_HIT = 0.25; // rule 3: no single hit takes more than 25%
 
 const assets = await loadAll((p) => { $('load').querySelector('b').textContent = `${Math.round(p * 100)}%`; });
 $('load').hidden = true;
-$('play').hidden = false;
+$('menu').hidden = false;
 
 let city, hole, state, director;
-function newRun(seed = (Math.random() * 2 ** 31) | 0) {
+function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false) {
   if (city) { scene.remove(city.group, hole.group); city.dispose(); hole.dispose(); director.dispose(); }
-  hole = new Hole(assets, 6, 4);
+  hole = new Hole(assets, 0, 0, 0.45 + level('headstart') * 0.07);
+  hole.pull = 1 + level('gravity') * 0.1;
   city = new City(assets, seed, hole.uniform);
   director = new Director(city, scene, { hurt, toll });
   const plaza = city.tiles.find((t) => t.type === 'plaza');
   hole.x = plaza.cx + 7;
   hole.z = plaza.cz + 5;
   scene.add(city.group, hole.group);
-  state = { playing: false, time: 0, belly: 1, eaten: 0, score: 0, best: hole.r, reverse: 0, jam: 0, slow: 0, invuln: 0, shake: 0, hits: [] };
+  state = { playing: false, seed, daily, time: 0, belly: 1, eaten: 0, score: 0, best: hole.r, stars: 0,
+    reverse: 0, jam: 0, slow: 0, invuln: 0, shake: 0, sealing: 0, hits: [] };
 }
 newRun();
 window.__game = () => ({ hole, city, state, renderer, director });
-if (location.search.includes('bot')) installBot(); // debug + playtest hook
+if (location.search.includes('bot')) installBot();
 
 // ---------- input: steer toward pointer / drag / keys ----------
-const input = { x: 0, z: 0, keys: new Set(), drag: null, mouse: null };
-addEventListener('keydown', (e) => input.keys.add(e.key.toLowerCase()));
+const input = { keys: new Set(), drag: null, mouse: null };
+addEventListener('keydown', (e) => {
+  input.keys.add(e.key.toLowerCase());
+  if (e.key.toLowerCase() === 'm') muteToggle();
+});
 addEventListener('keyup', (e) => input.keys.delete(e.key.toLowerCase()));
 const canvas = renderer.domElement;
 canvas.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse') input.drag = { x: e.clientX, y: e.clientY, dx: 0, dy: 0 }; });
@@ -84,10 +91,11 @@ function hud() {
 // ---------- damage (PLAN.md rule 3: capped, never chained) ----------
 function hurt(frac, why) {
   if (!state.playing || state.invuln > 0) return;
-  hole.area *= 1 - Math.min(frac, MAX_HIT);
+  hole.area *= 1 - Math.min(frac * (1 - level('hardhat') * 0.15), MAX_HIT);
   state.hits.push(why);
   state.invuln = 1.2;
   state.shake = 0.5;
+  sfx.hurt();
   flash(why);
 }
 function toll() {
@@ -95,6 +103,7 @@ function toll() {
   hole.area *= 0.96;
   state.slow = 0.8;
   state.hits.push('toll');
+  sfx.hurt();
   flash('Barricade!');
 }
 function flash(text) {
@@ -113,21 +122,56 @@ function poison(effect) {
   if (effect === 'jam') { state.jam = 2; flash('Spiky art! Jammed'); }
 }
 
-$('play').onclick = () => {
-  if (!state.playing && state.over) newRun();
+// ---------- menus ----------
+function start(seed, daily) {
+  sfx.unlock();
+  newRun(seed, daily);
   $('screen').hidden = true;
   $('hud').hidden = false;
   state.playing = true;
-};
+}
+$('play').onclick = () => start(undefined, false);
+$('daily').onclick = () => start(todaySeed(), true);
+$('shopBtn').onclick = () => { $('shop').hidden = !$('shop').hidden; renderShop(); };
+function muteToggle() { $('mute').textContent = sfx.toggleMute() ? '♪̸' : '♪'; }
+$('mute').onclick = muteToggle;
+
+function renderShop() {
+  $('dust').textContent = save.dust;
+  const dailyBest = save.daily[todaySeed()];
+  $('daily').textContent = dailyBest ? `Daily city · best ${dailyBest.toFixed(1)} m` : 'Daily city';
+  $('shop').replaceChildren(...Object.entries(UPGRADES).map(([id, u]) => {
+    const lv = level(id), cost = u.costs[lv];
+    const b = document.createElement('button');
+    b.className = 'card';
+    b.disabled = cost === undefined || save.dust < cost;
+    b.innerHTML = `<b>${u.name}</b><small>${u.desc}</small><span>${'●'.repeat(lv)}${'○'.repeat(u.costs.length - lv)}</span><em>${cost === undefined ? 'max' : cost + ' dust'}</em>`;
+    b.onclick = () => { if (buy(id)) renderShop(); };
+    return b;
+  }));
+}
+renderShop();
 
 function gameOver() {
   state.playing = false;
   state.over = true;
-  $('screen').hidden = false;
-  $('screen').querySelector('h1').innerHTML = 'The ground<br><span>sealed</span>';
-  $('load').hidden = false;
-  $('load').innerHTML = `You swallowed <b>${state.eaten}</b> things and grew to <b>${state.best.toFixed(1)} m</b>.`;
-  $('play').textContent = 'Dig again';
+  state.sealing = 1.2;
+  sfx.seal();
+  const dust = Math.floor(state.score / 8);
+  save.dust += dust;
+  save.best = Math.max(save.best, state.best);
+  if (state.daily) save.daily[state.seed] = Math.max(save.daily[state.seed] || 0, state.best);
+  persist();
+  setTimeout(() => {
+    $('hud').hidden = true;
+    $('screen').hidden = false;
+    $('title').innerHTML = 'The ground<br><span>sealed</span>';
+    $('result').hidden = false;
+    $('result').innerHTML = `You swallowed <b>${state.eaten}</b> things and grew to <b>${state.best.toFixed(1)} m</b>`
+      + `${state.daily ? ' in today\'s city' : ''}.<br>+<b>${dust}</b> void dust · best ever <b>${save.best.toFixed(1)} m</b>`;
+    $('play').textContent = 'Dig again';
+    renderShop();
+  }, 1300);
 }
 
 // ---------- loop ----------
@@ -160,26 +204,35 @@ function frame(dt) {
     hole.vx = (hole.x - px) / dt;
     hole.vz = (hole.z - pz) / dt;
 
-    hole.area *= 1 - (state.belly > 0 ? DECAY_FED : DECAY_STARVING) * dt;
+    const slower = 1 - level('appetite') * 0.12;
+    hole.area *= 1 - (state.belly > 0 ? DECAY_FED : DECAY_STARVING) * slower * dt;
     director.update(dt, hole, state);
+    if (director.stars > state.stars) { state.stars = director.stars; sfx.star(); flash('★'.repeat(state.stars) + ' The city fights back'); }
     if (hole.r < DEAD_R) gameOver();
+  } else if (state.sealing > 0) {
+    state.sealing = Math.max(0, state.sealing - dt);
+    hole.area *= Math.max(0, 1 - dt * 6);
   }
 
-  const eaten = city.update(dt, hole, state.jam > 0);
+  const eaten = city.update(dt, hole, state.jam > 0 || !state.playing);
   for (const e of eaten) {
+    if (!state.playing) continue;
+    sfx.gulp(e.meta.tier);
     if (e.meta.kind === 'poison') { poison(e.meta.effect); continue; }
     const before = hole.area;
     hole.grow(e.meta.tier);
     state.belly = Math.min(1, state.belly + (hole.area - before) / (before * MEAL));
     state.eaten++;
     state.score += Math.PI * e.meta.tier ** 2;
+    hole.bump = Math.min(0.25, (hole.bump || 0) + e.meta.tier / hole.r * 0.3);
   }
   state.best = Math.max(state.best, hole.r);
   city.mixers.forEach((m) => m.update(dt));
   hole.update(dt, state.time, Math.max(0, 0.5 - state.belly) * 2);
 
   // camera: pull back as the hole grows
-  camDist += (14 + hole.r * 8 - camDist) * Math.min(1, dt * 2);
+  const portrait = Math.max(1, 1.2 / camera.aspect) ** 0.7; // phones see as much width as desktops
+  camDist += ((14 + hole.r * 8) * portrait - camDist) * Math.min(1, dt * 2);
   camTarget.lerp(_v.set(hole.x, 0, hole.z), Math.min(1, dt * 6));
   const sh = state.shake * camDist * 0.02;
   camera.position.set(camTarget.x + (Math.random() - 0.5) * sh, Math.sin(PITCH) * camDist, camTarget.z + Math.cos(PITCH) * camDist + (Math.random() - 0.5) * sh);

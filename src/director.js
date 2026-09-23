@@ -29,7 +29,7 @@ export class Director {
   update(dt, hole, run) {
     this.stars = HEAT_AT.filter((m) => run.score >= m).length;
     for (const k in this.cool) this.cool[k] -= dt;
-    const view = 14 + hole.r * 8; // roughly the camera distance: spawn just beyond it
+    const view = (14 + hole.r * 8) * 1.3; // beyond the camera view (portrait screens see further)
     this.snackFloor(hole, view);
     this.spawnUnits(hole, view);
     for (const u of this.units) if (u.alive && !u.falling) this[u.unit](u, dt, hole, run);

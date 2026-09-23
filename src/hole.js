@@ -65,7 +65,8 @@ export class Hole {
     this.well.position.set(this.x, 0.18, this.z);
     this.well.scale.set(r, depth, r);
     this.pulse += dt * (2 + hunger * 10);
-    const p = 1 + Math.sin(this.pulse) * (0.015 + hunger * 0.05);
+    this.bump = Math.max(0, (this.bump || 0) - dt * 0.8);
+    const p = 1 + Math.sin(this.pulse) * (0.015 + hunger * 0.05) + this.bump;
     this.rim.position.set(this.x, 0.19, this.z);
     this.rim.scale.set(r * p, Math.max(1, r * 0.35), r * p);
     this.ghost.position.set(this.x, 0.2, this.z);

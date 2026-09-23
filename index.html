@@ -17,11 +17,20 @@
   <div id="status"></div>
   <div id="toast"></div>
   <div id="screen">
-    <h1>Void Hole<br /><span>City</span></h1>
+    <h1 id="title">Void Hole<br /><span>City</span></h1>
     <p id="load">Unpacking the toybox… <b>0%</b></p>
-    <button id="play" hidden>Open the ground</button>
-    <p class="hint">Move with mouse, touch-drag, or WASD. Swallow what fits. Keep eating or the ground seals.</p>
+    <div id="menu" hidden>
+      <p id="result" hidden></p>
+      <div class="row">
+        <button id="play">Open the ground</button>
+        <button id="daily" class="alt">Daily city</button>
+      </div>
+      <button id="shopBtn" class="ghost">Upgrades · <b id="dust">0</b> void dust</button>
+      <div id="shop" hidden></div>
+      <p class="hint">Steer with mouse, touch-drag or WASD. Swallow what fits. Keep eating or the ground seals. Watch the red rings.</p>
+    </div>
   </div>
+  <button id="mute" title="Sound (M)">♪</button>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>
