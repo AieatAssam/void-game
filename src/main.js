@@ -22,7 +22,7 @@ $('play').hidden = false;
 
 let city, hole, state;
 function newRun(seed = (Math.random() * 2 ** 31) | 0) {
-  if (city) scene.remove(city.group, hole.group);
+  if (city) { scene.remove(city.group, hole.group); city.dispose(); hole.dispose(); }
   hole = new Hole(assets, 6, 4);
   city = new City(assets, seed, hole.uniform);
   const plaza = city.tiles.find((t) => t.type === 'plaza');
@@ -32,7 +32,7 @@ function newRun(seed = (Math.random() * 2 ** 31) | 0) {
   state = { playing: false, time: 0, sinceMeal: 0, eaten: 0, best: hole.r, reverse: 0 };
 }
 newRun();
-window.__game = () => ({ hole, city, state }); // debug + playtest hook
+window.__game = () => ({ hole, city, state, renderer }); // debug + playtest hook
 
 // ---------- input: steer toward pointer / drag / keys ----------
 const input = { x: 0, z: 0, keys: new Set(), drag: null, mouse: null };
@@ -137,6 +137,7 @@ function frame(dt) {
   camTarget.lerp(_v.set(hole.x, 0, hole.z), Math.min(1, dt * 6));
   camera.position.set(camTarget.x, Math.sin(PITCH) * camDist, camTarget.z + Math.cos(PITCH) * camDist);
   camera.lookAt(camTarget);
+  city.budget(camera, hole.r);
   followSun(sun, camTarget);
   const sc = sun.shadow.camera, ext = Math.max(25, camDist * 0.9);
   if (sc.right !== ext) { sc.left = sc.bottom = -ext; sc.right = sc.top = ext; sc.updateProjectionMatrix(); }

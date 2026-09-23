@@ -6,7 +6,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { toyMaterial } from './assets.js';
 
 export const TILE = 40;
-const CHUNK = 80;
+const CHUNK = 40;
+const LOD_DIST = 45; // metres from camera to chunk edge beyond which LOD1 is drawn
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion();
 const _p = new THREE.Vector3(), _s = new THREE.Vector3(), _ax = new THREE.Vector3(), _qt = new THREE.Quaternion();
 const UP = new THREE.Vector3(0, 1, 0);
@@ -28,11 +29,13 @@ export function rng(seed) {
 
 /** Bake a glTF scene (with quantized attributes + child nodes) into one float geometry. */
 const flatCache = new Map();
-export function flatGeometry(asset) {
-  if (flatCache.has(asset.name)) return flatCache.get(asset.name);
-  asset.scene.updateMatrixWorld(true);
+export function flatGeometry(asset, lod = false) {
+  const key = asset.name + (lod ? '|lod' : '');
+  if (flatCache.has(key)) return flatCache.get(key);
+  const src = lod ? asset.lod : asset.scene;
+  src.updateMatrixWorld(true);
   const parts = [];
-  asset.scene.traverse((o) => {
+  src.traverse((o) => {
     if (!o.isMesh) return;
     const g = new THREE.BufferGeometry();
     for (const n of ['position', 'normal', 'uv']) {
@@ -51,7 +54,7 @@ export function flatGeometry(asset) {
   });
   const geo = mergeGeometries(parts);
   geo.computeBoundingSphere();
-  flatCache.set(asset.name, geo);
+  flatCache.set(key, geo);
   return geo;
 }
 
@@ -182,7 +185,7 @@ export class City {
       const tx = -oz, tz = ox; // along the edge
       for (let d = -12; d <= 12; d += 3) {
         const x = cx + ox * 14.2 + tx * d, z = cz + oz * 14.2 + tz * d;
-        if (Math.abs(d) % 12 === 0) this.add('lamp', x, z, yaw);
+        if (Math.abs(d) === 12) this.add('lamp', x, z, yaw);
         else if (r() < 0.55) this.add(r.pick(SIDEWALK), x, z, yaw + (r() < 0.5 ? 0 : Math.PI));
         if (r() < 0.04) this.add('toxic_barrel', x - ox * 1.2, z - oz * 1.2, 0);
       }
@@ -238,21 +241,49 @@ export class City {
         this.place(e);
         continue;
       }
-      const k = e.mover ? `${e.name}|mover` : `${e.name}|${chunkKey(e.x, e.z)}`;
-      if (!groups.has(k)) groups.set(k, { name: e.name, list: [], mover: !!e.mover });
+      const roams = e.mover?.type === 'drive';
+      const home = e.mover?.type === 'walk' ? chunkKey(e.mover.cx, e.mover.cz) : chunkKey(e.x, e.z);
+      const k = roams ? `${e.name}|roam` : `${e.name}|${home}|${e.mover ? 'm' : 's'}`;
+      if (!groups.has(k)) groups.set(k, { name: e.name, list: [], mover: !!e.mover, roams });
       groups.get(k).list.push(e);
     }
+    this.meshes = [];
     for (const g of groups.values()) {
-      const mesh = new THREE.InstancedMesh(flatGeometry(this.assets[g.name]), g.ground ? this.groundMat : toyMaterial, g.list.length);
+      const a = this.assets[g.name];
+      const full = flatGeometry(a), lod = flatGeometry(a, true);
+      const mesh = new THREE.InstancedMesh(full, g.ground ? this.groundMat : toyMaterial, g.list.length);
       mesh.castShadow = !g.ground;
       mesh.receiveShadow = true;
+      mesh.userData = { full, lod, tier: g.ground ? Infinity : a.meta.tier, ground: !!g.ground, roams: g.roams };
       g.list.forEach((e, i) => { e.mesh = mesh; e.index = i; this.place(e); });
       mesh.instanceMatrix.setUsage(g.mover ? THREE.DynamicDrawUsage : THREE.StaticDrawUsage);
-      if (g.mover) mesh.frustumCulled = false;
-      else mesh.computeBoundingSphere();
+      if (g.roams) mesh.frustumCulled = false;
+      else {
+        mesh.computeBoundingSphere();
+        if (g.mover) mesh.boundingSphere.radius += 16; // walkers loop around their tile
+      }
+      this.meshes.push(mesh);
       this.group.add(mesh);
     }
     this.dirty.clear();
+  }
+
+  /** Per-frame render budget: LOD by distance, drop shadows and hide what is too small to see. */
+  budget(camera, holeR) {
+    for (const m of this.meshes) {
+      const u = m.userData;
+      if (u.ground) { m.geometry = u.full; continue; }
+      m.visible = u.tier >= holeR * 0.03;
+      m.castShadow = u.tier >= holeR * 0.12;
+      const far = u.roams ? holeR > 2.5 : camera.position.distanceTo(m.boundingSphere.center) - m.boundingSphere.radius > LOD_DIST;
+      m.geometry = far ? u.lod : u.full;
+    }
+  }
+
+  dispose() {
+    for (const m of this.meshes) m.dispose();
+    for (const mx of this.mixers) mx.stopAllAction();
+    this.groundMat.dispose();
   }
 
   /** Write an entity's transform to its instance slot or cloned object. */

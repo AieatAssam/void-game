@@ -44,6 +44,10 @@ export class Hole {
     this.pulse = 0;
   }
 
+  dispose() {
+    for (const m of [...this.well.children, this.ghost]) { m.geometry.dispose(); if (m.material !== voidMaterial) m.material.dispose(); }
+  }
+
   get r() { return Math.sqrt(this.area / Math.PI); }
 
   grow(mass) {

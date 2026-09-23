@@ -41,7 +41,11 @@ Poison props = hazard yellow + toxic green glow.
 | Vehicle / furniture | 3–8k | instanced, wheels separate only if animated |
 | Hero unit | 5–15k | clip animated, cloned |
 | Building | 4–20k | instanced, LOD1 decimated copy |
-| On screen | <1M tris, <150 draw calls | |
+| On screen | ≲1.2M tris incl. shadow pass, ≲260 draw calls | measured: start 1.1M/120, 4m hole 0.65M/139, 10m hole 0.77M/258 |
+
+Every model also ships a LOD1 (meshoptimizer simplify, ~25% tris). The city is instanced per
+(asset, 40m tile chunk); chunks >45m from the camera draw LOD1, tiers <12% of the hole stop
+casting shadows, tiers <3% of the hole are hidden.
 
 ## Metadata (custom props → glTF extras)
 Every exported root object carries: `tier` (footprint radius, m), `mass` (growth value),

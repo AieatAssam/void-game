@@ -29,14 +29,16 @@ export async function loadAll(onProgress) {
   const names = Object.keys(manifest);
   let done = 0;
   const entries = await Promise.all(names.map(async (name) => {
-    const gltf = await loader.loadAsync(`${base}models/${name}.glb`);
-    gltf.scene.traverse((o) => {
-      if (!o.isMesh) return;
-      o.material = toyMaterial;
-      o.castShadow = o.receiveShadow = true;
-    });
+    const [gltf, lod] = await Promise.all([loader.loadAsync(`${base}models/${name}.glb`), loader.loadAsync(`${base}models/lod/${name}.glb`)]);
+    for (const s of [gltf.scene, lod.scene]) {
+      s.traverse((o) => {
+        if (!o.isMesh) return;
+        o.material = toyMaterial;
+        o.castShadow = o.receiveShadow = true;
+      });
+    }
     onProgress?.(++done / names.length);
-    return [name, { name, scene: gltf.scene, clips: gltf.animations, meta: manifest[name] }];
+    return [name, { name, scene: gltf.scene, lod: lod.scene, clips: gltf.animations, meta: manifest[name] }];
   }));
   return Object.fromEntries(entries);
 }
