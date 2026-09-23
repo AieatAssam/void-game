@@ -2,10 +2,23 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
   <title>Void Hole City</title>
+  <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body>
-  <p>Game coming in stage 3. <a href="./gallery.html">Showroom</a></p>
+  <canvas id="c"></canvas>
+  <div id="hud" hidden>
+    <div class="pill" id="size">Size <b>0.45</b> m</div>
+    <div class="meter"><i id="hunger"></i></div>
+    <div class="pill" id="eaten"><b>0</b> swallowed</div>
+  </div>
+  <div id="screen">
+    <h1>Void Hole<br /><span>City</span></h1>
+    <p id="load">Unpacking the toybox… <b>0%</b></p>
+    <button id="play" hidden>Open the ground</button>
+    <p class="hint">Move with mouse, touch-drag, or WASD. Swallow what fits. Keep eating or the ground seals.</p>
+  </div>
+  <script type="module" src="/src/main.js"></script>
 </body>
 </html>
