@@ -1,7 +1,7 @@
 # Art Bible — "Toybox Town"
 
 The city is a tabletop of **painted wooden and tin toys** under warm afternoon light:
-chunky rounded silhouettes, satin paint, a tilt-shift miniature feel (*tilt-shift post-process deferred: warm fog + high camera carry it for now*).
+chunky rounded silhouettes, satin paint, a tilt-shift miniature feel (post-process: blur band + vignette + per-time grade, auto-off on slow devices).
 The hole is the one thing that does not belong: a **cold cosmic void** with a lilac glow rim.
 Warm toy world vs cold void is the core visual contrast. Every asset must serve it.
 
@@ -41,11 +41,16 @@ Poison props = hazard yellow + toxic green glow.
 | Vehicle / furniture | 3–8k | instanced, wheels separate only if animated |
 | Hero unit | 5–15k | clip animated, cloned |
 | Building | 4–20k | instanced, LOD1 decimated copy |
-| On screen | ≲1.2M tris incl. shadow pass, ≲260 draw calls | measured: start 1.1M/120, 4m hole 0.65M/139, 10m hole 0.77M/258 |
+| On screen | ≲2M tris incl. shadow pass, ≲210 draw calls | measured (M5): start 1.9M/184, 4m hole 1.3M/157, 12m hole 0.9M/203 |
 
-Every model also ships a LOD1 (meshoptimizer simplify, ~25% tris). The city is instanced per
-(asset, 40m tile chunk); chunks >45m from the camera draw LOD1, tiers <12% of the hole stop
-casting shadows, tiers <3% of the hole are hidden.
+LOD0 is built with a detail multiplier (`Q` in blender/lib.py, 1.6). Every model ships LOD1 (~25%) and
+LOD2 (~8%) via meshoptimizer. The city is instanced per (asset, 40m tile chunk): chunks within 15m of
+the camera draw LOD0, to 60m LOD1, beyond LOD2 (and stop casting shadows). Traffic is LOD1/LOD2.
+Idle snack pools are skipped. Low fps → tilt-shift off and LOD0 never used.
+
+## Time of day
+Four presets (morning, noon, golden, dusk) drive sun angle/colour, hemisphere light, sky dome, fog and
+window/lamp glow (emissive intensity). Dusk is the "cosy" preset: windows and lamps glow strongly.
 
 ## Metadata (custom props → glTF extras)
 Every exported root object carries: `tier` (footprint radius, m), `mass` (growth value),

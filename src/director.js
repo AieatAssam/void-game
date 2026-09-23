@@ -37,7 +37,11 @@ export class Director {
     const view = (14 + hole.r * 8) * 1.3; // beyond the camera view (portrait screens see further)
     this.snackFloor(hole, view);
     this.spawnUnits(hole, view);
-    for (const u of this.units) if (u.alive && !u.falling) this[u.unit](u, dt, hole, run);
+    for (const u of this.units) {
+      if (!u.alive || u.falling) continue;
+      if (u.leaving) this.leave(u, dt, hole, view);
+      else this[u.unit](u, dt, hole, run);
+    }
     this.units = this.units.filter((u) => u.alive);
     this.updateBarricades(dt, hole);
     this.updateDrops(dt, hole);
@@ -50,16 +54,17 @@ export class Director {
     const r = hole.r, R2 = (view * 0.9) ** 2;
     let food = 0;
     for (const e of this.city.entities) {
-      if (!e.alive || e.meta.tier >= r * 0.95 || e.meta.kind === 'poison') continue;
+      // only count food that is worth eating at this size, or tiny crumbs mask a famine
+      if (!e.alive || e.meta.tier >= r * 0.95 || e.meta.tier < r * 0.3 || e.meta.kind === 'poison') continue;
       if ((e.x - hole.x) ** 2 + (e.z - hole.z) ** 2 < R2) food += Math.PI * e.meta.tier ** 2 * 0.25;
     }
     if (food > hole.area * 0.6) return;
     const fits = SNACK_NAMES.filter((n) => {
       const t = this.city.assets[n].meta.tier;
-      return t < r * 0.9 && t > r * 0.2;
+      return t < r * 0.9 && t > r * 0.3;
     });
     const pool = fits.length ? fits : [SNACK_NAMES.at(-1)];
-    for (let k = 0; k < 4; k++) {
+    for (let k = 0; k < 5; k++) {
       const a = Math.random() * Math.PI * 2, d = view * (1.05 + Math.random() * 0.3);
       const lim = this.city.half - 6;
       const x = THREE.MathUtils.clamp(hole.x + Math.cos(a) * d, -lim, lim), z = THREE.MathUtils.clamp(hole.z + Math.sin(a) * d, -lim, lim);
@@ -71,6 +76,11 @@ export class Director {
   spawnUnits(hole, view) {
     const s = this.stars, count = (u) => this.units.filter((q) => q.unit === u).length;
     const want = { police: s >= 1 ? Math.min(s, 3) : 0, cement: s >= 2 ? (s >= 4 ? 2 : 1) : 0, heli: s >= 3 ? 1 : 0, tank: s >= 4 ? 2 : 0 };
+    // heat dropped: surplus units stand down and leave (no death spiral for a shrinking hole)
+    for (const unit in want) {
+      const mine = this.units.filter((q) => q.unit === unit && !q.leaving);
+      for (const u of mine.slice(want[unit])) u.leaving = true;
+    }
     for (const unit in want) {
       if (count(unit) >= want[unit] || this.cool[unit] > 0) continue;
       this.cool[unit] = 7;
@@ -109,6 +119,17 @@ export class Director {
       else { u.z += u.dir * speed * dt; u.rot = u.dir > 0 ? -Math.PI / 2 : Math.PI / 2; }
     }
     u.y = Math.abs(Math.sin((u.t += dt) * 8)) * 0.04;
+    this.city.place(u);
+  }
+
+  leave(u, dt, hole, view) {
+    const dx = u.x - hole.x, dz = u.z - hole.z, d = Math.hypot(dx, dz) || 1;
+    if (d > view * 1.3) { this.city.remove(u); return; }
+    const sp = u.unit === 'heli' ? 14 : 8;
+    u.x += (dx / d) * sp * dt;
+    u.z += (dz / d) * sp * dt;
+    if (u.unit === 'heli') u.y += dt * 4;
+    u.rot = Math.atan2(-dz, dx);
     this.city.place(u);
   }
 

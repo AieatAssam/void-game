@@ -42,3 +42,16 @@ button.ghost { background: #fff8ee22; color: var(--cream); box-shadow: none; fon
 #shop .card:disabled { opacity: .55; cursor: default; }
 #mute { position: fixed; right: 12px; bottom: 12px; width: 44px; height: 44px; padding: 0; font-size: 20px; background: #fff8eecc; box-shadow: 0 2px 0 #0003; }
 @media (max-width: 480px) { #hud { flex-wrap: wrap; gap: 6px; } .pill { font-size: 13px; padding: 4px 10px; } }
+
+#combo { position: fixed; top: 22%; left: 0; right: 0; text-align: center; color: var(--butter); font-weight: 800;
+  text-shadow: 0 3px 0 #6d4fc0, 0 0 18px #b58cff; opacity: 0; pointer-events: none; }
+#combo.show { animation: combo .7s ease-out; }
+@keyframes combo { 0% { opacity: 0; transform: scale(.5); } 20% { opacity: 1; transform: scale(1.15); } 100% { opacity: 0; transform: translateY(-24px); } }
+#hint { position: fixed; bottom: 72px; left: 50%; transform: translateX(-50%); max-width: min(90vw, 420px); padding: 10px 16px; border-radius: 14px;
+  background: #1a0f3ad9; color: var(--cream); text-align: center; opacity: 0; pointer-events: none; }
+#hint.show { animation: hint 4.5s ease-in-out; }
+@keyframes hint { 0% { opacity: 0; transform: translate(-50%, 10px); } 8%, 85% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; } }
+
+#arrow { position: fixed; left: 50%; top: 50%; margin: -18px 0 0 -18px; width: 36px; height: 36px; display: grid; place-items: center;
+  font-size: 30px; color: var(--butter); text-shadow: 0 2px 0 #6d4fc0, 0 0 12px #b58cff; pointer-events: none; }
+#arrow[hidden] { display: none; }

@@ -16,6 +16,7 @@ function load() {
 export const save = load();
 
 export function persist() {
+  if (location.search.includes('bot')) return; // playtest bots never touch the player's save
   try { localStorage.setItem(KEY, JSON.stringify(save)); } catch { /* storage blocked: progress lasts this session */ }
 }
 

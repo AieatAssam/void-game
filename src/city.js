@@ -7,7 +7,7 @@ import { toyMaterial } from './assets.js';
 
 export const TILE = 40;
 const CHUNK = 40;
-const LOD_DIST = 45; // metres from camera to chunk edge beyond which LOD1 is drawn
+const LOD_DIST = [15, 60]; // metres from camera to chunk edge: beyond [0] draw LOD1, beyond [1] LOD2
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion();
 const _p = new THREE.Vector3(), _s = new THREE.Vector3(), _ax = new THREE.Vector3(), _qt = new THREE.Quaternion();
 const UP = new THREE.Vector3(0, 1, 0);
@@ -29,10 +29,10 @@ export function rng(seed) {
 
 /** Bake a glTF scene (with quantized attributes + child nodes) into one float geometry. */
 const flatCache = new Map();
-export function flatGeometry(asset, lod = false) {
-  const key = asset.name + (lod ? '|lod' : '');
+export function flatGeometry(asset, lod = 0) {
+  const key = asset.name + '|' + lod;
   if (flatCache.has(key)) return flatCache.get(key);
-  const src = lod ? asset.lod : asset.scene;
+  const src = [asset.scene, asset.lod, asset.lod2][lod];
   src.updateMatrixWorld(true);
   const parts = [];
   src.traverse((o) => {
@@ -81,26 +81,43 @@ export function groundMaterial(holeUniform) {
 
 const SIDEWALK = ['lamp', 'tree_small', 'bench', 'hydrant', 'trashcan', 'mailbox', 'newsbox', 'vending', 'phone_booth',
   'planter', 'flower_pot', 'bicycle', 'scooter', 'cone', 'tree_small', 'bench'];
-const PARK = ['tree_small', 'tree_big', 'bench', 'picnic_table', 'flower_pot', 'dog', 'planter', 'hotdog_cart', 'tree_small'];
-const TRAFFIC = ['car', 'car_b', 'taxi', 'car', 'car_b', 'icecream_van', 'bus'];
-const PEDS = ['peg_a', 'peg_b', 'peg_c'];
-const CLONED = new Set(['fountain', 'clock_tower']);
-export const BUILDINGS = new Set(['house', 'shop', 'cafe', 'apartment', 'clock_tower', 'office', 'hotel', 'skyscraper']);
-const SNACKS = [['peg_a', 8], ['peg_b', 8], ['peg_c', 8], ['pigeon', 8], ['dog', 6], ['scooter', 6], ['bicycle', 6],
-  ['car_b', 6], ['car', 6], ['taxi', 6], ['icecream_van', 4], ['bus', 4]];
+const PARK = ['tree_small', 'tree_big', 'bench', 'picnic_table', 'flower_pot', 'dog', 'planter', 'hotdog_cart', 'tree_small', 'gnome'];
+const TRAFFIC = ['car', 'car_b', 'car_c', 'taxi', 'car', 'car_b', 'icecream_van', 'bus'];
+const PEDS = ['peg_a', 'peg_b', 'peg_c', 'peg_a', 'peg_b', 'peg_c', 'peg_d'];
+const CLONED = new Set(['fountain', 'clock_tower', 'crane', 'swing']);
+export const BUILDINGS = new Set(['house', 'shop', 'cafe', 'apartment', 'clock_tower', 'office', 'hotel', 'skyscraper', 'crane']);
+const SNACKS = [['peg_a', 8], ['peg_b', 8], ['peg_c', 8], ['peg_d', 6], ['pigeon', 8], ['dog', 6], ['scooter', 6], ['bicycle', 6], ['hotdog_cart', 5],
+  ['car_b', 6], ['car', 6], ['car_c', 6], ['taxi', 6], ['icecream_van', 4], ['bus', 4]];
 export const SNACK_NAMES = SNACKS.map(([n]) => n);
 
+/** City moods: tile weights for the inner ring and the outskirts. Picked per run from the seed. */
+export const MOODS = [
+  { name: 'Old Town', inner: { lot: 6, plaza: 1, park: 1.5, canal: 0.5 }, outer: { lot: 3, park: 2, residential: 3, plaza: 0.6 }, canals: false },
+  { name: 'Suburbia', inner: { lot: 5, park: 1.5, parking: 1 }, outer: { residential: 6, park: 2, lot: 1.5 }, canals: false },
+  { name: 'Waterfront', inner: { lot: 5, plaza: 1, park: 1 }, outer: { lot: 2, park: 2, residential: 2, canal: 1 }, canals: true },
+  { name: 'Boomtown', inner: { lot: 6, construction: 1.5, parking: 1 }, outer: { construction: 2, parking: 1.5, lot: 3, residential: 1.5 }, canals: false },
+];
+
+function weighted(r, weights) {
+  const total = Object.values(weights).reduce((a, b) => a + b, 0);
+  let x = r() * total;
+  for (const [k, w] of Object.entries(weights)) if ((x -= w) < 0) return k;
+  return Object.keys(weights)[0];
+}
+
 export class City {
-  constructor(assets, seed, holeUniform, N = 6) {
+  constructor(assets, seed, holeUniform) {
     this.assets = assets;
-    this.N = N;
+    this.r = rng(seed);
+    const N = (this.N = 5 + Math.floor(this.r() * 3));
+    this.mood = this.r.pick(MOODS);
+    this.tileEntities = [];
     this.half = (N * TILE) / 2;
     this.group = new THREE.Group();
     this.entities = [];
     this.mixers = [];
     this.dirty = new Set();
     this.groundMat = groundMaterial(holeUniform);
-    this.r = rng(seed);
     this.layout();
     this.build();
   }
@@ -115,16 +132,20 @@ export class City {
   layout() {
     const { r, N } = this;
     this.tiles = [];
-    const plazaAt = [Math.floor((N - 1) / 2), Math.floor((N - 1) / 2)];
+    const mid = (N - 1) / 2, plazaAt = Math.floor(mid);
+    const canalRow = this.mood.canals ? Math.floor(r() * N) : -1;
     for (let i = 0; i < N; i++) {
       for (let j = 0; j < N; j++) {
-        const cx = (i - (N - 1) / 2) * TILE, cz = (j - (N - 1) / 2) * TILE;
-        const ring = Math.max(Math.abs(i - (N - 1) / 2), Math.abs(j - (N - 1) / 2));
-        let type = 'lot';
-        if (i === plazaAt[0] && j === plazaAt[1]) type = 'plaza';
-        else if (ring > 1 && r() < 0.22) type = 'park';
-        else if (ring > 1 && r() < 0.08) type = 'plaza';
-        this.tiles.push({ type, cx, cz, ring });
+        const cx = (i - mid) * TILE, cz = (j - mid) * TILE;
+        const ring = Math.max(Math.abs(i - mid), Math.abs(j - mid));
+        let type;
+        if (i === plazaAt && j === plazaAt) type = 'plaza';
+        else if (j === canalRow && r() < 0.85) type = 'canal';
+        else if (ring < 1) type = 'lot';
+        else type = weighted(r, ring < 2 ? this.mood.inner : this.mood.outer);
+        // Tiles whose props depend on orientation only turn by 180° (canals stay continuous along x).
+        const rot = type === 'canal' ? (r() < 0.5 ? 0 : Math.PI) : Math.floor(r() * 4) * Math.PI / 2;
+        this.tiles.push({ type, cx, cz, ring, rot });
       }
     }
     for (const t of this.tiles) {
@@ -133,6 +154,134 @@ export class City {
     }
     this.traffic();
     this.reserves();
+    this.scenery();
+  }
+
+  /** Tile-local (x, z) -> world, honouring the tile's rotation. */
+  at(t, x, z) {
+    const c = Math.cos(t.rot), s = Math.sin(t.rot);
+    return [t.cx + x * c + z * s, t.cz - x * s + z * c];
+  }
+
+  put(t, name, x, z, rot = 0, mover = null) {
+    const [wx, wz] = this.at(t, x, z);
+    this.add(name, wx, wz, rot + t.rot, mover);
+  }
+
+  tile(t) {
+    const { r } = this;
+    const { cx, cz, ring } = t;
+    this.tileEntities.push({ name: 'tile_' + t.type, x: cx, z: cz, rot: t.rot });
+    const quads = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+    if (t.type === 'lot') {
+      const big = ring < 1 ? ['skyscraper', 'hotel', 'office'] : ring < 2 ? ['apartment', 'office', 'apartment', 'hotel'] : ['apartment'];
+      const small = ring < 2 ? ['shop', 'cafe', 'clock_tower', 'shop'] : ['house', 'house', 'shop', 'cafe'];
+      if (ring < 1 || (ring < 2 && r() < 0.6) || r() < 0.15) {
+        this.add(r.pick(big), cx, cz, Math.floor(r() * 4) * Math.PI / 2);
+      } else {
+        let tower = false;
+        for (const [sx, sz] of quads) {
+          let n = r.pick(small);
+          if (n === 'clock_tower') { if (tower) n = 'shop'; tower = true; }
+          // Front (+x) faces the nearer street on x.
+          this.add(n, cx + sx * 6, cz + sz * 6, sx > 0 ? 0 : Math.PI);
+        }
+      }
+      if (r() < 0.35) this.add('gas_can', cx + r.range(-10, 10), cz + 11.5, 0);
+    } else if (t.type === 'residential') {
+      for (const [sx, sz] of quads) {
+        this.put(t, 'house', sx * 5.5, sz * 6, sx > 0 ? 0 : Math.PI);
+        if (r() < 0.7) this.put(t, r.pick(['car', 'car_b', 'car_c']), sx * 11.2, sz * 6, 0);
+        for (const fz of [2.2, 10.2]) this.put(t, 'fence', sx * 12.6, sz * fz, Math.PI / 2);
+        for (let k = 0; k < 2; k++) this.put(t, 'gnome', sx * r.range(9, 11.5), sz * r.range(1.5, 3.5), r() * 6.28);
+        this.put(t, r() < 0.3 ? 'swing' : r.pick(['tree_small', 'tree_big', 'flower_pot', 'planter']), sx * 2.5, sz * 11, r() * 6.28);
+        if (r() < 0.5) this.put(t, 'dog', sx * r.range(1, 3), sz * r.range(2, 4), r() * 6.28);
+        this.put(t, 'mailbox', sx * 13.6, sz * 4.2, 0);
+      }
+      for (let k = 0; k < 3; k++) this.walker(cx, cz, 13.2);
+    } else if (t.type === 'construction') {
+      this.put(t, 'crane', -5, 5, r() * 6.28);
+      for (const [x, z] of [[6, -6], [8, 5], [-9, -8]]) this.put(t, 'dirt_pile', x, z, r() * 6.28);
+      for (let k = 0; k < 8; k++) this.put(t, 'cone', r.range(-11, 11), r.range(-11, 11), 0);
+      for (let k = 0; k < 2; k++) this.put(t, 'toxic_barrel', r.range(0, 11), r.range(-11, 0), 0);
+      this.put(t, 'gas_can', 3, 9, 0);
+      for (let k = 0; k < 3; k++) this.put(t, r.pick(['bench', 'vending', 'trashcan']), -11, -10 + k * 3, 0);
+    } else if (t.type === 'parking') {
+      for (const row of [-8, 0, 8]) {
+        for (let k = 0; k < 10; k++) {
+          if (r() < 0.65) this.put(t, r.pick(['car', 'car_b', 'car_c', 'taxi', 'car']), -11.25 + k * 2.5, row, r() < 0.5 ? Math.PI / 2 : -Math.PI / 2);
+        }
+      }
+      if (r() < 0.5) this.put(t, 'icecream_van', 0, -12.5, 0);
+    } else if (t.type === 'canal') {
+      for (let k = 0; k < 3; k++) {
+        const [x, z] = this.at(t, r.range(-12, 12), r() < 0.5 ? -1.8 : 1.8);
+        this.add('rowboat', x, z, t.rot + (r() < 0.5 ? 0 : Math.PI), { type: 'bob', base: -0.35, t: r() * 10 });
+      }
+      for (const z of [-6.5, 6.5]) {
+        for (let k = 0; k < 3; k++) this.put(t, r.pick(['bench', 'tree_small', 'planter', 'lamp']), -9 + k * 9, z, 0);
+      }
+      for (let k = 0; k < 6; k++) {
+        const [x, z] = this.at(t, r.range(-12, 12), (r() < 0.5 ? -1 : 1) * r.range(5, 8));
+        this.add('pigeon', x, z, r() * 6.28, { type: 'peck', t: r() * 10 });
+      }
+      for (let k = 0; k < 4; k++) this.walker(cx, cz, 9);
+    } else if (t.type === 'park') {
+      for (let k = 0; k < 16; k++) {
+        const x = cx + r.range(-12, 12), z = cz + r.range(-12, 12);
+        if (Math.abs(x - cx) < 2 || Math.abs(z - cz) < 2) continue; // keep paths clear
+        this.add(r.pick(PARK), x, z, r() * Math.PI * 2);
+      }
+      if (r() < 0.5) this.add('swing', cx + 7, cz - 7, r() * 6.28);
+      for (let k = 0; k < 6; k++) this.add('pigeon', cx + r.range(-10, 10), cz + r.range(-10, 10), r() * 6.28, { type: 'peck', t: r() * 10 });
+      for (let k = 0; k < 5; k++) this.walker(cx, cz, 9);
+    } else {
+      this.add('fountain', cx, cz, 0);
+      for (let k = 0; k < 4; k++) {
+        const a = k * Math.PI / 2 + Math.PI / 4;
+        this.add('bench', cx + Math.cos(a) * 6, cz + Math.sin(a) * 6, -a);
+      }
+      this.add('kiosk', cx + 10, cz - 10, Math.PI / 2);
+      this.add('hotdog_cart', cx - 10, cz + 9, r() * 6.28);
+      if (ring > 0) this.add('spiky', cx - 9, cz - 9, 0);
+      for (let k = 0; k < 14; k++) {
+        const a = r() * 6.28, d = r.range(3.5, 11);
+        this.add('pigeon', cx + Math.cos(a) * d, cz + Math.sin(a) * d, r() * 6.28, { type: 'peck', t: r() * 10 });
+      }
+      for (let k = 0; k < 8; k++) this.walker(cx, cz, 11);
+    }
+  }
+
+  /** Countryside ring around the city: rolling hills, farms, lakes, windmills. Scenery only (never swallowed). */
+  scenery() {
+    const { r, N } = this;
+    const mid = (N - 1) / 2;
+    this.sceneryList = [];
+    let cur;
+    const land = (name, x, y, z, rot) => this.sceneryList.push({ name, x, y, z, rot, tile: cur });
+    for (let i = -2; i < N + 2; i++) {
+      for (let j = -2; j < N + 2; j++) {
+        if (i >= 0 && i < N && j >= 0 && j < N) continue;
+        const cx = (i - mid) * TILE, cz = (j - mid) * TILE, rot = Math.floor(r() * 4) * Math.PI / 2;
+        cur = { cx, cz, rot };
+        const type = weighted(r, { meadow: 6, farm: 2.5, lake: 1.5 });
+        land('land_' + type, cx, 0, cz, rot);
+        const spot = (m) => [cx + r.range(-m, m), cz + r.range(-m, m)];
+        if (type === 'meadow') {
+          for (let k = 0; k < 5; k++) { const [x, z] = spot(17); land(r.pick(['tree_small', 'tree_big', 'tree_small']), x, 'ground', z, r() * 6.28); }
+          if (r() < 0.3) { const [x, z] = spot(8); land('windmill', x, 'ground', z, r() * 6.28); }
+          for (let k = 0; k < 2; k++) { const [x, z] = spot(15); land('cow', x, 'ground', z, r() * 6.28); }
+        } else if (type === 'farm') {
+          if (r() < 0.5) land('barn', cx + 10, 0, cz - 10, rot);
+          for (let k = 0; k < 3; k++) { const [x, z] = spot(15); land('cow', x, 0, z, r() * 6.28); }
+        } else {
+          for (let k = 0; k < 4; k++) {
+            const a = r() * 6.28;
+            land(r.pick(['tree_small', 'tree_big']), cx + Math.cos(a) * 17, 0, cz + Math.sin(a) * 17, r() * 6.28);
+          }
+        }
+      }
+    }
   }
 
   /** Win condition: buildings still standing. */
@@ -194,51 +343,6 @@ export class City {
       this.group.remove(e.obj);
       if (e.mixer) { e.mixer.stopAllAction(); this.mixers.splice(this.mixers.indexOf(e.mixer), 1); }
       this.entities.splice(this.entities.indexOf(e), 1);
-    }
-  }
-
-  tile(t) {
-    const { r } = this;
-    const { cx, cz, ring } = t;
-    this.tileEntities ??= [];
-    this.tileEntities.push({ name: 'tile_' + t.type, x: cx, z: cz, rot: Math.floor(r() * 4) * Math.PI / 2 });
-    if (t.type === 'lot') {
-      const big = ring < 1 ? ['skyscraper', 'hotel', 'office'] : ring < 2 ? ['apartment', 'office', 'apartment', 'hotel'] : ['apartment'];
-      const small = ring < 2 ? ['shop', 'cafe', 'clock_tower', 'shop'] : ['house', 'house', 'shop', 'cafe'];
-      if (ring < 1 || (ring < 2 && r() < 0.6) || r() < 0.15) {
-        this.add(r.pick(big), cx, cz, Math.floor(r() * 4) * Math.PI / 2);
-      } else {
-        let tower = false;
-        for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-          let n = r.pick(small);
-          if (n === 'clock_tower') { if (tower) n = 'shop'; tower = true; }
-          // Front (+x) faces the nearer street on x.
-          this.add(n, cx + sx * 6, cz + sz * 6, sx > 0 ? 0 : Math.PI);
-        }
-      }
-      if (r() < 0.35) this.add('gas_can', cx + r.range(-10, 10), cz + 11.5, 0);
-    } else if (t.type === 'park') {
-      for (let k = 0; k < 16; k++) {
-        const x = cx + r.range(-12, 12), z = cz + r.range(-12, 12);
-        if (Math.abs(x - cx) < 2 || Math.abs(z - cz) < 2) continue; // keep paths clear
-        this.add(r.pick(PARK), x, z, r() * Math.PI * 2);
-      }
-      for (let k = 0; k < 6; k++) this.add('pigeon', cx + r.range(-10, 10), cz + r.range(-10, 10), r() * 6.28, { type: 'peck', t: r() * 10 });
-      for (let k = 0; k < 5; k++) this.walker(cx, cz, 9);
-    } else {
-      this.add('fountain', cx, cz, 0);
-      for (let k = 0; k < 4; k++) {
-        const a = k * Math.PI / 2 + Math.PI / 4;
-        this.add('bench', cx + Math.cos(a) * 6, cz + Math.sin(a) * 6, -a);
-      }
-      this.add('kiosk', cx + 10, cz - 10, Math.PI / 2);
-      this.add('hotdog_cart', cx - 10, cz + 9, r() * 6.28);
-      if (ring > 0) this.add('spiky', cx - 9, cz - 9, 0);
-      for (let k = 0; k < 14; k++) {
-        const a = r() * 6.28, d = r.range(3.5, 11);
-        this.add('pigeon', cx + Math.cos(a) * d, cz + Math.sin(a) * d, r() * 6.28, { type: 'peck', t: r() * 10 });
-      }
-      for (let k = 0; k < 8; k++) this.walker(cx, cz, 11);
     }
   }
 
@@ -309,19 +413,20 @@ export class City {
         continue;
       }
       const roams = e.mover?.type === 'drive' || e.mover?.type === 'wander';
+      const reserve = !!e.mover?.reserve;
       const home = e.mover?.type === 'walk' ? chunkKey(e.mover.cx, e.mover.cz) : chunkKey(e.x, e.z);
-      const k = roams ? `${e.name}|roam` : `${e.name}|${home}|${e.mover ? 'm' : 's'}`;
-      if (!groups.has(k)) groups.set(k, { name: e.name, list: [], mover: !!e.mover, roams });
+      const k = roams ? `${e.name}|${reserve ? 'reserve' : 'roam'}` : `${e.name}|${home}|${e.mover ? 'm' : 's'}`;
+      if (!groups.has(k)) groups.set(k, { name: e.name, list: [], mover: !!e.mover, roams, reserve });
       groups.get(k).list.push(e);
     }
     this.meshes = [];
     for (const g of groups.values()) {
       const a = this.assets[g.name];
-      const full = flatGeometry(a), lod = flatGeometry(a, true);
+      const full = flatGeometry(a), lod = flatGeometry(a, 1), lod2 = flatGeometry(a, 2);
       const mesh = new THREE.InstancedMesh(full, g.ground ? this.groundMat : toyMaterial, g.list.length);
       mesh.castShadow = !g.ground;
       mesh.receiveShadow = true;
-      mesh.userData = { full, lod, tier: g.ground ? Infinity : a.meta.tier, ground: !!g.ground, roams: g.roams };
+      mesh.userData = { geos: [full, lod, lod2], full, tier: g.ground ? Infinity : a.meta.tier, ground: !!g.ground, roams: g.roams, list: g.reserve ? g.list : null };
       g.list.forEach((e, i) => { e.mesh = mesh; e.index = i; this.place(e); });
       mesh.instanceMatrix.setUsage(g.mover ? THREE.DynamicDrawUsage : THREE.StaticDrawUsage);
       if (g.roams) mesh.frustumCulled = false;
@@ -332,23 +437,92 @@ export class City {
       this.meshes.push(mesh);
       this.group.add(mesh);
     }
+    this.buildScenery();
     this.dirty.clear();
   }
 
+  buildScenery() {
+    // Sit meadow props on the hills: raycast the (unrotated) hill mesh in tile-local space.
+    const hill = new THREE.Mesh(flatGeometry(this.assets.land_meadow, 0));
+    const ray = new THREE.Raycaster(), down = new THREE.Vector3(0, -1, 0), o = new THREE.Vector3();
+    const groups = new Map();
+    for (const it of this.sceneryList) {
+      if (it.y === 'ground') {
+        const { cx, cz, rot } = it.tile, c = Math.cos(rot), s = Math.sin(rot), dx = it.x - cx, dz = it.z - cz;
+        ray.set(o.set(dx * c - dz * s, 50, dx * s + dz * c), down);
+        it.y = (ray.intersectObject(hill)[0]?.point.y ?? 0) - 0.1;
+      }
+      const e = { ...it, tilt: 0, s: 1 };
+      if (this.assets[it.name].clips.length) { // windmills turn
+        e.obj = this.assets[it.name].scene.clone();
+        const m = new THREE.AnimationMixer(e.obj);
+        this.assets[it.name].clips.forEach((cl) => m.clipAction(cl).play());
+        this.mixers.push(m);
+        this.group.add(e.obj);
+        this.place(e);
+        continue;
+      }
+      const k = `${it.name}|${Math.floor(it.x / 120)},${Math.floor(it.z / 120)}`;
+      if (!groups.has(k)) groups.set(k, { name: it.name, list: [] });
+      groups.get(k).list.push(e);
+    }
+    for (const g of groups.values()) {
+      const a = this.assets[g.name];
+      const geos = [0, 1, 2].map((l) => flatGeometry(a, l));
+      const mesh = new THREE.InstancedMesh(geos[0], toyMaterial, g.list.length);
+      mesh.castShadow = mesh.receiveShadow = true;
+      mesh.userData = { geos, tier: Infinity, scenery: true };
+      g.list.forEach((e, i) => { e.mesh = mesh; e.index = i; this.place(e); });
+      mesh.computeBoundingSphere();
+      this.meshes.push(mesh);
+      this.group.add(mesh);
+    }
+    // countryside continues to the horizon
+    // Uses the hole-cutting ground material (palette 'sage' swatch) so the hole never shows grass inside.
+    const fieldGeo = new THREE.CircleGeometry(1400, 64).rotateX(-Math.PI / 2);
+    fieldGeo.attributes.uv.array.fill(0).forEach((_, i, arr) => { arr[i] = i % 2 ? 0.375 : 0.1875; });
+    const field = new THREE.Mesh(fieldGeo, this.groundMat);
+    field.position.y = -0.08;
+    field.receiveShadow = true;
+    this.group.add(field);
+    this.field = field;
+    // drifting clouds
+    const n = 14;
+    this.clouds = new THREE.InstancedMesh(flatGeometry(this.assets.cloud, 1), toyMaterial, n);
+    this.clouds.frustumCulled = false;
+    this.cloudList = Array.from({ length: n }, (_, i) => ({
+      x: this.r.range(-600, 600), z: this.r.range(-600, 600), y: this.r.range(55, 90), s: this.r.range(0.8, 2), rot: this.r() * 6.28, tilt: 0, v: this.r.range(1, 2.5),
+      mesh: this.clouds, index: i,
+    }));
+    this.cloudList.forEach((c) => this.place(c));
+    this.group.add(this.clouds);
+  }
+
   /** Per-frame render budget: LOD by distance, drop shadows and hide what is too small to see. */
-  budget(camera, holeR) {
+  budget(camera, holeR, lowSpec = false) {
+    const near = lowSpec ? -1 : LOD_DIST[0]; // low-spec devices never draw LOD0
     for (const m of this.meshes) {
       const u = m.userData;
       if (u.ground) { m.geometry = u.full; continue; }
-      m.visible = u.tier >= holeR * 0.03;
+      if (u.scenery) {
+        const d = camera.position.distanceTo(m.boundingSphere.center) - m.boundingSphere.radius;
+        m.geometry = u.geos[d > LOD_DIST[1] ? 2 : d > near ? 1 : 0];
+        m.castShadow = d < 60;
+        continue;
+      }
+      m.visible = u.tier >= holeR * 0.03 && (!u.list || u.list.some((e) => e.alive)); // idle reserve pools cost nothing
       m.castShadow = u.tier >= holeR * 0.12;
-      const far = u.roams ? holeR > 2.5 : camera.position.distanceTo(m.boundingSphere.center) - m.boundingSphere.radius > LOD_DIST;
-      m.geometry = far ? u.lod : u.full;
+      // roaming traffic spans the whole city, so it can't be distance-LOD'd per instance: mid detail, low when zoomed out
+      const d = u.roams ? (holeR > 4 ? 999 : 30) : camera.position.distanceTo(m.boundingSphere.center) - m.boundingSphere.radius;
+      m.geometry = u.geos[d > LOD_DIST[1] ? 2 : d > near ? 1 : 0];
+      if (d > LOD_DIST[1]) m.castShadow = false; // far chunks: shadows smaller than a shadow-map texel
     }
   }
 
   dispose() {
     for (const m of this.meshes) m.dispose();
+    this.clouds.dispose();
+    this.field.geometry.dispose();
     for (const mx of this.mixers) mx.stopAllAction();
     this.groundMat.dispose();
   }
@@ -376,6 +550,7 @@ export class City {
   /** Movers + falling + swallow checks. Returns list of entities consumed this frame. */
   update(dt, hole, jammed = false) {
     const eaten = [];
+    this.events = [];
     const H = this.half;
     for (let i = this.entities.length - 1; i >= 0; i--) {
       const e = this.entities[i];
@@ -385,9 +560,26 @@ export class City {
         this.fall(e, dt, hole, eaten);
         continue;
       }
+      if (e.clog > 0) { // wedged in the hole: tipped in, then pops back out (PLAN.md rule 3: <=1.5s)
+        e.clog -= dt;
+        e.tilt = e.clog > 0 ? 0.45 : 0;
+        e.y = e.clog > 0 ? -0.35 : 0;
+        e.clogCool = 4;
+        this.place(e);
+        continue;
+      }
+      e.clogCool = Math.max(0, (e.clogCool || 0) - dt);
       if (m) {
         m.t += dt;
+        // anything the hole could eat panics when it gets close
+        const fdx = e.x - hole.x, fdz = e.z - hole.z, near = fdx * fdx + fdz * fdz < (hole.r * 2.2 + 3) ** 2;
+        const scared = near && e.meta.tier < hole.r * 0.95 && e.meta.tier < 0.8;
         if (m.type === 'walk') {
+          if (scared) {
+            const [dx0, dz0] = WALK_DIR[Math.floor(m.s / (2 * m.h))];
+            const away = dx0 * fdx + dz0 * fdz >= 0 ? 1 : -1; // run the way that leads away
+            m.v = away * Math.max(Math.abs(m.v), 2.6);
+          } else if (Math.abs(m.v) > 1.6) m.v *= 1 - dt * 0.5;
           m.s = (m.s + m.v * dt + 8 * m.h * 100) % (8 * m.h);
           const side = Math.floor(m.s / (2 * m.h)), u = (m.s % (2 * m.h)) - m.h;
           const P = [[m.h, u], [-u, m.h], [-m.h, -u], [u, -m.h]][side];
@@ -412,6 +604,15 @@ export class City {
           e.rot = m.h;
           const w = m.t * 9;
           e.y = e.meta.tier < 0.3 ? Math.abs(Math.sin(w)) * 0.07 : Math.abs(Math.sin(m.t * 7)) * 0.03;
+        } else if (m.type === 'bob') {
+          e.y = m.base + Math.sin(m.t * 1.6) * 0.06;
+          e.rot += Math.sin(m.t * 0.9) * 0.002;
+        } else if (m.type === 'peck' && scared) { // pigeons scatter with little flapping hops
+          const d = Math.hypot(fdx, fdz) || 1;
+          e.x += (fdx / d) * 3.5 * dt;
+          e.z += (fdz / d) * 3.5 * dt;
+          e.rot = Math.atan2(-fdz, fdx);
+          e.y = Math.abs(Math.sin(m.t * 14)) * 0.35;
         } else if (m.type === 'peck') {
           e.y = Math.max(0, Math.sin(m.t * 3)) * 0.02;
           e.s = 1;
@@ -420,6 +621,14 @@ export class City {
         this.place(e);
       }
       if (jammed || e.noSwallow) continue;
+      // clog: a vehicle a bit too big rolls over the middle of the hole and wedges in
+      if ((m?.type === 'drive' || m?.type === 'wander') && !e.clogCool && e.meta.tier >= hole.r * 0.95 && e.meta.tier < hole.r * 1.4
+        && (e.x - hole.x) ** 2 + (e.z - hole.z) ** 2 < (hole.r * 0.5) ** 2) {
+        e.clog = 1.5;
+        e.tiltDir = Math.atan2(e.z - hole.z, e.x - hole.x);
+        this.events.push({ type: 'clog', e });
+        continue;
+      }
       // swallow test: fits in the hole and mostly over it (flying things only when the vortex is big)
       const dx = e.x - hole.x, dz = e.z - hole.z;
       const tier = e.meta.tier;
@@ -429,6 +638,11 @@ export class City {
         e.vy = 0;
         e.tiltDir = Math.atan2(dz, dx);
       }
+    }
+    for (const c of this.cloudList) {
+      c.x += c.v * dt;
+      if (c.x > 700) c.x = -700;
+      this.place(c);
     }
     for (const mesh of this.dirty) mesh.instanceMatrix.needsUpdate = true;
     this.dirty.clear();

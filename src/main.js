@@ -1,18 +1,24 @@
 import * as THREE from 'three';
-import { createRenderer, createScene, followSun } from './look.js';
-import { loadAll } from './assets.js';
-import { City } from './city.js';
+import { createRenderer, createScene, followSun, applyTime, TIMES } from './look.js';
+import { loadAll, toyMaterial } from './assets.js';
+import { City, rng, BUILDINGS } from './city.js';
 import { Hole } from './hole.js';
 import { Director } from './director.js';
 import { installBot } from './bot.js';
 import { UPGRADES, save, persist, level, buy, todaySeed } from './meta.js';
 import * as sfx from './sfx.js';
+import { Post } from './post.js';
+import { Sparks } from './fx.js';
 
 const $ = (id) => document.getElementById(id);
 const renderer = createRenderer($('c'));
-const { scene, sun } = createScene();
+const look = createScene();
+const { scene, sun } = look;
 const camera = new THREE.PerspectiveCamera(38, 1, 0.3, 900);
 const PITCH = THREE.MathUtils.degToRad(55);
+const post = new Post(renderer, scene, camera);
+const sparks = new Sparks();
+scene.add(sparks.points);
 
 // ---------- starvation tuning (PLAN.md: keep moving or the ground seals) ----------
 const BELLY_DRAIN = 1 / 6; // a full belly lasts 6s
@@ -33,12 +39,24 @@ function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false) {
   hole.pull = 1 + level('gravity') * 0.1;
   city = new City(assets, seed, hole.uniform);
   director = new Director(city, scene, { hurt, toll });
-  const plaza = city.tiles.find((t) => t.type === 'plaza');
-  hole.x = plaza.cx + 7;
-  hole.z = plaza.cz + 5;
+  // Randomised start: time of day, and a calm open tile (never a downtown lot) at a random spot on it.
+  const r = rng(seed ^ 0x5eed);
+  const time = new URLSearchParams(location.search).get('time') || r.pick(Object.keys(TIMES));
+  look.grade = applyTime(look, renderer, time, toyMaterial).grade;
+  const open = city.tiles.filter((t) => ['plaza', 'park', 'residential', 'canal', 'parking'].includes(t.type));
+  const t = r.pick(open);
+  const a = r() * Math.PI * 2;
+  hole.x = t.cx + Math.cos(a) * 13.5;
+  hole.z = t.cz + Math.sin(a) * 13.5;
+  // breadcrumbs: a few wandering snacks right around the start so the first seconds always have food
+  for (let k = 0; k < 10; k++) {
+    const b = r() * Math.PI * 2, d = 2.5 + r() * 6;
+    city.revive(r.pick(['peg_a', 'peg_b', 'peg_c', 'pigeon', 'peg_d']), hole.x + Math.cos(b) * d, hole.z + Math.sin(b) * d, hole.x, hole.z);
+  }
+  $('where').textContent = `${city.mood.name} · ${city.N}×${city.N} blocks · ${time}`;
   scene.add(city.group, hole.group);
   state = { playing: false, seed, daily, time: 0, belly: 1, eaten: 0, score: 0, best: hole.r, stars: 0,
-    reverse: 0, jam: 0, slow: 0, invuln: 0, shake: 0, sealing: 0, hits: [], left: city.buildingsLeft() };
+    reverse: 0, jam: 0, slow: 0, invuln: 0, shake: 0, sealing: 0, hits: [], left: city.buildingsLeft(), combo: 0, comboT: 0, bonus: 0 };
 }
 newRun();
 window.__game = () => ({ hole, city, state, renderer, director });
@@ -85,8 +103,42 @@ function hud() {
   $('hunger').parentElement.classList.toggle('low', state.belly < 0.3);
   $('stars').textContent = '★'.repeat(director.stars) + '☆'.repeat(4 - director.stars);
   $('left').querySelector('b').textContent = state.left;
+  // endgame compass: point at the nearest standing building when only a few remain
+  const arrow = $('arrow');
+  arrow.hidden = !(state.left > 0 && state.left <= 5);
+  if (!arrow.hidden) {
+    let best = null, bd = Infinity;
+    for (const e of city.entities) {
+      if (!e.alive || !BUILDINGS.has(e.name)) continue;
+      const d = Math.hypot(e.x - hole.x, e.z - hole.z);
+      if (d < bd) { bd = d; best = e; }
+    }
+    if (best) {
+      const a = Math.atan2(best.z - hole.z, best.x - hole.x), rad = Math.min(innerWidth, innerHeight) * 0.36;
+      arrow.style.transform = `translate(${Math.cos(a) * rad}px, ${Math.sin(a) * rad}px) rotate(${a}rad)`;
+    }
+  }
   const st = [state.reverse > 0 && 'Controls reversed', state.jam > 0 && 'Jammed', state.slow > 0 && 'Slowed'].filter(Boolean);
   $('status').textContent = st.join(' · ');
+}
+
+// ---------- first-run hints (once per browser) ----------
+const HINTS = [
+  [1, 'Steer onto things smaller than you'],
+  [9, 'Keep eating — the purple bar is your belly'],
+  [18, 'Big bites make you grow faster'],
+];
+function hints() {
+  if (save.hinted) return;
+  for (const h of HINTS) if (!h.done && state.time > h[0]) { h.done = true; hint(h[1]); }
+  if (state.time > 30) { save.hinted = true; persist(); }
+}
+function hint(text) {
+  const el = $('hint');
+  el.textContent = text;
+  el.classList.remove('show');
+  void el.offsetWidth;
+  el.classList.add('show');
 }
 
 // ---------- damage (PLAN.md rule 3: capped, never chained) ----------
@@ -107,15 +159,24 @@ function toll() {
   sfx.hurt();
   flash('Barricade!');
 }
-function flash(text) {
+function flash(text, red = true) {
   const el = $('toast');
   el.textContent = text;
   el.classList.remove('show');
   void el.offsetWidth;
   el.classList.add('show');
+  if (!red) return;
   document.body.classList.remove('hurt');
   void document.body.offsetWidth;
   document.body.classList.add('hurt');
+}
+function combo(n) {
+  const el = $('combo');
+  el.textContent = `×${n} combo`;
+  el.style.fontSize = `${Math.min(44, 18 + n * 1.5)}px`;
+  el.classList.remove('show');
+  void el.offsetWidth;
+  el.classList.add('show');
 }
 function poison(effect) {
   if (effect === 'shrink') hurt(0.12, 'Gas can! Shrunk');
@@ -126,7 +187,8 @@ function poison(effect) {
 // ---------- menus ----------
 function start(seed, daily) {
   sfx.unlock();
-  newRun(seed, daily);
+  // Play the city shown behind the menu; only reroll for daily/replays.
+  if (seed !== undefined || state.over || state.time > 0) newRun(seed, daily);
   $('screen').hidden = true;
   $('hud').hidden = false;
   state.playing = true;
@@ -161,7 +223,7 @@ function endRun(won) {
   state.over = true;
   if (won) sfx.star();
   else { state.sealing = 1.2; sfx.seal(); }
-  const dust = Math.floor(2 * Math.sqrt(state.score)) + (won ? 150 : 0);
+  const dust = Math.floor(2 * Math.sqrt(state.score)) + Math.floor(state.bonus / 4) + (won ? 150 : 0);
   save.dust += dust;
   save.best = Math.max(save.best, state.best);
   if (won) save.fastest = Math.min(save.fastest || Infinity, state.time);
@@ -190,7 +252,7 @@ function endRun(won) {
 const timer = new THREE.Clock();
 const camTarget = new THREE.Vector3(hole.x, 0, hole.z);
 const _v = new THREE.Vector3();
-let camDist = 14;
+let camDist = 14, camYaw = 0;
 
 renderer.setAnimationLoop(() => frame(Math.min(timer.getDelta(), 1 / 20)));
 window.__tick = (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) frame(dt); };
@@ -199,17 +261,20 @@ function frame(dt) {
   const w = innerWidth, h = innerHeight;
   if (canvas.width !== Math.floor(w * renderer.getPixelRatio())) {
     renderer.setSize(w, h, false);
+    post.setSize(w, h);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
   }
 
   if (state.playing) {
     state.time += dt;
-    for (const k of ['reverse', 'jam', 'slow', 'invuln', 'shake']) state[k] = Math.max(0, state[k] - dt);
+    hints();
+    for (const k of ['reverse', 'jam', 'slow', 'invuln', 'shake', 'comboT']) state[k] = Math.max(0, state[k] - dt);
+    if (!state.comboT) state.combo = 0;
     state.belly = Math.max(0, state.belly - BELLY_DRAIN * Math.min(1, 0.3 + state.time / 25) * dt); // gentle first 20s
     const [sx, sz] = window.__bot ? window.__bot(hole, city) : steer();
     const speed = (5 + hole.r * 1.6) * (state.slow > 0 ? 0.45 : 1);
-    const lim = city.half - 2;
+    const lim = Math.max(2, city.half - hole.r * 0.95); // keep the whole hole disc inside town
     const px = hole.x, pz = hole.z;
     hole.x = THREE.MathUtils.clamp(hole.x + sx * speed * dt, -lim, lim);
     hole.z = THREE.MathUtils.clamp(hole.z + sz * speed * dt, -lim, lim);
@@ -217,9 +282,14 @@ function frame(dt) {
     hole.vz = (hole.z - pz) / dt;
 
     const slower = 1 - level('appetite') * 0.12;
-    hole.area *= 1 - (state.belly > 0 ? DECAY_FED : DECAY_STARVING) * slower * dt;
+    const fed = DECAY_FED / (1 + hole.r * 0.15); // big holes need proportionally bigger meals already
+    hole.area *= 1 - (state.belly > 0 ? fed : DECAY_STARVING) * slower * dt;
     director.update(dt, hole, state);
-    if (director.stars > state.stars) { sfx.star(); flash('★'.repeat(director.stars) + ' The city fights back'); }
+    if (director.stars > state.stars) {
+      sfx.star();
+      flash('★'.repeat(director.stars) + ' The city fights back', false);
+      if (!save.hinted && director.stars === 1) setTimeout(() => hint('Red rings = something is about to land. Move!'), 1500);
+    }
     state.stars = director.stars;
     if ((state.leftTimer = (state.leftTimer || 0) - dt) <= 0) { state.leftTimer = 0.5; state.left = city.buildingsLeft(); }
     if (hole.r < DEAD_R) endRun(false);
@@ -230,16 +300,25 @@ function frame(dt) {
   }
 
   const eaten = city.update(dt, hole, state.jam > 0 || !state.playing);
+  for (const ev of city.events) {
+    if (ev.type === 'clog' && state.playing) { state.jam = Math.max(state.jam, 1.5); flash('Clogged!'); sfx.hurt(); }
+  }
   for (const e of eaten) {
     if (!state.playing) continue;
     sfx.gulp(e.meta.tier);
     if (e.meta.kind === 'poison') { poison(e.meta.effect); continue; }
     const before = hole.area;
     hole.grow(e.meta.tier);
-    state.belly = Math.min(1, state.belly + (hole.area - before) / (before * MEAL));
+    // a full meal is MEAL of the hole's area, capped at a 6 m hole's worth so late game stays feedable
+    state.belly = Math.min(1, state.belly + (hole.area - before) / (Math.min(before, Math.PI * 36) * MEAL));
     state.eaten++;
     state.score += Math.PI * e.meta.tier ** 2;
     hole.bump = Math.min(0.25, (hole.bump || 0) + e.meta.tier / hole.r * 0.3);
+    sparks.burst(hole.x, hole.z, hole.r, e.meta.tier);
+    state.combo = state.comboT > 0 ? state.combo + 1 : 1;
+    state.comboT = 0.9;
+    state.bonus += state.combo - 1;
+    if (state.combo >= 3) combo(state.combo);
   }
   state.best = Math.max(state.best, hole.r);
   city.mixers.forEach((m) => m.update(dt));
@@ -250,13 +329,21 @@ function frame(dt) {
   camDist += ((14 + hole.r * 8) * portrait - camDist) * Math.min(1, dt * 2);
   camTarget.lerp(_v.set(hole.x, 0, hole.z), Math.min(1, dt * 6));
   const sh = state.shake * camDist * 0.02;
-  camera.position.set(camTarget.x + (Math.random() - 0.5) * sh, Math.sin(PITCH) * camDist, camTarget.z + Math.cos(PITCH) * camDist + (Math.random() - 0.5) * sh);
+  // attract mode: slow orbit behind the menu; snaps back to north-up for play (steering is screen-relative)
+  camYaw = state.playing || state.over ? Math.atan2(Math.sin(camYaw), Math.cos(camYaw)) * Math.max(0, 1 - dt * 4) : camYaw + dt * 0.06;
+  const horiz = Math.cos(PITCH) * camDist;
+  camera.position.set(camTarget.x + Math.sin(camYaw) * horiz + (Math.random() - 0.5) * sh, Math.sin(PITCH) * camDist,
+    camTarget.z + Math.cos(camYaw) * horiz + (Math.random() - 0.5) * sh);
   camera.lookAt(camTarget);
-  city.budget(camera, hole.r);
+  city.budget(camera, hole.r, post.lowSpec || location.search.includes('low'));
   followSun(sun, camTarget);
   const sc = sun.shadow.camera, ext = Math.max(25, camDist * 0.9);
   if (sc.right !== ext) { sc.left = sc.bottom = -ext; sc.right = sc.top = ext; sc.updateProjectionMatrix(); }
 
+  sparks.update(dt);
   if (state.playing) hud();
-  if (!window.__headless) renderer.render(scene, camera);
+  if (!window.__headless) {
+    if (state.playing && document.visibilityState === 'visible') post.watch(dt);
+    post.render(look.grade || [1, 1, 1]);
+  }
 }

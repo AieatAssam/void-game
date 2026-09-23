@@ -1,11 +1,12 @@
 // Showroom: every asset on the tabletop, sorted by tier, clips playing. Click a name to frame it.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { createRenderer, createScene, COLORS } from './look.js';
+import { createRenderer, createScene, applyTime, followSun, COLORS } from './look.js';
 import { loadAll } from './assets.js';
 
 const renderer = createRenderer(document.getElementById('c'));
-const { scene } = createScene();
+const look = createScene();
+const { scene } = look;
 const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 500);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -16,6 +17,7 @@ table.receiveShadow = true;
 scene.add(table);
 
 const assets = await loadAll();
+import('./assets.js').then(({ toyMaterial }) => applyTime(look, renderer, new URLSearchParams(location.search).get('time') || 'golden', toyMaterial));
 const mixers = [];
 const list = document.getElementById('list');
 const sorted = Object.values(assets).sort((p, q) => p.meta.tier - q.meta.tier);
@@ -57,6 +59,7 @@ renderer.setAnimationLoop(() => {
   }
   const dt = clock.getDelta();
   mixers.forEach((m) => m.update(dt));
+  followSun(look.sun, controls.target);
   controls.update();
   renderer.render(scene, camera);
 });

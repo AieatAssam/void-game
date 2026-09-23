@@ -10,6 +10,13 @@ from mathutils import Vector, Matrix
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RAW = os.path.join(ROOT, 'assets-raw')
 COLS, ROWS, PX = 8, 4, 16
+# Detail multiplier for LOD0. Curves get more segments, bevels more steps. The optimizer derives
+# LOD1 (~25%) and LOD2 (~8%) from these, so raising Q only costs triangles up close.
+Q = 1.6
+
+
+def q(n):
+    return n if n < 8 else round(n * Q)  # < 8 = deliberate facets (hex nuts, pyramids)
 
 PALETTE = [
     [('cream', 'F3E9D2'), ('white', 'FFF8EE'), ('sand', 'E6CFA7'), ('clay', 'C98B5B'),
@@ -123,7 +130,7 @@ def paint(ob, color, faces=None):
 
 def bevel(ob, width, seg=3, angle=None):
     m = ob.modifiers.new('bevel', 'BEVEL')
-    m.width, m.segments = width, seg
+    m.width, m.segments = width, seg if seg <= 1 else seg + 1
     m.limit_method = 'ANGLE' if angle else 'NONE'
     if angle:
         m.angle_limit = math.radians(angle)
@@ -156,6 +163,7 @@ def box(name, size, loc=(0, 0, 0), color='cream', bev=None, seg=3, rot=(0, 0, 0)
 def cyl(name, r, h, loc=(0, 0, 0), color='cream', seg=32, bev=None, bseg=3, rot=(0, 0, 0), r2=None):
     """Cylinder/cone standing on its base at loc (loc is base center)."""
     bm = bmesh.new()
+    seg = q(seg)
     bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=seg,
                           radius1=r, radius2=r if r2 is None else r2, depth=h)
     bmesh.ops.translate(bm, vec=Vector((0, 0, h / 2)), verts=bm.verts)
@@ -166,11 +174,13 @@ def cyl(name, r, h, loc=(0, 0, 0), color='cream', seg=32, bev=None, bseg=3, rot=
 
 def sphere(name, r, loc=(0, 0, 0), color='cream', seg=24, scale=(1, 1, 1), rot=(0, 0, 0)):
     bm = bmesh.new()
+    seg = q(seg)
     bmesh.ops.create_uvsphere(bm, u_segments=seg, v_segments=seg // 2, radius=r)
     return _obj(name, bm, color, loc, rot, scale)
 
 
 def torus(name, R, r, loc=(0, 0, 0), color='cream', seg=32, rseg=12, rot=(0, 0, 0)):
+    seg, rseg = q(seg), q(rseg)
     bm = bmesh.new()
     grid = []
     for i in range(seg):
@@ -189,6 +199,7 @@ def torus(name, R, r, loc=(0, 0, 0), color='cream', seg=32, rseg=12, rot=(0, 0, 
 
 def lathe(name, profile, loc=(0, 0, 0), color='cream', seg=32, rot=(0, 0, 0)):
     """Revolve [(radius, z), ...] around Z. Great for hydrants, lamps, bottles."""
+    seg = q(seg)
     bm = bmesh.new()
     rings = []
     for (rr, z) in profile:
@@ -278,6 +289,14 @@ def parent(child, root):
 
 
 # ---------- animation ----------
+def _name_action(ob, name):
+    """Give ob's action an exact name (stale actions from earlier builds would force a .001 suffix)."""
+    act = ob.animation_data.action
+    old = bpy.data.actions.get(name)
+    if old and old != act:
+        bpy.data.actions.remove(old)
+    act.name = name
+
 def spin(ob, axis='Z', frames=24, turns=1, name=None):
     """Seamless looping spin clip on ob."""
     prefs = bpy.context.preferences.edit
@@ -291,7 +310,7 @@ def spin(ob, axis='Z', frames=24, turns=1, name=None):
     ob.rotation_euler[i] = base
     prefs.keyframe_new_interpolation_type = old
     if name and ob.animation_data and ob.animation_data.action:
-        ob.animation_data.action.name = name
+        _name_action(ob, name)
     return ob
 
 
@@ -305,7 +324,7 @@ def keys(ob, path, frames_values, name=None, interp='BEZIER'):
         ob.keyframe_insert(path, frame=f)
     prefs.keyframe_new_interpolation_type = old
     if name and ob.animation_data and ob.animation_data.action:
-        ob.animation_data.action.name = name
+        _name_action(ob, name)
     return ob
 
 

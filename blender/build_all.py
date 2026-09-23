@@ -7,18 +7,23 @@ importlib.reload(lib)
 
 ASSETS = [
     # street props (size ladder bottom)
-    'pigeon', 'peg_a', 'peg_b', 'peg_c', 'cone', 'hydrant', 'mailbox', 'trashcan', 'lamp', 'newsbox', 'flower_pot', 'vending', 'dog', 'phone_booth',
+    'pigeon', 'peg_a', 'peg_b', 'peg_c', 'peg_d', 'cone', 'hydrant', 'mailbox', 'trashcan', 'lamp', 'newsbox', 'flower_pot', 'vending', 'dog', 'phone_booth',
     'planter', 'bench', 'scooter', 'bicycle', 'hotdog_cart', 'picnic_table', 'tree_small', 'kiosk', 'fountain', 'tree_big',
     # vehicles
-    'car', 'car_b', 'taxi', 'icecream_van', 'bus',
+    'car', 'car_b', 'car_c', 'taxi', 'icecream_van', 'bus',
     # poison + hazards
     'gas_can', 'toxic_barrel', 'spiky', 'barricade',
     # response units
     'police_car', 'cement_truck', 'heli', 'tank',
     # buildings
     'house', 'shop', 'cafe', 'apartment', 'clock_tower', 'office', 'hotel', 'skyscraper',
+    # new districts + construction + suburbs
+    'gnome', 'fence', 'swing', 'dirt_pile', 'rowboat', 'crane',
     # ground + fx
-    'tile_lot', 'tile_park', 'tile_plaza', 'concrete_plug', 'hole_rim',
+    'tile_lot', 'tile_park', 'tile_plaza', 'tile_residential', 'tile_construction', 'tile_parking', 'tile_canal',
+    'concrete_plug', 'hole_rim', 'cloud',
+    # countryside scenery ring
+    'land_meadow', 'land_farm', 'land_lake', 'windmill', 'barn', 'cow',
 ]
 ONLY = globals().get('ONLY') or ASSETS
 for n in ONLY:

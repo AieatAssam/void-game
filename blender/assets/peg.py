@@ -2,7 +2,7 @@
 from lib import *
 
 
-def peg(name, body, skin, hat, hat_style):
+def peg_parts(body, skin, hat, hat_style):
     p = [
         lathe('body', [(0.0, 0.0), (0.13, 0.0), (0.155, 0.03), (0.16, 0.08), (0.15, 0.3), (0.12, 0.36), (0.07, 0.39), (0.0, 0.4)], color=body, seg=24),
         cyl('collar', 0.1, 0.05, loc=(0, 0, 0.37), color='white', seg=20, bev=0.015),
@@ -20,4 +20,8 @@ def peg(name, body, skin, hat, hat_style):
     else:  # bowler
         p += [cyl('crown', 0.09, 0.1, loc=(0, 0, 0.62), color=hat, seg=20, bev=0.03),
               cyl('brim', 0.15, 0.025, loc=(0, 0, 0.62), color=hat, seg=24, bev=0.01)]
-    return finish(join(p, name), mass=0.06)
+    return p
+
+
+def peg(name, body, skin, hat, hat_style):
+    return finish(join(peg_parts(body, skin, hat, hat_style), name), mass=0.06)

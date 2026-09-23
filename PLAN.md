@@ -26,3 +26,16 @@ Each stage ends with a commit.
 - **4 — Adversity.** ✅ Bot check: `?bot` then `__runBot(420)` — greedy bot clears the city (5/5 seeds, 3.5–6 min); with `__sloppy = true` (no dodging, eats poison, stalls) it dies ~3 in 5. Heat system + unit spawner/AI, concrete plugs with ground shadow warning, poison props, clog, snack floor.
 - **5 — Meta + feel.** Run results, currency, upgrades (slower decay, pull radius, concrete resist), daily seed, UI, WebAudio SFX, particles/juice.
 - **6 — Perf + ship.** Profile (draw calls, tris), LOD tune, GitHub Actions → Pages.
+
+## Stage 7 — Refine + deferred items ✅
+Done: detail multiplier Q=1.6 on every model + LOD1 (25%) / LOD2 (8%); richer cars/trees/houses, kid peg, car_c;
+new districts (residential, construction + animated crane, parking, canal); countryside ring (hills, farm, lake,
+windmill, barn, cows) + clouds; 4 time-of-day presets + sky dome; random city size/mood/time/start; clog; tilt-shift;
+sparks, combos, fleeing peds, hints, attract camera, endgame compass. Units stand down when heat drops.
+Bot (latest): greedy clears 7/8 (3–5.5 min, Boomtown slowest); sloppy dies ~1/4.
+- **Models:** fix weak ones (scooter front, hot-dog cart topping, tank stars), trim hydrant to budget, richer cars
+  (grille, plates, arches) + a third car colour, kid peg with balloon, rooftop detail on buildings.
+- **Clog:** vehicles slightly too big to swallow tip into the hole, jam it ≤1.5s, then pop out (rule 3).
+- **Tilt-shift:** post-process (blur band + vignette + grade), auto-off if fps drops.
+- **Juice:** swallow sparks, floating combo text + combo dust bonus, pedestrians flee a big hole,
+  first-run hints, slow attract camera behind the menu.
