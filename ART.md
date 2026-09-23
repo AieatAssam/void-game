@@ -1,7 +1,7 @@
 # Art Bible — "Toybox Town"
 
 The city is a tabletop of **painted wooden and tin toys** under warm afternoon light:
-chunky rounded silhouettes, satin paint, a tilt-shift miniature feel.
+chunky rounded silhouettes, satin paint, a tilt-shift miniature feel (*tilt-shift post-process deferred: warm fog + high camera carry it for now*).
 The hole is the one thing that does not belong: a **cold cosmic void** with a lilac glow rim.
 Warm toy world vs cold void is the core visual contrast. Every asset must serve it.
 

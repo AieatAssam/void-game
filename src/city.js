@@ -85,6 +85,7 @@ const PARK = ['tree_small', 'tree_big', 'bench', 'picnic_table', 'flower_pot', '
 const TRAFFIC = ['car', 'car_b', 'taxi', 'car', 'car_b', 'icecream_van', 'bus'];
 const PEDS = ['peg_a', 'peg_b', 'peg_c'];
 const CLONED = new Set(['fountain', 'clock_tower']);
+export const BUILDINGS = new Set(['house', 'shop', 'cafe', 'apartment', 'clock_tower', 'office', 'hotel', 'skyscraper']);
 const SNACKS = [['peg_a', 8], ['peg_b', 8], ['peg_c', 8], ['pigeon', 8], ['dog', 6], ['scooter', 6], ['bicycle', 6],
   ['car_b', 6], ['car', 6], ['taxi', 6], ['icecream_van', 4], ['bus', 4]];
 export const SNACK_NAMES = SNACKS.map(([n]) => n);
@@ -132,6 +133,13 @@ export class City {
     }
     this.traffic();
     this.reserves();
+  }
+
+  /** Win condition: buildings still standing. */
+  buildingsLeft() {
+    let n = 0;
+    for (const e of this.entities) if (e.alive && BUILDINGS.has(e.name)) n++;
+    return n;
   }
 
   /** Hidden wanderers the snack floor revives just off-screen (PLAN.md rule 2). */

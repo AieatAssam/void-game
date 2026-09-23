@@ -19,6 +19,7 @@ One shared 8×4 palette atlas material; theme and budgets in [ART.md](ART.md).
 
 ## Checks
 - `npm run check` — size ladder from exported metadata.
-- Playtest bot: open `/?bot`, then in the console `__runBot(240)` — the greedy bot must never starve.
+- Playtest bot: open `/?bot`, then in the console `__runBot(420)` — the greedy bot must clear the city without starving;
+  `__sloppy = true` first for a careless bot that should die some of the time (proves the failure mode is real).
 
 See [PLAN.md](PLAN.md) for stages and the no-dead-end rules.

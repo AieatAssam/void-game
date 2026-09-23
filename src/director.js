@@ -2,7 +2,9 @@
 import * as THREE from 'three';
 import { TILE, SNACK_NAMES } from './city.js';
 
-export const HEAT_AT = [4, 30, 120, 400]; // eaten footprint (m²) needed for each star
+// Heat follows the hole's current size (with hysteresis), so a shrinking hole also cools the city down:
+// no death spiral where a tiny hole is stuck at high heat (PLAN.md no-dead-end rules).
+export const HEAT_R = [0.8, 1.8, 3.2, 5];
 
 const warnMat = new THREE.MeshBasicMaterial({ color: 0xff3b3b, transparent: true, opacity: 0.5, depthWrite: false });
 const warnGeo = new THREE.RingGeometry(0.82, 1, 48).rotateX(-Math.PI / 2);
@@ -27,7 +29,10 @@ export class Director {
   }
 
   update(dt, hole, run) {
-    this.stars = HEAT_AT.filter((m) => run.score >= m).length;
+    const s = this.stars;
+    if (s < 4 && hole.r >= HEAT_R[s]) this.stars++;
+    else if (s > 0 && hole.r < HEAT_R[s - 1] * 0.75) this.stars--;
+    this.tollCool = Math.max(0, (this.tollCool || 0) - dt);
     for (const k in this.cool) this.cool[k] -= dt;
     const view = (14 + hole.r * 8) * 1.3; // beyond the camera view (portrait screens see further)
     this.snackFloor(hole, view);
@@ -132,7 +137,7 @@ export class Director {
     }
     this.drive(u, dt, 7, hole.x, hole.z);
     if (d < hole.r + 2 && hole.r < u.meta.tier * 0.95) {
-      this.hooks.hurt(0.15, 'Concrete pour!');
+      this.hooks.hurt(0.2, 'Concrete pour!');
       this.plug(hole.x, hole.z, hole.r * 1.05, 0.01);
       u.back = 3;
     }
@@ -183,8 +188,9 @@ export class Director {
       if (b.life < 1) { b.y = (b.life - 1) * 1.5; this.city.place(b); }
       if (b.life <= 0) { this.city.remove(b); continue; }
       const d = Math.hypot(hole.x - b.x, hole.z - b.z);
-      if (!b.tolled && hole.r < b.meta.tier * 0.95 && d < hole.r + 0.9) {
+      if (!b.tolled && !this.tollCool && hole.r < b.meta.tier * 0.95 && d < hole.r + 0.9) {
         b.tolled = true;
+        this.tollCool = 3;
         this.hooks.toll();
       }
     }
@@ -222,7 +228,7 @@ export class Director {
         d.mesh.position.set(THREE.MathUtils.lerp(d.from.x, d.x, k), d.from.y * (1 - k) + Math.sin(k * Math.PI) * 6, THREE.MathUtils.lerp(d.from.z, d.z, k));
         if (k >= 1 && !d.done) {
           d.done = true;
-          if (Math.hypot(hole.x - d.x, hole.z - d.z) < d.R + hole.r * 0.2) this.hooks.hurt(0.1, 'Shell hit!');
+          if (Math.hypot(hole.x - d.x, hole.z - d.z) < d.R + hole.r * 0.2) this.hooks.hurt(0.15, 'Shell hit!');
         }
         if (k >= 1) d.gone = true;
         continue;

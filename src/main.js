@@ -15,10 +15,10 @@ const camera = new THREE.PerspectiveCamera(38, 1, 0.3, 900);
 const PITCH = THREE.MathUtils.degToRad(55);
 
 // ---------- starvation tuning (PLAN.md: keep moving or the ground seals) ----------
-const BELLY_DRAIN = 1 / 7; // a full belly lasts 7s
-const MEAL = 0.12; // eating this fraction of the hole's own area fills the belly
-const DECAY_FED = 0.012; // area fraction lost per second while the belly has food
-const DECAY_STARVING = 0.09; // ... while it is empty
+const BELLY_DRAIN = 1 / 6; // a full belly lasts 6s
+const MEAL = 0.15; // eating this fraction of the hole's own area fills the belly
+const DECAY_FED = 0.02; // area fraction lost per second while the belly has food
+const DECAY_STARVING = 0.12; // ... while it is empty
 const DEAD_R = 0.26;
 const MAX_HIT = 0.25; // rule 3: no single hit takes more than 25%
 
@@ -38,7 +38,7 @@ function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false) {
   hole.z = plaza.cz + 5;
   scene.add(city.group, hole.group);
   state = { playing: false, seed, daily, time: 0, belly: 1, eaten: 0, score: 0, best: hole.r, stars: 0,
-    reverse: 0, jam: 0, slow: 0, invuln: 0, shake: 0, sealing: 0, hits: [] };
+    reverse: 0, jam: 0, slow: 0, invuln: 0, shake: 0, sealing: 0, hits: [], left: city.buildingsLeft() };
 }
 newRun();
 window.__game = () => ({ hole, city, state, renderer, director });
@@ -84,6 +84,7 @@ function hud() {
   $('hunger').style.width = `${state.belly * 100}%`;
   $('hunger').parentElement.classList.toggle('low', state.belly < 0.3);
   $('stars').textContent = '★'.repeat(director.stars) + '☆'.repeat(4 - director.stars);
+  $('left').querySelector('b').textContent = state.left;
   const st = [state.reverse > 0 && 'Controls reversed', state.jam > 0 && 'Jammed', state.slow > 0 && 'Slowed'].filter(Boolean);
   $('status').textContent = st.join(' · ');
 }
@@ -136,10 +137,12 @@ $('shopBtn').onclick = () => { $('shop').hidden = !$('shop').hidden; renderShop(
 function muteToggle() { $('mute').textContent = sfx.toggleMute() ? '♪̸' : '♪'; }
 $('mute').onclick = muteToggle;
 
+const clock = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+
 function renderShop() {
   $('dust').textContent = save.dust;
   const dailyBest = save.daily[todaySeed()];
-  $('daily').textContent = dailyBest ? `Daily city · best ${dailyBest.toFixed(1)} m` : 'Daily city';
+  $('daily').textContent = dailyBest ? `Daily city · best ${dailyBest.clear ? `cleared ${clock(dailyBest.clear)}` : `${dailyBest.r.toFixed(1)} m`}` : 'Daily city';
   $('shop').replaceChildren(...Object.entries(UPGRADES).map(([id, u]) => {
     const lv = level(id), cost = u.costs[lv];
     const b = document.createElement('button');
@@ -152,35 +155,44 @@ function renderShop() {
 }
 renderShop();
 
-function gameOver() {
+/** Ends a run. won = every building swallowed. */
+function endRun(won) {
   state.playing = false;
   state.over = true;
-  state.sealing = 1.2;
-  sfx.seal();
-  const dust = Math.floor(state.score / 8);
+  if (won) sfx.star();
+  else { state.sealing = 1.2; sfx.seal(); }
+  const dust = Math.floor(2 * Math.sqrt(state.score)) + (won ? 150 : 0);
   save.dust += dust;
   save.best = Math.max(save.best, state.best);
-  if (state.daily) save.daily[state.seed] = Math.max(save.daily[state.seed] || 0, state.best);
+  if (won) save.fastest = Math.min(save.fastest || Infinity, state.time);
+  if (state.daily) {
+    const d = { r: 0, ...save.daily[state.seed] };
+    d.r = Math.max(d.r, state.best);
+    if (won) d.clear = Math.min(d.clear || Infinity, state.time);
+    save.daily[state.seed] = d;
+  }
   persist();
   setTimeout(() => {
     $('hud').hidden = true;
     $('screen').hidden = false;
-    $('title').innerHTML = 'The ground<br><span>sealed</span>';
+    $('title').innerHTML = won ? 'You swallowed<br><span>the city</span>' : 'The ground<br><span>sealed</span>';
     $('result').hidden = false;
-    $('result').innerHTML = `You swallowed <b>${state.eaten}</b> things and grew to <b>${state.best.toFixed(1)} m</b>`
-      + `${state.daily ? ' in today\'s city' : ''}.<br>+<b>${dust}</b> void dust · best ever <b>${save.best.toFixed(1)} m</b>`;
+    $('result').innerHTML = (won
+      ? `Every building gone in <b>${clock(state.time)}</b>${state.daily ? ' — today\'s city' : ''}. Fastest ever <b>${clock(save.fastest)}</b>.`
+      : `You swallowed <b>${state.eaten}</b> things and grew to <b>${state.best.toFixed(1)} m</b>${state.daily ? ' in today\'s city' : ''}. <b>${state.left}</b> buildings still stand.`)
+      + `<br>+<b>${dust}</b> void dust${won ? ' (incl. 150 clear bonus)' : ''} · best ever <b>${save.best.toFixed(1)} m</b>`;
     $('play').textContent = 'Dig again';
     renderShop();
   }, 1300);
 }
 
 // ---------- loop ----------
-const clock = new THREE.Clock();
+const timer = new THREE.Clock();
 const camTarget = new THREE.Vector3(hole.x, 0, hole.z);
 const _v = new THREE.Vector3();
 let camDist = 14;
 
-renderer.setAnimationLoop(() => frame(Math.min(clock.getDelta(), 1 / 20)));
+renderer.setAnimationLoop(() => frame(Math.min(timer.getDelta(), 1 / 20)));
 window.__tick = (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) frame(dt); };
 
 function frame(dt) {
@@ -194,7 +206,7 @@ function frame(dt) {
   if (state.playing) {
     state.time += dt;
     for (const k of ['reverse', 'jam', 'slow', 'invuln', 'shake']) state[k] = Math.max(0, state[k] - dt);
-    state.belly = Math.max(0, state.belly - BELLY_DRAIN * dt);
+    state.belly = Math.max(0, state.belly - BELLY_DRAIN * Math.min(1, 0.3 + state.time / 25) * dt); // gentle first 20s
     const [sx, sz] = window.__bot ? window.__bot(hole, city) : steer();
     const speed = (5 + hole.r * 1.6) * (state.slow > 0 ? 0.45 : 1);
     const lim = city.half - 2;
@@ -207,8 +219,11 @@ function frame(dt) {
     const slower = 1 - level('appetite') * 0.12;
     hole.area *= 1 - (state.belly > 0 ? DECAY_FED : DECAY_STARVING) * slower * dt;
     director.update(dt, hole, state);
-    if (director.stars > state.stars) { state.stars = director.stars; sfx.star(); flash('★'.repeat(state.stars) + ' The city fights back'); }
-    if (hole.r < DEAD_R) gameOver();
+    if (director.stars > state.stars) { sfx.star(); flash('★'.repeat(director.stars) + ' The city fights back'); }
+    state.stars = director.stars;
+    if ((state.leftTimer = (state.leftTimer || 0) - dt) <= 0) { state.leftTimer = 0.5; state.left = city.buildingsLeft(); }
+    if (hole.r < DEAD_R) endRun(false);
+    else if (state.left === 0) endRun(true);
   } else if (state.sealing > 0) {
     state.sealing = Math.max(0, state.sealing - dt);
     hole.area *= Math.max(0, 1 - dt * 6);
