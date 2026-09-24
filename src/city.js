@@ -5,7 +5,7 @@ import * as THREE from 'three/webgpu';
 import { Fn, uniformArray, uv, vec4, length, smoothstep, pow, If, Discard, positionWorld } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { toyMaterial } from './assets.js';
-import { groundMaterial } from './surface.js';
+import { groundMaterial, groundMaskMaterial } from './surface.js';
 
 export const TILE = 40;
 const CHUNK = 40;
@@ -31,7 +31,8 @@ export function rng(seed) {
 
 /** Bake a glTF scene (with quantized attributes + child nodes) into one float geometry. */
 const flatCache = new Map();
-export function flatGeometry(asset, lod = 0) {
+export function flatGeometry(asset, lod = 0, variant = 0) {
+  if (asset.flatVariants) return asset.flatVariants[variant % asset.flatVariants.length][lod]; // procedural vegetation
   const key = asset.name + '|' + lod;
   if (flatCache.has(key)) return flatCache.get(key);
   const src = [asset.scene, asset.lod, asset.lod2][lod];
@@ -79,8 +80,8 @@ function aoMaterial(holeField) {
 export { groundMaterial };
 
 const SIDEWALK = ['lamp', 'tree_small', 'bench', 'hydrant', 'trashcan', 'mailbox', 'newsbox', 'vending', 'phone_booth',
-  'planter', 'flower_pot', 'bicycle', 'scooter', 'cone', 'tree_small', 'bench'];
-const PARK = ['tree_small', 'tree_big', 'bench', 'picnic_table', 'flower_pot', 'dog', 'planter', 'hotdog_cart', 'tree_small', 'gnome'];
+  'planter', 'flower_pot', 'bicycle', 'scooter', 'cone', 'tree_small', 'bench', 'bush', 'tree_small'];
+const PARK = ['tree_small', 'tree_big', 'bench', 'picnic_table', 'flower_pot', 'dog', 'bush', 'hotdog_cart', 'tree_small', 'gnome', 'bush', 'tree_big', 'bush'];
 const TRAFFIC = ['car', 'car_b', 'car_c', 'taxi', 'car', 'car_b', 'icecream_van', 'bus'];
 export const PEOPLE = ['ped_business', 'ped_jogger', 'ped_tourist', 'ped_granny', 'ped_student', 'ped_chef', 'ped_worker', 'ped_kid'];
 const PEDS = PEOPLE;
@@ -226,6 +227,7 @@ export class City {
         this.put(t, r() < 0.3 ? 'swing' : r.pick(['tree_small', 'tree_big', 'flower_pot', 'planter']), sx * 2.5, sz * 11, r() * 6.28);
         if (r() < 0.5) this.put(t, 'dog', sx * r.range(1, 3), sz * r.range(2, 4), r() * 6.28);
         this.put(t, 'mailbox', sx * 13.6, sz * 4.2, 0);
+        for (let k = 0; k < 3; k++) this.put(t, 'bush', sx * r.range(8.5, 12), sz * r.range(8, 13), r() * 6.28);
       }
       for (let k = 0; k < 3; k++) this.walker(cx, cz, 13.2);
     } else if (t.type === 'construction') {
@@ -285,6 +287,10 @@ export class City {
         const x = cx + r.range(-12, 12), z = cz + r.range(-12, 12);
         if (Math.abs(x - cx) < 2 || Math.abs(z - cz) < 2) continue; // keep paths clear
         this.add(r.pick(PARK), x, z, r() * Math.PI * 2);
+      }
+      for (let k = 0; k < 6; k++) { // shrub clusters at the lawn corners
+        const qx = r() < 0.5 ? -1 : 1, qz = r() < 0.5 ? -1 : 1;
+        this.add('bush', cx + qx * r.range(4, 12.5), cz + qz * r.range(4, 12.5), r() * 6.28);
       }
       if (r() < 0.5) this.add('swing', cx + 7, cz - 7, r() * 6.28);
       for (let k = 0; k < 6; k++) this.add('pigeon', cx + r.range(-10, 10), cz + r.range(-10, 10), r() * 6.28, { type: 'peck', t: r() * 10 });
@@ -531,7 +537,8 @@ export class City {
     this.meshes = [];
     for (const g of groups.values()) {
       const a = this.assets[g.name];
-      const full = flatGeometry(a), lod = flatGeometry(a, 1), lod2 = flatGeometry(a, 2);
+      const variant = (this.groupCount = (this.groupCount || 0) + 1); // procedural trees differ chunk to chunk
+      const full = flatGeometry(a, 0, variant), lod = flatGeometry(a, 1, variant), lod2 = flatGeometry(a, 2, variant);
       const mat = g.ground ? this.groundMat : a.material;
       const mesh = new THREE.InstancedMesh(full, mat, g.list.length);
       mesh.castShadow = !g.ground;
@@ -548,6 +555,12 @@ export class City {
       this.group.add(mesh);
     }
     this.buildScenery();
+    // what the grass mask pass rasterises (src/grass.js)
+    const lawnMask = groundMaskMaterial(0, 1);
+    this.groundMeshes = this.meshes.filter((m) => m.userData.ground);
+    for (const m of this.groundMeshes) m.userData.grassMask = lawnMask;
+    this.field.userData.grassMask = groundMaskMaterial(1, 0.9);
+    this.groundMeshes.push(this.field);
     // contact shadows under every small/medium thing (buildings already cast real shadows)
     const aoList = this.entities.filter((e) => e.meta.tier < 6);
     this.ao = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), aoMaterial(this.holeField), aoList.length + 64);
@@ -604,7 +617,8 @@ export class City {
     }
     for (const g of groups.values()) {
       const a = this.assets[g.name];
-      const geos = [0, 1, 2].map((l) => flatGeometry(a, l));
+      const variant = (this.groupCount = (this.groupCount || 0) + 1);
+      const geos = [0, 1, 2].map((l) => flatGeometry(a, l, variant));
       const mesh = new THREE.InstancedMesh(geos[0], a.material, g.list.length);
       mesh.castShadow = mesh.receiveShadow = true;
       mesh.userData = { geos, tier: Infinity, scenery: true, toyFlags: a.flags };

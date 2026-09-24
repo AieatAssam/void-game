@@ -189,9 +189,17 @@ def build_leaves(kind, set_name, out, n_leaves, leaf_px, seed, tint):
     # bleed colour into transparent texels so mipmaps don't fringe dark/pink
     a = np.asarray(alpha, np.float32) / 255
     cf = np.asarray(col, np.float32)
-    blur = np.asarray(col.filter(ImageFilter.GaussianBlur(12)), np.float32)
-    ab = np.asarray(alpha.filter(ImageFilter.GaussianBlur(12)), np.float32)[..., None] / 255 + 1e-3
-    fill = blur / ab
+    leaf_mean = (cf * a[..., None]).sum((0, 1)) / max(a.sum(), 1)
+    fill = np.zeros_like(cf)
+    wsum = np.zeros(a.shape, np.float32)
+    for radius in (4, 12, 32):  # premultiplied blur pyramid: nearest leaf colour bleeds outward
+        pm = Image.fromarray(np.clip(cf * a[..., None], 0, 255).astype(np.uint8))
+        b = np.asarray(pm.filter(ImageFilter.GaussianBlur(radius)), np.float32)
+        ab = np.asarray(alpha.filter(ImageFilter.GaussianBlur(radius)), np.float32) / 255
+        take = (wsum < 0.5) & (ab > 0.02)
+        fill[take] = b[take] / ab[take][..., None]
+        wsum[take] = 1
+    fill[wsum < 0.5] = leaf_mean
     cf = cf * a[..., None] + np.clip(fill, 0, 255) * (1 - a[..., None])
     rgba = np.concatenate([cf, np.asarray(alpha, np.float32)[..., None]], -1)
     Image.fromarray(np.clip(rgba, 0, 255).astype(np.uint8), 'RGBA').save(os.path.join(OUT, f'{out}_col.png'), optimize=True)

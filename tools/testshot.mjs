@@ -11,6 +11,7 @@ const b = await chromium.launch({ headless: true, ...V });
 const p = await b.newPage({ viewport: { width: 640, height: 400 } });
 p.on('console', (m) => { const t = m.text(); if (!/GPU stall|GroupMarker|vite|experimental/.test(t)) console.log(m.type(), t.slice(0, 400)); });
 p.on('pageerror', (e) => console.log('pageerror', e.message.slice(0, 400)));
+p.on('response', (r) => { if (r.status() >= 400) console.log('HTTP', r.status(), r.url()); });
 await p.goto('http://127.0.0.1:5174/test.html' + query);
 await p.waitForTimeout(+(process.env.WAIT || 20000));
 await p.screenshot({ path: out });

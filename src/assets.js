@@ -4,6 +4,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { toyMaterial as makeToy, pedMaterial, glow, pedTime } from './surface.js';
 import { loadPBR } from './pbr.js';
+import { installVegetation } from './vegetation.js';
 
 const base = import.meta.env.BASE_URL;
 
@@ -51,7 +52,9 @@ export async function loadAll(onProgress) {
     return [name, { name, scene: gltf.scene, lod: lod.scene, lod2: lod2.scene, clips: gltf.animations, meta, material, flags }];
   }));
   await pbr;
-  return Object.fromEntries(entries);
+  const assets = Object.fromEntries(entries);
+  installVegetation(assets);
+  return assets;
 }
 
 /** Kept for callers: time-of-day glow lives in one uniform now. */

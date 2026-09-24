@@ -130,3 +130,12 @@ export const waterGrad = (pw) => {
 export const macro = (pw, freq = 0.035) => mx_noise_float(vec3(pw.x.mul(freq), 0.37, pw.z.mul(freq))).mul(0.5).add(0.5);
 
 export { vec2, vec4, int, mix, clamp };
+
+/** View-space surface gradient for a tangent-space normal sample on real UVs (no tangents needed). */
+export const uvGrad = (nm, uvNode, strength = 1) => {
+  const { r1, r2 } = surfaceBasis();
+  const du = dFdx(uvNode), dv = dFdy(uvNode);
+  const gU = r1.mul(du.x).add(r2.mul(dv.x)), gV = r1.mul(du.y).add(r2.mul(dv.y));
+  const s = nm.xy.div(max(nm.z, 0.25)).negate().mul(strength);
+  return gU.mul(s.x).add(gV.mul(s.y));
+};

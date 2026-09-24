@@ -14,6 +14,7 @@ import * as sfx from './sfx.js';
 import { Post } from './post.js';
 import { Sparks, Debris, SMOKE } from './fx.js';
 import { surfaceTime, surfaceOn, world } from './surface.js';
+import { Grass } from './grass.js';
 
 const $ = (id) => document.getElementById(id);
 const renderer = await createRenderer($('c'));
@@ -90,9 +91,9 @@ function snapshot() {
 
 const field = holeField();
 const DAY_TIMES = Object.keys(TIMES).filter((k) => !TIMES[k].night);
-let city, hole, state, director, rivals;
+let city, hole, state, director, rivals, grass;
 function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false, card = 'none') {
-  if (city) { scene.remove(city.group, hole.group); city.dispose(); hole.dispose(); director.dispose(); rivals.dispose(); }
+  if (city) { scene.remove(city.group, hole.group, grass.group); city.dispose(); hole.dispose(); director.dispose(); rivals.dispose(); grass.dispose(); }
   hole = new Hole(assets, field, 0, { r: 0.45 + level('headstart') * 0.07, skin: save.skin || 'void' });
   hole.pull = 1 + level('gravity') * 0.1;
   city = new City(assets, seed, field);
@@ -117,7 +118,8 @@ function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false, card = 'non
     city.revive(r.pick([...PEOPLE, 'pigeon']), hole.x + Math.cos(b) * d, hole.z + Math.sin(b) * d, hole.x, hole.z);
   }
   $('where').textContent = `${city.mood.name} · ${city.N}×${city.N} blocks · ${time}`;
-  scene.add(city.group, hole.group);
+  grass = new Grass(renderer, city.groundMeshes, city.half + 80, field, { density: +(new URLSearchParams(location.search).get('grass') ?? (LOW_FX ? 0.5 : 1)) });
+  scene.add(city.group, hole.group, grass.group);
   state = { playing: false, seed, daily, card, time: 0, belly: 1, eaten: 0, score: 0, best: hole.r, stars: 0,
     reverse: 0, jam: 0, slow: 0, invuln: 0, shake: 0, sealing: 0, hits: [], left: city.buildingsLeft(), combo: 0, comboT: 0, bonus: 0,
     rareDust: 0, rivalsEaten: 0, hitstop: 0, punch: 0, finale: 0, mi: MILESTONES.filter((m) => hole.r >= m.need).length };
@@ -562,6 +564,7 @@ function frame(dt) {
   surfaceOn.value = low ? 0 : 1;
   city.budget(camera, hole.r, low);
   followSun(sun, camTarget);
+  grass.update(camTarget, camDist / LENS, low);
   setFogRange(camDist);
   const sc = sun.shadow.camera, ext = Math.max(25, (camDist / LENS) * 0.9);
   if (sc.right !== ext) { sc.left = sc.bottom = -ext; sc.right = sc.top = ext; sc.updateProjectionMatrix(); }

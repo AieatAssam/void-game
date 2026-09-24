@@ -28,7 +28,7 @@ function voidMaterial(skin) {
     // lensing: a hot accretion ring just under the lip
     col.addAssign(u.uRim.mul(u.uLens).mul(2.2).mul(exp(pow(d.sub(0.06).mul(28), 2).negate())));
     const g = vec2(ang.mul(18), vP.y.add(u.uTime.mul(0.03)).mul(60));
-    const h = hash(floor(g).dot(vec2(1, 157)));
+    const h = hash(floor(g).add(vec2(2048, 4096)).dot(vec2(1, 8192)));
     const star = step(0.93, h).mul(smoothstep(0.5, 0, length(fract(g).sub(0.5)))).mul(sin(u.uTime.mul(3).add(h.mul(40))).mul(0.4).add(0.6));
     col.addAssign(u.uStar.mul(star).mul(0.8).mul(smoothstep(0.05, 0.25, d)));
     // torn earth at the lip: road crust, then banded soil with pebbles, fading into the void

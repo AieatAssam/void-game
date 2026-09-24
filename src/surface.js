@@ -126,6 +126,7 @@ function buildToy(mat, { ground = false, holes = null } = {}) {
       c.mulAssign(mix(0.82, 1.14, m).mul(mix(0.93, 1.05, m2)));
       // cavity darkening from the scan's AO (direct light too - fills the grooves between pavers and tiles)
       c.mulAssign(mix(1, pow(tri.ao, 1.5), k));
+      c.mulAssign(select(info.x.equal(L.grass), mix(1, 0.6, surfaceOn), float(1))); // soil in the shade of the blades
       c.assign(select(water, pal.rgb.mul(0.55), c));
     } else {
       c.mulAssign(mix(1, tri.ao, k.mul(0.7)));
@@ -198,3 +199,12 @@ export function groundMaterial(holeField) {
   return buildToy(new ToyNodeMaterial(), { ground: true, holes });
 }
 
+
+/** Grass mask pass (src/grass.js): R = lawn density from the swatch table, G = ground height, B = wildness. */
+export function groundMaskMaterial(wild = 0, density = 1) {
+  const m = new THREE.MeshBasicNodeMaterial({ fog: false });
+  const info = GND_TABLE.element(swatchIndex());
+  const grass = info.x.equal(L.grass).select(float(density), float(0));
+  m.colorNode = vec4(grass, positionWorld.y, wild, 1);
+  return m;
+}
