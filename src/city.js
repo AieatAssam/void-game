@@ -1104,6 +1104,30 @@ export class City {
             if (m.top) { m.top.getWorldQuaternion(_qt); e.rot = 2 * Math.atan2(_qt.y, _qt.w); }
             e.x = tt.x; e.z = tt.z; e.y = tt.y + 0.36 * tt.s; e.s = tt.s;
           }
+        } else if (m.type === 'tumble') { // knocked loose (blast, fireworks hop, quake): fly, bounce, settle
+          e.x += m.vx * dt; e.z += m.vz * dt;
+          const f = Math.max(0, 1 - dt * 2.5);
+          m.vx *= f; m.vz *= f;
+          m.vy -= 9.8 * dt;
+          e.y += m.vy * dt;
+          if (e.y <= m.y0) { e.y = m.y0; m.vy = m.vy < -2 ? -m.vy * 0.3 : 0; }
+          e.rot += m.spin * dt;
+          m.spin *= Math.max(0, 1 - dt * 2);
+          e.tilt = Math.min(0.5, Math.abs(m.spin) * 0.03);
+          if (m.t > 1.6 && e.y <= m.y0 + 1e-3 && Math.hypot(m.vx, m.vz) < 0.3) { e.mover = m.prev ?? null; e.tilt = 0; e.y = m.y0; }
+        } else if (m.type === 'domino') { // a neighbour fell: rock, and sometimes topple toward the hole and slide
+          e.tiltDir = m.dir;
+          if (!m.topple || m.t < 0.9) {
+            e.tilt = Math.sin(m.t * 16) * 0.05 * Math.max(0, 1 - m.t / 0.9);
+            if (m.t >= 0.9 && !m.topple) { e.tilt = 0; e.mover = null; }
+          } else {
+            const k = Math.min(1, (m.t - 0.9) / 0.8), sl = Math.min(1, Math.max(0, (m.t - 1.5) / 0.6));
+            e.tilt = 1.22 * k * k; // 70 degrees over 0.8 s
+            e.x = m.x0 + Math.cos(m.dir) * 1.5 * sl;
+            e.z = m.z0 + Math.sin(m.dir) * 1.5 * sl;
+            if (m.t > 2.2) m.type = 'fallen';
+          }
+        } else if (m.type === 'fallen') { // lies where it toppled (same tier, new pose)
         } else if (m.type === 'rail') { // placed by placeTrain before this loop
         } else if (m.type === 'scuttle') { // crabs: sideways dashes along the waterline
           e.x = m.x0 + Math.sin(m.t * 1.4) * 1.6 + (scared ? Math.sign(fdx || 1) * 2 : 0);

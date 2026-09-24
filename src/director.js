@@ -94,6 +94,15 @@ export class Director {
     this.spawnUnits(hole, view);
     for (const u of this.units) {
       if (!u.alive || u.falling) continue;
+      u.slowT = Math.max(0, (u.slowT || 0) - dt); // flooded streets (chains.js)
+      if (u.stunT > 0) { // quaked (abilities.js): reels on the spot
+        u.stunT -= dt;
+        u.tilt = Math.abs(Math.sin(u.stunT * 12)) * 0.12;
+        u.tiltDir = (u.t || 0) * 3;
+        if (u.stunT <= 0) u.tilt = 0;
+        this.city.place(u);
+        continue;
+      }
       if (u.leaving) this.leave(u, dt, hole, view);
       else this[u.unit](u, dt, hole, run);
     }
@@ -199,6 +208,7 @@ export class Director {
 
   /** Move along the road grid toward (tx, tz); beeline across open ground once close. */
   drive(u, dt, speed, tx, tz) {
+    if (u.slowT > 0) speed *= 0.5;
     const dx = tx - u.x, dz = tz - u.z, d = Math.hypot(dx, dz);
     if (d < 26 && !this.blocked(u.x + (dx / d) * 2.5, u.z + (dz / d) * 2.5)) {
       u.x += (dx / d) * speed * dt;

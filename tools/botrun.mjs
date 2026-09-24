@@ -4,7 +4,7 @@ const [query = '', seconds = '600', sloppy = '0'] = process.argv.slice(2);
 const b = await chromium.launch({ headless: true, channel: 'chromium', args: ['--ignore-gpu-blocklist'] });
 const p = await b.newPage({ viewport: { width: 640, height: 400 } });
 p.on('pageerror', (e) => console.log('pageerror', e.message.slice(0, 300)));
-await p.goto(`http://127.0.0.1:5174/?bot&webgl&q=low&grass=0&nothumbs${query}`);
+await p.goto(`http://127.0.0.1:${process.env.PORT || 5174}/?bot&webgl&q=low&grass=0&nothumbs${query}`);
 await p.waitForSelector('#menu:not([hidden])', { timeout: 900000 });
 const out = await p.evaluate(([s, sl]) => {
   window.__sloppy = sl === '1';

@@ -10,6 +10,7 @@ import { CARDS, VEHICLES, offer, dailyCard } from './cards.js';
 import { record, renderBook, title, bookEntries, thumb, warmThumbs } from './book.js';
 import { Director } from './director.js';
 import { Events } from './events.js';
+import { Chains } from './chains.js';
 import { installBot } from './bot.js';
 import { UPGRADES, ECON, save, persist, level, buy, todaySeed } from './meta.js';
 import * as sfx from './sfx.js';
@@ -110,7 +111,7 @@ function snapshot() {
 
 const field = holeField();
 const DAY_TIMES = Object.keys(TIMES).filter((k) => !TIMES[k].night);
-let city, hole, state, director, rivals, grass, events;
+let city, hole, state, director, rivals, grass, events, chains;
 const randomSeed = () => (Math.random() * 2 ** 31) | 0;
 
 /** Download (once) every pack a mood needs, with the staged loading line. Resolves true if anything was fetched. */
@@ -124,13 +125,17 @@ async function ensurePacks(moodName, show = setLoad) {
 }
 
 function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null) {
-  if (city) { scene.remove(city.group, hole.group, grass.group); city.dispose(); hole.dispose(); director.dispose(); rivals.dispose(); grass.dispose(); events.dispose(); }
+  if (city) { scene.remove(city.group, hole.group, grass.group); city.dispose(); hole.dispose(); director.dispose(); rivals.dispose(); grass.dispose(); events.dispose(); chains.dispose(); }
   const debugR = +new URLSearchParams(location.search).get('r') || 0; // screenshot/debug: start bigger
   hole = new Hole(assets, field, 0, { r: debugR || 0.45 + level('headstart') * 0.04, skin: save.skin || 'void' });
   hole.pull = 1 + level('gravity') * 0.06;
   city = new City(assets, seed, field, { mood });
   director = new Director(city, scene, { hurt, toll, spotted, ram, drain, siren: sfx.siren, warn: (t) => flash(t, false) }, card === 'hot' ? 2 : 0);
   director.notorietyMult = 1 - level('quiet') * 0.1;
+  chains = new Chains(city, scene, debris, sparks, {
+    shake: (k) => { state.shake = Math.max(state.shake, k); }, boom: sfx.boom, crackle: sfx.crackle,
+    notice: (n) => director.notice(n), flash: (t) => flash(t, false),
+  });
   events = new Events(city, scene, { warn: (t) => { flash(t, false); sfx.drums(); }, boom: sfx.boom });
   rivals = new Rivals(assets, field, city, scene, card === 'crowded' ? 3 : card === 'lonely' ? 0 : 2, save.skin || 'void');
   // Randomised start: time of day, and a calm open tile (never a downtown lot) at a random spot on it.
@@ -173,7 +178,7 @@ setLoad('Opening the ground…', 0.98);
 await nextPaint();
 $('load').hidden = true;
 $('menu').hidden = false;
-window.__game = () => ({ hole, city, state, renderer, director, rivals, events });
+window.__game = () => ({ hole, city, state, renderer, director, rivals, events, chains });
 window.__info = () => { const r = renderer.info.render; return { calls: r.drawCalls, tris: r.triangles, frameCalls: r.frameCalls }; };
 if (location.search.includes('bot')) installBot();
 
@@ -715,6 +720,7 @@ function frame(dt) {
         sfx.bigGulp(t);
       }
       if (e.name === 'balloon_stand') debris.balloons(e.x, 2.5, e.z, 10 + Math.floor(Math.random() * 5));
+      if (state.playing) chains.onFall(e, e.eater || hole, hole);
       if (mine && t >= 0.5 && t > (state.biteTier || 0)) { state.biteTier = t; state.biteName = e.name; state.snapAt = state.time + 0.25; }
     }
     if (ev.type === 'scream' && state.playing) { shout(ev.e); sfx.eek(); }
@@ -807,6 +813,7 @@ function frame(dt) {
 
   sparks.update(dt);
   debris.update(dt);
+  chains.update(dt, hole, director);
   for (const s of bubbles) {
     if (s.t <= 0) continue;
     s.t -= dt;
