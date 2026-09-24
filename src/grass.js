@@ -42,12 +42,14 @@ export class Grass {
    * renderer: used once for the mask pass. groundMeshes: meshes to rasterise, each with userData.grassMask
    * (a NodeMaterial writing vec4(density, height, wild, 1)). extent: half-size of the masked square (m).
    */
-  constructor(renderer, groundMeshes, extent, holeField, { density = 1 } = {}) {
+  constructor(renderer, groundMeshes, extent, holeField, { density = 1, far: withFar = true } = {}) {
     this.extent = extent;
     this.group = new THREE.Group();
-    this.mask = new THREE.RenderTarget(MASK_RES, MASK_RES, { type: THREE.HalfFloatType, depthBuffer: true });
-    this.mask.texture.minFilter = this.mask.texture.magFilter = THREE.LinearFilter;
-    this.renderMask(renderer, groundMeshes);
+    if (density > 0) { // no blades: no mask target, no mask pass
+      this.mask = new THREE.RenderTarget(MASK_RES, MASK_RES, { type: THREE.HalfFloatType, depthBuffer: true });
+      this.mask.texture.minFilter = this.mask.texture.magFilter = THREE.LinearFilter;
+      this.renderMask(renderer, groundMeshes);
+    }
     this.origin = uniform(new THREE.Vector2());
     this.fadeCentre = uniform(new THREE.Vector2());
     this.fadeFar = uniform(40);
@@ -57,10 +59,8 @@ export class Grass {
     const near = [], far = [];
     for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) near.push(new THREE.Vector2(i, j));
     for (let i = -5; i <= 5; i++) for (let j = -5; j <= 5; j++) if (Math.abs(i) > 2 || Math.abs(j) > 2) far.push(new THREE.Vector2(i, j));
-    this.layers = density <= 0 ? [] : [
-      this.layer(near, Math.round(PATCH * PATCH * 85 * density), 1, holes),
-      this.layer(far, Math.round(PATCH * PATCH * 16 * density), 2.3, holes),
-    ];
+    this.layers = density <= 0 ? [] : [this.layer(near, Math.round(PATCH * PATCH * 85 * density), 1, holes)];
+    if (density > 0 && withFar) this.layers.push(this.layer(far, Math.round(PATCH * PATCH * 16 * density), 2.3, holes));
   }
 
   renderMask(renderer, meshes) {
@@ -192,7 +192,7 @@ export class Grass {
   }
 
   dispose() {
-    this.mask.dispose();
+    this.mask?.dispose();
     for (const l of this.layers) { l.geometry.dispose(); l.material.dispose(); }
   }
 }

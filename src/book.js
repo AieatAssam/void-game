@@ -33,8 +33,12 @@ export function thumb(asset) {
   return thumbs.get(asset.name) || '';
 }
 
-/** Render every collection-book thumbnail once (async; call after loading, off the critical path). */
-export async function warmThumbs(assets) {
+/**
+ * Render collection-book thumbnails lazily: `first` names up front, then the rest, one per ~80 ms, pausing while
+ * `busy()` (a run is being played) so it never competes with gameplay.
+ */
+export async function warmThumbs(assets, first = [], busy = () => false) {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   if (!thumbR) {
     const canvas = document.createElement('canvas');
     thumbR = new THREE.WebGPURenderer({ canvas, antialias: true, alpha: true, forceWebGL: location.search.includes('webgl') });
@@ -48,8 +52,11 @@ export async function warmThumbs(assets) {
     thumbScene.add(sun);
     thumbCam = new THREE.PerspectiveCamera(30, 1, 0.05, 500);
   }
-  for (const asset of bookEntries(assets)) {
+  const order = [...first.map((n) => assets[n]).filter(Boolean), ...bookEntries(assets)];
+  for (const asset of order) {
     if (thumbs.has(asset.name)) continue;
+    while (busy()) await wait(500);
+    await wait(80);
     const obj = asset.scene.clone();
     thumbScene.add(obj);
     const box = new THREE.Box3().setFromObject(obj), c = box.getCenter(new THREE.Vector3()), d = box.getSize(new THREE.Vector3()).length();

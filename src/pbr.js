@@ -3,9 +3,10 @@
 // (faces point at palette swatches), so layers are projected triplanar in object space (props) or world space
 // (ground). Normals use Mikkelsen's surface-gradient framework: no tangents needed and exact under instancing.
 import * as THREE from 'three/webgpu';
+import { Q } from './quality.js';
 import {
   texture, vec3, float, abs, pow, dot, cross, dFdx, dFdy, sign, max, positionView, normalViewGeometry, uniformArray,
-  mx_noise_float, time, cos,
+  mx_noise_float, time, cos, select,
 } from 'three/tsl';
 
 export const LAYERS = ['plaster', 'asphalt', 'concrete', 'grass', 'paving', 'sand', 'dirt', 'brick', 'wood', 'foliage', 'metal',
@@ -77,7 +78,27 @@ const surfaceBasis = () => {
  * layer: int node, scale: repeats per metre. Returns { col, rough, height, ao, grad } where grad is the
  * view-space surface gradient of the layer's relief (subtract it from the normal, scaled by strength).
  */
-export const triplanar = (p, n, layer, scale) => {
+export const triplanar = (p, n, layer, scale) => (Q.surface === 'lite' ? dominantPlanar(p, n, layer, scale) : fullTriplanar(p, n, layer, scale));
+
+/** Mobile path: one projection on the dominant axis (3 texture reads instead of 9). Same outputs as triplanar. */
+const dominantPlanar = (p, n, layer, scale) => {
+  const a = abs(n);
+  const useY = a.y.greaterThanEqual(a.x).and(a.y.greaterThanEqual(a.z));
+  const useX = a.x.greaterThan(a.z);
+  const q = p.mul(scale);
+  const uvv = select(useY, q.xz, select(useX, q.zy, q.xy));
+  const c = texture(pbrCol, uvv).depth(layer).xyz;
+  const nm = texture(pbrNrm, uvv).depth(layer).xyz.mul(2).sub(1);
+  const r = texture(pbrRha, uvv).depth(layer).xyz;
+  const { r1, r2 } = surfaceBasis();
+  const dx = dFdx(p), dy = dFdy(p);
+  const gX = r1.mul(dx.x).add(r2.mul(dy.x)), gY = r1.mul(dx.y).add(r2.mul(dy.y)), gZ = r1.mul(dx.z).add(r2.mul(dy.z));
+  const gU = select(useY, gX, select(useX, gZ, gX)), gV = select(useY, gZ, gY);
+  const sl = nm.xy.div(max(nm.z, 0.25)).negate();
+  return { col: c, rough: r.x, height: r.y, ao: r.z, grad: gU.mul(sl.x).add(gV.mul(sl.y)) };
+};
+
+const fullTriplanar = (p, n, layer, scale) => {
   const w0 = pow(abs(n), vec3(4));
   const w = w0.div(w0.x.add(w0.y).add(w0.z).add(1e-5));
   const q = p.mul(scale);
@@ -116,11 +137,13 @@ export const waterGrad = (pw) => {
     sx = sx.add(d.mul(dxw));
     sz = sz.add(d.mul(dzw));
   }
+  if (Q.surface !== 'lite') {
   // fine chop from gradient noise (finite difference in world space)
   const e = 0.05, np = vec3(pw.x.mul(3.1), t.mul(0.6), pw.z.mul(3.1));
   const n0 = mx_noise_float(np);
   sx = sx.add(mx_noise_float(np.add(vec3(e * 3.1, 0, 0))).sub(n0).div(e).mul(0.012));
   sz = sz.add(mx_noise_float(np.add(vec3(0, 0, e * 3.1))).sub(n0).div(e).mul(0.012));
+  }
   const dx = dFdx(pw), dy = dFdy(pw);
   const gX = r1.mul(dx.x).add(r2.mul(dy.x)), gZ = r1.mul(dx.z).add(r2.mul(dy.z));
   return gX.mul(sx).add(gZ.mul(sz));

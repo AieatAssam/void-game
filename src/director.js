@@ -1,6 +1,8 @@
 // The city fights back (heat ★1-4) and feeds you (snack floor). See PLAN.md no-dead-end rules.
 import * as THREE from 'three/webgpu';
-import { TILE, SNACK_NAMES, groundMaterial, BUILDINGS } from './city.js';
+import { TILE, SNACK_NAMES, BUILDINGS } from './city.js';
+import { waterMaterial } from './terrain.js';
+import { uniform, uniformArray } from 'three/tsl';
 
 // Heat follows the hole's current size (with hysteresis), so a shrinking hole also cools the city down:
 // no death spiral where a tiny hole is stuck at high heat (PLAN.md no-dead-end rules).
@@ -21,6 +23,7 @@ const glowTex = (() => {
 const spotMat = new THREE.MeshBasicMaterial({ map: glowTex, color: 0xfff1b8, transparent: true, opacity: 0.75, depthWrite: false, blending: THREE.AdditiveBlending });
 const spotGeo = new THREE.CircleGeometry(1, 40).rotateX(-Math.PI / 2);
 const TIDE = { period: 45, warn: 37, flood: 40, end: 48 };
+const FORCE_TIDE = typeof location !== 'undefined' && location.search.includes('tide'); // screenshot/debug
 const warnMat = new THREE.MeshBasicMaterial({ color: 0xff3b3b, transparent: true, opacity: 0.5, depthWrite: false });
 const warnGeo = new THREE.RingGeometry(0.82, 1, 48).rotateX(-Math.PI / 2);
 const shellGeo = new THREE.SphereGeometry(0.35, 14, 10);
@@ -43,10 +46,8 @@ export class Director {
       const row = city.tiles.filter((t) => t.type === 'beach');
       const z = row[0].cz;
       const geo = new THREE.PlaneGeometry(city.half * 2, 18).rotateX(-Math.PI / 2);
-      geo.attributes.uv.array.forEach((_, i, arr) => { arr[i] = i % 2 ? 1.5 / 6 : 0.4375; }); // 'sky' swatch (col 3, row 1)
-      this.floodMat = groundMaterial(city.holeField);
-      this.floodMat.transparent = true;
-      this.floodMat.opacity = 0.7;
+      this.floodFade = uniform(0);
+      this.floodMat = waterMaterial({ holes: uniformArray(city.holeField.value, 'vec3'), fade: this.floodFade, front: true });
       this.flood = new THREE.Mesh(geo, this.floodMat);
       this.flood.position.set(0, -0.5, z + 2);
       this.floodBand = [z - 7, z + 11];
@@ -116,9 +117,10 @@ export class Director {
     if (!this.flood) return;
     const t = (this.tideT = (this.tideT + dt) % TIDE.period);
     if (t >= TIDE.warn && t - dt < TIDE.warn) this.hooks.warn?.('🌊 Tide incoming!');
-    const up = t < TIDE.flood ? 0 : t < TIDE.flood + 1.5 ? (t - TIDE.flood) / 1.5 : t < TIDE.end - 1.5 ? 1 : Math.max(0, (TIDE.end - t) / 1.5);
+    const up = FORCE_TIDE ? 1 : t < TIDE.flood ? 0 : t < TIDE.flood + 1.5 ? (t - TIDE.flood) / 1.5 : t < TIDE.end - 1.5 ? 1 : Math.max(0, (TIDE.end - t) / 1.5);
     this.flood.position.y = -0.5 + up * 0.82;
-    this.flood.material.opacity = 0.35 + up * 0.35;
+    this.floodFade.value = Math.min(1, up * 1.6);
+    this.flood.visible = up > 0.001;
     run.flooded = up > 0.5 && Math.abs(hole.x) < this.city.half && hole.z > this.floodBand[0] && hole.z < this.floodBand[1];
   }
 

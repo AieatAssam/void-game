@@ -15,6 +15,7 @@ import { Post } from './post.js';
 import { Sparks, Debris, SMOKE } from './fx.js';
 import { surfaceTime, surfaceOn, world } from './surface.js';
 import { Grass } from './grass.js';
+import { Q } from './quality.js';
 
 const $ = (id) => document.getElementById(id);
 const renderer = await createRenderer($('c'));
@@ -29,7 +30,7 @@ const sparks = new Sparks();
 scene.add(sparks.points);
 const debris = new Debris();
 scene.add(debris.group);
-const LOW_FX = location.search.includes('low');
+const LOW_FX = /[?&]low\b/.test(location.search); // ?low: skip extra particles and smoke
 // debug framing for screenshots: ?view=x,z,dist[,yaw,pitch]
 const VIEW = new URLSearchParams(location.search).get('view')?.split(',').map(Number);
 const smokeCol = new THREE.Color();
@@ -42,9 +43,17 @@ const DECAY_STARVING = 0.09; // ... while it is empty
 const DEAD_R = 0.26;
 const MAX_HIT = 0.25; // rule 3: no single hit takes more than 25%
 
-const assets = await loadAll((p) => { $('load').querySelector('b').textContent = `${Math.round(p * 100)}%`; });
-$('load').hidden = true;
-$('menu').hidden = false;
+// Loading: files are ~80% of the bar, then building the first city and compiling its shaders (each stage paints first).
+const nextPaint = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+let lastLabel = '';
+function setLoad(label, p) {
+  $('load').innerHTML = `${label} <b>${Math.round(p * 100)}%</b>`;
+  if (label !== lastLabel) console.info(`[load] ${(performance.now() / 1000).toFixed(1)}s ${lastLabel = label}`);
+}
+setLoad('Unpacking the toybox…', 0);
+const assets = await loadAll((p) => setLoad(p < 1 ? 'Unpacking the toybox…' : 'Growing trees…', p * 0.8));
+setLoad('Growing the countryside…', 0.82);
+await nextPaint();
 
 // Size-up moments: each milestone is reached when every example in it fits the hole (sizes come from the manifest).
 const MILESTONES = [['people', ['ped_business', 'ped_granny', 'ped_kid']], ['benches & bikes', ['bench', 'bicycle', 'vending']],
@@ -52,13 +61,16 @@ const MILESTONES = [['people', ['ped_business', 'ped_granny', 'ped_kid']], ['ben
   ['apartments', ['apartment', 'office', 'hotel']], ['skyscrapers', ['skyscraper', 'clock_tower', 'crane']]]
   .map(([label, names]) => { names = names.filter((n) => assets[n]); return { label, names, need: Math.max(...names.map((n) => assets[n].meta.tier)) / 0.95 }; })
   .sort((a, b) => a.need - b.need);
-if (!location.search.includes('nothumbs')) setTimeout(async () => { await warmThumbs(assets); for (const m of MILESTONES) m.icons = m.names.map((n) => thumb(assets[n])); }, 1200); // pre-render, never mid-run
+// Collection thumbnails render lazily, one at a time, milestone icons first, and never while a run is being played.
+if (!location.search.includes('nothumbs')) {
+  setTimeout(() => warmThumbs(assets, MILESTONES.flatMap((m) => m.names), () => state?.playing), 3000);
+}
 const levelEl = Object.assign(document.createElement('div'), { id: 'levelup' });
 document.body.append(levelEl);
 function sizeUp(m) {
   hole.shockwave();
   sfx.levelUp();
-  levelEl.innerHTML = `<small>Size up · ${hole.r.toFixed(1)} m</small><b>Now eating ${m.label}!</b><span>${(m.icons || []).map((u) => `<img alt="" src="${u}">`).join('')}</span>`;
+  levelEl.innerHTML = `<small>Size up · ${hole.r.toFixed(1)} m</small><b>Now eating ${m.label}!</b><span>${m.names.map((n) => thumb(assets[n])).filter(Boolean).map((u) => `<img alt="" src="${u}">`).join('')}</span>`;
   levelEl.classList.remove('show');
   void levelEl.offsetWidth;
   levelEl.classList.add('show');
@@ -110,7 +122,9 @@ function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false, card = 'non
   glow.value = preset.glow;
   world.night.value = TIMES[time]?.night ? 1 : 0;
   world.edCol.value.set(SKINS[save.skin || 'void'].rim);
-  const open = city.tiles.filter((t) => ['plaza', 'park', 'residential', 'canal', 'parking', 'beach', 'neon'].includes(t.type));
+  const want = new URLSearchParams(location.search).get('start'); // screenshot/debug: start on a given tile type
+  let open = city.tiles.filter((t) => ['plaza', 'park', 'residential', 'canal', 'parking', 'beach', 'neon'].includes(t.type));
+  if (want && open.some((t) => t.type === want)) open = open.filter((t) => t.type === want);
   const t = r.pick(open);
   const a = r() * Math.PI * 2;
   hole.x = t.cx + Math.cos(a) * 13.5;
@@ -121,7 +135,7 @@ function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false, card = 'non
     city.revive(r.pick([...PEOPLE, 'pigeon']), hole.x + Math.cos(b) * d, hole.z + Math.sin(b) * d, hole.x, hole.z);
   }
   $('where').textContent = `${city.mood.name} · ${city.N}×${city.N} blocks · ${time}`;
-  grass = new Grass(renderer, city.groundMeshes, city.half + 80, field, { density: +(new URLSearchParams(location.search).get('grass') ?? (LOW_FX ? 0.5 : 1)) });
+  grass = new Grass(renderer, city.groundMeshes, city.half + 80, field, { density: +(new URLSearchParams(location.search).get('grass') ?? Q.grass), far: Q.grassFar });
   scene.add(city.group, hole.group, grass.group);
   state = { playing: false, seed, daily, card, time: 0, belly: 1, eaten: 0, score: 0, best: hole.r, stars: 0,
     reverse: 0, jam: 0, slow: 0, invuln: 0, shake: 0, sealing: 0, hits: [], left: city.buildingsLeft(), combo: 0, comboT: 0, bonus: 0,
@@ -129,6 +143,14 @@ function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false, card = 'non
 }
 const URL_SEED = new URLSearchParams(location.search).get('seed');
 newRun(URL_SEED ? +URL_SEED : undefined);
+// compile every pipeline now, behind the loading screen, instead of stuttering through the first seconds of play
+setLoad('Warming up shaders…', 0.9);
+await nextPaint();
+try { await renderer.compileAsync(scene, camera); } catch (e) { console.warn('precompile skipped', e); }
+setLoad('Opening the ground…', 0.98);
+await nextPaint();
+$('load').hidden = true;
+$('menu').hidden = false;
 window.__game = () => ({ hole, city, state, renderer, director, rivals });
 window.__info = () => { const r = renderer.info.render; return { calls: r.drawCalls, tris: r.triangles, frameCalls: r.frameCalls }; };
 if (location.search.includes('bot')) installBot();
@@ -407,7 +429,26 @@ const camTarget = new THREE.Vector3(hole.x, 0, hole.z);
 const _v = new THREE.Vector3();
 let camDist = 14 * LENS, camYaw = 0;
 
-renderer.setAnimationLoop(() => frame(Math.min(timer.getDelta(), 1 / 20)));
+// ?fps: live performance overlay (frame rate, frame time, draw calls, triangles, tier and any quality steps taken)
+const fpsEl = new URLSearchParams(location.search).has('fps') ? Object.assign(document.createElement('div'), { id: 'fps' }) : null;
+if (fpsEl) document.body.append(fpsEl);
+const perf = { t0: performance.now(), n: 0, worst: 0, last: performance.now() };
+function perfOverlay() {
+  const now = performance.now();
+  perf.worst = Math.max(perf.worst, now - perf.last);
+  perf.last = now;
+  perf.n++;
+  if (now - perf.t0 < 500) return;
+  const fps = (perf.n * 1000) / (now - perf.t0), r = renderer.info.render, o = post.opts || {};
+  const tris = r.triangles > 1e6 ? `${(r.triangles / 1e6).toFixed(2)}M` : `${Math.round(r.triangles / 1e3)}k`;
+  fpsEl.textContent = `${fps.toFixed(0)} fps · ${(1000 / fps).toFixed(1)} ms (worst ${perf.worst.toFixed(0)})\n`
+    + `${r.drawCalls} draws · ${tris} tris\n`
+    + `${Q.tier} · ${renderer.backend.isWebGPUBackend ? 'WebGPU' : 'WebGL2'} · ${renderer.getPixelRatio()}x · ${renderer.domElement.width}×${renderer.domElement.height}\n`
+    + `AO ${o.ao ? `${o.aoRes}x` : 'off'} · bloom ${o.bloom ? 'on' : 'off'} · grass ${grass.layers.length ? (post.lowSpec ? 'half' : 'on') : 'off'}`
+    + (post.steps ? `\nfallback: ${post.steps.join(' → ')}` : '');
+  Object.assign(perf, { t0: now, n: 0, worst: 0 });
+}
+renderer.setAnimationLoop(() => { frame(Math.min(timer.getDelta(), 1 / 20)); if (fpsEl) perfOverlay(); });
 window.__tick = (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) frame(dt); };
 
 function frame(dt) {
@@ -566,8 +607,8 @@ function frame(dt) {
   camera.position.set(camTarget.x + Math.sin(camYaw) * horiz + (Math.random() - 0.5) * sh, Math.sin(pitch) * camD,
     camTarget.z + Math.cos(camYaw) * horiz + (Math.random() - 0.5) * sh);
   camera.lookAt(camTarget);
-  const low = post.lowSpec || location.search.includes('low');
-  surfaceOn.value = low ? 0 : 1;
+  const low = post.lowSpec || LOW_FX;
+  surfaceOn.value = 1; // low tiers use the lite (single-projection) shader instead of losing detail
   city.budget(camera, hole.r, low);
   followSun(sun, camTarget);
   grass.update(camTarget, camDist / LENS, low);

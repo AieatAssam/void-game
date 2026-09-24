@@ -1,7 +1,7 @@
 # Art Bible — "Toybox Town"
 
 The city is a tabletop of **painted wooden and tin toys** under warm afternoon light:
-chunky rounded silhouettes, satin paint, a tilt-shift miniature feel (post-process: blur band + vignette + per-time grade, auto-off on slow devices).
+chunky rounded silhouettes, satin paint, lit and graded like a film (post-process: AO, bloom, ACES filmic, vignette, per-time grade).
 The hole is the one thing that does not belong: a **cold cosmic void** with a lilac glow rim.
 Warm toy world vs cold void is the core visual contrast. Every asset must serve it.
 
@@ -46,7 +46,7 @@ Poison props = hazard yellow + toxic green glow.
 LOD0 is built with a detail multiplier (`Q` in blender/lib.py, 1.6). Every model ships LOD1 (~25%) and
 LOD2 (~8%) via meshoptimizer. The city is instanced per (asset, 40m tile chunk): chunks within 15m of
 the camera draw LOD0, to 60m LOD1, beyond LOD2 (and stop casting shadows). Traffic is LOD1/LOD2.
-Idle snack pools are skipped. Low fps → tilt-shift off and LOD0 never used.
+Idle snack pools are skipped. Low fps → quality steps down (src/post.js) and LOD0 is never used.
 
 ## Surface detail (scanned PBR, TSL)
 The palette atlas still decides *what* a face is; the look of *what it is made of* comes from real scans. `tools/textures.py`
@@ -75,7 +75,7 @@ Objects still darken over their bottom 0.7 m (grounding) and sit on soft contact
 ## Lighting and post
 Physical (Preetham) sky; the IBL is the same sky PMREM-filtered per time of day. Sun shadows are 4096² PCF, snapped to texels.
 Aerial-perspective fog thins with altitude and warms toward the sun. Post: MRT normals -> half-res GTAO + denoise -> bloom on
-exposed HDR -> tilt-shift lens blur -> white balance + saturation -> ACES filmic -> S-curve -> SMAA -> vignette, fringe, grain.
+exposed HDR -> white balance + saturation -> ACES filmic -> S-curve -> SMAA -> vignette, fringe, grain.
 Each time of day meters its own exposure, like a camera.
 
 ## Time of day

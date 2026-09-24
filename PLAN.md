@@ -55,7 +55,9 @@ Models first, then systems, then districts, then bot check.
 
 ## Stage 9 — AAA rendering (WebGPU + TSL)
 - **Renderer:** `WebGPURenderer` with WebGL2 fallback; all shaders rewritten in TSL (palette materials, hole, particles, sky).
-- **Post:** GTAO, bloom, ACES filmic + per-time exposure, tilt-shift, SMAA, vignette, fringe, grain.
+- **Post:** GTAO, bloom, ACES filmic + per-time exposure, SMAA, vignette, fringe, grain (tilt-shift removed after iPad playtest).
+- **Performance (iPad playtest):** quality tiers with mobile defaults, graceful fps fallback, staged loading with per-file progress,
+  shaders precompiled behind the loading screen, lazy thumbnails, grid-based terrain generation, `?fps` overlay.
 - **Materials:** scanned PBR texture arrays, triplanar + surface-gradient normals, clearcoat cars, deep water with shore foam.
 - **Nature:** heightfield countryside, procedural trees/bushes, GPU grass, shared wind field.
 - **Checks:** `tools/shot.mjs` captures frames headlessly (WebGL2 backend in CI-like containers without a GPU).

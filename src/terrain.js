@@ -6,12 +6,13 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, vec3, vec4, float, int, attribute, positionWorld, normalWorldGeometry, normalViewGeometry, mix, smoothstep, max, pow,
-  normalize, clamp, texture, sin, abs, length, positionView, time, select, viewportDepthTexture, cameraNear, cameraFar,
+  normalize, clamp, texture, sin, abs, length, uv, positionView, time, select, viewportDepthTexture, cameraNear, cameraFar,
   perspectiveDepthToViewZ, screenUV,
 } from 'three/tsl';
 import { pbrCol, pbrNrm, pbrRha, L, triplanar, waterGrad, macro } from './pbr.js';
 import { positionGeometry, normalGeometry } from 'three/tsl';
 import { surfaceOn } from './surface.js';
+import { Q } from './quality.js';
 
 // ---------- seeded value noise ----------
 function makeNoise(seed) {
@@ -129,9 +130,9 @@ export class Terrain {
 
   // ---------- mesh ----------
   axisCoords() {
-    const inner = this.half + 130, R = 1700, cs = [];
-    for (let c = -inner; c <= inner + 1e-6; c += 2) cs.push(c);
-    let step = 2, c = inner;
+    const st = Q.terrainStep, inner = this.half + 130, R = 1700, cs = [];
+    for (let c = -inner; c <= inner + 1e-6; c += st) cs.push(c);
+    let step = st, c = inner;
     const outer = [];
     while (c < R) { step = Math.min(70, step * 1.09); c += step; outer.push(c); }
     return [...outer.map((v) => -v).reverse(), ...cs, ...outer];
@@ -140,20 +141,32 @@ export class Terrain {
   build() {
     const cs = this.axisCoords(), n = cs.length;
     const pos = new Float32Array(n * n * 3), nrm = new Float32Array(n * n * 3), splat = new Float32Array(n * n * 4), extra = new Float32Array(n * n * 2);
+    // pass 1: heights (vertices buried under the town skip the noise entirely)
+    const H = new Float32Array(n * n), under = this.half - 4;
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) {
+        const x = cs[i], z = cs[j];
+        H[j * n + i] = Math.abs(x) < under && Math.abs(z) < under ? -0.08 : this.heightAt(x, z);
+      }
+    }
+    // pass 2: normals and moisture straight from the grid (no extra noise evaluations)
+    const at = (i, j) => H[Math.min(n - 1, Math.max(0, j)) * n + Math.min(n - 1, Math.max(0, i))];
+    const cx = (i) => cs[Math.min(n - 1, Math.max(0, i))];
     const v = new THREE.Vector3();
     for (let j = 0; j < n; j++) {
       for (let i = 0; i < n; i++) {
-        const x = cs[i], z = cs[j], k = j * n + i;
-        const y = this.heightAt(x, z);
+        const x = cs[i], z = cs[j], k = j * n + i, y = H[k];
         pos.set([x, y, z], k * 3);
-        this.normalAt(x, z, v);
+        const dxs = cx(i + 1) - cx(i - 1) || 1, dzs = cx(j + 1) - cx(j - 1) || 1;
+        v.set(-(at(i + 1, j) - at(i - 1, j)) / dxs, 1, -(at(i, j + 1) - at(i, j - 1)) / dzs).normalize();
         nrm.set([v.x, v.y, v.z], k * 3);
+        if (Math.abs(x) < under && Math.abs(z) < under) continue; // under the town: nothing to paint
         const fa = this.fieldAt(x, z);
-        const rd = this.riverDist(x, z);
         // splat: x forest floor, y field (crop id + 1) / 4, z dirt tracks/erosion, w wet shore
         const dirt = Math.max(0, this.nz.fbm(x / 60 - 3, z / 60 + 5, 3) - 0.28) * 3 + (fa && fa.edge < 2.5 ? 0.6 : 0);
         // topographic moisture: hollows collect water (lush, dark), crests dry out; wildflower drifts in meadows
-        const ring = 9, avg = (this.heightAt(x + ring, z) + this.heightAt(x - ring, z) + this.heightAt(x, z + ring) + this.heightAt(x, z - ring)) / 4;
+        const o = Math.max(1, Math.round(9 / Math.max(1, cx(i + 1) - x)));
+        const avg = (at(i + o, j) + at(i - o, j) + at(i, j + o) + at(i, j - o)) / 4;
         extra.set([Math.max(-1, Math.min(1, (avg - y) * 0.6)), Math.max(0, this.nz.fbm(x / 25 + 40, z / 25 - 17, 3) - 0.12) * 4], k * 2);
         splat.set([this.forest(x, z), fa ? (fa.f.crop + 1) / 4 : 0, Math.min(1, dirt), 1 - smooth(0.1, 0.75, y - this.water)], k * 4);
       }
@@ -182,7 +195,7 @@ export class Terrain {
     this.group.add(this.mesh);
     // water: one plane at the global level; the terrain decides where it shows
     const wg = new THREE.PlaneGeometry(3600, 3600, 1, 1).rotateX(-Math.PI / 2);
-    this.waterMesh = new THREE.Mesh(wg, waterMaterial(this.half));
+    this.waterMesh = new THREE.Mesh(wg, waterMaterial({ clipHalf: this.half }));
     this.waterMesh.position.y = this.water;
     this.waterMesh.renderOrder = 2;
     this.group.add(this.waterMesh);
@@ -222,7 +235,7 @@ export class Terrain {
       if (f.crop === 0) for (let k = 0; k < 4; k++) { const [x, z] = at((r() - 0.5) * f.w * 0.8, (r() - 0.5) * f.h * 0.8); put('cow', x, z, 1, r() * 6.28, 0); }
     }
     // forests, meadow trees, bushes and rocks
-    for (let k = 0; k < 16000; k++) {
+    for (let k = 0; k < 16000 * Q.trees; k++) {
       const x = (r() * 2 - 1) * R, z = (r() * 2 - 1) * R;
       const d = this.outside(x, z);
       if (d < 8) continue;
@@ -274,8 +287,13 @@ function terrainMaterial(waterLevel) {
   const slope = clamp(float(1).sub(nW.y).mul(3.2), 0, 1);
   const dist = length(positionView);
   const fade = smoothstep(260, 40, dist).mul(surfaceOn);
-  const G = planar(pw, L.grass, 0.28), Gf = planar(pw, L.grass, 0.045); // near + far scale kills tiling
-  const F = planar(pw, L.forest, 0.22), D = planar(pw, L.dirt, 0.3), S = planar(pw, L.shore, 0.25);
+  const lite = Q.surface === 'lite';
+  const G = planar(pw, L.grass, 0.28), Gf = lite ? G : planar(pw, L.grass, 0.045); // near + far scale kills tiling
+  // mobile: one scan, tinted per layer (the same texture reads serve every layer)
+  const tintOf = (P, t) => ({ c: P.c.mul(t), n: P.n, r: P.r });
+  const F = lite ? tintOf(G, vec3(0.9, 0.75, 0.6)) : planar(pw, L.forest, 0.22);
+  const D = lite ? tintOf(G, vec3(1.25, 0.85, 0.55)) : planar(pw, L.dirt, 0.3);
+  const S = lite ? tintOf(G, vec3(1.5, 1.3, 1.0)) : planar(pw, L.shore, 0.25);
   const R = triplanar(pw, nW, int(L.rock), float(0.09));
   const cropId = sp.y.mul(4).sub(1).round();
   const field = sp.y.greaterThan(0.1);
@@ -353,22 +371,51 @@ function terrainMaskMaterial(waterLevel) {
 }
 
 /** Lakes, river and sea: wave normals, sky reflections, depth-tinted and soft where it meets the shore. */
-function waterMaterial(half) {
+/**
+ * Lakes, river, sea and the beach tide: wave normals, sky reflections, depth tint, soft where it meets the shore.
+ * clipHalf: hide under the town square; holes: uniformArray of open holes to cut; fade: opacity uniform (tide).
+ */
+export function waterMaterial({ clipHalf = null, holes = null, fade = null, front = false } = {}) {
   const m = new THREE.MeshPhysicalNodeMaterial({ transparent: true, depthWrite: false, roughness: 0.05, metalness: 0 });
   const pw = positionWorld;
-  // the town sits on dry land: never show the water table under it (or down an open hole)
-  m.maskNode = max(abs(pw.x), abs(pw.z)).greaterThan(half - 0.3);
+  let keep = clipHalf === null ? null : max(abs(pw.x), abs(pw.z)).greaterThan(clipHalf - 0.3); // the town is dry land
+  if (holes) {
+    for (let i = 0; i < 4; i++) {
+      const h = holes.element(i);
+      const out = h.z.lessThanEqual(0).or(length(pw.xz.sub(h.xy)).greaterThan(h.z));
+      keep = keep ? keep.and(out) : out;
+    }
+  }
+  if (keep) m.maskNode = keep;
   // how much water is between the surface and the ground behind it
-  const sceneZ = perspectiveDepthToViewZ(viewportDepthTexture(screenUV).r, cameraNear, cameraFar);
-  const depthM = positionView.z.sub(sceneZ).max(0);
+  const lite = Q.surface === 'lite';
+  const depthM = lite ? float(3) // mobile: skip the depth copy
+    : positionView.z.sub(perspectiveDepthToViewZ(viewportDepthTexture(screenUV).r, cameraNear, cameraFar)).max(0);
   const shallow = smoothstep(0.0, 2.5, depthM);
-  const deep = vec3(0.02, 0.06, 0.07), mid = vec3(0.05, 0.16, 0.16);
-  m.colorNode = vec4(mix(mid, deep, shallow), mix(0.25, 0.94, smoothstep(0.0, 0.9, depthM)));
+  const deep = vec3(0.02, 0.06, 0.07), mid = vec3(0.06, 0.2, 0.19);
+  const f = fade ?? float(1);
+  // foam: where it laps the shore; on mobile (no depth) a drifting broken pattern instead
+  const lap = sin(time.mul(1.6).add(pw.x.mul(0.9)).add(pw.z.mul(0.7))).mul(0.3).add(0.7);
+  // fine drifting foam filaments (thin, sparse) rather than blobs
+  const fil = abs(macro(pw.add(vec3(time.mul(0.35), 0, time.mul(0.2))), 2.6).sub(0.5));
+  const streaks = smoothstep(0.035, 0.0, fil).mul(0.35);
+  let foam = lite ? streaks : smoothstep(0.3, 0.0, depthM).mul(lap).add(streaks.mul(smoothstep(1.2, 0.2, depthM)));
+  let alpha = lite ? float(0.72) : mix(0.2, 0.94, smoothstep(0.0, 0.9, depthM));
+  let body = mix(mid, deep, shallow);
+  if (front) {
+    // the tide: a clear turquoise sheet whose inland edge (plane uv.y -> 1) laps in and out behind a foam line
+    const wob = macro(pw, 0.35).sub(0.5).mul(0.12).add(sin(time.mul(1.3).add(pw.x.mul(0.45))).mul(0.03));
+    const e = uv().y.add(wob);
+    const edge = smoothstep(0.93, 0.86, e);
+    const broken = smoothstep(0.3, 0.62, macro(pw.add(vec3(0, 0, time.mul(0.3))), 1.9)).mul(0.6).add(0.4);
+    foam = foam.mul(0.6).add(smoothstep(0.845, 0.875, e).mul(smoothstep(0.915, 0.885, e)).mul(broken));
+    alpha = mix(0.6, 0.88, smoothstep(0.85, 0.2, e)).mul(edge);
+    body = mix(vec3(0.03, 0.26, 0.27), vec3(0.015, 0.1, 0.12), smoothstep(0.75, 0.0, e));
+  }
+  m.colorNode = vec4(mix(body, vec3(0.8, 0.83, 0.8), foam.min(1).mul(0.7)), alpha.add(foam.mul(0.35)).min(1).mul(f));
   m.normalNode = normalize(normalViewGeometry.sub(waterGrad(pw).mul(1.1)));
-  // foam line where it laps the shore
-  const foam = smoothstep(0.25, 0.0, depthM).mul(sin(time.mul(1.6).add(pw.x.mul(0.9)).add(pw.z.mul(0.7))).mul(0.3).add(0.7));
-  m.emissiveNode = vec3(0.35, 0.38, 0.36).mul(foam).mul(0.6);
-  m.specularIntensityNode = float(1);
+  m.emissiveNode = vec3(0.1, 0.11, 0.1).mul(foam).mul(f);
+  m.specularIntensityNode = f;
   return m;
 }
 

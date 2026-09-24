@@ -3,6 +3,7 @@
 import * as THREE from 'three/webgpu';
 import { uniform, float, positionWorld, cameraPosition, exp, max, dot, normalize, pow, mix, clamp , fog } from 'three/tsl';
 import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
+import { Q } from './quality.js';
 
 export const COLORS = { sky: 0xf4dcc0, ground: 0xe6cfa7, void: 0x1a0f3a, lilac: 0xb58cff };
 
@@ -32,7 +33,7 @@ if (typeof location !== 'undefined' && location.search.includes('trace')) THREE.
 export async function createRenderer(canvas) {
   const forceGL = typeof location !== 'undefined' && location.search.includes('webgl');
   const renderer = new THREE.WebGPURenderer({ canvas, antialias: false, powerPreference: 'high-performance', forceWebGL: forceGL });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, Q.dpr));
   renderer.toneMapping = THREE.ACESFilmicToneMapping; // Unreal-style filmic curve: rich toe, soft highlight shoulder
   renderer.toneMappingExposure = 1.0;
   renderer.shadowMap.enabled = true;
@@ -74,10 +75,10 @@ export function createScene() {
   const hemi = new THREE.HemisphereLight(0xfff4e0, 0xc98b5b, 0.6);
   const sun = new THREE.DirectionalLight(0xffe2b8, 3.5);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(4096, 4096);
+  sun.shadow.mapSize.set(Q.shadow, Q.shadow);
   sun.shadow.bias = -0.0002;
   sun.shadow.normalBias = 0.04;
-  sun.shadow.radius = 3;
+  sun.shadow.radius = Q.tier === 'low' ? 1.5 : 3;
   const c = sun.shadow.camera;
   c.left = c.bottom = -40; c.right = c.top = 40; c.near = 20; c.far = 320; // sun sits 150 m out along its direction
   const sky = new SkyMesh();

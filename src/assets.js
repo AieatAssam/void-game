@@ -6,6 +6,7 @@ import { toyMaterial as makeToy, pedMaterial, glow, pedTime } from './surface.js
 import { loadPBR } from './pbr.js';
 import { installVegetation } from './vegetation.js';
 import { installTerrainAssets } from './terrain.js';
+import { Q } from './quality.js';
 
 const base = import.meta.env.BASE_URL;
 const VEHICLES = new Set(['car', 'car_b', 'car_c', 'taxi', 'bus', 'police_car', 'icecream_van', 'cement_truck', 'mayor_limo', 'scooter', 'tank', 'heli']);
@@ -29,12 +30,15 @@ export async function loadAll(onProgress) {
   const manifest = await (await fetch(base + 'models/index.json')).json();
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   const names = Object.keys(manifest);
+  // low tier never draws LOD0, so it downloads only the 25% and 8% models (and uses LOD1 as its "full" model)
+  const dirs = Q.tier === 'low' ? ['lod/', 'lod2/'] : ['', 'lod/', 'lod2/'];
   let done = 0;
-  const total = names.length + 16;
+  const total = names.length * dirs.length + 16;
   const tick = () => onProgress?.(++done / total);
   const pbr = loadPBR(tick);
   const entries = await Promise.all(names.map(async (name) => {
-    const [gltf, lod, lod2] = await Promise.all(['', 'lod/', 'lod2/'].map((d) => loader.loadAsync(`${base}models/${d}${name}.glb`)));
+    const files = await Promise.all(dirs.map(async (d) => { const g = await loader.loadAsync(`${base}models/${d}${name}.glb`); tick(); return g; }));
+    const [gltf, lod, lod2] = files.length === 3 ? files : [files[0], { scene: files[0].scene.clone() }, files[1]];
     const meta = manifest[name];
     let ped = false;
     gltf.scene.traverse((o) => { if (o.isMesh && o.geometry.attributes._swing) ped = true; });
@@ -50,7 +54,6 @@ export async function loadAll(onProgress) {
         o.userData.toyFlags = flags;
       });
     }
-    tick();
     return [name, { name, scene: gltf.scene, lod: lod.scene, lod2: lod2.scene, clips: gltf.animations, meta, material, flags }];
   }));
   await pbr;
