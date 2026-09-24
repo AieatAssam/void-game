@@ -14,6 +14,7 @@
     <div class="pill" id="eaten"><b>0</b> swallowed</div>
     <div class="pill stars" id="stars">☆☆☆☆</div>
     <div class="pill" id="left"><b>0</b> buildings left</div>
+    <div class="pill card-chip" id="card" hidden></div>
   </div>
   <div id="status"></div>
   <div id="toast"></div>
@@ -30,8 +31,13 @@
         <button id="play">Open the ground</button>
         <button id="daily" class="alt">Daily city</button>
       </div>
-      <button id="shopBtn" class="ghost">Upgrades · <b id="dust">0</b> void dust</button>
+      <div id="cards" class="cards"></div>
+      <div class="row">
+        <button id="shopBtn" class="ghost">Shop · <b id="dust">0</b> void dust</button>
+        <button id="bookBtn" class="ghost">Collection · <b>0/0</b></button>
+      </div>
       <div id="shop" hidden></div>
+      <div id="book" hidden></div>
       <p class="hint">Steer with mouse, touch-drag or WASD. Swallow what fits. Keep eating or the ground seals. Watch the red rings.</p>
     </div>
   </div>

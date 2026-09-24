@@ -9,6 +9,7 @@ export const TIMES = {
   morning: { top: 0x8fc6ee, horizon: 0xfde2c4, sun: 0xfff0da, sunI: 2.4, elev: 28, azim: 120, hemiSky: 0xeaf4ff, hemiGround: 0xc9a27a, hemiI: 1.5, glow: 1.1, exposure: 1.05, grade: [1.0, 1.0, 1.03] },
   noon: { top: 0x6fb6ea, horizon: 0xe4f1f6, sun: 0xffffff, sunI: 2.9, elev: 62, azim: 200, hemiSky: 0xf2f7ff, hemiGround: 0xd0b08a, hemiI: 1.5, glow: 1.0, exposure: 1.0, grade: [1.0, 1.0, 1.0] },
   golden: { top: 0x7aa7d8, horizon: 0xffc58a, sun: 0xffb46a, sunI: 2.7, elev: 16, azim: 250, hemiSky: 0xffe0bf, hemiGround: 0xb77a55, hemiI: 1.3, glow: 1.6, exposure: 1.05, grade: [1.06, 1.0, 0.93] },
+  night: { top: 0x0a0f2c, horizon: 0x2b2556, sun: 0x9fb4ff, sunI: 0.9, elev: 38, azim: 140, hemiSky: 0x5a66b0, hemiGround: 0x241a36, hemiI: 1.25, glow: 2.6, envI: 0.12, exposure: 1.3, grade: [0.95, 0.97, 1.08], night: true },
   dusk: { top: 0x3a3f7a, horizon: 0xf59a78, sun: 0xff9a70, sunI: 2.0, elev: 12, azim: 285, hemiSky: 0xb9b2ea, hemiGround: 0x6d5070, hemiI: 1.6, glow: 2.6, envI: 0.18, exposure: 1.2, grade: [1.0, 0.95, 1.06] },
 };
 

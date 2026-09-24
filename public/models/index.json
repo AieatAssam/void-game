@@ -11,14 +11,14 @@
   "clips": []
  },
  "arcade": {
-  "tier": 4.76,
-  "mass": 266.636,
+  "tier": 4.785,
+  "mass": 268.037,
   "kind": "prop",
   "height": 7.5,
-  "tris": 14370,
-  "lodTris": 3592,
-  "lod2Tris": 1148,
-  "bytes": 96272,
+  "tris": 18174,
+  "lodTris": 4542,
+  "lod2Tris": 1452,
+  "bytes": 121952,
   "clips": []
  },
  "barn": {
@@ -440,14 +440,14 @@
   "clips": []
  },
  "karaoke": {
-  "tier": 3.785,
-  "mass": 175.055,
+  "tier": 3.81,
+  "mass": 178.186,
   "kind": "prop",
   "height": 7.9,
-  "tris": 4984,
-  "lodTris": 1246,
-  "lod2Tris": 398,
-  "bytes": 37276,
+  "tris": 5470,
+  "lodTris": 1366,
+  "lod2Tris": 458,
+  "bytes": 40976,
   "clips": []
  },
  "kiosk": {
@@ -575,13 +575,13 @@
  },
  "noodle_stall": {
   "tier": 1.1,
-  "mass": 3.543,
+  "mass": 3.917,
   "kind": "prop",
-  "height": 2.465,
-  "tris": 2186,
-  "lodTris": 546,
-  "lod2Tris": 174,
-  "bytes": 21092,
+  "height": 2.725,
+  "tris": 2486,
+  "lodTris": 620,
+  "lod2Tris": 198,
+  "bytes": 22960,
   "clips": []
  },
  "office": {
@@ -869,10 +869,10 @@
   "mass": 0,
   "kind": "tile",
   "height": 1.04,
-  "tris": 10678,
-  "lodTris": 3491,
-  "lod2Tris": 3470,
-  "bytes": 94868,
+  "tris": 11050,
+  "lodTris": 3511,
+  "lod2Tris": 3485,
+  "bytes": 98104,
   "clips": []
  },
  "tile_canal": {
@@ -880,10 +880,10 @@
   "mass": 0,
   "kind": "tile",
   "height": 7.75,
-  "tris": 17234,
-  "lodTris": 4308,
-  "lod2Tris": 2976,
-  "bytes": 136112,
+  "tris": 17606,
+  "lodTris": 4400,
+  "lod2Tris": 2982,
+  "bytes": 138836,
   "clips": []
  },
  "tile_construction": {
@@ -891,10 +891,10 @@
   "mass": 0,
   "kind": "tile",
   "height": 0.67,
-  "tris": 12300,
-  "lodTris": 4530,
-  "lod2Tris": 4514,
-  "bytes": 127532,
+  "tris": 12672,
+  "lodTris": 4538,
+  "lod2Tris": 4506,
+  "bytes": 130896,
   "clips": []
  },
  "tile_lot": {
@@ -902,10 +902,10 @@
   "mass": 0,
   "kind": "tile",
   "height": 0.172,
-  "tris": 4736,
-  "lodTris": 1818,
-  "lod2Tris": 1810,
-  "bytes": 47396,
+  "tris": 5108,
+  "lodTris": 1828,
+  "lod2Tris": 1804,
+  "bytes": 50240,
   "clips": []
  },
  "tile_neon": {
@@ -913,10 +913,10 @@
   "mass": 0,
   "kind": "tile",
   "height": 4.57,
-  "tris": 14930,
-  "lodTris": 3732,
-  "lod2Tris": 2246,
-  "bytes": 107332,
+  "tris": 14390,
+  "lodTris": 3596,
+  "lod2Tris": 2358,
+  "bytes": 104556,
   "clips": []
  },
  "tile_park": {
@@ -924,10 +924,10 @@
   "mass": 0,
   "kind": "tile",
   "height": 0.33,
-  "tris": 13210,
-  "lodTris": 3301,
-  "lod2Tris": 2173,
-  "bytes": 103536,
+  "tris": 13582,
+  "lodTris": 3395,
+  "lod2Tris": 2217,
+  "bytes": 106608,
   "clips": []
  },
  "tile_parking": {
@@ -935,10 +935,10 @@
   "mass": 0,
   "kind": "tile",
   "height": 1.37,
-  "tris": 10108,
-  "lodTris": 2526,
-  "lod2Tris": 2350,
-  "bytes": 83444,
+  "tris": 10480,
+  "lodTris": 2620,
+  "lod2Tris": 2344,
+  "bytes": 85896,
   "clips": []
  },
  "tile_plaza": {
@@ -946,10 +946,10 @@
   "mass": 0,
   "kind": "tile",
   "height": 0.202,
-  "tris": 6632,
-  "lodTris": 2584,
-  "lod2Tris": 2602,
-  "bytes": 60472,
+  "tris": 7004,
+  "lodTris": 2594,
+  "lod2Tris": 2596,
+  "bytes": 63348,
   "clips": []
  },
  "tile_residential": {
@@ -957,10 +957,10 @@
   "mass": 0,
   "kind": "tile",
   "height": 0.21,
-  "tris": 11350,
-  "lodTris": 2836,
-  "lod2Tris": 1926,
-  "bytes": 84792,
+  "tris": 11722,
+  "lodTris": 2930,
+  "lod2Tris": 1920,
+  "bytes": 87720,
   "clips": []
  },
  "toxic_barrel": {

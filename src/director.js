@@ -1,19 +1,45 @@
 // The city fights back (heat ★1-4) and feeds you (snack floor). See PLAN.md no-dead-end rules.
 import * as THREE from 'three';
-import { TILE, SNACK_NAMES } from './city.js';
+import { TILE, SNACK_NAMES, groundMaterial } from './city.js';
 
 // Heat follows the hole's current size (with hysteresis), so a shrinking hole also cools the city down:
 // no death spiral where a tiny hole is stuck at high heat (PLAN.md no-dead-end rules).
 export const HEAT_R = [0.8, 1.8, 3.2, 5];
 
+const spotMat = new THREE.MeshBasicMaterial({ color: 0xfff1b8, transparent: true, opacity: 0.32, depthWrite: false, blending: THREE.AdditiveBlending });
+const spotGeo = new THREE.CircleGeometry(1, 40).rotateX(-Math.PI / 2);
+const TIDE = { period: 45, warn: 37, flood: 40, end: 48 };
 const warnMat = new THREE.MeshBasicMaterial({ color: 0xff3b3b, transparent: true, opacity: 0.5, depthWrite: false });
 const warnGeo = new THREE.RingGeometry(0.82, 1, 48).rotateX(-Math.PI / 2);
 const shellGeo = new THREE.SphereGeometry(0.35, 14, 10);
 const shellMat = new THREE.MeshStandardMaterial({ color: 0x22222a, emissive: 0xff8a3d, emissiveIntensity: 1.5 });
 
 export class Director {
-  constructor(city, scene, hooks) {
+  constructor(city, scene, hooks, minStars = 0) {
     this.city = city;
+    this.minStars = minStars;
+    this.bonusT = 0;
+    this.baseStars = 0;
+    // searchlights sweep a lit spot; the tide floods the beach
+    this.spots = city.entities.filter((e) => e.name === 'searchlight').map((e) => {
+      const m = new THREE.Mesh(spotGeo, spotMat);
+      scene.add(m);
+      return { e, m, phase: Math.random() * 6.28 };
+    });
+    this.tideT = 10;
+    if (city.beach) {
+      const row = city.tiles.filter((t) => t.type === 'beach');
+      const z = row[0].cz;
+      const geo = new THREE.PlaneGeometry(city.half * 2, 18).rotateX(-Math.PI / 2);
+      geo.attributes.uv.array.forEach((_, i, arr) => { arr[i] = i % 2 ? 0.3 : 0.4375; }); // 'sky' swatch
+      this.floodMat = groundMaterial(city.holeField);
+      this.floodMat.transparent = true;
+      this.floodMat.opacity = 0.7;
+      this.flood = new THREE.Mesh(geo, this.floodMat);
+      this.flood.position.set(0, -0.5, z + 2);
+      this.floodBand = [z - 7, z + 11];
+      scene.add(this.flood);
+    }
     this.scene = scene;
     this.hooks = hooks; // { hurt(frac, why), toll() }
     this.units = [];
@@ -26,12 +52,18 @@ export class Director {
 
   dispose() {
     for (const d of this.drops) this.scene.remove(d.ring, d.mesh);
+    for (const sp of this.spots) this.scene.remove(sp.m);
+    if (this.flood) { this.scene.remove(this.flood); this.flood.geometry.dispose(); this.floodMat.dispose(); }
   }
 
   update(dt, hole, run) {
-    const s = this.stars;
-    if (s < 4 && hole.r >= HEAT_R[s]) this.stars++;
-    else if (s > 0 && hole.r < HEAT_R[s - 1] * 0.75) this.stars--;
+    const s = this.baseStars;
+    if (s < 4 && hole.r >= HEAT_R[s]) this.baseStars++;
+    else if (s > 0 && hole.r < HEAT_R[s - 1] * 0.75) this.baseStars--;
+    this.bonusT = Math.max(0, this.bonusT - dt);
+    this.stars = Math.min(4, Math.max(this.minStars, this.baseStars + (this.bonusT > 0 ? 1 : 0)));
+    this.searchlights(dt, hole);
+    this.tide(dt, hole, run);
     this.tollCool = Math.max(0, (this.tollCool || 0) - dt);
     for (const k in this.cool) this.cool[k] -= dt;
     const view = (14 + hole.r * 8) * 1.3; // beyond the camera view (portrait screens see further)
@@ -45,6 +77,37 @@ export class Director {
     this.units = this.units.filter((u) => u.alive);
     this.updateBarricades(dt, hole);
     this.updateDrops(dt, hole);
+  }
+
+  // ---------- searchlights: caught in the beam = +1 heat for 12s (swallow the tower to stop it) ----------
+  searchlights(dt, hole) {
+    for (const sp of this.spots) {
+      const { e } = sp;
+      sp.m.visible = e.alive && !e.falling;
+      if (!sp.m.visible) continue;
+      const a = (sp.phase += dt * 0.55), R = 3.5;
+      const x = e.x + Math.cos(a) * 9, z = e.z - Math.sin(a) * 9;
+      sp.m.position.set(x, 0.3, z);
+      sp.m.scale.setScalar(R);
+      const head = e.obj?.getObjectByName('head');
+      if (head) head.rotation.y = a - e.rot;
+      if (hole.r < 8 && Math.hypot(hole.x - x, hole.z - z) < R + hole.r * 0.3) {
+        if (this.bonusT < 10) this.hooks.spotted?.();
+        this.bonusT = 12;
+      }
+    }
+  }
+
+  // ---------- tide: every 45s the sea floods the sand for 8s ----------
+  tide(dt, hole, run) {
+    run.flooded = false;
+    if (!this.flood) return;
+    const t = (this.tideT = (this.tideT + dt) % TIDE.period);
+    if (t >= TIDE.warn && t - dt < TIDE.warn) this.hooks.warn?.('🌊 Tide incoming!');
+    const up = t < TIDE.flood ? 0 : t < TIDE.flood + 1.5 ? (t - TIDE.flood) / 1.5 : t < TIDE.end - 1.5 ? 1 : Math.max(0, (TIDE.end - t) / 1.5);
+    this.flood.position.y = -0.5 + up * 0.82;
+    this.flood.material.opacity = 0.35 + up * 0.35;
+    run.flooded = up > 0.5 && Math.abs(hole.x) < this.city.half && hole.z > this.floodBand[0] && hole.z < this.floodBand[1];
   }
 
   // ---------- snack floor: keep tier-appropriate food near the hole ----------

@@ -2,7 +2,11 @@ import * as THREE from 'three';
 import { createRenderer, createScene, followSun, applyTime, TIMES } from './look.js';
 import { loadAll, toyMaterial } from './assets.js';
 import { City, rng, BUILDINGS } from './city.js';
-import { Hole } from './hole.js';
+import { Hole, holeField } from './hole.js';
+import { Rivals } from './rivals.js';
+import { SKINS } from './skins.js';
+import { CARDS, VEHICLES, offer, dailyCard } from './cards.js';
+import { record, renderBook, title, bookEntries } from './book.js';
 import { Director } from './director.js';
 import { installBot } from './bot.js';
 import { UPGRADES, save, persist, level, buy, todaySeed } from './meta.js';
@@ -32,18 +36,21 @@ const assets = await loadAll((p) => { $('load').querySelector('b').textContent =
 $('load').hidden = true;
 $('menu').hidden = false;
 
-let city, hole, state, director;
-function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false) {
-  if (city) { scene.remove(city.group, hole.group); city.dispose(); hole.dispose(); director.dispose(); }
-  hole = new Hole(assets, 0, 0, 0.45 + level('headstart') * 0.07);
+const field = holeField();
+const DAY_TIMES = Object.keys(TIMES).filter((k) => !TIMES[k].night);
+let city, hole, state, director, rivals;
+function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false, card = 'none') {
+  if (city) { scene.remove(city.group, hole.group); city.dispose(); hole.dispose(); director.dispose(); rivals.dispose(); }
+  hole = new Hole(assets, field, 0, { r: 0.45 + level('headstart') * 0.07, skin: save.skin || 'void' });
   hole.pull = 1 + level('gravity') * 0.1;
-  city = new City(assets, seed, hole.uniform);
-  director = new Director(city, scene, { hurt, toll });
+  city = new City(assets, seed, field);
+  director = new Director(city, scene, { hurt, toll, spotted, warn: (t) => flash(t, false) }, card === 'hot' ? 2 : 0);
+  rivals = new Rivals(assets, field, city, scene, card === 'crowded' ? 3 : card === 'lonely' ? 0 : 2, save.skin || 'void');
   // Randomised start: time of day, and a calm open tile (never a downtown lot) at a random spot on it.
   const r = rng(seed ^ 0x5eed);
-  const time = new URLSearchParams(location.search).get('time') || r.pick(Object.keys(TIMES));
+  const time = new URLSearchParams(location.search).get('time') || (city.mood.night ? 'night' : r.pick(DAY_TIMES));
   look.grade = applyTime(look, renderer, time, toyMaterial).grade;
-  const open = city.tiles.filter((t) => ['plaza', 'park', 'residential', 'canal', 'parking'].includes(t.type));
+  const open = city.tiles.filter((t) => ['plaza', 'park', 'residential', 'canal', 'parking', 'beach', 'neon'].includes(t.type));
   const t = r.pick(open);
   const a = r() * Math.PI * 2;
   hole.x = t.cx + Math.cos(a) * 13.5;
@@ -55,11 +62,12 @@ function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false) {
   }
   $('where').textContent = `${city.mood.name} · ${city.N}×${city.N} blocks · ${time}`;
   scene.add(city.group, hole.group);
-  state = { playing: false, seed, daily, time: 0, belly: 1, eaten: 0, score: 0, best: hole.r, stars: 0,
-    reverse: 0, jam: 0, slow: 0, invuln: 0, shake: 0, sealing: 0, hits: [], left: city.buildingsLeft(), combo: 0, comboT: 0, bonus: 0 };
+  state = { playing: false, seed, daily, card, time: 0, belly: 1, eaten: 0, score: 0, best: hole.r, stars: 0,
+    reverse: 0, jam: 0, slow: 0, invuln: 0, shake: 0, sealing: 0, hits: [], left: city.buildingsLeft(), combo: 0, comboT: 0, bonus: 0,
+    rareDust: 0, rivalsEaten: 0 };
 }
 newRun();
-window.__game = () => ({ hole, city, state, renderer, director });
+window.__game = () => ({ hole, city, state, renderer, director, rivals });
 if (location.search.includes('bot')) installBot();
 
 // ---------- input: steer toward pointer / drag / keys ----------
@@ -118,7 +126,11 @@ function hud() {
       arrow.style.transform = `translate(${Math.cos(a) * rad}px, ${Math.sin(a) * rad}px) rotate(${a}rad)`;
     }
   }
-  const st = [state.reverse > 0 && 'Controls reversed', state.jam > 0 && 'Jammed', state.slow > 0 && 'Slowed'].filter(Boolean);
+  const st = [state.reverse > 0 && 'Controls reversed', state.jam > 0 && 'Jammed', state.slow > 0 && 'Slowed', state.flooded && 'Tide! Slow + hungry',
+    director.bonusT > 0 && 'Spotted'].filter(Boolean);
+  const c = CARDS[state.card];
+  $('card').hidden = state.card === 'none';
+  $('card').textContent = state.card === 'rush' ? `${c.name} · ${clock(Math.max(0, 300 - state.time))}` : `${c.name} ×${c.mult}`;
   $('status').textContent = st.join(' · ');
 }
 
@@ -144,7 +156,8 @@ function hint(text) {
 // ---------- damage (PLAN.md rule 3: capped, never chained) ----------
 function hurt(frac, why) {
   if (!state.playing || state.invuln > 0) return;
-  hole.area *= 1 - Math.min(frac * (1 - level('hardhat') * 0.15), MAX_HIT);
+  const glass = state.card === 'glass' ? 2 : 1;
+  hole.area *= 1 - Math.min(frac * glass * (1 - level('hardhat') * 0.15), MAX_HIT * glass);
   state.hits.push(why);
   state.invuln = 1.2;
   state.shake = 0.5;
@@ -178,24 +191,50 @@ function combo(n) {
   void el.offsetWidth;
   el.classList.add('show');
 }
+function spotted() {
+  flash('Spotted! ★+1', false);
+  sfx.star();
+}
 function poison(effect) {
+  if (state.card === 'clean') { endRun(false, 'Poisoned — Clean Diet broken'); return; }
   if (effect === 'shrink') hurt(0.12, 'Gas can! Shrunk');
   if (effect === 'reverse') { state.reverse = 3; flash('Toxic! Controls reversed'); }
   if (effect === 'jam') { state.jam = 2; flash('Spiky art! Jammed'); }
 }
 
 // ---------- menus ----------
+let pickedCard = 'none';
 function start(seed, daily) {
   sfx.unlock();
-  // Play the city shown behind the menu; only reroll for daily/replays.
-  if (seed !== undefined || state.over || state.time > 0) newRun(seed, daily);
+  const card = daily ? dailyCard(rng(seed)) : pickedCard;
+  // Play the city shown behind the menu; reroll for daily/replays or when the card changes the city.
+  const fresh = state.over || state.time > 0;
+  if (seed !== undefined || fresh || card !== 'none') newRun(seed ?? (fresh ? undefined : state.seed), daily, card);
   $('screen').hidden = true;
   $('hud').hidden = false;
   state.playing = true;
 }
 $('play').onclick = () => start(undefined, false);
 $('daily').onclick = () => start(todaySeed(), true);
-$('shopBtn').onclick = () => { $('shop').hidden = !$('shop').hidden; renderShop(); };
+function panel(id) {
+  for (const p of ['shop', 'book']) $(p).hidden = p !== id || !$(p).hidden;
+  if (!$('shop').hidden) renderShop();
+  if (!$('book').hidden) renderBook($('book'), assets);
+}
+$('shopBtn').onclick = () => panel('shop');
+$('bookBtn').onclick = () => panel('book');
+
+let offered = offer(rng((Math.random() * 2 ** 31) | 0));
+function renderCards() {
+  $('cards').replaceChildren(...['none', ...offered].map((id) => {
+    const c = CARDS[id], b = document.createElement('button');
+    b.className = 'chal' + (id === pickedCard ? ' on' : '');
+    b.innerHTML = `<b>${c.name}</b><small>${c.desc}</small><em>${c.mult > 1 ? `×${c.mult} dust` : ''}</em>`;
+    b.onclick = () => { pickedCard = id; renderCards(); };
+    return b;
+  }));
+}
+renderCards();
 function muteToggle() { $('mute').textContent = sfx.toggleMute() ? '♪̸' : '♪'; }
 $('mute').onclick = muteToggle;
 
@@ -203,6 +242,7 @@ const clock = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStar
 
 function renderShop() {
   $('dust').textContent = save.dust;
+  $('bookBtn').querySelector('b').textContent = `${bookEntries(assets).filter((a) => save.book?.[a.name]).length}/${bookEntries(assets).length}`;
   const dailyBest = save.daily[todaySeed()];
   $('daily').textContent = dailyBest ? `Daily city · best ${dailyBest.clear ? `cleared ${clock(dailyBest.clear)}` : `${dailyBest.r.toFixed(1)} m`}` : 'Daily city';
   $('shop').replaceChildren(...Object.entries(UPGRADES).map(([id, u]) => {
@@ -213,17 +253,46 @@ function renderShop() {
     b.innerHTML = `<b>${u.name}</b><small>${u.desc}</small><span>${'●'.repeat(lv)}${'○'.repeat(u.costs.length - lv)}</span><em>${cost === undefined ? 'max' : cost + ' dust'}</em>`;
     b.onclick = () => { if (buy(id)) renderShop(); };
     return b;
-  }));
+  }), ...skinCards());
+}
+
+function skinCards() {
+  const head = document.createElement('p');
+  head.className = 'shop-head';
+  head.textContent = 'Hole skins';
+  return [head, ...Object.entries(SKINS).map(([id, sk]) => {
+    const owned = id === 'void' || save.skins?.includes(id), on = (save.skin || 'void') === id;
+    const b = document.createElement('button');
+    b.className = 'card skin' + (on ? ' on' : '');
+    b.style.setProperty('--rim', '#' + new THREE.Color(sk.rim).getHexString());
+    b.style.setProperty('--deep', '#' + new THREE.Color(sk.top || sk.deep).getHexString());
+    b.disabled = !owned && save.dust < sk.cost;
+    b.innerHTML = `<i class="swatch"></i><b>${sk.name}</b><em>${on ? 'equipped' : owned ? 'equip' : sk.cost + ' dust'}</em>`;
+    b.onclick = () => {
+      if (!owned) { if (save.dust < sk.cost) return; save.dust -= sk.cost; (save.skins ??= []).push(id); }
+      save.skin = id;
+      persist();
+      renderShop();
+      if (!state.playing) newRun(state.seed, state.daily, state.card); // preview the new skin behind the menu
+    };
+    return b;
+  })];
 }
 renderShop();
 
-/** Ends a run. won = every building swallowed. */
-function endRun(won) {
+/** Ends a run. won = every building swallowed; why = how a lost run ended. */
+function endRun(won, why) {
+  if (!state.playing) return;
   state.playing = false;
+  rivals.hideLabels();
+  offered = offer(rng((Math.random() * 2 ** 31) | 0));
+  pickedCard = 'none';
+  renderCards();
   state.over = true;
   if (won) sfx.star();
   else { state.sealing = 1.2; sfx.seal(); }
-  const dust = Math.floor(2 * Math.sqrt(state.score)) + Math.floor(state.bonus / 4) + (won ? 150 : 0);
+  const mult = CARDS[state.card].mult;
+  const dust = Math.floor((Math.floor(2 * Math.sqrt(state.score)) + Math.floor(state.bonus / 4) + state.rareDust + (won ? 150 : 0)) * mult);
   save.dust += dust;
   save.best = Math.max(save.best, state.best);
   if (won) save.fastest = Math.min(save.fastest || Infinity, state.time);
@@ -237,12 +306,12 @@ function endRun(won) {
   setTimeout(() => {
     $('hud').hidden = true;
     $('screen').hidden = false;
-    $('title').innerHTML = won ? 'You swallowed<br><span>the city</span>' : 'The ground<br><span>sealed</span>';
+    $('title').innerHTML = won ? 'You swallowed<br><span>the city</span>' : why ? `${why.split(' — ')[0]}<br><span>${why.split(' — ')[1] || 'game over'}</span>` : 'The ground<br><span>sealed</span>';
     $('result').hidden = false;
     $('result').innerHTML = (won
       ? `Every building gone in <b>${clock(state.time)}</b>${state.daily ? ' — today\'s city' : ''}. Fastest ever <b>${clock(save.fastest)}</b>.`
       : `You swallowed <b>${state.eaten}</b> things and grew to <b>${state.best.toFixed(1)} m</b>${state.daily ? ' in today\'s city' : ''}. <b>${state.left}</b> buildings still stand.`)
-      + `<br>+<b>${dust}</b> void dust${won ? ' (incl. 150 clear bonus)' : ''} · best ever <b>${save.best.toFixed(1)} m</b>`;
+      + `<br>+<b>${dust}</b> void dust${mult > 1 ? ` (×${mult} ${CARDS[state.card].name})` : ''}${state.rivalsEaten ? ` · ate ${state.rivalsEaten} rival${state.rivalsEaten > 1 ? 's' : ''}` : ''} · best ever <b>${save.best.toFixed(1)} m</b>`;
     $('play').textContent = 'Dig again';
     renderShop();
   }, 1300);
@@ -271,9 +340,10 @@ function frame(dt) {
     hints();
     for (const k of ['reverse', 'jam', 'slow', 'invuln', 'shake', 'comboT']) state[k] = Math.max(0, state[k] - dt);
     if (!state.comboT) state.combo = 0;
-    state.belly = Math.max(0, state.belly - BELLY_DRAIN * Math.min(1, 0.3 + state.time / 25) * dt); // gentle first 20s
+    const tide = state.flooded ? 2 : 1;
+    state.belly = Math.max(0, state.belly - BELLY_DRAIN * tide * Math.min(1, 0.3 + state.time / 25) * dt); // gentle first 20s
     const [sx, sz] = window.__bot ? window.__bot(hole, city) : steer();
-    const speed = (5 + hole.r * 1.6) * (state.slow > 0 ? 0.45 : 1);
+    const speed = (5 + hole.r * 1.6) * (state.slow > 0 ? 0.45 : 1) * (state.flooded ? 0.6 : 1);
     const lim = Math.max(2, city.half - hole.r * 0.95); // keep the whole hole disc inside town
     const px = hole.x, pz = hole.z;
     hole.x = THREE.MathUtils.clamp(hole.x + sx * speed * dt, -lim, lim);
@@ -281,7 +351,7 @@ function frame(dt) {
     hole.vx = (hole.x - px) / dt;
     hole.vz = (hole.z - pz) / dt;
 
-    const slower = 1 - level('appetite') * 0.12;
+    const slower = (1 - level('appetite') * 0.12) * (state.card === 'lonely' ? 1.3 : 1);
     const fed = DECAY_FED / (1 + hole.r * 0.15); // big holes need proportionally bigger meals already
     hole.area *= 1 - (state.belly > 0 ? fed : DECAY_STARVING) * slower * dt;
     director.update(dt, hole, state);
@@ -292,23 +362,48 @@ function frame(dt) {
     }
     state.stars = director.stars;
     if ((state.leftTimer = (state.leftTimer || 0) - dt) <= 0) { state.leftTimer = 0.5; state.left = city.buildingsLeft(); }
-    if (hole.r < DEAD_R) endRun(false);
+    const rv = rivals.update(dt, hole, true, state.time);
+    if (rv === 'eaten') endRun(false, `Eaten — by ${rivals.list.find((q) => !q.dead && q.hole.r > hole.r)?.name || 'a rival'}`);
+    else for (const q of rv) {
+      hole.area += q.hole.area * 0.6;
+      state.rivalsEaten++;
+      state.score += q.hole.area;
+      flash(`Swallowed ${q.name}!`, false);
+      sfx.star();
+      sparks.burst(hole.x, hole.z, hole.r, 6);
+    }
+    if (!state.playing) { /* eaten above */ }
+    else if (hole.r < DEAD_R) endRun(false);
     else if (state.left === 0) endRun(true);
+    else if (state.card === 'rush' && state.time > 300) endRun(false, 'Too slow — Rush Hour over');
   } else if (state.sealing > 0) {
     state.sealing = Math.max(0, state.sealing - dt);
     hole.area *= Math.max(0, 1 - dt * 6);
   }
 
-  const eaten = city.update(dt, hole, state.jam > 0 || !state.playing);
+  if (!state.playing) rivals.update(dt, hole, false);
+  const eaten = city.update(dt, [hole, ...rivals.holes], state.jam > 0 || !state.playing);
   for (const ev of city.events) {
     if (ev.type === 'clog' && state.playing) { state.jam = Math.max(state.jam, 1.5); flash('Clogged!'); sfx.hurt(); }
   }
   for (const e of eaten) {
+    if (e.eater && e.eater !== hole) { // a rival's meal
+      const before = e.eater.area;
+      // rubber band: rivals keep pace with you but never run away with the city
+      const ahead = e.eater.r > hole.r * 1.4 + 1;
+      if (e.meta.kind !== 'poison') e.eater.grow(e.meta.tier, ahead ? 0.12 : 0.5);
+      rivals.fed(e.eater, before);
+      continue;
+    }
     if (!state.playing) continue;
     sfx.gulp(e.meta.tier);
+    if (record(e.name)) flash(`New in the book: ${title(e.name)}`, false);
+    if (e.meta.rare) { state.rareDust += 25; sparks.burst(hole.x, hole.z, hole.r, 4); sfx.star(); }
     if (e.meta.kind === 'poison') { poison(e.meta.effect); continue; }
+    if (e.meta.effect === 'combo') { state.combo += 3; state.comboT = 1.2; }
     const before = hole.area;
-    hole.grow(e.meta.tier);
+    const mult = state.card === 'vehicles' ? (VEHICLES.has(e.name) ? 1.5 : 0.25) : state.card === 'glass' ? 1.5 : 1;
+    hole.grow(e.meta.tier, mult);
     // a full meal is MEAL of the hole's area, capped at a 6 m hole's worth so late game stays feedable
     state.belly = Math.min(1, state.belly + (hole.area - before) / (Math.min(before, Math.PI * 36) * MEAL));
     state.eaten++;
@@ -341,7 +436,8 @@ function frame(dt) {
   if (sc.right !== ext) { sc.left = sc.bottom = -ext; sc.right = sc.top = ext; sc.updateProjectionMatrix(); }
 
   sparks.update(dt);
-  if (state.playing) hud();
+  for (const q of rivals.list) q.hole.update(dt, state.time, 0);
+  if (state.playing) { hud(); rivals.labels(camera); }
   if (!window.__headless) {
     if (state.playing && document.visibilityState === 'visible') post.watch(dt);
     post.render(look.grade || [1, 1, 1]);

@@ -59,10 +59,10 @@ export function flatGeometry(asset, lod = 0) {
 }
 
 /** Tiles get a material that discards fragments inside the hole (the ground "opens"). */
-export function groundMaterial(holeUniform) {
+export function groundMaterial(holeField) {
   const mat = toyMaterial.clone();
   mat.onBeforeCompile = (s) => {
-    s.uniforms.uHole = holeUniform;
+    s.uniforms.uHoles = holeField;
     s.vertexShader = s.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vWorldP;')
       .replace('#include <project_vertex>', `#include <project_vertex>
@@ -72,9 +72,9 @@ export function groundMaterial(holeUniform) {
         #endif
         vWorldP = (modelMatrix * wp).xyz;`);
     s.fragmentShader = s.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vWorldP;\nuniform vec3 uHole;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWorldP;\nuniform vec3 uHoles[4];')
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
-        if (distance(vWorldP.xz, uHole.xy) < uHole.z) discard;`);
+        for (int i = 0; i < 4; i++) if (uHoles[i].z > 0.0 && distance(vWorldP.xz, uHoles[i].xy) < uHoles[i].z) discard;`);
   };
   return mat;
 }
@@ -84,8 +84,8 @@ const SIDEWALK = ['lamp', 'tree_small', 'bench', 'hydrant', 'trashcan', 'mailbox
 const PARK = ['tree_small', 'tree_big', 'bench', 'picnic_table', 'flower_pot', 'dog', 'planter', 'hotdog_cart', 'tree_small', 'gnome'];
 const TRAFFIC = ['car', 'car_b', 'car_c', 'taxi', 'car', 'car_b', 'icecream_van', 'bus'];
 const PEDS = ['peg_a', 'peg_b', 'peg_c', 'peg_a', 'peg_b', 'peg_c', 'peg_d'];
-const CLONED = new Set(['fountain', 'clock_tower', 'crane', 'swing']);
-export const BUILDINGS = new Set(['house', 'shop', 'cafe', 'apartment', 'clock_tower', 'office', 'hotel', 'skyscraper', 'crane']);
+const CLONED = new Set(['fountain', 'clock_tower', 'crane', 'swing', 'searchlight']);
+export const BUILDINGS = new Set(['house', 'shop', 'cafe', 'apartment', 'clock_tower', 'office', 'hotel', 'skyscraper', 'crane', 'arcade', 'karaoke']);
 const SNACKS = [['peg_a', 8], ['peg_b', 8], ['peg_c', 8], ['peg_d', 6], ['pigeon', 8], ['dog', 6], ['scooter', 6], ['bicycle', 6], ['hotdog_cart', 5],
   ['car_b', 6], ['car', 6], ['car_c', 6], ['taxi', 6], ['icecream_van', 4], ['bus', 4]];
 export const SNACK_NAMES = SNACKS.map(([n]) => n);
@@ -95,6 +95,8 @@ export const MOODS = [
   { name: 'Old Town', inner: { lot: 6, plaza: 1, park: 1.5, canal: 0.5 }, outer: { lot: 3, park: 2, residential: 3, plaza: 0.6 }, canals: false },
   { name: 'Suburbia', inner: { lot: 5, park: 1.5, parking: 1 }, outer: { residential: 6, park: 2, lot: 1.5 }, canals: false },
   { name: 'Waterfront', inner: { lot: 5, plaza: 1, park: 1 }, outer: { lot: 2, park: 2, residential: 2, canal: 1 }, canals: true },
+  { name: 'Seaside', inner: { lot: 5, plaza: 1, park: 1.2 }, outer: { lot: 2, park: 1.5, residential: 2.5 }, canals: false, beach: true },
+  { name: 'Neon Nights', inner: { lot: 4, neon: 3, plaza: 0.5 }, outer: { neon: 2, lot: 3, parking: 1, residential: 1 }, canals: false, night: true },
   { name: 'Boomtown', inner: { lot: 6, construction: 1.5, parking: 1 }, outer: { construction: 2, parking: 1.5, lot: 3, residential: 1.5 }, canals: false },
 ];
 
@@ -106,18 +108,21 @@ function weighted(r, weights) {
 }
 
 export class City {
-  constructor(assets, seed, holeUniform) {
+  constructor(assets, seed, holeField) {
     this.assets = assets;
     this.r = rng(seed);
     const N = (this.N = 5 + Math.floor(this.r() * 3));
     this.mood = this.r.pick(MOODS);
+    const force = typeof location !== 'undefined' && new URLSearchParams(location.search).get('mood');
+    if (force) this.mood = MOODS.find((m) => m.name.toLowerCase().startsWith(force.toLowerCase())) || this.mood;
     this.tileEntities = [];
     this.half = (N * TILE) / 2;
     this.group = new THREE.Group();
     this.entities = [];
     this.mixers = [];
     this.dirty = new Set();
-    this.groundMat = groundMaterial(holeUniform);
+    this.holeField = holeField;
+    this.groundMat = groundMaterial(holeField);
     this.layout();
     this.build();
   }
@@ -133,19 +138,22 @@ export class City {
     const { r, N } = this;
     this.tiles = [];
     const mid = (N - 1) / 2, plazaAt = Math.floor(mid);
-    const canalRow = this.mood.canals ? Math.floor(r() * N) : -1;
+    const canalRow = this.mood.canals ? Math.floor(r() * (N - 1)) : -1;
+    this.beach = this.mood.beach || r() < 0.25; // seafront along the +z edge
+    const pierAt = Math.floor(r() * N);
     for (let i = 0; i < N; i++) {
       for (let j = 0; j < N; j++) {
         const cx = (i - mid) * TILE, cz = (j - mid) * TILE;
         const ring = Math.max(Math.abs(i - mid), Math.abs(j - mid));
         let type;
         if (i === plazaAt && j === plazaAt) type = 'plaza';
+        else if (this.beach && j === N - 1) type = 'beach';
         else if (j === canalRow && r() < 0.85) type = 'canal';
         else if (ring < 1) type = 'lot';
         else type = weighted(r, ring < 2 ? this.mood.inner : this.mood.outer);
         // Tiles whose props depend on orientation only turn by 180° (canals stay continuous along x).
-        const rot = type === 'canal' ? (r() < 0.5 ? 0 : Math.PI) : Math.floor(r() * 4) * Math.PI / 2;
-        this.tiles.push({ type, cx, cz, ring, rot });
+        const rot = type === 'beach' ? 0 : type === 'canal' ? (r() < 0.5 ? 0 : Math.PI) : Math.floor(r() * 4) * Math.PI / 2;
+        this.tiles.push({ type, cx, cz, ring, rot, pier: type === 'beach' && i === pierAt });
       }
     }
     for (const t of this.tiles) {
@@ -155,6 +163,20 @@ export class City {
     this.traffic();
     this.reserves();
     this.scenery();
+    this.rares();
+  }
+
+  /** Collection-book rares: occasionally a common thing is swapped for its rare cousin. */
+  rares() {
+    const { r } = this;
+    for (const [base, rare, p] of [['gnome', 'golden_gnome', 0.6], ['hydrant', 'gold_hydrant', 0.45], ['pigeon', 'rainbow_pigeon', 0.55], ['car', 'mayor_limo', 0.4]]) {
+      if (r() > p) continue;
+      const pool = this.entities.filter((e) => e.name === base && e.alive && (!e.mover || e.mover.type === 'peck'));
+      if (!pool.length) continue;
+      const e = r.pick(pool);
+      e.name = rare;
+      e.meta = this.assets[rare].meta;
+    }
   }
 
   /** Tile-local (x, z) -> world, honouring the tile's rotation. */
@@ -226,6 +248,31 @@ export class City {
         this.add('pigeon', x, z, r() * 6.28, { type: 'peck', t: r() * 10 });
       }
       for (let k = 0; k < 4; k++) this.walker(cx, cz, 9);
+    } else if (t.type === 'beach') {
+      // sand runs from the sea wall (z=-7) to the waterline (z=+9); promenade is inland (z<-8)
+      for (let k = 0; k < 5; k++) {
+        const x = -11 + k * 5.5 + r.range(-1, 1), z = r.range(-3, 5);
+        this.put(t, 'beach_umbrella', x, z, r() * 6.28);
+        this.put(t, 'deckchair', x + 1.4, z + 0.6, r.range(-0.4, 0.4) - Math.PI / 2);
+      }
+      for (let k = 0; k < 2; k++) this.put(t, 'sandcastle', r.range(-12, 12), r.range(5, 8), r() * 6.28);
+      for (let k = 0; k < 3; k++) this.put(t, 'beach_ball', r.range(-12, 12), r.range(-4, 7), 0);
+      for (let k = 0; k < 2; k++) this.put(t, 'surfboard', r.range(-12, 12), r.range(-5, 6), r() * 6.28);
+      if (r() < 0.6) this.put(t, 'lifeguard_tower', r.range(-8, 8), 6.5, -Math.PI / 2);
+      for (let k = 0; k < 4; k++) {
+        const [x, z] = this.at(t, r.range(-12, 12), r.range(8, 10));
+        this.add('crab', x, z, r() * 6.28, { type: 'scuttle', x0: x, t: r() * 10 });
+      }
+      for (let k = 0; k < 3; k++) this.put(t, r.pick(['bench', 'lamp', 'icecream_van', 'kiosk']), -10 + k * 10, -10.5, 0);
+      if (t.pier) this.pierAt = [cx + 9, cz - 6];
+    } else if (t.type === 'neon') {
+      this.put(t, 'arcade', -7.5, -7.5, 0);
+      this.put(t, 'karaoke', 7.5, 7.5, Math.PI);
+      for (let k = 0; k < 3; k++) this.put(t, 'noodle_stall', 6 + k * 2.4, -9, Math.PI / 2);
+      for (let k = 0; k < 6; k++) this.put(t, 'neon_sign', r.range(-12, 12), r.range(-12, 12), r() * 6.28);
+      for (let k = 0; k < 2; k++) this.put(t, 'vending', -12, 4 + k * 1.2, 0);
+      this.put(t, 'searchlight', 11, 11, 0);
+      for (let k = 0; k < 6; k++) this.walker(cx, cz, 11);
     } else if (t.type === 'park') {
       for (let k = 0; k < 16; k++) {
         const x = cx + r.range(-12, 12), z = cz + r.range(-12, 12);
@@ -262,10 +309,14 @@ export class City {
     for (let i = -2; i < N + 2; i++) {
       for (let j = -2; j < N + 2; j++) {
         if (i >= 0 && i < N && j >= 0 && j < N) continue;
-        const cx = (i - mid) * TILE, cz = (j - mid) * TILE, rot = Math.floor(r() * 4) * Math.PI / 2;
+        const cx = (i - mid) * TILE, cz = (j - mid) * TILE, rot = this.beach && j >= N ? 0 : Math.floor(r() * 4) * Math.PI / 2;
         cur = { cx, cz, rot };
-        const type = weighted(r, { meadow: 6, farm: 2.5, lake: 1.5 });
+        const type = this.beach && j >= N ? 'sea' : weighted(r, { meadow: 6, farm: 2.5, lake: 1.5 });
         land('land_' + type, cx, 0, cz, rot);
+        if (type === 'sea') {
+          if (r() < 0.35) land('sailboat', cx + r.range(-12, 12), 0, cz + r.range(-12, 12), r() * 6.28);
+          continue;
+        }
         const spot = (m) => [cx + r.range(-m, m), cz + r.range(-m, m)];
         if (type === 'meadow') {
           for (let k = 0; k < 5; k++) { const [x, z] = spot(17); land(r.pick(['tree_small', 'tree_big', 'tree_small']), x, 'ground', z, r() * 6.28); }
@@ -308,7 +359,7 @@ export class City {
     const e = this.entities.find((q) => !q.alive && q.name === name && q.mover?.reserve);
     if (!e) return null;
     const m = e.mover;
-    Object.assign(e, { x, z, y: 0, s: 1, tilt: 0, alive: true, falling: false, vy: 0 });
+    Object.assign(e, { x, z, y: 0, s: 1, tilt: 0, alive: true, falling: false, vy: 0, eater: null });
     m.h = Math.atan2(-(tz - z), tx - x) + (this.r() - 0.5) * 1.2;
     m.v = name.startsWith('peg') || name === 'pigeon' || name === 'dog' ? this.r.range(1, 1.8) : this.r.range(3, 5);
     m.t = this.r() * 10;
@@ -442,6 +493,7 @@ export class City {
   }
 
   buildScenery() {
+    if (this.pierAt) this.sceneryList.push({ name: 'pier', x: this.pierAt[0], y: 0, z: this.pierAt[1], rot: 0 });
     // Sit meadow props on the hills: raycast the (unrotated) hill mesh in tile-local space.
     const hill = new THREE.Mesh(flatGeometry(this.assets.land_meadow, 0));
     const ray = new THREE.Raycaster(), down = new THREE.Vector3(0, -1, 0), o = new THREE.Vector3();
@@ -480,8 +532,17 @@ export class City {
     // countryside continues to the horizon
     // Uses the hole-cutting ground material (palette 'sage' swatch) so the hole never shows grass inside.
     const fieldGeo = new THREE.CircleGeometry(1400, 64).rotateX(-Math.PI / 2);
-    fieldGeo.attributes.uv.array.fill(0).forEach((_, i, arr) => { arr[i] = i % 2 ? 0.375 : 0.1875; });
+    const swatch = (geo, col, row) => geo.attributes.uv.array.forEach((_, i, arr) => { arr[i] = i % 2 ? (row + 0.5) / 5 : (col + 0.5) / 8; });
+    swatch(fieldGeo, 1, 1); // 'sage'
     const field = new THREE.Mesh(fieldGeo, this.groundMat);
+    if (this.beach) { // open water to the horizon on the seaside
+      const seaGeo = new THREE.PlaneGeometry(3000, 1400).rotateX(-Math.PI / 2);
+      swatch(seaGeo, 3, 1); // 'sky'
+      const sea = new THREE.Mesh(seaGeo, this.groundMat);
+      sea.position.set(0, 0.06, this.half + 80 + 700); // just above the field (child of it)
+      field.add(sea);
+      field.userData.sea = sea;
+    }
     field.position.y = -0.08;
     field.receiveShadow = true;
     this.group.add(field);
@@ -523,6 +584,7 @@ export class City {
     for (const m of this.meshes) m.dispose();
     this.clouds.dispose();
     this.field.geometry.dispose();
+    this.field.userData.sea?.geometry.dispose();
     for (const mx of this.mixers) mx.stopAllAction();
     this.groundMat.dispose();
   }
@@ -548,7 +610,9 @@ export class City {
   }
 
   /** Movers + falling + swallow checks. Returns list of entities consumed this frame. */
-  update(dt, hole, jammed = false) {
+  /** holes[0] is the player (flee/clog react to it); every visible hole can swallow. jammed = player can't eat. */
+  update(dt, holes, jammed = false) {
+    const hole = holes[0];
     const eaten = [];
     this.events = [];
     const H = this.half;
@@ -557,7 +621,7 @@ export class City {
       if (!e.alive) continue;
       const m = e.mover;
       if (e.falling) {
-        this.fall(e, dt, hole, eaten);
+        this.fall(e, dt, e.eater || hole, eaten);
         continue;
       }
       if (e.clog > 0) { // wedged in the hole: tipped in, then pops back out (PLAN.md rule 3: <=1.5s)
@@ -604,6 +668,9 @@ export class City {
           e.rot = m.h;
           const w = m.t * 9;
           e.y = e.meta.tier < 0.3 ? Math.abs(Math.sin(w)) * 0.07 : Math.abs(Math.sin(m.t * 7)) * 0.03;
+        } else if (m.type === 'scuttle') { // crabs: sideways dashes along the waterline
+          e.x = m.x0 + Math.sin(m.t * 1.4) * 1.6 + (scared ? Math.sign(fdx || 1) * 2 : 0);
+          e.y = Math.abs(Math.sin(m.t * 12)) * 0.02;
         } else if (m.type === 'bob') {
           e.y = m.base + Math.sin(m.t * 1.6) * 0.06;
           e.rot += Math.sin(m.t * 0.9) * 0.002;
@@ -620,23 +687,28 @@ export class City {
         }
         this.place(e);
       }
-      if (jammed || e.noSwallow) continue;
+      if (e.noSwallow) continue;
       // clog: a vehicle a bit too big rolls over the middle of the hole and wedges in
-      if ((m?.type === 'drive' || m?.type === 'wander') && !e.clogCool && e.meta.tier >= hole.r * 0.95 && e.meta.tier < hole.r * 1.4
+      if (!jammed && (m?.type === 'drive' || m?.type === 'wander') && !e.clogCool && e.meta.tier >= hole.r * 0.95 && e.meta.tier < hole.r * 1.4
         && (e.x - hole.x) ** 2 + (e.z - hole.z) ** 2 < (hole.r * 0.5) ** 2) {
         e.clog = 1.5;
         e.tiltDir = Math.atan2(e.z - hole.z, e.x - hole.x);
         this.events.push({ type: 'clog', e });
         continue;
       }
-      // swallow test: fits in the hole and mostly over it (flying things only when the vortex is big)
-      const dx = e.x - hole.x, dz = e.z - hole.z;
+      // swallow test: fits in a hole and mostly over it (flying things only when the vortex is big)
       const tier = e.meta.tier;
-      if (e.flying && hole.r < tier * 1.6) continue;
-      if (tier < hole.r * 0.95 && dx * dx + dz * dz < (hole.r * (hole.pull || 1) - tier * 0.5) ** 2) {
-        e.falling = true;
-        e.vy = 0;
-        e.tiltDir = Math.atan2(dz, dx);
+      for (let h = 0; h < holes.length; h++) {
+        const q = holes[h];
+        if (q.hidden || (h === 0 && jammed) || (e.flying && q.r < tier * 1.6)) continue;
+        const dx = e.x - q.x, dz = e.z - q.z;
+        if (tier < q.r * 0.95 && dx * dx + dz * dz < (q.r * (q.pull || 1) - tier * 0.5) ** 2) {
+          e.falling = true;
+          e.eater = q;
+          e.vy = 0;
+          e.tiltDir = Math.atan2(dz, dx);
+          break;
+        }
       }
     }
     for (const c of this.cloudList) {

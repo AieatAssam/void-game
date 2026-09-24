@@ -137,8 +137,18 @@ def tile_base():
     """Road half-ring + curb + sidewalk for a 40m tile. Returns parts; block top is at z=0.18."""
     h = TILE / 2
     p = [grid('road', TILE, TILE, 1, 1, color_fn=lambda i, j: 'asphalt'),
-         box('curb', (BLOCK + 0.6, BLOCK + 0.6, 0.16), loc=(0, 0, 0.08), color='concrete', bev=0.05, seg=2),
-         grid('walk', BLOCK, BLOCK, 10, 10, z=0.162, color_fn=lambda i, j: 'sand' if i in (0, 9) or j in (0, 9) else 'cream')]
+        ]
+    # Curb: a raised concrete ring under the sidewalk (not a full slab, so sunken interiors stay open).
+    cw = 3.3
+    for k, (sx, sy, cx, cy) in enumerate(((BLOCK + 0.6, cw, 0, (BLOCK + 0.6 - cw) / 2), (BLOCK + 0.6, cw, 0, -(BLOCK + 0.6 - cw) / 2),
+                                          (cw, BLOCK + 0.6 - 2 * cw + 0.2, (BLOCK + 0.6 - cw) / 2, 0), (cw, BLOCK + 0.6 - 2 * cw + 0.2, -(BLOCK + 0.6 - cw) / 2, 0))):
+        p.append(box(f'curb{k}', (sx, sy, 0.16), loc=(cx, cy, 0.08), color='concrete', bev=0.05, seg=2))
+    # Sidewalk is a 3m ring around the block. The interior belongs to each tile (lot, lawn, canal, beach...),
+    # so sunken features like the canal are never paved over.
+    w = 3.0
+    for k, (sx, sy, cx, cy) in enumerate(((BLOCK, w, 0, (BLOCK - w) / 2), (BLOCK, w, 0, -(BLOCK - w) / 2),
+                                          (w, BLOCK - 2 * w, (BLOCK - w) / 2, 0), (w, BLOCK - 2 * w, -(BLOCK - w) / 2, 0))):
+        p.append(grid(f'walk{k}', sx, sy, 1, 1, z=0.162, color_fn=lambda i, j: 'cream', loc=(cx, cy, 0)))
     for rot in range(4):
         m = Matrix.Rotation(rot * math.pi / 2, 4, 'Z')
         parts = []

@@ -33,7 +33,7 @@ PALETTE = [
      ('gloss_black', '1C1C24'), ('pearl', 'F4F0EA'), ('rose_gold', 'E3A58C'), ('hot_pink', 'FF5FC8')],
 ]
 # Per-swatch (roughness, metalness). Default satin toy paint; glass + metals shine.
-ORM = {'sky': (0.2, 0.0), 'teal': (0.35, 0.0), 'steel': (0.4, 0.3), 'gold': (0.22, 1.0), 'chrome': (0.12, 1.0),
+ORM = {'sky': (0.45, 0.0), 'teal': (0.4, 0.0), 'steel': (0.4, 0.3), 'gold': (0.22, 1.0), 'chrome': (0.12, 1.0),
        'copper': (0.3, 1.0), 'glass': (0.06, 0.0), 'gloss_black': (0.18, 0.0), 'pearl': (0.3, 0.15),
        'rose_gold': (0.24, 1.0), 'hot_pink': (0.35, 0.0)}
 SWATCH = {n: (c, r) for r, row in enumerate(PALETTE) for c, (n, _) in enumerate(row)}
