@@ -133,3 +133,9 @@ button.ghost { background: #fff8ee22; color: var(--cream); box-shadow: none; fon
 .edge-arrow b { position: absolute; font-size: 30px; color: var(--c); text-shadow: 0 2px 0 #1a0f3a, 0 0 12px var(--c); }
 .edge-arrow i { position: absolute; font-style: normal; font-size: 18px; translate: 0 -30px; filter: drop-shadow(0 2px 2px #0008); }
 @keyframes edgeBob { to { scale: 1.12; } }
+#powers { position: fixed; left: 12px; bottom: 12px; display: flex; gap: 8px; pointer-events: none; }
+#powers[hidden] { display: none; }
+#powers .chip { position: relative; width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center;
+  background: conic-gradient(var(--c) calc(var(--p) * 360deg), #1a0f3a99 0); box-shadow: 0 2px 0 #0004, 0 0 14px var(--c); }
+#powers .chip i { position: absolute; inset: 4px; border-radius: 50%; background: #1a0f3add; }
+#powers .chip b { position: relative; font-size: 22px; }

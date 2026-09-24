@@ -11,6 +11,7 @@ import {
 } from 'three/tsl';
 import { triplanar, layerMean, waterGrad, macro, L } from './pbr.js';
 import { Q } from './quality.js';
+import { MAX_HOLES } from './hole.js';
 
 export const surfaceTime = uniform(0); // legacy tick (kept for callers); shaders use it for hole pulses
 export const surfaceOn = uniform(1); // 0 on low-spec devices (set by the fps watchdog)
@@ -115,7 +116,7 @@ function buildToy(mat, { ground = false, holes = null } = {}) {
   // ---- albedo
   const colorNode = Fn(() => {
     if (holes) {
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < MAX_HOLES; i++) {
         const h = holes.element(i);
         If(h.z.greaterThan(0).and(length(positionWorld.xz.sub(h.xy)).lessThan(h.z)), () => { Discard(); });
       }

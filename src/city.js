@@ -7,6 +7,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { groundMaterial, groundMaskMaterial } from './surface.js';
 import { Terrain } from './terrain.js';
 import { planEvent } from './events.js';
+import { MAX_HOLES } from './hole.js';
 
 export const TILE = 40;
 const CHUNK = 40;
@@ -79,7 +80,7 @@ function aoMaterial(holeField) {
   const holes = uniformArray(holeField.value, 'vec3');
   const mat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false });
   mat.colorNode = Fn(() => {
-    for (let i = 0; i < 4; i++) { // never darken the inside of a hole
+    for (let i = 0; i < MAX_HOLES; i++) { // never darken the inside of a hole
       const h = holes.element(i);
       If(h.z.greaterThan(0).and(length(positionWorld.xz.sub(h.xy)).lessThan(h.z)), () => { Discard(); });
     }
@@ -929,7 +930,7 @@ export class City {
       if (hole.vac > 0 && !jammed && !hole.hidden && !e.noSwallow && !e.flying && e.meta.kind === 'prop' && tier0 < hole.r * 0.6) {
         // whirlpool: right after a swallow, small things nearby spiral into the player's hole
         // tuned to help small holes chain (fixed reach bonus) without snowballing big ones (weaker pull)
-        const dx = hole.x - e.x, dz = hole.z - e.z, d = Math.hypot(dx, dz) || 1e-3, reach = hole.r * (1.4 + hole.vac * 0.5) + 1.2;
+        const dx = hole.x - e.x, dz = hole.z - e.z, d = Math.hypot(dx, dz) || 1e-3, reach = (hole.r * (1.4 + hole.vac * 0.5) + 1.2) * (hole.reach || 1);
         if (d < reach) {
           const f = Math.min(1, hole.vac) * Math.sqrt(1 - d / reach) / (1 + hole.r * 0.12), pull = (3 + hole.r * 2.5) * f, swirl = (4 + hole.r * 3) * f;
           e.x += ((dx * pull + dz * swirl) / d) * dt; // inward + tangential

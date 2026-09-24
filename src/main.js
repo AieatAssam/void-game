@@ -11,6 +11,7 @@ import { record, renderBook, title, bookEntries, thumb, warmThumbs } from './boo
 import { Director } from './director.js';
 import { Events } from './events.js';
 import { Chains } from './chains.js';
+import { Powerups, POWERS } from './powerups.js';
 import { installBot } from './bot.js';
 import { UPGRADES, ECON, save, persist, level, buy, todaySeed } from './meta.js';
 import * as sfx from './sfx.js';
@@ -111,7 +112,7 @@ function snapshot() {
 
 const field = holeField();
 const DAY_TIMES = Object.keys(TIMES).filter((k) => !TIMES[k].night);
-let city, hole, state, director, rivals, grass, events, chains;
+let city, hole, state, director, rivals, grass, events, chains, powerups;
 const randomSeed = () => (Math.random() * 2 ** 31) | 0;
 
 /** Download (once) every pack a mood needs, with the staged loading line. Resolves true if anything was fetched. */
@@ -125,7 +126,7 @@ async function ensurePacks(moodName, show = setLoad) {
 }
 
 function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null) {
-  if (city) { scene.remove(city.group, hole.group, grass.group); city.dispose(); hole.dispose(); director.dispose(); rivals.dispose(); grass.dispose(); events.dispose(); chains.dispose(); }
+  if (city) { powerups.dispose(); scene.remove(city.group, hole.group, grass.group); city.dispose(); hole.dispose(); director.dispose(); rivals.dispose(); grass.dispose(); events.dispose(); chains.dispose(); }
   const debugR = +new URLSearchParams(location.search).get('r') || 0; // screenshot/debug: start bigger
   hole = new Hole(assets, field, 0, { r: debugR || 0.45 + level('headstart') * 0.04, skin: save.skin || 'void' });
   hole.pull = 1 + level('gravity') * 0.06;
@@ -135,6 +136,9 @@ function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null) 
   chains = new Chains(city, scene, debris, sparks, {
     shake: (k) => { state.shake = Math.max(state.shake, k); }, boom: sfx.boom, crackle: sfx.crackle,
     notice: (n) => director.notice(n), flash: (t) => flash(t, false),
+  });
+  powerups = new Powerups(assets, city, field, seed, save.skin || 'void', {
+    flash: (t) => flash(t, false), star: () => { sfx.star(); sfx.whoosh(); }, slotTaken: (i) => i <= rivals.list.length,
   });
   events = new Events(city, scene, { warn: (t) => { flash(t, false); sfx.drums(); }, boom: sfx.boom });
   rivals = new Rivals(assets, field, city, scene, card === 'crowded' ? 3 : card === 'lonely' ? 0 : 2, save.skin || 'void');
@@ -178,7 +182,7 @@ setLoad('Opening the ground…', 0.98);
 await nextPaint();
 $('load').hidden = true;
 $('menu').hidden = false;
-window.__game = () => ({ hole, city, state, renderer, director, rivals, events, chains });
+window.__game = () => ({ hole, city, state, renderer, director, rivals, events, chains, powerups });
 window.__info = () => { const r = renderer.info.render; return { calls: r.drawCalls, tris: r.triangles, frameCalls: r.frameCalls }; };
 if (location.search.includes('bot')) installBot();
 
@@ -249,6 +253,9 @@ function hud() {
       arrow.style.transform = `translate(${Math.cos(a) * rad}px, ${Math.sin(a) * rad}px) rotate(${a}rad)`;
     }
   }
+  const pu = powerups.items[0];
+  edgeArrow('pu', pu && [pu.e.x, pu.e.z], POWERS[pu?.kind]?.icon, POWERS[pu?.kind]?.color);
+  powerChips();
   const ef = events.focus;
   edgeArrow('event', ef, { parade: '🎺', marathon: '🏃', carshow: '🏎️', ufo: '🛸' }[events.kind], '#ffd166');
   const st = [state.reverse > 0 && 'Controls reversed', state.jam > 0 && 'Jammed', state.wet > 0 ? 'Wet concrete! Get out' : state.slow > 0 && 'Slowed', state.flooded && 'Tide! Slow + hungry',
@@ -275,6 +282,32 @@ function edgeArrow(id, target, glyph, color) {
   el.firstChild.style.transform = `rotate(${a}rad)`;
   el.lastChild.textContent = glyph;
   el.style.setProperty('--c', color);
+}
+
+/** Active power-ups: an icon with a draining radial timer each. */
+const chipsEl = Object.assign(document.createElement('div'), { id: 'powers' });
+document.body.append(chipsEl);
+function powerChips() {
+  const list = powerups.chips();
+  const key = list.map((c) => c.kind).join();
+  if (chipsEl.dataset.key !== key) {
+    chipsEl.dataset.key = key;
+    chipsEl.replaceChildren(...list.map((c) => Object.assign(document.createElement('span'), { className: 'chip', innerHTML: `<i></i><b>${c.icon}</b>`, title: c.name })));
+  }
+  list.forEach((c, i) => { const el = chipsEl.children[i]; el.style.setProperty('--p', c.left / c.T); el.style.setProperty('--c', c.color); });
+  chipsEl.hidden = !list.length || !state.playing;
+}
+
+/** Surge: a comet trail behind the hole, and the crowd ahead scatters the way you're heading. */
+function surgeFx(dt) {
+  if ((state.trailT = (state.trailT || 0) - dt) > 0) return;
+  state.trailT = 0.04;
+  const v = Math.hypot(hole.vx, hole.vz) || 1;
+  sparks.burst(hole.x - (hole.vx / v) * hole.r, hole.z - (hole.vz / v) * hole.r, hole.r * 0.4, 0.2);
+  for (const e of city.walkers ??= city.entities.filter((q) => q.mover?.type === 'walk' || q.mover?.type === 'loop')) {
+    const dx = e.x - hole.x, dz = e.z - hole.z;
+    if (e.alive && dx * hole.vx + dz * hole.vz > 0 && dx * dx + dz * dz < 625) e.panic = 1.5;
+  }
 }
 
 // ---------- first-run hints (once per browser) ----------
@@ -655,7 +688,8 @@ function frame(dt) {
     state.belly = Math.max(0, state.belly - BELLY_DRAIN * tide * ramp * Math.min(1, 0.3 + state.time / 25) * dt); // gentle first 20s
     cravings(dt);
     const [sx, sz] = window.__bot ? window.__bot(hole, city) : steer();
-    const speed = (6.5 + hole.r * 1.8) * (state.slow > 0 ? 0.45 : 1) * (state.flooded ? 0.6 : 1);
+    const surge = powerups.active.boost ? 1.8 : 1;
+    const speed = (6.5 + hole.r * 1.8) * (state.slow > 0 ? 0.45 : 1) * (state.flooded ? 0.6 : 1) * surge;
     // a little weight (~0.1s to turn / reach speed), not a boat
     const kv = 1 - Math.exp(-dt * 11);
     hole.sx = (hole.sx || 0) + (sx - (hole.sx || 0)) * kv;
@@ -684,7 +718,7 @@ function frame(dt) {
     }
     state.stars = director.stars;
     if ((state.leftTimer = (state.leftTimer || 0) - dt) <= 0) { state.leftTimer = 0.5; state.left = city.buildingsLeft(); }
-    const rv = rivals.update(dt, hole, true, state.time);
+    const rv = rivals.update(dt, hole, true, state.time, powerups);
     if (rv === 'eaten') endRun(false, `Eaten — by ${rivals.list.find((q) => !q.dead && q.hole.r > hole.r)?.name || 'a rival'}`);
     else for (const q of rv) {
       hole.area += q.hole.area * 0.6;
@@ -705,7 +739,9 @@ function frame(dt) {
   }
 
   if (!state.playing) rivals.update(dt, hole, false);
-  const eaten = city.update(dt, [hole, ...rivals.holes], state.jam > 0 || !state.playing);
+  const twins = state.playing ? powerups.update(dt, hole, rivals, scene, true) : [];
+  if (powerups.active.boost && state.playing) surgeFx(dt);
+  const eaten = city.update(dt, [hole, ...rivals.holes, ...twins], state.jam > 0 || !state.playing);
   for (const ev of city.events) {
     if (ev.type === 'fall') {
       const e = ev.e, t = e.meta.tier, mine = e.eater === hole && state.playing;
@@ -733,7 +769,7 @@ function frame(dt) {
     }
   }
   for (const e of eaten) {
-    if (e.eater && e.eater !== hole) { // a rival's meal
+    if (e.eater && e.eater !== hole && e.eater !== powerups.twin) { // a rival's meal (the split twin eats for you)
       const before = e.eater.area;
       // rubber band: rivals keep pace with you but never run away with the city
       const ahead = e.eater.r > hole.r * 1.4 + 1;
@@ -825,6 +861,8 @@ function frame(dt) {
   pedTime.value += dt;
   surfaceTime.value += dt;
   for (const q of rivals.list) q.hole.update(dt, state.time, 0, city.groundSpan(q.hole.x, q.hole.z, q.hole.r));
+  const tw = powerups.twin;
+  if (tw) tw.update(dt, state.time, 0, city.groundSpan(tw.x, tw.z, tw.r));
   if (state.playing) { hud(); rivals.labels(camera); }
   if (!window.__headless) {
     if (state.playing && document.visibilityState === 'visible') post.watch(dt);

@@ -32,3 +32,17 @@ inside 7:00 — the sloppy bot currently survives more than "mostly dies". Nothi
 
 All greedy clears ≥ 2:45. Airport/Railway run a little slower than the base median (the runway/track rows carry less
 food); both stay inside the base game's spread (base seed 11 also stalls). Sloppy clears 2/8.
+
+## M3 — city events on (every run has one; commit 5ee0e4c)
+
+| seed | greedy | sloppy |
+|---|---|---|
+| 777 | clear 5:23 | clear 5:26 |
+| 11 | open (r 2.4) | open (r 1.5) |
+| 23 | clear 3:08 | open (r 1.4) |
+| 42 | open (r 4.2) | open (r 0.5) |
+| 99 | clear 2:47 | clear 3:11 |
+| 2024 | clear 4:27 | open (r 2.3) |
+
+Greedy 4/6 clear, 2:47–5:23 (fastest just above the 2:45 floor: the parade's drummer conveyor feeds a small hole
+well). Sloppy 2/6 (baseline 3/6). Inside the baseline spread.

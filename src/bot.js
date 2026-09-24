@@ -13,6 +13,8 @@ export function installBot() {
       const s = e.meta.mass / (d + 3);
       if (s > score) { score = s; best = e; }
     }
+    const pu = !sloppy && window.__game().powerups?.nearest(hole.x, hole.z, 20); // grab capsules on the way
+    if (pu) best = pu;
     let x = best ? best.x - hole.x : 0, z = best ? best.z - hole.z : 0;
     // dodge warning rings
     for (const d of sloppy ? [] : director.drops) {

@@ -13,6 +13,7 @@ import { pbrCol, pbrNrm, pbrRha, L, triplanar, waterGrad, macro } from './pbr.js
 import { positionGeometry, normalGeometry } from 'three/tsl';
 import { surfaceOn } from './surface.js';
 import { Q } from './quality.js';
+import { MAX_HOLES } from './hole.js';
 
 // ---------- seeded value noise ----------
 function makeNoise(seed) {
@@ -382,7 +383,7 @@ export function waterMaterial({ clipHalf = null, holes = null, fade = null, fron
   const pw = positionWorld;
   let keep = clipHalf === null ? null : max(abs(pw.x), abs(pw.z)).greaterThan(clipHalf - 0.3); // the town is dry land
   if (holes) {
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < MAX_HOLES; i++) {
       const h = holes.element(i);
       const out = h.z.lessThanEqual(0).or(length(pw.xz.sub(h.xy)).greaterThan(h.z));
       keep = keep ? keep.and(out) : out;
