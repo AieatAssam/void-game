@@ -20,3 +20,15 @@ New systems must not push greedy below 2:45 or sloppy into regular clears.
 
 Greedy: 5/6 clear, 3:28–5:46 (median ≈ 4:24). Sloppy: 3/6 clear, all slower than greedy (5:05–6:08), none die
 inside 7:00 — the sloppy bot currently survives more than "mostly dies". Nothing below 2:45.
+
+## M2 — new districts (seeds 777, 42; `&mood=`)
+
+| mood | greedy 777 | sloppy 777 | greedy 42 | sloppy 42 |
+|---|---|---|---|---|
+| Fun Fair | clear 3:21 | clear 4:51 | clear 3:33 | open (r 0.5) |
+| Airport City | clear 5:47 | open (r 0.4) | open (r 1.8) | died 5:28 |
+| Railway Town | clear 5:28 | clear 4:35 | open (r 0.4) · rerun clear 5:50 | open (r 1.2) |
+| County Fair | clear 3:15 | open (r 4.0) | clear 3:25 | died 5:27 |
+
+All greedy clears ≥ 2:45. Airport/Railway run a little slower than the base median (the runway/track rows carry less
+food); both stay inside the base game's spread (base seed 11 also stalls). Sloppy clears 2/8.

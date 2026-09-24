@@ -140,7 +140,7 @@ function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null) 
   world.night.value = TIMES[time]?.night ? 1 : 0;
   world.edCol.value.set(SKINS[save.skin || 'void'].rim);
   const want = new URLSearchParams(location.search).get('start'); // screenshot/debug: start on a given tile type
-  let open = city.tiles.filter((t) => ['plaza', 'park', 'residential', 'canal', 'parking', 'beach', 'neon'].includes(t.type));
+  let open = city.tiles.filter((t) => ['plaza', 'park', 'residential', 'canal', 'parking', 'beach', 'neon', 'fair', 'rail'].includes(t.type));
   if (want && open.some((t) => t.type === want)) open = open.filter((t) => t.type === want);
   const t = r.pick(open);
   const a = r() * Math.PI * 2;
@@ -687,6 +687,7 @@ function frame(dt) {
         state.punch = 1;
         sfx.bigGulp(t);
       }
+      if (e.name === 'balloon_stand') debris.balloons(e.x, 2.5, e.z, 10 + Math.floor(Math.random() * 5));
       if (mine && t >= 0.5 && t > (state.biteTier || 0)) { state.biteTier = t; state.biteName = e.name; state.snapAt = state.time + 0.25; }
     }
     if (ev.type === 'scream' && state.playing) { shout(ev.e); sfx.eek(); }
@@ -743,9 +744,9 @@ function frame(dt) {
     if (!e.alive || e.falling || (e.smokeT = (e.smokeT ?? Math.random()) - dt) > 0) continue;
     e.smokeT = 0.35 + Math.random() * 0.3;
     if (Math.abs(e.x - camTarget.x) > camDist * 0.8 || Math.abs(e.z - camTarget.z) > camDist * 0.8) continue;
-    const [lx, ly, lz, c] = SMOKE[e.name], cs = Math.cos(e.rot), sn = Math.sin(e.rot);
+    const [lx, ly, lz, c, k = 1] = SMOKE[e.name], cs = Math.cos(e.rot), sn = Math.sin(e.rot);
     debris.puff(e.x + lx * cs + lz * sn, ly + e.y, e.z - lx * sn + lz * cs, 0.25 + Math.random() * 0.2, 0.8 + Math.random() * 0.4,
-      (Math.random() - 0.5) * 0.2, 0.3, 0.7, 2.6, smokeCol.set(c), 0.4);
+      (Math.random() - 0.5) * 0.2, 0.3 * k, 0.7 * k, 2.6 * Math.sqrt(k), smokeCol.set(c), 0.4 + 0.1 * (k - 1));
   }
   city.mixers.forEach((m) => m.update(dt));
   hole.update(dt, state.time, Math.max(0, 0.5 - state.belly) * 2, city.groundSpan(hole.x, hole.z, hole.r));

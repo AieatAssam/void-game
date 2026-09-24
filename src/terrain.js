@@ -39,9 +39,10 @@ function makeNoise(seed) {
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 export class Terrain {
-  constructor(seed, half, { beach = false } = {}) {
+  constructor(seed, half, { beach = false, farm = false } = {}) {
     this.half = half;
     this.beach = beach;
+    this.farm = farm; // County Fair: a denser patchwork of fields hugging the town
     this.nz = makeNoise(seed ^ 0x7e55a1);
     this.water = beach ? -0.02 : -0.9;
     const r = this.nz.rnd;
@@ -67,8 +68,9 @@ export class Terrain {
   /** Farm patchwork: rotated rectangles in a band around town. */
   layoutFields(r) {
     const out = [];
-    for (let k = 0; k < 60 && out.length < 26; k++) {
-      const a = r() * Math.PI * 2, d = this.half + 55 + r() * 260;
+    const [tries, want, spread] = this.farm ? [140, 44, 200] : [60, 26, 260];
+    for (let k = 0; k < tries && out.length < want; k++) {
+      const a = r() * Math.PI * 2, d = this.half + 55 + r() * spread;
       const x = Math.cos(a) * d, z = Math.sin(a) * d;
       if (this.beach && z > this.half - 20) continue;
       const f = { x, z, w: 30 + r() * 45, h: 25 + r() * 40, rot: Math.round(a / (Math.PI / 2)) * Math.PI / 2 + (r() - 0.5) * 0.35, crop: Math.floor(r() * 4) };

@@ -86,19 +86,32 @@ const TRAFFIC = ['car', 'car_b', 'car_c', 'taxi', 'car', 'car_b', 'icecream_van'
 export const PEOPLE = ['ped_business', 'ped_jogger', 'ped_tourist', 'ped_granny', 'ped_student', 'ped_chef', 'ped_worker', 'ped_kid'];
 const PEDS = PEOPLE;
 const CLONED = new Set(['fountain', 'clock_tower', 'crane', 'swing', 'searchlight']);
-export const BUILDINGS = new Set(['house', 'shop', 'cafe', 'apartment', 'clock_tower', 'office', 'hotel', 'skyscraper', 'crane', 'arcade', 'karaoke']);
+export const BUILDINGS = new Set(['house', 'shop', 'cafe', 'apartment', 'clock_tower', 'office', 'hotel', 'skyscraper', 'crane', 'arcade', 'karaoke',
+  'gas_station', 'station', 'hangar', 'control_tower']);
+// wanderers and bumping traffic bounce off these (buildings plus the big fair rides)
+const SOLID = new Set([...BUILDINGS, 'ferris_wheel', 'carousel']);
+// movers that range across the whole town: never frustum-culled per chunk, mid LOD
+const ROAMERS = new Set(['drive', 'wander', 'taxi', 'apron', 'field', 'rail', 'parade', 'jog']);
+const RAIL_Y = 0.47; // top of the rails on tile_rail (manifest rail_top)
+const WHEEL_V = 4.5; // wheel clips are authored for 4.5 m/s rolling
+const FAIR_STALLS = ['hoopla_stall', 'balloon_stand', 'ticket_booth', 'hoopla_stall', 'balloon_stand', 'fireworks_stand'];
 const SNACKS = [['ped_business', 4], ['ped_jogger', 4], ['ped_tourist', 4], ['ped_granny', 4], ['ped_student', 4], ['ped_chef', 3], ['ped_worker', 3], ['ped_kid', 4], ['pigeon', 8], ['dog', 6], ['scooter', 6], ['bicycle', 6], ['hotdog_cart', 5],
   ['car_b', 6], ['car', 6], ['car_c', 6], ['taxi', 6], ['icecream_van', 4], ['bus', 4]];
 export const SNACK_NAMES = SNACKS.map(([n]) => n);
 
 /** City moods: tile weights for the inner ring and the outskirts. Picked per run from the seed. */
 export const MOODS = [
-  { name: 'Old Town', inner: { lot: 6, plaza: 1, park: 1.5, canal: 0.5 }, outer: { lot: 3, park: 2, residential: 3, plaza: 0.6 }, canals: false },
+  { name: 'Old Town', inner: { lot: 6, plaza: 1, park: 1.5, canal: 0.5 }, outer: { lot: 3, park: 2, residential: 3, plaza: 0.6, parking: 0.5 }, canals: false },
   { name: 'Suburbia', inner: { lot: 5, park: 1.5, parking: 1 }, outer: { residential: 6, park: 2, lot: 1.5 }, canals: false },
-  { name: 'Waterfront', inner: { lot: 5, plaza: 1, park: 1 }, outer: { lot: 2, park: 2, residential: 2, canal: 1 }, canals: true },
-  { name: 'Seaside', inner: { lot: 5, plaza: 1, park: 1.2 }, outer: { lot: 2, park: 1.5, residential: 2.5 }, canals: false, beach: true },
+  { name: 'Waterfront', inner: { lot: 5, plaza: 1, park: 1 }, outer: { lot: 2, park: 2, residential: 2, canal: 1, parking: 0.4 }, canals: true },
+  { name: 'Seaside', inner: { lot: 5, plaza: 1, park: 1.2 }, outer: { lot: 2, park: 1.5, residential: 2.5, parking: 0.4 }, canals: false, beach: true },
   { name: 'Neon Nights', inner: { lot: 4, neon: 3, plaza: 0.5 }, outer: { neon: 2, lot: 3, parking: 1, residential: 1 }, canals: false, night: true },
   { name: 'Boomtown', inner: { lot: 6, construction: 1.5, parking: 1 }, outer: { construction: 2, parking: 1.5, lot: 3, residential: 1.5 }, canals: false },
+  // Stage 11 districts (their models load per city: see packs.js)
+  { name: 'Fun Fair', inner: { lot: 5, fair: 2, plaza: 0.6 }, outer: { fair: 2.2, lot: 2, park: 1, residential: 1.5 }, canals: false, events: { parade: 3 } },
+  { name: 'Airport City', inner: { lot: 5, parking: 1.5, plaza: 0.6 }, outer: { lot: 3, parking: 1.2, residential: 2, park: 1 }, canals: false, airport: true },
+  { name: 'Railway Town', inner: { lot: 5, plaza: 1, park: 1 }, outer: { residential: 4, lot: 2, park: 1.5 }, canals: false, rail: true },
+  { name: 'County Fair', inner: { lot: 5, park: 2 }, outer: { residential: 3, park: 3, lot: 1 }, canals: false, county: true, events: { marathon: 3 } },
 ];
 
 function weighted(r, weights) {
@@ -163,19 +176,28 @@ export class City {
     const canalRow = this.mood.canals ? Math.floor(r() * (N - 1)) : -1;
     this.beach = this.mood.beach || r() < 0.25; // seafront along the +z edge
     const pierAt = Math.floor(r() * N);
+    // airport: one full row of runway along the -z edge (the beach owns +z); railway: one full row inside town
+    this.runwayRow = this.mood.airport ? 0 : -1;
+    if (this.mood.rail) {
+      const rows = Array.from({ length: N }, (_, j) => j).filter((j) => j > 0 && j !== plazaAt && !(this.beach && j >= N - 2));
+      this.railRow = r.pick(rows);
+    } else this.railRow = -1;
     for (let i = 0; i < N; i++) {
       for (let j = 0; j < N; j++) {
         const cx = (i - mid) * TILE, cz = (j - mid) * TILE;
         const ring = Math.max(Math.abs(i - mid), Math.abs(j - mid));
         let type;
         if (i === plazaAt && j === plazaAt) type = 'plaza';
+        else if (j === this.runwayRow) type = 'runway';
         else if (this.beach && j === N - 1) type = 'beach';
+        else if (j === this.railRow) type = 'rail';
         else if (j === canalRow && r() < 0.85) type = 'canal';
         else if (ring < 1) type = 'lot';
         else type = weighted(r, ring < 2 ? this.mood.inner : this.mood.outer);
         // Tiles whose props depend on orientation only turn by 180° (canals stay continuous along x).
-        const rot = type === 'beach' ? 0 : type === 'canal' ? (r() < 0.5 ? 0 : Math.PI) : Math.floor(r() * 4) * Math.PI / 2;
-        this.tiles.push({ type, cx, cz, ring, rot, pier: type === 'beach' && i === pierAt });
+        const r180 = type === 'canal' || this.assets['tile_' + type]?.meta.rot180; // rows must join edge to edge
+        const rot = type === 'beach' ? 0 : r180 ? (r() < 0.5 ? 0 : Math.PI) : Math.floor(r() * 4) * Math.PI / 2;
+        this.tiles.push({ type, cx, cz, ring, rot, i, j, pier: type === 'beach' && i === pierAt, apron: this.mood.airport && j === 1 });
       }
     }
     for (const t of this.tiles) {
@@ -183,6 +205,7 @@ export class City {
       this.sidewalk(t);
     }
     this.traffic();
+    this.districts();
     this.reserves();
     this.scenery();
     this.rares();
@@ -217,7 +240,13 @@ export class City {
     const { cx, cz, ring } = t;
     this.tileEntities.push({ name: 'tile_' + t.type, x: cx, z: cz, rot: t.rot });
     const quads = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
-    if (t.type === 'lot') {
+    if (t.type === 'lot' && t.apron && (!this.towerDone || r() < 0.5)) {
+      // next to the runway: a hangar with its doors (+x) turned to face the strip (-z), the control tower once
+      this.add('hangar', cx - 3, cz - 2, Math.PI / 2);
+      if (!this.towerDone) { this.towerDone = true; this.add('control_tower', cx + 10.5, cz + 9.5, r() * 6.28); }
+      else this.add(r.pick(['shop', 'cafe']), cx + 10, cz + 9, 0);
+      for (let k = 0; k < 4; k++) this.add('cone', cx + r.range(-12, 12), cz - 12.5, 0);
+    } else if (t.type === 'lot') {
       const big = ring < 1 ? ['skyscraper', 'hotel', 'office'] : ring < 2 ? ['apartment', 'office', 'apartment', 'hotel'] : ['apartment'];
       const small = ring < 2 ? ['shop', 'cafe', 'clock_tower', 'shop'] : ['house', 'house', 'shop', 'cafe'];
       if (ring < 1 || (ring < 2 && r() < 0.6) || r() < 0.15) {
@@ -241,6 +270,7 @@ export class City {
         this.put(t, r() < 0.3 ? 'swing' : r.pick(['tree_small', 'tree_big', 'flower_pot', 'planter']), sx * 2.5, sz * 11, r() * 6.28);
         if (r() < 0.5) this.put(t, 'dog', sx * r.range(1, 3), sz * r.range(2, 4), r() * 6.28);
         this.put(t, 'mailbox', sx * 13.6, sz * 4.2, 0);
+        if (this.mood.county) this.county(t, sx, sz);
         for (let k = 0; k < 3; k++) this.put(t, 'bush', sx * r.range(8.5, 12), sz * r.range(8, 13), r() * 6.28);
       }
       for (let k = 0; k < 3; k++) this.walker(cx, cz, 13.2);
@@ -252,6 +282,7 @@ export class City {
       this.put(t, 'gas_can', 3, 9, 0);
       for (let k = 0; k < 3; k++) this.put(t, r.pick(['bench', 'vending', 'trashcan']), -11, -10 + k * 3, 0);
     } else if (t.type === 'parking') {
+      if (r() < 0.5) this.put(t, 'gas_station', 0, -6.5, r() < 0.5 ? 0 : Math.PI); // cars overlapping its forecourt are dropped
       for (const row of [-8, 0, 8]) {
         for (let k = 0; k < 10; k++) {
           if (r() < 0.65) this.put(t, r.pick(['car', 'car_b', 'car_c', 'taxi', 'car']), -11.25 + k * 2.5, row, r() < 0.5 ? Math.PI / 2 : -Math.PI / 2);
@@ -282,6 +313,7 @@ export class City {
       for (let k = 0; k < 3; k++) this.put(t, 'beach_ball', r.range(-12, 12), r.range(-4, 7), 0);
       for (let k = 0; k < 2; k++) this.put(t, 'surfboard', r.range(-12, 12), r.range(-5, 6), r() * 6.28);
       if (r() < 0.6) this.put(t, 'lifeguard_tower', r.range(-8, 8), 6.5, -Math.PI / 2);
+      if (r() < 0.3) this.put(t, 'fireworks_stand', r.range(-10, 10), -5.5, r() * 6.28);
       for (let k = 0; k < 4; k++) {
         const [x, z] = this.at(t, r.range(-12, 12), r.range(8, 10));
         this.add('crab', x, z, r() * 6.28, { type: 'scuttle', x0: x, t: r() * 10 });
@@ -309,12 +341,24 @@ export class City {
         const x = cx + qx * r.range(4, 12.5), z = cz + qz * r.range(4, 12.5);
         if (dry(x, z)) this.add('bush', x, z, r() * 6.28);
       }
+      if (r() < (this.mood.county ? 0.6 : 0.2)) this.put(t, 'water_tower', -8, 8, r() * 6.28);
+      if (this.mood.county) this.county(t, 0, 0);
       if (r() < 0.5) this.add('swing', cx + 7, cz - 7, r() * 6.28);
       for (let k = 0; k < 6; k++) {
         const x = cx + r.range(-10, 10), z = cz + r.range(-10, 10);
         if (dry(x, z)) this.add('pigeon', x, z, r() * 6.28, { type: 'peck', t: r() * 10 });
       }
       for (let k = 0; k < 5; k++) this.walker(cx, cz, 12); // loop outside the pond (tile-local 7,7, r 4.2) at any rotation
+    } else if (t.type === 'fair') {
+      this.fair(t);
+    } else if (t.type === 'rail') {
+      for (const z of [-9, 9]) for (let k = 0; k < 3; k++) if (r() < 0.6) this.put(t, r.pick(['bench', 'lamp', 'bush', 'planter']), -9 + k * 9 + r.range(-2, 2), z + r.range(-1.5, 1.5), 0);
+      for (let k = 0; k < 4; k++) { // pigeons on the verges, trainspotters on a loop between the fences
+        const [x, z] = this.at(t, r.range(-12, 12), (r() < 0.5 ? -1 : 1) * r.range(6, 12));
+        this.add('pigeon', x, z, r() * 6.28, { type: 'peck', t: r() * 10 });
+      }
+    } else if (t.type === 'runway') {
+      for (let k = 0; k < 5; k++) this.put(t, 'cone', r.range(-13, 13), (r() < 0.5 ? -1 : 1) * r.range(9, 13), 0);
     } else {
       this.add('fountain', cx, cz, 0);
       for (let k = 0; k < 4; k++) {
@@ -324,6 +368,7 @@ export class City {
       this.add('kiosk', cx + 10, cz - 10, Math.PI / 2);
       this.add('hotdog_cart', cx - 10, cz + 9, r() * 6.28);
       if (ring > 0) this.add('spiky', cx - 9, cz - 9, 0);
+      if (r() < 0.4) this.add('fireworks_stand', cx + 10, cz + 10.5, r() * 6.28);
       for (let k = 0; k < 14; k++) {
         const a = r() * 6.28, d = r.range(3.5, 11);
         this.add('pigeon', cx + Math.cos(a) * d, cz + Math.sin(a) * d, r() * 6.28, { type: 'peck', t: r() * 10 });
@@ -332,9 +377,146 @@ export class City {
     }
   }
 
+  /** Fairground tile: two rides on their pads, stalls round the promenade, a bumper-car rink and a crowd. */
+  fair(t) {
+    const { r } = this;
+    this.put(t, 'ferris_wheel', -7.5, -7.5, 0);
+    this.put(t, 'carousel', 7.5, 7.5, r() * 6.28);
+    // stalls face the path round the promenade circle, away from the ride pads (the diagonal)
+    const n = 5 + Math.floor(r() * 3);
+    for (let k = 0; k < n; k++) {
+      const a = Math.PI / 4 + (k + 0.5) * (Math.PI * 2 / n) + r.range(-0.15, 0.15);
+      const d = r() < 0.5 ? 12.2 : 6.6; // outside or inside the loop
+      this.put(t, FAIR_STALLS[k % FAIR_STALLS.length], Math.cos(a) * d, -Math.sin(a) * d, a + (d > 9 ? Math.PI : 0));
+    }
+    // bumper-car rink in a free quadrant
+    const [rx, rz] = this.at(t, 8, -8); // clear of the festoon mast in the corner
+    const cars = 4 + Math.floor(r() * 3);
+    for (let k = 0; k < cars; k++) {
+      const a = (k / cars) * Math.PI * 2;
+      this.add('bumper_car', rx + Math.cos(a) * 2.2, rz + Math.sin(a) * 2.2, r() * 6.28, { type: 'rink', cx: rx, cz: rz, R: 3.8, h: r() * 6.28, v: r.range(1.8, 2.6), t: r() * 10 });
+    }
+    // the crowd: dense walkers on the promenade circle
+    for (let k = 0; k < 12; k++) {
+      this.add(r.pick(PEDS), t.cx, t.cz, 0, { type: 'loop', cx: t.cx, cz: t.cz, R: r.range(8.6, 10.4), a: r() * 6.28, v: r.range(0.9, 1.5) * (r() < 0.5 ? 1 : -1), t: r() * 10 });
+    }
+    for (let k = 0; k < 5; k++) {
+      const a = r() * 6.28, d = r.range(3, 7);
+      this.add('pigeon', t.cx + Math.cos(a) * d, t.cz + Math.sin(a) * d, r() * 6.28, { type: 'peck', t: r() * 10 });
+    }
+  }
+
+  /** County Fair dressing: prize pumpkins, hay-bale stacks and scarecrows (sx, sz: residential quadrant, or 0 for a park). */
+  county(t, sx, sz) {
+    const { r } = this;
+    if (sx) {
+      if (r() < 0.45) for (let k = 0; k < 3; k++) this.put(t, 'hay_bale', sx * (9 + k * 1.6), sz * 12.5, Math.PI / 2 + r.range(-0.2, 0.2));
+      if (r() < 0.3) this.put(t, 'scarecrow', sx * 10, sz * 9.5, r() * 6.28);
+      if (r() < 0.2) this.put(t, 'prize_pumpkin', sx * 2.5, sz * 3.5, 0);
+      return;
+    }
+    for (let k = 0; k < 1 + Math.floor(r() * 2); k++) this.put(t, 'prize_pumpkin', r.range(-11, -3), r.range(-11, -3), r.range(-0.4, 0.4));
+    for (let k = 0; k < 4; k++) this.put(t, 'hay_bale', r.range(-12, 12), r.range(3, 12), r() * 6.28);
+    this.put(t, 'scarecrow', r.range(3, 11), r.range(3, 11), r() * 6.28);
+  }
+
+  /** Row districts laid over the tile grid: the train on the railway, the airliner + baggage trains at the airport, tractors. */
+  districts() {
+    const { r } = this;
+    const H = this.half;
+    if (this.railRow >= 0) {
+      const row = this.tiles.filter((t) => t.type === 'rail');
+      const z = row[0].cz;
+      this.railZ = z;
+      // the station stands on the verge of one rail tile, its platform edge (+z local) facing the track
+      const st = row[Math.floor(row.length / 2)];
+      const side = r() < 0.5 ? -1 : 1;
+      this.add('station', st.cx + r.range(-4, 4), z + side * 4.2, side < 0 ? 0 : Math.PI);
+      this.stationX = this.entities.at(-1).x;
+      this.trains = [];
+      const dir = r() < 0.5 ? 1 : -1;
+      const train = { x: r.range(-H, H), z, dir, v: 8, vmax: 8, stop: 0, stopped: false, loco: true, cars: [] };
+      const n = 2 + Math.floor(r() * 2);
+      for (let k = 0; k <= n; k++) {
+        const name = k ? 'carriage' : 'locomotive';
+        // origins are mid-vehicle: loco+tender 13.2 m, carriages 10.3 m buffer to buffer, 0.4 m couplings
+        const off = k ? 13.2 / 2 + 0.4 + 10.3 / 2 + (k - 1) * (10.3 + 0.4) : 0;
+        const e = { name, meta: this.assets[name].meta, x: 0, z, y: RAIL_Y, rot: dir > 0 ? 0 : Math.PI, tilt: 0, tiltDir: 0, s: 1, alive: true, falling: false, vy: 0,
+          mover: { type: 'rail', train, off, t: 0 } };
+        train.cars.push(e);
+        this.entities.push(e);
+      }
+      this.trains.push(train);
+      this.placeTrain(train, 0);
+    }
+    if (this.runwayRow >= 0) {
+      const row = this.tiles.filter((t) => t.type === 'runway');
+      const z = row[0].cz;
+      this.runwayZ = z;
+      const mid = row[Math.floor(row.length / 2)];
+      this.add('airliner', mid.cx, z, 0, { type: 'taxi', x0: -H + 26, x1: H - 26, z, v: 3, dir: 1, pause: 8 + r() * 10, t: 0 });
+      for (let k = 0; k < 2 + Math.floor(r() * 2); k++) { // baggage trains loop the verges
+        this.add('baggage_tug', 0, z, 0, { type: 'apron', cx: 0, cz: z, hx: H - 8, hz: 11.5, s: r() * 4 * (2 * H), v: r.range(3.5, 4.5), t: r() * 10 });
+      }
+    }
+    if (this.mood.county) { // tractors trundle round the parks and gardens
+      const fields = this.tiles.filter((t) => t.type === 'park' || t.type === 'residential');
+      for (let k = 0; k < Math.min(fields.length, 2 + Math.floor(r() * 2)); k++) {
+        const t = fields.splice(Math.floor(r() * fields.length), 1)[0];
+        this.add('tractor', t.cx + r.range(-6, 6), t.cz + r.range(-6, 6), r() * 6.28, { type: 'field', cx: t.cx, cz: t.cz, h: r() * 6.28, v: r.range(1.2, 1.8), t: r() * 10 });
+      }
+    }
+  }
+
+  /** Move a train along its row: cars follow the head at fixed offsets and wrap edge to edge like traffic. */
+  placeTrain(train, dt) {
+    const H = this.half;
+    const live = train.cars.filter((e) => e.alive && !e.falling);
+    if (!live.length) return;
+    if (train.loco) {
+      // stop at the station for 6 s (once per pass), easing in and out
+      const lead = train.cars[0];
+      const toStation = ((this.stationX - train.x) * train.dir + 4 * H) % (2 * H);
+      if (train.stop > 0) { train.stop -= dt; train.v = 0; if (train.stop <= 0) train.left = 30; }
+      else {
+        train.left = Math.max(0, (train.left || 0) - dt);
+        const target = !train.left && toStation < 30 ? Math.max(0, (toStation - 2) * 0.45) : train.vmax;
+        train.v += Math.max(-4 * dt, Math.min(1.5 * dt, target - train.v));
+        if (!train.left && toStation < 2.5 && lead.alive) { train.stop = 6; train.v = 0; }
+      }
+    } else train.v = Math.max(0, train.v - 2.5 * dt); // decoupled: coasts to a halt
+    train.x += train.v * train.dir * dt;
+    if (train.x > H) train.x -= 2 * H;
+    if (train.x < -H) train.x += 2 * H;
+    for (const e of live) {
+      let x = train.x - e.mover.off * train.dir;
+      x = ((x + H) % (2 * H) + 2 * H) % (2 * H) - H;
+      e.x = x;
+      e.z = train.z;
+      e.y = RAIL_Y;
+      e.rot = train.dir > 0 ? 0 : Math.PI;
+      if (e.actions) for (const act of Object.values(e.actions)) act.timeScale = train.v / WHEEL_V;
+      if (e.mesh || e.obj) this.place(e);
+    }
+  }
+
+  /** A car went down the hole: the ones behind it uncouple and roll to a stop. */
+  decouple(e) {
+    const train = e.mover.train;
+    const i = train.cars.indexOf(e);
+    const rest = train.cars.slice(i + 1).filter((q) => q.alive && !q.falling);
+    train.cars = train.cars.slice(0, i);
+    if (!train.cars.length) train.dead = true;
+    if (!rest.length) return;
+    const shift = rest[0].mover.off;
+    const loose = { ...train, loco: false, cars: rest, x: train.x - shift * train.dir, stop: 0, dead: false };
+    for (const q of rest) { q.mover.train = loose; q.mover.off -= shift; }
+    this.trains.push(loose);
+  }
+
   /** Countryside around the town: a real terrain (src/terrain.js) with its own scatter. Scenery only (never swallowed). */
   scenery() {
-    this.terrain = new Terrain((this.r() * 2 ** 31) | 0, this.half, { beach: this.beach });
+    this.terrain = new Terrain((this.r() * 2 ** 31) | 0, this.half, { beach: this.beach, farm: !!this.mood.county });
     this.sceneryList = this.terrain.scatter(this.assets);
     if (this.beach) for (let k = 0; k < 6; k++) {
       this.sceneryList.push({ name: 'sailboat', x: this.r.range(-this.half - 100, this.half + 100), y: this.terrain.water - 0.1, z: this.half + this.r.range(40, 260), rot: this.r() * 6.28 });
@@ -360,7 +542,7 @@ export class City {
 
   /** Is (x, z) inside a standing building (plus pad)? Vehicles and wanderers never go through houses. */
   blocked(x, z, pad = 1.2) {
-    this.buildings ??= this.entities.filter((e) => BUILDINGS.has(e.name));
+    this.buildings ??= this.entities.filter((e) => SOLID.has(e.name));
     for (const b of this.buildings) {
       if (b.alive && !b.falling && (b.x - x) ** 2 + (b.z - z) ** 2 < (b.meta.tier * 0.85 + pad) ** 2) return true;
     }
@@ -370,6 +552,17 @@ export class City {
   /** Nothing within braking distance in this car's path? Same-axis traffic queues; north-south waits for east-west. */
   clearAhead(e) {
     const m = e.mover, fx = m.axis === 'x' ? m.dir : 0, fz = m.axis === 'x' ? 0 : -m.dir;
+    // level crossings: north-south traffic waits while a train is within 20 m of the crossing
+    if (this.trains && m.axis !== 'x') {
+      const ahead = (this.railZ - e.z) * fz;
+      if (ahead > 3 && ahead < 9 + e.meta.tier) {
+        for (const tr of this.trains) for (const c of tr.cars) {
+          if (!c.alive || c.falling) continue;
+          const dx = Math.abs(((c.x - e.x + 3 * this.half) % (2 * this.half)) - this.half);
+          if (dx < 20 + (c.name === 'locomotive' ? 6.6 : 5.2)) return false;
+        }
+      }
+    }
     this.drivers ??= this.entities.filter((q) => q.mover?.type === 'drive');
     for (const o of this.drivers) {
       if (o === e || !o.alive || o.falling || o.mover.type !== 'drive' || (m.axis === 'x' && o.mover.axis !== 'x')) continue;
@@ -452,19 +645,23 @@ export class City {
       const yaw = side * Math.PI / 2; // side 0 = +x edge
       const ox = Math.cos(yaw), oz = -Math.sin(yaw); // outward normal
       const tx = -oz, tz = ox; // along the edge
+      // rows that run edge to edge (track, runway) cross the +-x sides: keep that stretch clear
+      const row = (t.type === 'rail' || t.type === 'runway') && side % 2 === 0 ? (t.type === 'rail' ? 3 : 8.5) : 0;
       for (let d = -12; d <= 12; d += 3) {
         const x = cx + ox * 14.2 + tx * d, z = cz + oz * 14.2 + tz * d;
         if (t.type === 'beach' && z - cz > 9) continue; // past the waterline
+        if (Math.abs(d) < row) continue;
         if (Math.abs(d) === 12) this.add('lamp', x, z, yaw);
         else if (r() < 0.55) this.add(r.pick(SIDEWALK), x, z, yaw + (r() < 0.5 ? 0 : Math.PI));
         if (r() < 0.04) this.add('toxic_barrel', x - ox * 1.2, z - oz * 1.2, 0);
       }
       for (let d = -10; d <= 10; d += 7) {
         if (t.type === 'beach' && oz * 16 + tz * d > 9) continue;
+        if (row && Math.abs(d) < row + 2) continue;
         if (r() < 0.4) this.add(r.pick(['car', 'car_b', 'taxi']), cx + ox * 16 + tx * d, cz + oz * 16 + tz * d, yaw + Math.PI / 2);
       }
     }
-    for (let k = 0; k < 4; k++) this.walker(cx, cz, 13.2);
+    if (t.type !== 'runway') for (let k = 0; k < 4; k++) this.walker(cx, cz, 13.2); // nobody strolls across a runway
   }
 
   walker(cx, cz, h) {
@@ -514,7 +711,7 @@ export class City {
         this.place(e);
         continue;
       }
-      const roams = e.mover?.type === 'drive' || e.mover?.type === 'wander';
+      const roams = ROAMERS.has(e.mover?.type);
       const reserve = !!e.mover?.reserve;
       const home = e.mover?.type === 'walk' ? chunkKey(e.mover.cx, e.mover.cz) : chunkKey(e.x, e.z);
       const k = roams ? `${e.name}|${reserve ? 'reserve' : 'roam'}` : `${e.name}|${home}|${e.mover ? 'm' : 's'}`;
@@ -683,6 +880,7 @@ export class City {
     const eaten = [];
     this.events = [];
     const H = this.half;
+    if (this.trains) { for (const tr of this.trains) this.placeTrain(tr, dt); this.trains = this.trains.filter((tr) => !tr.dead); }
     for (let i = this.entities.length - 1; i >= 0; i--) {
       const e = this.entities[i];
       if (!e.alive) continue;
@@ -746,13 +944,13 @@ export class City {
         e.panic = Math.max(0, (e.panic || 0) - dt);
         const scared = (near && e.meta.tier < hole.r * 0.95 && e.meta.tier < 0.8) || e.panic > 0;
         // evacuation (heat 2+): frightened people get off the street and into the nearest doorway
-        if (scared && alarm >= 2 && (m.type === 'walk' || m.type === 'wander') && e.meta.tier < 0.6 && !e.name.startsWith('pigeon')) {
+        if (scared && alarm >= 2 && (m.type === 'walk' || m.type === 'wander' || m.type === 'loop') && e.meta.tier < 0.6 && !e.name.startsWith('pigeon')) {
           e.hideT = (e.hideT || 0) + dt;
           if (e.hideT > 1.2 && Math.random() < dt * (alarm - 1) * 0.35) { e.hiding = 0.5; this.events.push({ type: 'hid', e }); }
         }
-        if (scared && !e.wasScared && m.type === 'walk') { // a shout, and the panic spreads to people close by
+        if (scared && !e.wasScared && (m.type === 'walk' || m.type === 'loop')) { // a shout, and the panic spreads to people close by
           if (Math.random() < 0.5) this.events.push({ type: 'scream', e });
-          for (const o of this.walkers ??= this.entities.filter((q) => q.mover?.type === 'walk')) {
+          for (const o of this.walkers ??= this.entities.filter((q) => q.mover?.type === 'walk' || q.mover?.type === 'loop')) {
             if (o !== e && o.alive && !(o.panic > 0) && (o.x - e.x) ** 2 + (o.z - e.z) ** 2 < 16) o.panic = 2.5;
           }
         }
@@ -786,9 +984,9 @@ export class City {
           m.honk = (m.honk || 0) - dt;
           if (m.axis === 'x') e.z = m.lane + m.off; else e.x = m.lane + m.off;
           if (m.axis === 'x') { e.x += d; if (e.x > H) e.x -= 2 * H; if (e.x < -H) e.x += 2 * H; e.rot = m.dir > 0 ? 0 : Math.PI; }
-          else { // north-south roads stop at the shoreline on seaside maps
-            const top = this.beach ? H - 10 : H;
-            e.z -= d; if (e.z > top) e.z -= top + H; if (e.z < -H) e.z += top + H; e.rot = m.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+          else { // north-south roads stop at the shoreline on seaside maps and at the runway on airport maps
+            const top = this.beach ? H - 10 : H, bot = this.runwayRow >= 0 ? -H + 35 : -H;
+            e.z -= d; if (e.z > top) e.z -= top - bot; if (e.z < bot) e.z += top - bot; e.rot = m.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
           }
           e.y = Math.abs(Math.sin(m.t * 7)) * 0.03;
         } else if (m.type === 'wander') {
@@ -801,6 +999,59 @@ export class City {
           e.rot = m.h;
           const w = m.t * 9;
           e.y = e.meta.tier < 0.3 ? Math.abs(Math.sin(w)) * 0.07 : Math.abs(Math.sin(m.t * 7)) * 0.03;
+        } else if (m.type === 'loop') { // fairground crowd: a circle round the promenade
+          if (scared) {
+            const tang = -Math.sin(m.a) * fdx + Math.cos(m.a) * -fdz; // +v moves along (-sin a, cos a) in (x, -z)
+            m.v = (tang >= 0 ? 1 : -1) * Math.max(Math.abs(m.v), 2.6);
+          } else if (Math.abs(m.v) > 1.6) m.v *= 1 - dt * 0.5;
+          m.a += (m.v / m.R) * dt;
+          e.x = m.cx + Math.cos(m.a) * m.R;
+          e.z = m.cz - Math.sin(m.a) * m.R;
+          e.rot = m.a + Math.sign(m.v) * Math.PI / 2;
+          const w = m.t * 9 * Math.abs(m.v);
+          e.y = Math.abs(Math.sin(w)) * 0.07;
+          e.rot += Math.sin(w) * 0.12;
+        } else if (m.type === 'rink') { // bumper cars: bounce round a 4 m circle, never leave it
+          m.h += Math.sin(m.t * 1.3 + e.x) * dt * 1.2;
+          let nx = e.x + Math.cos(m.h) * m.v * dt, nz = e.z - Math.sin(m.h) * m.v * dt;
+          const ox = nx - m.cx, oz = nz - m.cz;
+          if (ox * ox + oz * oz > m.R * m.R) { m.h = Math.atan2(oz, -ox) + (this.r() - 0.5) * 0.8; m.bump = 0.25; nx = e.x; nz = e.z; }
+          e.x = nx; e.z = nz;
+          m.bump = Math.max(0, (m.bump || 0) - dt);
+          e.rot = m.h + Math.sin(m.bump * 40) * 0.2;
+          e.y = Math.abs(Math.sin(m.t * 9)) * 0.02;
+        } else if (m.type === 'taxi') { // the airliner rolls up and down its runway, pausing and turning at the ends
+          if (m.pause > 0) {
+            m.pause -= dt;
+            const want = m.dir > 0 ? 0 : Math.PI;
+            e.rot += Math.atan2(Math.sin(want - e.rot), Math.cos(want - e.rot)) * Math.min(1, dt * 0.8);
+          } else {
+            e.x += m.v * m.dir * dt;
+            if ((m.dir > 0 && e.x > m.x1) || (m.dir < 0 && e.x < m.x0)) { m.dir = -m.dir; m.pause = 10; }
+          }
+          e.z = m.z;
+          e.y = 0;
+        } else if (m.type === 'apron') { // baggage trains: a rectangle round the runway verges
+          const P = 4 * (m.hx + m.hz);
+          m.s = (m.s + m.v * dt + P) % P;
+          let u = m.s, x, z, h;
+          if (u < 2 * m.hx) { x = -m.hx + u; z = -m.hz; h = 0; }
+          else if ((u -= 2 * m.hx) < 2 * m.hz) { x = m.hx; z = -m.hz + u; h = -Math.PI / 2; }
+          else if ((u -= 2 * m.hz) < 2 * m.hx) { x = m.hx - u; z = m.hz; h = Math.PI; }
+          else { u -= 2 * m.hx; x = -m.hx; z = m.hz - u; h = Math.PI / 2; }
+          e.x = m.cx + x;
+          e.z = m.cz + z;
+          e.rot += Math.atan2(Math.sin(h - e.rot), Math.cos(h - e.rot)) * Math.min(1, dt * 4);
+          e.y = Math.abs(Math.sin(m.t * 7)) * 0.02;
+        } else if (m.type === 'field') { // tractors: slow wander that stays on its home tile
+          m.h += Math.sin(m.t * 0.4 + e.z) * dt * 0.4;
+          if (Math.abs(e.x - m.cx) > 12 || Math.abs(e.z - m.cz) > 12) m.h = Math.atan2(-(m.cz - e.z), m.cx - e.x);
+          const nx = e.x + Math.cos(m.h) * m.v * dt, nz = e.z - Math.sin(m.h) * m.v * dt;
+          if (this.blocked(nx, nz, e.meta.tier * 0.8)) m.h += Math.PI * (0.5 + this.r() * 0.5);
+          else { e.x = nx; e.z = nz; }
+          e.rot = m.h;
+          e.y = Math.abs(Math.sin(m.t * 11)) * 0.03;
+        } else if (m.type === 'rail') { // placed by placeTrain before this loop
         } else if (m.type === 'scuttle') { // crabs: sideways dashes along the waterline
           e.x = m.x0 + Math.sin(m.t * 1.4) * 1.6 + (scared ? Math.sign(fdx || 1) * 2 : 0);
           e.y = Math.abs(Math.sin(m.t * 12)) * 0.02;
@@ -839,6 +1090,7 @@ export class City {
           e.falling = true;
           e.eater = q;
           this.events.push({ type: 'fall', e });
+          if (e.mover?.type === 'rail') this.decouple(e);
           e.vy = 0;
           e.tiltDir = Math.atan2(dz, dx);
           break;
