@@ -12,6 +12,7 @@ import { Director } from './director.js';
 import { Events } from './events.js';
 import { Chains } from './chains.js';
 import { Powerups, POWERS } from './powerups.js';
+import { Abilities, ABILITIES, owned, slots, buyAbility, equip } from './abilities.js';
 import { newStats, scoreRun, renderPicker, unlocked, totalStars, LANDMARK } from './progress.js';
 import { installBot } from './bot.js';
 import { UPGRADES, ECON, save, persist, level, buy, todaySeed } from './meta.js';
@@ -113,7 +114,7 @@ function snapshot() {
 
 const field = holeField();
 const DAY_TIMES = Object.keys(TIMES).filter((k) => !TIMES[k].night);
-let city, hole, state, director, rivals, grass, events, chains, powerups;
+let city, hole, state, director, rivals, grass, events, chains, powerups, abilities;
 const randomSeed = () => (Math.random() * 2 ** 31) | 0;
 // Normal runs play the city picked in the menu; daily/weekly (and the playtest bot) roll the seed's own mood.
 const BOT = location.search.includes('bot');
@@ -145,6 +146,13 @@ function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null) 
   powerups = new Powerups(assets, city, field, seed, save.skin || 'void', {
     flash: (t) => flash(t, false), star: () => { sfx.star(); sfx.whoosh(); }, slotTaken: (i) => i <= rivals.list.length,
   });
+  // ?abil=quake,dash: the playtest bot equips these (and fires them greedily) regardless of the save
+  const botAbil = new URLSearchParams(location.search).get('abil')?.split(',').filter((a) => ABILITIES[a]);
+  abilities = new Abilities(botAbil || slots(totalStars()), {
+    shake: (k) => { state.shake = Math.max(state.shake, k); state.punch = 1; }, boom: sfx.boom, whoosh: sfx.whoosh,
+    ripple: () => hole.shockwave(),
+  });
+  renderAbilityButtons();
   events = new Events(city, scene, { warn: (t) => { flash(t, false); sfx.drums(); }, boom: sfx.boom });
   rivals = new Rivals(assets, field, city, scene, card === 'crowded' ? 3 : card === 'lonely' ? 0 : 2, save.skin || 'void');
   // Randomised start: time of day, and a calm open tile (never a downtown lot) at a random spot on it.
@@ -189,6 +197,7 @@ await nextPaint();
 $('load').hidden = true;
 $('menu').hidden = false;
 window.__game = () => ({ hole, city, state, renderer, director, rivals, events, chains, powerups });
+window.__abil = () => abilities;
 window.__info = () => { const r = renderer.info.render; return { calls: r.drawCalls, tris: r.triangles, frameCalls: r.frameCalls }; };
 if (location.search.includes('bot')) installBot();
 
@@ -262,6 +271,7 @@ function hud() {
   const pu = powerups.items[0];
   edgeArrow('pu', pu && [pu.e.x, pu.e.z], POWERS[pu?.kind]?.icon, POWERS[pu?.kind]?.color);
   powerChips();
+  abilityHud();
   const ef = events.focus;
   edgeArrow('event', ef, { parade: '🎺', marathon: '🏃', carshow: '🏎️', ufo: '🛸' }[events.kind], '#ffd166');
   const st = [state.reverse > 0 && 'Controls reversed', state.jam > 0 && 'Jammed', state.wet > 0 ? 'Wet concrete! Get out' : state.slow > 0 && 'Slowed', state.flooded && 'Tide! Slow + hungry',
@@ -302,6 +312,46 @@ function powerChips() {
   }
   list.forEach((c, i) => { const el = chipsEl.children[i]; el.style.setProperty('--p', c.left / c.T); el.style.setProperty('--c', c.color); });
   chipsEl.hidden = !list.length || !state.playing;
+}
+
+// ---------- abilities: Space / right-click / E, or the on-screen buttons (touch) ----------
+// (created on first use: newRun builds the buttons before this part of the module has run)
+function abilBox() { return $('abil') || document.body.appendChild(Object.assign(document.createElement('div'), { id: 'abil' })); }
+function useAbility(i) {
+  if (abilities?.use(i, { hole, city, director, state })) sfx.whoosh();
+}
+function renderAbilityButtons() {
+  abilBox().replaceChildren(...abilities.list.map((a, i) => {
+    const b = document.createElement('button');
+    b.className = 'abil';
+    b.innerHTML = `<i></i><b>${a.icon}</b><small>${i ? 'E' : 'Space'}</small>`;
+    b.title = `${a.name} — ${a.desc}`;
+    b.onpointerdown = (e) => { e.stopPropagation(); e.preventDefault(); useAbility(i); };
+    return b;
+  }));
+}
+function abilityHud() {
+  const box = abilBox();
+  box.hidden = !state.playing || !abilities.list.length;
+  abilities.list.forEach((a, i) => {
+    const el = box.children[i];
+    if (!el) return;
+    el.style.setProperty('--p', 1 - a.left / a.cd);
+    el.classList.toggle('ready', a.left <= 0);
+  });
+}
+addEventListener('keydown', (e) => {
+  if (!state?.playing || e.repeat) return;
+  if (e.key === ' ') { e.preventDefault(); useAbility(0); }
+  if (e.key.toLowerCase() === 'e') useAbility(1);
+});
+addEventListener('contextmenu', (e) => { if (state?.playing) { e.preventDefault(); useAbility(abilities.list.length > 1 ? 1 : 0); } });
+
+/** Dash afterimages: rim-coloured ghosts of the hole left along the path. */
+function dashFx() {
+  if ((state.dashFxT = (state.dashFxT || 0) - 1 / 60) > 0) return;
+  state.dashFxT = 0.03;
+  debris.puff(hole.x, 0.35, hole.z, 0, 0.2, 0, hole.r * 1.6, -hole.r * 1.2, 0.35, smokeCol.set(SKINS[save.skin || 'void'].rim), 0.45);
 }
 
 /** Surge: a comet trail behind the hole, and the crowd ahead scatters the way you're heading. */
@@ -587,7 +637,28 @@ function renderShop() {
     b.innerHTML = `<b>${u.name}</b><small>${u.desc}</small><span>${'●'.repeat(lv)}${'○'.repeat(u.costs.length - lv)}</span><em>${cost === undefined ? 'max' : cost + ' dust'}</em>`;
     b.onclick = () => { if (buy(id)) renderShop(); };
     return b;
-  }), ...skinCards());
+  }), ...abilityCards(), ...skinCards());
+}
+
+function abilityCards() {
+  const stars = totalStars(), eq = slots(stars);
+  const head = document.createElement('p');
+  head.className = 'shop-head';
+  head.textContent = `Abilities · ${eq.length}/${stars >= 10 ? 2 : 1} equipped${stars >= 10 ? '' : ' · 2nd slot at ★10'}`;
+  return [head, ...Object.entries(ABILITIES).map(([id, a]) => {
+    const has = owned(id), on = eq.includes(id);
+    const b = document.createElement('button');
+    b.className = 'card' + (on ? ' on-abil' : '');
+    b.disabled = !has && save.dust < a.cost;
+    b.innerHTML = `<b>${a.icon} ${a.name}</b><small>${a.desc} Cooldown ${a.cd} s.</small><em>${on ? 'equipped' : has ? 'equip' : a.cost + ' dust'}</em>`;
+    b.onclick = () => {
+      if (!has && !buyAbility(id)) return;
+      equip(id, stars);
+      renderShop();
+      if (!state.playing) { abilities = new Abilities(slots(stars), abilities.hooks); renderAbilityButtons(); }
+    };
+    return b;
+  })];
 }
 
 function skinCards() {
@@ -738,7 +809,9 @@ function frame(dt) {
     state.belly = Math.max(0, state.belly - BELLY_DRAIN * tide * ramp * Math.min(1, 0.3 + state.time / 25) * dt); // gentle first 20s
     cravings(dt);
     const [sx, sz] = window.__bot ? window.__bot(hole, city) : steer();
-    const surge = powerups.active.boost ? 1.8 : 1;
+    const surge = (powerups.active.boost ? 1.8 : 1) * abilities.update(dt, hole);
+    if (BOT && abilities.list.length) abilities.auto({ hole, city, director, state }, window.__botTarget);
+    if (hole.dash > 0) dashFx();
     const speed = (6.5 + hole.r * 1.8) * (state.slow > 0 ? 0.45 : 1) * (state.flooded ? 0.6 : 1) * surge;
     // a little weight (~0.1s to turn / reach speed), not a boat
     const kv = 1 - Math.exp(-dt * 11);
@@ -797,6 +870,7 @@ function frame(dt) {
 
   if (!state.playing) rivals.update(dt, hole, false);
   const twins = state.playing ? powerups.update(dt, hole, rivals, scene, true) : [];
+  abilities.hold(hole);
   if (powerups.active.boost && state.playing) surgeFx(dt);
   const eaten = city.update(dt, [hole, ...rivals.holes, ...twins], state.jam > 0 || !state.playing);
   for (const ev of city.events) {

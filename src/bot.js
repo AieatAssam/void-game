@@ -15,6 +15,7 @@ export function installBot() {
     }
     const pu = !sloppy && window.__game().powerups?.nearest(hole.x, hole.z, 20); // grab capsules on the way
     if (pu) best = pu;
+    window.__botTarget = best;
     let x = best ? best.x - hole.x : 0, z = best ? best.z - hole.z : 0;
     // dodge warning rings
     for (const d of sloppy ? [] : director.drops) {

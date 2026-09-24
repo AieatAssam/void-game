@@ -159,3 +159,13 @@ button.ghost { background: #fff8ee22; color: var(--cream); box-shadow: none; fon
 #result .goals i.fresh { animation: starPop .6s var(--d) cubic-bezier(.2, 1.6, .4, 1) both; text-shadow: 0 0 12px #f7d774; }
 @keyframes starPop { from { opacity: 0; transform: scale(.4); } }
 #result .unlock { display: block; margin-top: 6px; color: #9dff7a; }
+#abil { position: fixed; right: 12px; bottom: 66px; display: flex; flex-direction: column; gap: 10px; }
+#abil[hidden] { display: none; }
+#abil .abil { position: relative; width: 64px; height: 64px; padding: 0; border-radius: 50%; display: grid; place-items: center;
+  background: conic-gradient(var(--lilac) calc(var(--p) * 360deg), #1a0f3a88 0); box-shadow: 0 3px 0 #0004; touch-action: none; }
+#abil .abil i { position: absolute; inset: 5px; border-radius: 50%; background: #1a0f3add; }
+#abil .abil b { position: relative; font-size: 26px; opacity: .45; }
+#abil .abil small { position: absolute; bottom: -2px; font-size: 10px; color: var(--cream); opacity: .7; }
+#abil .abil.ready { box-shadow: 0 3px 0 #0004, 0 0 16px var(--lilac); }
+#abil .abil.ready b { opacity: 1; }
+#shop .card.on-abil { box-shadow: 0 0 0 3px var(--lilac); }

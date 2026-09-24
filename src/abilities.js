@@ -41,9 +41,8 @@ export class Abilities {
   constructor(equipped, hooks) {
     this.list = equipped.map((id) => ({ id, ...ABILITIES[id], left: 0 }));
     this.hooks = hooks;
-    this.dash = 0;
-    this.vortex = 0;
-    this.trail = [];
+    this.dashT = 0;
+    this.vortexT = 0;
   }
 
   ready(i) { const a = this.list[i]; return a && a.left <= 0; }
@@ -74,20 +73,23 @@ export class Abilities {
     this.hooks.boom?.(0.7);
   }
 
-  vortex() { this.vortex = 1.5; this.hooks.whoosh?.(); }
+  vortex() { this.vortexT = 1.5; this.hooks.whoosh?.(); }
 
-  dash() { this.dash = 0.35; this.hooks.whoosh?.(); }
+  dash() { this.dashT = 0.35; this.hooks.whoosh?.(); }
 
-  /** Per frame: cooldowns, the vortex hold, dash speed and afterimages. Returns the speed multiplier. */
+  /** Per frame, before moving: cooldowns and the dash. Returns the speed multiplier. */
   update(dt, hole) {
     for (const a of this.list) a.left = Math.max(0, a.left - dt);
-    if (this.vortex > 0) {
-      this.vortex -= dt;
-      hole.vac = Math.max(hole.vac || 0, 2);
-      hole.reach = Math.max(hole.reach || 1, 2.5);
-    }
-    hole.dash = this.dash = Math.max(0, this.dash - dt);
-    return this.dash > 0 ? 3 : 1;
+    this.vortexT = Math.max(0, this.vortexT - dt);
+    hole.dash = this.dashT = Math.max(0, this.dashT - dt);
+    return this.dashT > 0 ? 3 : 1;
+  }
+
+  /** After power-ups have set this frame's suction: the vortex burst holds full suction at 2.5x reach. */
+  hold(hole) {
+    if (this.vortexT <= 0) return;
+    hole.vac = Math.max(hole.vac || 0, 2);
+    hole.reach = Math.max(hole.reach || 1, 2.5);
   }
 
   /** Bot helper: fire whatever is ready when it would help (greedy use for balance runs). */
