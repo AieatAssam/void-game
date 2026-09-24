@@ -31,6 +31,49 @@
   "bytes": 230324,
   "clips": []
  },
+ "balloon_stand": {
+  "tier": 0.746,
+  "mass": 0.3,
+  "kind": "prop",
+  "height": 3.153,
+  "pack": "fair",
+  "tris": 12380,
+  "lodTris": 3094,
+  "lod2Tris": 990,
+  "bytes": 82852,
+  "clips": []
+ },
+ "bumper_car": {
+  "tier": 0.81,
+  "mass": 0.5,
+  "kind": "prop",
+  "height": 2.7,
+  "pack": "fair",
+  "tris": 6046,
+  "lodTris": 1510,
+  "lod2Tris": 482,
+  "bytes": 45836,
+  "clips": []
+ },
+ "carousel": {
+  "tier": 4.44,
+  "mass": 40,
+  "kind": "prop",
+  "height": 6.4,
+  "pack": "fair",
+  "clone": true,
+  "lod": [
+   0.4,
+   0.14
+  ],
+  "tris": 54032,
+  "lodTris": 21612,
+  "lod2Tris": 7560,
+  "bytes": 427312,
+  "clips": [
+   "spin"
+  ]
+ },
  "classic_car": {
   "tier": 2.788,
   "mass": 9,
@@ -58,6 +101,38 @@
   "bytes": 141308,
   "clips": []
  },
+ "ferris_wheel": {
+  "tier": 7.38,
+  "mass": 160,
+  "kind": "prop",
+  "height": 14.917,
+  "pack": "fair",
+  "clone": true,
+  "landmark": true,
+  "lod": [
+   0.5,
+   0.2
+  ],
+  "tris": 31944,
+  "lodTris": 17596,
+  "lod2Tris": 11684,
+  "bytes": 213500,
+  "clips": [
+   "wheel",
+   "gond0",
+   "gond1",
+   "gond2",
+   "gond3",
+   "gond4",
+   "gond5",
+   "gond6",
+   "gond7",
+   "gond8",
+   "gond9",
+   "gond10",
+   "gond11"
+  ]
+ },
  "finish_arch": {
   "tier": 4.568,
   "mass": 5,
@@ -73,6 +148,18 @@
   "lodTris": 3914,
   "lod2Tris": 2992,
   "bytes": 97048,
+  "clips": []
+ },
+ "hoopla_stall": {
+  "tier": 1.61,
+  "mass": 2,
+  "kind": "prop",
+  "height": 3.088,
+  "pack": "fair",
+  "tris": 23988,
+  "lodTris": 5996,
+  "lod2Tris": 2232,
+  "bytes": 178376,
   "clips": []
  },
  "marathon_runner": {
@@ -138,6 +225,30 @@
   "lodTris": 9300,
   "lod2Tris": 7468,
   "bytes": 304352,
+  "clips": []
+ },
+ "ticket_booth": {
+  "tier": 0.909,
+  "mass": 0.7,
+  "kind": "prop",
+  "height": 3.72,
+  "pack": "fair",
+  "tris": 5988,
+  "lodTris": 1696,
+  "lod2Tris": 1612,
+  "bytes": 55628,
+  "clips": []
+ },
+ "tile_fair": {
+  "tier": 20,
+  "mass": 0,
+  "kind": "tile",
+  "height": 6.97,
+  "pack": "fair",
+  "tris": 20864,
+  "lodTris": 5792,
+  "lod2Tris": 5688,
+  "bytes": 169592,
   "clips": []
  },
  "ufo": {

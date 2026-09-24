@@ -126,10 +126,10 @@ def window_grid(cx, cy, z0, w, h, cols, rows, gap_x, gap_z, face, color='glow', 
     return out
 
 
-def blob(name, r, loc, color, seed=0, amp=0.16, scale=(1, 1, 1)):
+def blob(name, r, loc, color, seed=0, amp=0.16, scale=(1, 1, 1), seg=16):
     """Lumpy foliage cluster: a sphere pushed in and out by smooth noise, so canopies read as leaf masses."""
     from mathutils import noise, Vector as V
-    ob = sphere(name, r, loc=loc, color=color, seg=16, scale=scale)
+    ob = sphere(name, r, loc=loc, color=color, seg=seg, scale=scale)
     off = V((seed * 3.1, seed * 1.7, seed * 2.3))
     for v in ob.data.vertices:
         n = v.co.normalized()
