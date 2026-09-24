@@ -61,3 +61,13 @@ Models first, then systems, then districts, then bot check.
 - **Materials:** scanned PBR texture arrays, triplanar + surface-gradient normals, clearcoat cars, deep water with shore foam.
 - **Nature:** heightfield countryside, procedural trees/bushes, GPU grass, shared wind field.
 - **Checks:** `tools/shot.mjs` captures frames headlessly (WebGL2 backend in CI-like containers without a GPU).
+
+## Stage 10 — Balance + adversity (after playtest: "dust too plentiful, upgrades are a win button")
+Measured before: greedy bot cleared a city in 96 s and a win paid ~38,000 dust (quadratic combo bonus).
+- **Growth curve:** bites grow you by 17% of the footprint (was 25%), scaled by size relative to the hole (crumbs ~6%, full at half your size).
+  Whirlpool suction is shorter and only pulls things under 60% of your size.
+- **Economy (meta.js `ECON`):** dust = sqrt(area eaten) + sqrt(capped combos) + cravings + rares + rivals + win + speed (+ first daily clear),
+  times the card. Defeats keep half of meals/combos. Costs up; old banks capped at 300 once.
+- **Upgrades:** 6-10% per level, three levels, most with a drawback; new Quiet Void (slower notoriety).
+- **Adversity:** notoriety heat, evacuation at ★2+, rising hunger over the run, wet concrete patches, cravings with a missed-craving penalty.
+- **Result:** greedy bot clears in ~3.5-4 min on most seeds and can die; careless bot dies.

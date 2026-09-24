@@ -686,7 +686,7 @@ export class City {
       }
       e.clogCool = Math.max(0, (e.clogCool || 0) - dt);
       const tier0 = e.meta.tier;
-      if (hole.vac > 0 && !jammed && !hole.hidden && !e.noSwallow && !e.flying && e.meta.kind === 'prop' && tier0 < hole.r * 0.95) {
+      if (hole.vac > 0 && !jammed && !hole.hidden && !e.noSwallow && !e.flying && e.meta.kind === 'prop' && tier0 < hole.r * 0.6) {
         // whirlpool: right after a swallow, small things nearby spiral into the player's hole
         // tuned to help small holes chain (fixed reach bonus) without snowballing big ones (weaker pull)
         const dx = hole.x - e.x, dz = hole.z - e.z, d = Math.hypot(dx, dz) || 1e-3, reach = hole.r * (1.4 + hole.vac * 0.5) + 1.2;
@@ -716,12 +716,25 @@ export class City {
           this.place(e);
         } else if (e.tug) { e.tug = 0; e.tilt = 0; this.place(e); }
       }
+      if (e.hiding > 0) { // ducking into a building: gone (not eaten)
+        e.hiding -= dt;
+        e.s = Math.max(0, e.hiding / 0.5);
+        if (e.hiding <= 0) { e.alive = false; e.s = 0; }
+        this.place(e);
+        continue;
+      }
       if (m && !(e.sucked > 0)) {
         m.t += dt;
-        // anything the hole could eat panics when it gets close
-        const fdx = e.x - hole.x, fdz = e.z - hole.z, near = fdx * fdx + fdz * fdz < (hole.r * 2.2 + 3) ** 2;
+        // anything the hole could eat panics when it gets close; the hotter the city, the earlier they notice
+        const alarm = this.alarm || 0;
+        const fdx = e.x - hole.x, fdz = e.z - hole.z, near = fdx * fdx + fdz * fdz < ((hole.r * 2.2 + 3) * (1 + alarm * 0.3)) ** 2;
         e.panic = Math.max(0, (e.panic || 0) - dt);
         const scared = (near && e.meta.tier < hole.r * 0.95 && e.meta.tier < 0.8) || e.panic > 0;
+        // evacuation (heat 2+): frightened people get off the street and into the nearest doorway
+        if (scared && alarm >= 2 && (m.type === 'walk' || m.type === 'wander') && e.meta.tier < 0.6 && !e.name.startsWith('pigeon')) {
+          e.hideT = (e.hideT || 0) + dt;
+          if (e.hideT > 1.2 && Math.random() < dt * (alarm - 1) * 0.35) { e.hiding = 0.5; this.events.push({ type: 'hid', e }); }
+        }
         if (scared && !e.wasScared && m.type === 'walk') { // a shout, and the panic spreads to people close by
           if (Math.random() < 0.5) this.events.push({ type: 'scream', e });
           for (const o of this.walkers ??= this.entities.filter((q) => q.mover?.type === 'walk')) {
@@ -764,7 +777,8 @@ export class City {
           }
           e.y = Math.abs(Math.sin(m.t * 7)) * 0.03;
         } else if (m.type === 'wander') {
-          m.h += Math.sin(m.t * 0.7 + e.x) * dt * 0.6;
+          if (scared) m.h = Math.atan2(-fdz, fdx) + Math.sin(m.t * 3) * 0.3; // run from the hole
+          else m.h += Math.sin(m.t * 0.7 + e.x) * dt * 0.6;
           if (Math.abs(e.x) > H - 4 || Math.abs(e.z) > H - 4) m.h = Math.atan2(e.z, -e.x); // steer back to town
           const nx = e.x + Math.cos(m.h) * m.v * dt, nz = e.z - Math.sin(m.h) * m.v * dt;
           if (this.blocked(nx, nz, e.meta.tier)) m.h += Math.PI * (0.5 + this.r() * 0.5); // bounce off walls, never walk through

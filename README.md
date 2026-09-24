@@ -14,15 +14,21 @@ The city fights back as you grow: police barricades, cement trucks, helicopters 
 | ![Morning: suburban blocks, police closing in](docs/screens/heat-morning.jpg) | ![Noon: a small hole among giant toy trees](docs/screens/suburbs-noon.jpg) |
 
 ## The game
-- **Grow:** everything has a size. Swallow what fits; each bite widens the hole by a share of the object's footprint.
-- **Starve:** a belly meter drains. Keep eating or you shrink — too small and the ground seals.
-- **Heat ★1–4:** the bigger you get, the harder the city responds — police cars that chase and ram you, barricades, cement pours, concrete drops with red warning rings, tank shells. Shrink and it calms down.
+- **Grow:** everything has a size. Swallow what fits; each bite widens the hole by a share of the object's footprint —
+  crumbs much smaller than you barely count, so you have to keep chasing real meals.
+- **Starve:** a belly meter drains, and faster the longer the run goes on. Keep eating or you shrink — too small and the ground seals.
+- **Cravings:** every so often the void wants something specific (3 cars, 4 people, 2 buildings…) against the clock. Satisfy it for a full belly, a combo kick and dust; miss it and you go hungry.
+- **Heat ★1–4:** set by the higher of your size and your **notoriety** — eating police, units, buildings and cars makes the city hunt you;
+  it cools only while you lay low. Police chase and ram, barricades toll you, cement trucks pour, helicopters drop concrete (red warning rings),
+  tanks shell. Concrete stays **wet** for a while: sit in it and you slow down and shrink. From ★2 people **evacuate** into buildings, so food thins out.
 - **Rival holes:** other holes eat the same city. Bigger swallows smaller — including you.
 - **Poison:** gas cans shrink you, toxic barrels reverse your controls, spiky art jams the hole. Oversized cars can **clog** it.
 - **Win:** swallow every building. Clear time is your score; the **Daily city** is the same map for everyone that day.
 - **Challenge cards:** pick one rule twist per run (Car Crusher, Rush Hour, Glass Cannon, Crowded…) for a dust multiplier.
 - **Collection book:** every type of thing gets a page the first time you swallow it. Rare golden variants are hiding.
-- **Progress:** void dust buys upgrades and hole skins (Galaxy, Lava, Cotton Candy, Black Hole).
+- **Progress:** void dust is scarce — a strong clear pays ~200 before its card multiplier, a defeat keeps half of its meal and combo dust.
+  It buys small upgrades (a few percent per level, most with a catch) and hole skins (Galaxy, Lava, Cotton Candy, Black Hole). Unlocking
+  everything takes dozens of runs.
 - **Every city is different:** random size, style (Old Town, Suburbia, Waterfront, Seaside with a tide, Neon Nights with searchlights, Boomtown), time of day and start spot.
 
 Controls: mouse, touch-drag or WASD · `M` mutes.
@@ -59,6 +65,8 @@ Debug URL flags: `?webgl` (WebGL2 backend), `?seed=7`, `?time=golden|noon|mornin
 renders materials in isolation; `node tools/shot.mjs out.png "?seed=7&webgl"` captures a frame headlessly.
 Rebuild art (Blender with the MCP add-on running): run `blender/build_all.py` inside Blender, then `npm run optimize`.
 
-Playtest bot: open `/?bot` and run `__runBot(600)` in the console (`__sloppy = true` for a careless player).
+Playtest bot: open `/?bot` and run `__runBot(600)` in the console (`__sloppy = true` for a careless player), or headless:
+`node tools/botrun.mjs "&seed=7" 900 [1]` prints the run log and the itemised dust payout.
+Latest balance check: greedy bot clears in ~3.5–4 min on 2 of 3 seeds (dies to rams + rising hunger on the third); careless bot dies 3 of 3.
 
 See [PLAN.md](PLAN.md) for the build stages and [ART.md](ART.md) for the art bible.

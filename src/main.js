@@ -9,7 +9,7 @@ import { CARDS, VEHICLES, offer, dailyCard } from './cards.js';
 import { record, renderBook, title, bookEntries, thumb, warmThumbs } from './book.js';
 import { Director } from './director.js';
 import { installBot } from './bot.js';
-import { UPGRADES, save, persist, level, buy, todaySeed } from './meta.js';
+import { UPGRADES, ECON, save, persist, level, buy, todaySeed } from './meta.js';
 import * as sfx from './sfx.js';
 import { Post } from './post.js';
 import { Sparks, Debris, SMOKE } from './fx.js';
@@ -36,9 +36,10 @@ const VIEW = new URLSearchParams(location.search).get('view')?.split(',').map(Nu
 const smokeCol = new THREE.Color();
 
 // ---------- starvation tuning (PLAN.md: keep moving or the ground seals) ----------
-const BELLY_DRAIN = 1 / 8; // a full belly lasts 8s
+const BELLY_DRAIN = 1 / 8; // a full belly lasts 8s (at the start: the void gets hungrier as the run goes on)
+const HUNGER_RAMP = 240; // seconds for the belly to drain twice as fast
 const MEAL = 0.15; // eating this fraction of the hole's own area fills the belly
-const DECAY_FED = 0.014; // area fraction lost per second while the belly has food
+const DECAY_FED = 0.016; // area fraction lost per second while the belly has food
 const DECAY_STARVING = 0.09; // ... while it is empty
 const DEAD_R = 0.26;
 const MAX_HIT = 0.25; // rule 3: no single hit takes more than 25%
@@ -109,10 +110,11 @@ let city, hole, state, director, rivals, grass;
 function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false, card = 'none') {
   if (city) { scene.remove(city.group, hole.group, grass.group); city.dispose(); hole.dispose(); director.dispose(); rivals.dispose(); grass.dispose(); }
   const debugR = +new URLSearchParams(location.search).get('r') || 0; // screenshot/debug: start bigger
-  hole = new Hole(assets, field, 0, { r: debugR || 0.45 + level('headstart') * 0.07, skin: save.skin || 'void' });
-  hole.pull = 1 + level('gravity') * 0.1;
+  hole = new Hole(assets, field, 0, { r: debugR || 0.45 + level('headstart') * 0.04, skin: save.skin || 'void' });
+  hole.pull = 1 + level('gravity') * 0.06;
   city = new City(assets, seed, field);
-  director = new Director(city, scene, { hurt, toll, spotted, ram, siren: sfx.siren, warn: (t) => flash(t, false) }, card === 'hot' ? 2 : 0);
+  director = new Director(city, scene, { hurt, toll, spotted, ram, drain, siren: sfx.siren, warn: (t) => flash(t, false) }, card === 'hot' ? 2 : 0);
+  director.notorietyMult = 1 - level('quiet') * 0.1;
   rivals = new Rivals(assets, field, city, scene, card === 'crowded' ? 3 : card === 'lonely' ? 0 : 2, save.skin || 'void');
   // Randomised start: time of day, and a calm open tile (never a downtown lot) at a random spot on it.
   const r = rng(seed ^ 0x5eed);
@@ -139,7 +141,8 @@ function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false, card = 'non
   scene.add(city.group, hole.group, grass.group);
   state = { playing: false, seed, daily, card, time: 0, belly: 1, eaten: 0, score: 0, best: hole.r, stars: 0,
     reverse: 0, jam: 0, slow: 0, invuln: 0, shake: 0, sealing: 0, hits: [], left: city.buildingsLeft(), combo: 0, comboT: 0, bonus: 0,
-    rareDust: 0, rivalsEaten: 0, hitstop: 0, punch: 0, finale: 0, mi: MILESTONES.filter((m) => hole.r >= m.need).length };
+    rares: 0, rivalsEaten: 0, hitstop: 0, punch: 0, finale: 0, mi: MILESTONES.filter((m) => hole.r >= m.need).length,
+    crave: null, craveCool: 18, cravings: 0, wet: 0 };
 }
 const URL_SEED = new URLSearchParams(location.search).get('seed');
 newRun(URL_SEED ? +URL_SEED : undefined);
@@ -198,7 +201,14 @@ function hud() {
   $('eaten').querySelector('b').textContent = state.eaten;
   $('hunger').style.width = `${state.belly * 100}%`;
   $('hunger').parentElement.classList.toggle('low', state.belly < 0.3);
-  $('stars').textContent = '★'.repeat(director.stars) + '☆'.repeat(4 - director.stars);
+  $('stars').firstChild.textContent = '★'.repeat(director.stars) + '☆'.repeat(4 - director.stars);
+  $('noto').style.width = `${director.noto}%`; // notoriety: how hard the city is looking for you
+  const cr = state.crave;
+  $('crave').hidden = !cr;
+  if (cr) {
+    $('crave').innerHTML = `Craving <b>${cr.got}/${cr.need}</b> ${cr.label}<i style="width:${(cr.t / cr.T) * 100}%"></i>`;
+    $('crave').classList.toggle('low', cr.t < 5);
+  }
   $('left').querySelector('b').textContent = state.left;
   // endgame compass: point at the nearest standing building when only a few remain
   const arrow = $('arrow');
@@ -215,7 +225,7 @@ function hud() {
       arrow.style.transform = `translate(${Math.cos(a) * rad}px, ${Math.sin(a) * rad}px) rotate(${a}rad)`;
     }
   }
-  const st = [state.reverse > 0 && 'Controls reversed', state.jam > 0 && 'Jammed', state.slow > 0 && 'Slowed', state.flooded && 'Tide! Slow + hungry',
+  const st = [state.reverse > 0 && 'Controls reversed', state.jam > 0 && 'Jammed', state.wet > 0 ? 'Wet concrete! Get out' : state.slow > 0 && 'Slowed', state.flooded && 'Tide! Slow + hungry',
     director.bonusT > 0 && 'Spotted'].filter(Boolean);
   const c = CARDS[state.card];
   $('card').hidden = state.card === 'none';
@@ -227,7 +237,8 @@ function hud() {
 const HINTS = [
   [1, 'Steer onto things smaller than you'],
   [9, 'Keep eating — the purple bar is your belly'],
-  [18, 'Big bites make you grow faster'],
+  [18, 'Big bites grow you — crumbs barely count'],
+  [45, 'Eating police and buildings makes the city hunt you — lay low to cool off'],
 ];
 function hints() {
   if (save.hinted) return;
@@ -246,7 +257,7 @@ function hint(text) {
 function hurt(frac, why) {
   if (!state.playing || state.invuln > 0) return;
   const glass = state.card === 'glass' ? 2 : 1;
-  hole.area *= 1 - Math.min(frac * glass * (1 - level('hardhat') * 0.15), MAX_HIT * glass);
+  hole.area *= 1 - Math.min(frac * glass * (1 - level('hardhat') * 0.1), MAX_HIT * glass);
   state.hits.push(why);
   state.invuln = 1.2;
   state.shake = 0.5;
@@ -260,6 +271,13 @@ function toll() {
   state.hits.push('toll');
   sfx.hurt();
   flash('Barricade!');
+}
+/** Standing in wet concrete: slow, and it sets around you (steady shrink; never blocks movement, rule 1). */
+function drain(dt) {
+  if (!state.playing) return;
+  hole.area *= 1 - 0.05 * dt;
+  state.slow = Math.max(state.slow, 0.15);
+  state.wet = 0.2;
 }
 function flash(text, red = true) {
   const el = $('toast');
@@ -297,6 +315,95 @@ function poison(effect) {
   if (effect === 'reverse') { state.reverse = 3; flash('Toxic! Controls reversed'); }
   if (effect === 'jam') { state.jam = 2; flash('Spiky art! Jammed'); }
 }
+
+// ---------- growth, notoriety, cravings ----------
+/** Share of a bite that becomes growth: crumbs much smaller than the hole barely count, so you have to chase real meals. */
+function growthShare(tier, r) {
+  const k = THREE.MathUtils.smoothstep(tier / r, 0.1, 0.5);
+  return 0.06 + 0.94 * k;
+}
+
+/** How much the city notices a meal (heat builds from aggression, not just size). */
+function notoriety(e) {
+  const n = e.name, k = e.meta.kind;
+  if (k === 'unit' || n === 'police_car') return 12;
+  if (BUILDINGS.has(n)) return 5 + e.meta.tier;
+  if (VEHICLES.has(n)) return 2.2;
+  if (PEOPLE.includes(n)) return 0.8;
+  return 0.35;
+}
+
+// Cravings: every so often the void wants something specific, soon. Satisfy it for a full belly, a combo kick and dust.
+const CAR_NAMES = new Set(['car', 'car_b', 'car_c', 'taxi', 'mayor_limo', 'police_car', 'icecream_van', 'bus']);
+const STREET = new Set(['bench', 'hydrant', 'trashcan', 'mailbox', 'newsbox', 'vending', 'phone_booth', 'lamp', 'planter', 'flower_pot', 'cone', 'bicycle', 'scooter']);
+const CRAVES = [
+  { label: 'people', need: 4, test: (n) => PEOPLE.includes(n) },
+  { label: 'cars', need: 3, test: (n) => CAR_NAMES.has(n) },
+  { label: 'street furniture', need: 4, test: (n) => STREET.has(n) },
+  { label: 'trees & bushes', need: 3, test: (n) => n.startsWith('tree') || n === 'bush' },
+  { label: 'pigeons & pets', need: 3, test: (n) => ['pigeon', 'dog', 'crab', 'rainbow_pigeon'].includes(n) },
+  { label: 'buildings', need: 2, test: (n) => BUILDINGS.has(n) },
+];
+function cravings(dt) {
+  const c = state.crave;
+  if (c) {
+    c.t -= dt;
+    if (c.t <= 0) { // missed: the void sulks
+      state.crave = null;
+      state.craveCool = 26 + Math.random() * 14;
+      state.belly = Math.max(0, state.belly - 0.25);
+      flash(`Craving missed — ${c.label}`, false);
+    }
+    return;
+  }
+  if ((state.craveCool -= dt) > 0) return;
+  // only crave what fits now and is actually around
+  const options = CRAVES.filter((cr) => {
+    let n = 0;
+    for (const e of city.entities) {
+      if (!e.alive || e.falling || e.meta.tier >= hole.r * 0.95 || e.meta.tier < hole.r * 0.08 || !cr.test(e.name)) continue;
+      if ((e.x - hole.x) ** 2 + (e.z - hole.z) ** 2 < 70 ** 2 && ++n >= cr.need * 2) return true;
+    }
+    return false;
+  });
+  if (!options.length) { state.craveCool = 5; return; }
+  const cr = options[Math.floor(Math.random() * options.length)];
+  state.crave = { ...cr, got: 0, t: 18 + cr.need * 2, T: 18 + cr.need * 2 };
+  sfx.star();
+  flash(`Craving: ${cr.need} ${cr.label}!`, false);
+}
+function craveEat(e) {
+  const c = state.crave;
+  if (!c || !c.test(e.name) || ++c.got < c.need) return;
+  state.crave = null;
+  state.craveCool = 28 + Math.random() * 14;
+  state.cravings++;
+  state.belly = 1;
+  state.combo += 5;
+  state.comboT = 1.5;
+  hole.shockwave();
+  sfx.levelUp();
+  flash(`Craving satisfied! +${ECON.craving} dust`, false);
+}
+
+/** Dust for a finished run, itemised. Scarce on purpose (meta.js ECON). */
+function runDust(won) {
+  const e = ECON;
+  const parts = {
+    meals: e.perScore * Math.sqrt(state.score) * (won ? 1 : e.lossShare),
+    combos: e.comboDust * Math.sqrt(state.bonus) * (won ? 1 : e.lossShare),
+    cravings: state.cravings * e.craving,
+    rares: state.rares * e.rare,
+    rivals: state.rivalsEaten * e.rival,
+    win: won ? e.winBonus : 0,
+    speed: won ? e.speedBonus * THREE.MathUtils.clamp((720 - state.time) / 420, 0, 1) : 0,
+    daily: won && state.daily && !save.daily[state.seed]?.clear ? e.dailyFirstClear : 0,
+  };
+  const mult = CARDS[state.card].mult;
+  const total = Math.floor(Object.values(parts).reduce((a, b) => a + b, 0) * mult);
+  return { parts, mult, total };
+}
+window.__econ = () => ({ ...runDust(state.left === 0), score: state.score, bonus: state.bonus, time: state.time });
 
 // ---------- menus ----------
 let pickedCard = 'none';
@@ -396,8 +503,7 @@ function endRun(won, why) {
   state.over = true;
   if (won) { sfx.star(); state.finale = 3.4; }
   else { state.sealing = 1.2; sfx.seal(); }
-  const mult = CARDS[state.card].mult;
-  const dust = Math.floor((Math.floor(2 * Math.sqrt(state.score)) + Math.floor(state.bonus / 4) + state.rareDust + (won ? 150 : 0)) * mult);
+  const pay = runDust(won), dust = pay.total, mult = pay.mult;
   save.dust += dust;
   save.best = Math.max(save.best, state.best);
   if (won) save.fastest = Math.min(save.fastest || Infinity, state.time);
@@ -417,7 +523,8 @@ function endRun(won, why) {
       ? `Every building gone in <b>${clock(state.time)}</b>${state.daily ? ' — today\'s city' : ''}. Fastest ever <b>${clock(save.fastest)}</b>.`
       : `You swallowed <b>${state.eaten}</b> things and grew to <b>${state.best.toFixed(1)} m</b>${state.daily ? ' in today\'s city' : ''}. <b>${state.left}</b> buildings still stand.`)
       + (state.bite ? `<span class="bite"><img alt="" src="${state.bite}"><small>Biggest bite · ${title(state.biteName)}</small></span>` : '<br>')
-      + `+<b>${dust}</b> void dust${mult > 1 ? ` (×${mult} ${CARDS[state.card].name})` : ''}${state.rivalsEaten ? ` · ate ${state.rivalsEaten} rival${state.rivalsEaten > 1 ? 's' : ''}` : ''} · best ever <b>${save.best.toFixed(1)} m</b>`;
+      + `+<b>${dust}</b> void dust${mult > 1 ? ` (×${mult} ${CARDS[state.card].name})` : ''} · best ever <b>${save.best.toFixed(1)} m</b>`
+      + `<small class="pay">${Object.entries(pay.parts).filter(([, v]) => v >= 0.5).map(([k, v]) => `${k} ${Math.round(v)}`).join(' · ')}</small>`;
     $('play').textContent = 'Dig again';
     renderShop();
   }, won ? 3600 : 1300);
@@ -467,7 +574,10 @@ function frame(dt) {
     for (const k of ['reverse', 'jam', 'slow', 'invuln', 'shake', 'comboT']) state[k] = Math.max(0, state[k] - dt);
     if (!state.comboT) state.combo = 0;
     const tide = state.flooded ? 2 : 1;
-    state.belly = Math.max(0, state.belly - BELLY_DRAIN * tide * Math.min(1, 0.3 + state.time / 25) * dt); // gentle first 20s
+    state.wet = Math.max(0, state.wet - dt);
+    const ramp = 1 + state.time / HUNGER_RAMP; // the void gets hungrier the longer the run goes on
+    state.belly = Math.max(0, state.belly - BELLY_DRAIN * tide * ramp * Math.min(1, 0.3 + state.time / 25) * dt); // gentle first 20s
+    cravings(dt);
     const [sx, sz] = window.__bot ? window.__bot(hole, city) : steer();
     const speed = (6.5 + hole.r * 1.8) * (state.slow > 0 ? 0.45 : 1) * (state.flooded ? 0.6 : 1);
     // a little weight (~0.1s to turn / reach speed), not a boat
@@ -485,10 +595,11 @@ function frame(dt) {
     hole.vx = (hole.x - px) / dt;
     hole.vz = (hole.z - pz) / dt;
 
-    const slower = (1 - level('appetite') * 0.12) * (state.card === 'lonely' ? 1.3 : 1);
-    const fed = DECAY_FED / (1 + hole.r * 0.15); // big holes need proportionally bigger meals already
+    const slower = (1 - level('appetite') * 0.06) * (state.card === 'lonely' ? 1.3 : 1);
+    const fed = DECAY_FED / (1 + hole.r * 0.1); // big holes need proportionally bigger meals already
     hole.area *= 1 - (state.belly > 0 ? fed : DECAY_STARVING) * slower * dt;
     director.update(dt, hole, state);
+    city.alarm = director.stars; // at high heat the city evacuates: people hide indoors
     if (director.stars > state.stars) {
       sfx.star();
       flash('★'.repeat(director.stars) + ' The city fights back', false);
@@ -501,6 +612,7 @@ function frame(dt) {
     else for (const q of rv) {
       hole.area += q.hole.area * 0.6;
       state.rivalsEaten++;
+      director.notice(15);
       state.score += q.hole.area;
       flash(`Swallowed ${q.name}!`, false);
       sfx.star();
@@ -546,22 +658,25 @@ function frame(dt) {
       const before = e.eater.area;
       // rubber band: rivals keep pace with you but never run away with the city
       const ahead = e.eater.r > hole.r * 1.4 + 1;
-      if (e.meta.kind !== 'poison') e.eater.grow(e.meta.tier, ahead ? 0.12 : 0.5);
+      if (e.meta.kind !== 'poison') e.eater.grow(e.meta.tier, (ahead ? 0.12 : 0.5) * growthShare(e.meta.tier, e.eater.r));
       rivals.fed(e.eater, before);
       continue;
     }
     if (!state.playing) continue;
     sfx.gulp(e.meta.tier);
-    hole.vac = Math.min(1.4, (hole.vac || 0) + 0.55); // whirlpool: each bite keeps the suction going (chains)
+    hole.vac = Math.min(1, (hole.vac || 0) + 0.35); // whirlpool: a short burst of suction after each bite
     if (record(e.name)) flash(`New in the book: ${title(e.name)}`, false);
-    if (e.meta.rare) { state.rareDust += 25; sparks.burst(hole.x, hole.z, hole.r, 4); sfx.star(); }
+    if (e.meta.rare) { state.rares++; sparks.burst(hole.x, hole.z, hole.r, 4); sfx.star(); }
+    director.notice(notoriety(e));
+    craveEat(e);
     if (e.meta.kind === 'poison') { poison(e.meta.effect); continue; }
     if (e.meta.effect === 'combo') { state.combo += 3; state.comboT = 1.2; }
     const before = hole.area;
     const mult = state.card === 'vehicles' ? (VEHICLES.has(e.name) ? 1.5 : 0.25) : state.card === 'glass' ? 1.5 : 1;
-    hole.grow(e.meta.tier, mult);
+    hole.grow(e.meta.tier, mult * growthShare(e.meta.tier, hole.r));
     // a full meal is MEAL of the hole's area, capped at a 6 m hole's worth so late game stays feedable
-    state.belly = Math.min(1, state.belly + (hole.area - before) / (Math.min(before, Math.PI * 36) * MEAL));
+    const meal = MEAL * (1 + level('appetite') * 0.04);
+    state.belly = Math.min(1, state.belly + (hole.area - before) / (Math.min(before, Math.PI * 36) * meal));
     state.eaten++;
     state.score += Math.PI * e.meta.tier ** 2;
     hole.bump = Math.min(0.25, (hole.bump || 0) + e.meta.tier / hole.r * 0.3);
@@ -569,7 +684,7 @@ function frame(dt) {
     if (e.meta.tier > hole.r * 0.12) debris.crumbs(hole, e.meta.tier);
     state.combo = state.comboT > 0 ? state.combo + 1 : 1;
     state.comboT = 0.9;
-    state.bonus += state.combo - 1;
+    state.bonus += Math.min(state.combo - 1, 8); // long chains are fun, not a money printer
     if (state.combo >= 3) combo(state.combo);
   }
   state.best = Math.max(state.best, hole.r);

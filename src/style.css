@@ -117,3 +117,11 @@ button.ghost { background: #fff8ee22; color: var(--cream); box-shadow: none; fon
 
 #fps { position: fixed; top: 8px; right: 8px; z-index: 50; padding: 6px 9px; border-radius: 8px; background: #000a; color: #b8f5c8;
   font: 12px/1.35 ui-monospace, Menlo, monospace; white-space: pre; pointer-events: none; }
+
+#stars { position: relative; overflow: hidden; }
+#noto { position: absolute; left: 0; bottom: 0; height: 3px; width: 0; background: linear-gradient(90deg, #ffd166, #ff3b3b); transition: width .3s; }
+.crave { position: relative; overflow: hidden; background: #2a1650cc; color: #f3e9ff; }
+.crave i { position: absolute; left: 0; bottom: 0; height: 3px; background: #b58cff; }
+.crave.low { animation: pulse .5s infinite alternate; }
+@keyframes pulse { to { background: #6a1b3acc; } }
+#result .pay { display: block; margin-top: 4px; opacity: .7; font-size: 12px; }

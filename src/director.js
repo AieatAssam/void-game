@@ -6,7 +6,11 @@ import { uniform, uniformArray } from 'three/tsl';
 
 // Heat follows the hole's current size (with hysteresis), so a shrinking hole also cools the city down:
 // no death spiral where a tiny hole is stuck at high heat (PLAN.md no-dead-end rules).
-export const HEAT_R = [1.1, 2.2, 3.6, 5.5];
+export const HEAT_R = [1.6, 3.0, 4.8, 7.5];
+// Notoriety (0-100) builds with aggression (eating units, buildings, cars) and cools only while you lay low.
+// Heat = the higher of the size floor and notoriety, so a careful hole can grow quietly and a reckless one gets hunted.
+const NOTO_STARS = [12, 35, 60, 85];
+const NOTO_COOL = { delay: 5, rate: 3.5 }; // seconds without a notable meal before it cools, points per second
 
 // soft round glow for police lightbars (a bare sprite would be a hard square)
 const glowTex = (() => {
@@ -23,6 +27,7 @@ const glowTex = (() => {
 const spotMat = new THREE.MeshBasicMaterial({ map: glowTex, color: 0xfff1b8, transparent: true, opacity: 0.75, depthWrite: false, blending: THREE.AdditiveBlending });
 const spotGeo = new THREE.CircleGeometry(1, 40).rotateX(-Math.PI / 2);
 const TIDE = { period: 45, warn: 37, flood: 40, end: 48 };
+const WET = 9; // seconds a landed plug / pour stays wet
 const FORCE_TIDE = typeof location !== 'undefined' && location.search.includes('tide'); // screenshot/debug
 const warnMat = new THREE.MeshBasicMaterial({ color: 0xff3b3b, transparent: true, opacity: 0.5, depthWrite: false });
 const warnGeo = new THREE.RingGeometry(0.82, 1, 48).rotateX(-Math.PI / 2);
@@ -60,6 +65,9 @@ export class Director {
     this.drops = []; // falling plugs + shells with ground warnings
     this.cool = { police: 2, cement: 4, heli: 4, tank: 4, barricade: 3, snack: 0 };
     this.stars = 0;
+    this.noto = 0;
+    this.quietT = 0;
+    this.notorietyMult = 1;
     this.lines = Array.from({ length: city.N + 1 }, (_, k) => -city.half + k * TILE);
   }
 
@@ -74,7 +82,9 @@ export class Director {
     if (s < 4 && hole.r >= HEAT_R[s]) this.baseStars++;
     else if (s > 0 && hole.r < HEAT_R[s - 1] * 0.75) this.baseStars--;
     this.bonusT = Math.max(0, this.bonusT - dt);
-    this.stars = Math.min(4, Math.max(this.minStars, this.baseStars + (this.bonusT > 0 ? 1 : 0)));
+    if ((this.quietT += dt) > NOTO_COOL.delay) this.noto = Math.max(0, this.noto - NOTO_COOL.rate * dt);
+    const notoStars = NOTO_STARS.filter((v) => this.noto >= v).length;
+    this.stars = Math.min(4, Math.max(this.minStars, Math.max(this.baseStars, notoStars) + (this.bonusT > 0 ? 1 : 0)));
     this.searchlights(dt, hole);
     this.tide(dt, hole, run);
     this.tollCool = Math.max(0, (this.tollCool || 0) - dt);
@@ -90,6 +100,12 @@ export class Director {
     this.units = this.units.filter((u) => u.alive);
     this.updateBarricades(dt, hole);
     this.updateDrops(dt, hole);
+  }
+
+  /** A notable meal: notoriety rises (small snacks barely register). */
+  notice(amount) {
+    if (amount >= 1) this.quietT = 0;
+    this.noto = Math.min(100, this.noto + amount * this.notorietyMult);
   }
 
   // ---------- searchlights: caught in the beam = +1 heat for 12s (swallow the tower to stop it) ----------
@@ -269,7 +285,7 @@ export class Director {
     }
     this.drive(u, dt, 7, hole.x, hole.z);
     if (d < hole.r + 2 && hole.r < u.meta.tier * 0.95) {
-      this.hooks.hurt(0.2, 'Concrete pour!');
+      this.hooks.hurt(0.12, 'Concrete pour!');
       this.plug(hole.x, hole.z, hole.r * 1.05, 0.01);
       u.back = 3;
     }
@@ -373,9 +389,12 @@ export class Director {
           d.e.y = 0;
           if (Math.hypot(hole.x - d.x, hole.z - d.z) < d.R * 0.8 + hole.r * 0.3) this.hooks.hurt(0.2, 'Concrete drop!');
         }
-      } else if (d.t > d.T + 1.5) {
+      } else if (d.t < d.T + WET) {
+        // wet concrete: sitting in it slows you and it sets around you (never a wall: rule 1)
+        if (Math.hypot(hole.x - d.x, hole.z - d.z) < d.R * 0.85 + hole.r * 0.35 && hole.r < d.R * 3) this.hooks.drain?.(dt);
+      } else {
         d.e.y -= dt * 2;
-        if (d.t > d.T + 2.5) { d.gone = true; this.city.remove(d.e); }
+        if (d.t > d.T + WET + 1) { d.gone = true; this.city.remove(d.e); }
       }
       this.city.place(d.e);
       d.ring.visible = !d.landed;
