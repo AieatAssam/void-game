@@ -6,7 +6,7 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, vec3, vec4, float, int, attribute, positionWorld, normalWorldGeometry, normalViewGeometry, mix, smoothstep, max, pow,
-  normalize, clamp, texture, sin, length, positionView, time, select, viewportDepthTexture, cameraNear, cameraFar,
+  normalize, clamp, texture, sin, abs, length, positionView, time, select, viewportDepthTexture, cameraNear, cameraFar,
   perspectiveDepthToViewZ, screenUV,
 } from 'three/tsl';
 import { pbrCol, pbrNrm, pbrRha, L, triplanar, waterGrad, macro } from './pbr.js';
@@ -182,7 +182,7 @@ export class Terrain {
     this.group.add(this.mesh);
     // water: one plane at the global level; the terrain decides where it shows
     const wg = new THREE.PlaneGeometry(3600, 3600, 1, 1).rotateX(-Math.PI / 2);
-    this.waterMesh = new THREE.Mesh(wg, waterMaterial());
+    this.waterMesh = new THREE.Mesh(wg, waterMaterial(this.half));
     this.waterMesh.position.y = this.water;
     this.waterMesh.renderOrder = 2;
     this.group.add(this.waterMesh);
@@ -353,9 +353,11 @@ function terrainMaskMaterial(waterLevel) {
 }
 
 /** Lakes, river and sea: wave normals, sky reflections, depth-tinted and soft where it meets the shore. */
-function waterMaterial() {
+function waterMaterial(half) {
   const m = new THREE.MeshPhysicalNodeMaterial({ transparent: true, depthWrite: false, roughness: 0.05, metalness: 0 });
   const pw = positionWorld;
+  // the town sits on dry land: never show the water table under it (or down an open hole)
+  m.maskNode = max(abs(pw.x), abs(pw.z)).greaterThan(half - 0.3);
   // how much water is between the surface and the ground behind it
   const sceneZ = perspectiveDepthToViewZ(viewportDepthTexture(screenUV).r, cameraNear, cameraFar);
   const depthM = positionView.z.sub(sceneZ).max(0);

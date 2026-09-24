@@ -283,17 +283,23 @@ export class City {
       this.put(t, 'searchlight', 11, 11, 0);
       for (let k = 0; k < 6; k++) this.walker(cx, cz, 11);
     } else if (t.type === 'park') {
+      const [px, pz] = this.at(t, 7, -7); // the pond (tile_park.py puts it at Blender (7, 7))
+      const dry = (x, z) => (x - px) ** 2 + (z - pz) ** 2 > 5.4 ** 2;
       for (let k = 0; k < 16; k++) {
         const x = cx + r.range(-12, 12), z = cz + r.range(-12, 12);
-        if (Math.abs(x - cx) < 2 || Math.abs(z - cz) < 2) continue; // keep paths clear
+        if (Math.abs(x - cx) < 2 || Math.abs(z - cz) < 2 || !dry(x, z)) continue; // keep paths and the pond clear
         this.add(r.pick(PARK), x, z, r() * Math.PI * 2);
       }
       for (let k = 0; k < 6; k++) { // shrub clusters at the lawn corners
         const qx = r() < 0.5 ? -1 : 1, qz = r() < 0.5 ? -1 : 1;
-        this.add('bush', cx + qx * r.range(4, 12.5), cz + qz * r.range(4, 12.5), r() * 6.28);
+        const x = cx + qx * r.range(4, 12.5), z = cz + qz * r.range(4, 12.5);
+        if (dry(x, z)) this.add('bush', x, z, r() * 6.28);
       }
       if (r() < 0.5) this.add('swing', cx + 7, cz - 7, r() * 6.28);
-      for (let k = 0; k < 6; k++) this.add('pigeon', cx + r.range(-10, 10), cz + r.range(-10, 10), r() * 6.28, { type: 'peck', t: r() * 10 });
+      for (let k = 0; k < 6; k++) {
+        const x = cx + r.range(-10, 10), z = cz + r.range(-10, 10);
+        if (dry(x, z)) this.add('pigeon', x, z, r() * 6.28, { type: 'peck', t: r() * 10 });
+      }
       for (let k = 0; k < 5; k++) this.walker(cx, cz, 12); // loop outside the pond (tile-local 7,7, r 4.2) at any rotation
     } else {
       this.add('fountain', cx, cz, 0);

@@ -71,7 +71,7 @@ const objectFlags = uniform(new THREE.Vector4()).onObjectUpdate(({ object }) => 
 });
 
 /** Material subclass whose `preInstanceNode` deforms vertices in object space before instancing is applied. */
-export class ToyNodeMaterial extends THREE.MeshStandardNodeMaterial {
+export class ToyNodeMaterial extends THREE.MeshPhysicalNodeMaterial {
   setupPosition(builder) {
     if (this.preInstanceNode) positionLocal.assign(this.preInstanceNode);
     return super.setupPosition(builder);
@@ -121,17 +121,21 @@ function buildToy(mat, { ground = false, holes = null } = {}) {
     const natural = tri.col.mul(luminance(pal.rgb).div(max(luminance(mean), 0.02)));
     let c = mix(pal.rgb, mix(tinted, natural, info.z), k).toVar();
     if (ground) {
+      // lawns: a living green (the scan's detail on it), keeping each swatch's relative brightness
+      const lawn = vec3(0.07, 0.15, 0.03).mul(luminance(tri.col).div(max(luminance(mean), 0.02))).mul(luminance(pal.rgb).div(0.5).add(0.35));
+      c.assign(select(info.x.equal(L.grass), mix(c, lawn, k.mul(0.85)), c));
       // large-scale variation so repeats never read as a grid: patches of lusher/drier grass, worn asphalt
       const m = macro(positionWorld, 0.05), m2 = macro(positionWorld, 0.37);
       c.mulAssign(mix(0.82, 1.14, m).mul(mix(0.93, 1.05, m2)));
       // cavity darkening from the scan's AO (direct light too - fills the grooves between pavers and tiles)
       c.mulAssign(mix(1, pow(tri.ao, 1.5), k));
       c.mulAssign(select(info.x.equal(L.grass), mix(1, 0.6, surfaceOn), float(1))); // soil in the shade of the blades
-      c.assign(select(water, pal.rgb.mul(0.55), c));
+      c.assign(select(water, mix(vec3(0.015, 0.05, 0.055), pal.rgb, 0.12), c)); // deep, reads through its reflections
     } else {
       c.mulAssign(mix(1, tri.ao, k.mul(0.7)));
       // grounding: a little darker where things meet the floor
       c.mulAssign(mix(0.82, 1.0, smoothstep(0.0, 0.7, positionGeometry.y)));
+      c.assign(select(water, mix(vec3(0.02, 0.06, 0.07), pal.rgb, 0.2), c));
     }
     return vec4(c, 1);
   })();
@@ -141,6 +145,11 @@ function buildToy(mat, { ground = false, holes = null } = {}) {
   const scanRough = clamp(tri.rough.mul(0.6).add(orm.g.mul(0.5)), 0.04, 1);
   mat.roughnessNode = select(water, float(0.04), mix(orm.g, scanRough, k.mul(select(paint, float(0.3), float(1)))));
   mat.metalnessNode = orm.b;
+  if (!ground) { // vehicles: glossy clearcoat over the body paint (flags.w)
+    const body = paint.and(objectFlags.w.greaterThan(0.5));
+    mat.clearcoatNode = select(body, float(1), float(0));
+    mat.clearcoatRoughnessNode = float(0.06);
+  }
 
   // ---- normal: surface gradient from the scan (or animated waves on water), faded with distance
   mat.normalNode = Fn(() => {

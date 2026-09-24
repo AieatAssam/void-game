@@ -96,7 +96,8 @@ const DAY_TIMES = Object.keys(TIMES).filter((k) => !TIMES[k].night);
 let city, hole, state, director, rivals, grass;
 function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false, card = 'none') {
   if (city) { scene.remove(city.group, hole.group, grass.group); city.dispose(); hole.dispose(); director.dispose(); rivals.dispose(); grass.dispose(); }
-  hole = new Hole(assets, field, 0, { r: 0.45 + level('headstart') * 0.07, skin: save.skin || 'void' });
+  const debugR = +new URLSearchParams(location.search).get('r') || 0; // screenshot/debug: start bigger
+  hole = new Hole(assets, field, 0, { r: debugR || 0.45 + level('headstart') * 0.07, skin: save.skin || 'void' });
   hole.pull = 1 + level('gravity') * 0.1;
   city = new City(assets, seed, field);
   director = new Director(city, scene, { hurt, toll, spotted, ram, siren: sfx.siren, warn: (t) => flash(t, false) }, card === 'hot' ? 2 : 0);

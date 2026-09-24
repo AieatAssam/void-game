@@ -8,6 +8,7 @@ import { installVegetation } from './vegetation.js';
 import { installTerrainAssets } from './terrain.js';
 
 const base = import.meta.env.BASE_URL;
+const VEHICLES = new Set(['car', 'car_b', 'car_c', 'taxi', 'bus', 'police_car', 'icecream_van', 'cement_truck', 'mayor_limo', 'scooter', 'tank', 'heli']);
 
 // One material for (almost) the whole game; per-object flags ride on mesh.userData.toyFlags.
 export const toyMaterial = makeToy();
@@ -39,7 +40,7 @@ export async function loadAll(onProgress) {
     gltf.scene.traverse((o) => { if (o.isMesh && o.geometry.attributes._swing) ped = true; });
     const material = ped ? walkMaterial : toyMaterial;
     const edible = meta.kind === 'prop' || meta.kind === 'unit';
-    const flags = new THREE.Vector4(name.startsWith('tree') ? 1 : 0, meta.tier >= 3 && meta.height > 4 ? 1 : 0, edible ? meta.tier : 0, 0);
+    const flags = new THREE.Vector4(name.startsWith('tree') ? 1 : 0, meta.tier >= 3 && meta.height > 4 ? 1 : 0, edible ? meta.tier : 0, VEHICLES.has(name) ? 1 : 0);
     for (const s of [gltf.scene, lod.scene, lod2.scene]) {
       s.traverse((o) => {
         if (!o.isMesh) return;

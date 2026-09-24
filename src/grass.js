@@ -51,6 +51,7 @@ export class Grass {
     this.origin = uniform(new THREE.Vector2());
     this.fadeCentre = uniform(new THREE.Vector2());
     this.fadeFar = uniform(40);
+    this.zoomFade = uniform(1);
     const holes = uniformArray(holeField.value, 'vec3');
     // near ring: 5x5 patches, dense; far ring: 11x11 minus the middle, sparse and wider
     const near = [], far = [];
@@ -99,12 +100,14 @@ export class Grass {
     const mat = new THREE.MeshPhysicalNodeMaterial({ side: THREE.DoubleSide, roughness: 0.9, specularIntensity: 0.12 });
     const e = this.extent;
     const maskTex = this.mask.texture;
-    const origin = this.origin, fadeCentre = this.fadeCentre, fadeFar = this.fadeFar;
+    const origin = this.origin, fadeCentre = this.fadeCentre, fadeFar = this.fadeFar, zoomFade = this.zoomFade;
 
     // ---- per-blade values (vertex stage)
     const id = float(instanceIndex);
-    const patch = int(instanceIndex).div(int(side * side));
-    const j = int(instanceIndex).sub(patch.mul(int(side * side)));
+    // interleaved: consecutive instances cycle through the patches, so lowering mesh.count thins every patch evenly
+    const np = int(offsets.length);
+    const patch = int(instanceIndex).mod(np);
+    const j = int(instanceIndex).div(np);
     const gx = float(j.mod(int(side))), gz = float(j.div(int(side)));
     const h1 = hash(id.mul(8).add(1)), h2 = hash(id.mul(8).add(2)), h3 = hash(id.mul(8).add(3));
     const h4 = hash(id.mul(8).add(4)), h5 = hash(id.mul(8).add(5));
@@ -114,7 +117,7 @@ export class Grass {
     // clumps: blades bunch up and share height, so lawns don't look like carpet
     const clump = hash(wxz.mul(0.9).floor().add(4096).dot(vec2(1, 8192)));
     const wild = m.b;
-    const fade = smoothstep(fadeFar, fadeFar.mul(0.72), length(wxz.sub(fadeCentre)));
+    const fade = smoothstep(fadeFar, fadeFar.mul(0.72), length(wxz.sub(fadeCentre))).mul(zoomFade);
     const keep = h3.lessThan(m.r.mul(0.98));
     const bladeH = mix(mix(0.2, 0.32, clump), mix(0.4, 0.8, h4), wild).mul(h4.mul(0.5).add(0.75)).mul(fade).mul(keep.select(1, 0));
     const ang = h5.mul(6.2832);
@@ -167,6 +170,7 @@ export class Grass {
     mat.aoNode = mix(0.35, 1, pow(uv().y, 0.7));
 
     const mesh = new THREE.InstancedMesh(bladeGeometry(), mat, offsets.length * side * side);
+    mesh.userData.full = mesh.count;
     mesh.frustumCulled = false;
     mesh.castShadow = false;
     mesh.receiveShadow = true;
@@ -179,8 +183,11 @@ export class Grass {
     this.origin.value.set(Math.floor(target.x / PATCH) * PATCH, Math.floor(target.z / PATCH) * PATCH);
     this.fadeCentre.value.set(target.x, target.z);
     this.fadeFar.value = Math.min(66, 26 + camDist * 0.55);
-    if (this.layers[1]) this.layers[1].visible = !lowSpec;
-    this.group.visible = camDist < 140;
+    // blades are sub-pixel once the camera pulls far back: shrink them away and let the ground texture take over
+    this.zoomFade.value = 1 - THREE.MathUtils.smoothstep(camDist, 42, 75);
+    if (this.layers[1]) this.layers[1].visible = !lowSpec && camDist < 60;
+    for (const l of this.layers) l.count = Math.round(l.userData.full * (lowSpec ? 0.5 : 1)); // slow GPUs: half the blades
+    this.group.visible = this.zoomFade.value > 0.01;
   }
 
   dispose() {
