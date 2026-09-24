@@ -71,3 +71,8 @@ Measured before: greedy bot cleared a city in 96 s and a win paid ~38,000 dust (
 - **Upgrades:** 6-10% per level, three levels, most with a drawback; new Quiet Void (slower notoriety).
 - **Adversity:** notoriety heat, evacuation at ★2+, rising hunger over the run, wet concrete patches, cravings with a missed-craving penalty.
 - **Result:** greedy bot clears in ~3.5-4 min on most seeds and can die; careless bot dies.
+
+## Stage 11 — Variety pack (in progress on `feature/variety-pack`)
+Models first (done, 38 in `public/models/packs.json`), then systems + AAA pass — see [HANDOVER.md](HANDOVER.md).
+City events, fairground / airport / railway / county-fair districts, chain reactions, power-ups, star challenges,
+city progression, hole abilities, weekly mutators.
