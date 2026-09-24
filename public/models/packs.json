@@ -104,6 +104,34 @@
    "spin"
   ]
  },
+ "carriage": {
+  "tier": 5.35,
+  "mass": 40,
+  "kind": "prop",
+  "height": 3.94,
+  "pack": "rail",
+  "mover": "rail",
+  "clone": true,
+  "rail_top": 0.47,
+  "lod": [
+   0.3,
+   0.1
+  ],
+  "tris": 27304,
+  "lodTris": 8334,
+  "lod2Tris": 3108,
+  "bytes": 189812,
+  "clips": [
+   "w_cw3.4-0.8-1",
+   "w_cw3.4-0.81",
+   "w_cw3.40.8-1",
+   "w_cw3.40.81",
+   "w_cw-3.4-0.8-1",
+   "w_cw-3.4-0.81",
+   "w_cw-3.40.8-1",
+   "w_cw-3.40.81"
+  ]
+ },
  "classic_car": {
   "tier": 2.788,
   "mass": 9,
@@ -215,6 +243,18 @@
   "bytes": 152580,
   "clips": []
  },
+ "hay_bale": {
+  "tier": 0.852,
+  "mass": 0.5,
+  "kind": "prop",
+  "height": 1.561,
+  "pack": "farmfair",
+  "tris": 8312,
+  "lodTris": 2078,
+  "lod2Tris": 1526,
+  "bytes": 80076,
+  "clips": []
+ },
  "hoopla_stall": {
   "tier": 1.61,
   "mass": 2,
@@ -226,6 +266,42 @@
   "lod2Tris": 2232,
   "bytes": 178376,
   "clips": []
+ },
+ "locomotive": {
+  "tier": 6.591,
+  "mass": 70,
+  "kind": "prop",
+  "height": 4.2,
+  "pack": "rail",
+  "mover": "rail",
+  "clone": true,
+  "rail_top": 0.47,
+  "lod": [
+   0.3,
+   0.1
+  ],
+  "tris": 43654,
+  "lodTris": 13612,
+  "lod2Tris": 6838,
+  "bytes": 254584,
+  "clips": [
+   "w_drv10",
+   "w_drv11",
+   "w_drv12",
+   "w_drv-10",
+   "w_drv-11",
+   "w_drv-12",
+   "w_pony1",
+   "w_pony-1",
+   "w_trail1",
+   "w_trail-1",
+   "w_tw10",
+   "w_tw11",
+   "w_tw12",
+   "w_tw-10",
+   "w_tw-11",
+   "w_tw-12"
+  ]
  },
  "marathon_runner": {
   "tier": 0.355,
@@ -258,6 +334,30 @@
   "bytes": 316128,
   "clips": []
  },
+ "prize_pumpkin": {
+  "tier": 1.461,
+  "mass": 1.6,
+  "kind": "prop",
+  "height": 2.304,
+  "pack": "farmfair",
+  "tris": 9260,
+  "lodTris": 2314,
+  "lod2Tris": 934,
+  "bytes": 72592,
+  "clips": []
+ },
+ "scarecrow": {
+  "tier": 1.015,
+  "mass": 0.12,
+  "kind": "prop",
+  "height": 2.3,
+  "pack": "farmfair",
+  "tris": 6660,
+  "lodTris": 1664,
+  "lod2Tris": 822,
+  "bytes": 56952,
+  "clips": []
+ },
  "show_turntable": {
   "tier": 4.947,
   "mass": 4,
@@ -277,6 +377,19 @@
   "clips": [
    "turn"
   ]
+ },
+ "station": {
+  "tier": 8.523,
+  "mass": 120,
+  "kind": "prop",
+  "height": 6.2,
+  "pack": "rail",
+  "rail_offset": 4.2,
+  "tris": 28764,
+  "lodTris": 7190,
+  "lod2Tris": 2736,
+  "bytes": 201252,
+  "clips": []
  },
  "supercar": {
   "tier": 2.483,
@@ -316,6 +429,20 @@
   "bytes": 169592,
   "clips": []
  },
+ "tile_rail": {
+  "tier": 20,
+  "mass": 0,
+  "kind": "tile",
+  "height": 4.775,
+  "pack": "rail",
+  "rot180": true,
+  "rail_top": 0.47,
+  "tris": 27668,
+  "lodTris": 6916,
+  "lod2Tris": 4852,
+  "bytes": 204220,
+  "clips": []
+ },
  "tile_runway": {
   "tier": 20,
   "mass": 0,
@@ -327,6 +454,19 @@
   "lodTris": 2824,
   "lod2Tris": 904,
   "bytes": 80872,
+  "clips": []
+ },
+ "tractor": {
+  "tier": 1.615,
+  "mass": 2.5,
+  "kind": "prop",
+  "height": 2.552,
+  "pack": "farmfair",
+  "mover": "field",
+  "tris": 19968,
+  "lodTris": 5414,
+  "lod2Tris": 5142,
+  "bytes": 186948,
   "clips": []
  },
  "ufo": {
