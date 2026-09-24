@@ -2,15 +2,16 @@
 from lib import *
 
 
-def wheel(name, r, w, x, y, z=None, tire='ink', hub='chrome'):
+def wheel(name, r, w, x, y, z=None, tire='ink', hub='chrome', detail=True):
     """Wheel with axle along Y centered at (x, y, z). Returns parts list."""
     z = r if z is None else z
     rot = (math.pi / 2, 0, 0)
     side = 1 if y >= 0 else -1
-    out = [cyl(name, r, w, loc=(x, y + w / 2, z), color=tire, rot=rot, bev=r * 0.28, seg=28),
-           cyl(name + 'h', r * 0.52, w * 1.08, loc=(x, y + w * 0.54, z), color=hub, rot=rot, seg=20, bev=r * 0.1),
+    n = 28 if detail else 18
+    out = [cyl(name, r, w, loc=(x, y + w / 2, z), color=tire, rot=rot, bev=r * 0.28, seg=n, bseg=3 if detail else 2),
+           cyl(name + 'h', r * 0.52, w * 1.08, loc=(x, y + w * 0.54, z), color=hub, rot=rot, seg=20 if detail else 12, bev=r * 0.1, bseg=3 if detail else 1),
            cyl(name + 'cap', r * 0.18, w * 1.16, loc=(x, y + w * 0.58, z), color='white', rot=rot, seg=12, bev=r * 0.05)]
-    if r > 0.15:  # tread blocks + hub bolts on anything bigger than a toy-dog wheel
+    if r > 0.15 and detail:  # tread blocks + hub bolts on anything bigger than a toy-dog wheel
         for k in range(14):
             a = k * 2 * math.pi / 14
             out.append(box(f'{name}t{k}', (r * 0.2, w * 0.9, r * 0.08), loc=(x + math.cos(a) * r * 0.98, y, z + math.sin(a) * r * 0.98),

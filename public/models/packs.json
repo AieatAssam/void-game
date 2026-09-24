@@ -1,4 +1,21 @@
 {
+ "airliner": {
+  "tier": 14.125,
+  "mass": 900,
+  "kind": "prop",
+  "height": 10.248,
+  "pack": "airport",
+  "landmark": true,
+  "lod": [
+   0.3,
+   0.1
+  ],
+  "tris": 44960,
+  "lodTris": 13488,
+  "lod2Tris": 4496,
+  "bytes": 283392,
+  "clips": []
+ },
  "alien": {
   "tier": 0.278,
   "mass": 0.08,
@@ -10,6 +27,19 @@
   "lodTris": 3276,
   "lod2Tris": 1048,
   "bytes": 94468,
+  "clips": []
+ },
+ "baggage_tug": {
+  "tier": 3.32,
+  "mass": 3,
+  "kind": "prop",
+  "height": 2.14,
+  "pack": "airport",
+  "mover": "apron",
+  "tris": 31056,
+  "lodTris": 7764,
+  "lod2Tris": 3364,
+  "bytes": 231212,
   "clips": []
  },
  "balloon_float": {
@@ -88,6 +118,25 @@
   "bytes": 270548,
   "clips": []
  },
+ "control_tower": {
+  "tier": 3.774,
+  "mass": 90,
+  "kind": "prop",
+  "height": 20.62,
+  "pack": "airport",
+  "clone": true,
+  "lod": [
+   0.35,
+   0.12
+  ],
+  "tris": 14242,
+  "lodTris": 4984,
+  "lod2Tris": 1706,
+  "bytes": 103176,
+  "clips": [
+   "radar"
+  ]
+ },
  "drummer": {
   "tier": 0.352,
   "mass": 0.08,
@@ -148,6 +197,22 @@
   "lodTris": 3914,
   "lod2Tris": 2992,
   "bytes": 97048,
+  "clips": []
+ },
+ "hangar": {
+  "tier": 10.95,
+  "mass": 260,
+  "kind": "prop",
+  "height": 10.12,
+  "pack": "airport",
+  "lod": [
+   0.35,
+   0.12
+  ],
+  "tris": 18300,
+  "lodTris": 6405,
+  "lod2Tris": 2196,
+  "bytes": 152580,
   "clips": []
  },
  "hoopla_stall": {
@@ -249,6 +314,19 @@
   "lodTris": 5792,
   "lod2Tris": 5688,
   "bytes": 169592,
+  "clips": []
+ },
+ "tile_runway": {
+  "tier": 20,
+  "mass": 0,
+  "kind": "tile",
+  "height": 4.431,
+  "pack": "airport",
+  "rot180": true,
+  "tris": 11302,
+  "lodTris": 2824,
+  "lod2Tris": 904,
+  "bytes": 80872,
   "clips": []
  },
  "ufo": {
