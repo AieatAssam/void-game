@@ -227,6 +227,36 @@
   "bytes": 97048,
   "clips": []
  },
+ "fireworks_stand": {
+  "tier": 1.355,
+  "mass": 0.6,
+  "kind": "prop",
+  "height": 2.611,
+  "pack": "chain",
+  "effect": "fireworks",
+  "tris": 9692,
+  "lodTris": 2422,
+  "lod2Tris": 1930,
+  "bytes": 85512,
+  "clips": []
+ },
+ "gas_station": {
+  "tier": 7.16,
+  "mass": 110,
+  "kind": "prop",
+  "height": 7.298,
+  "pack": "chain",
+  "effect": "blast",
+  "lod": [
+   0.35,
+   0.12
+  ],
+  "tris": 32616,
+  "lodTris": 11414,
+  "lod2Tris": 3912,
+  "bytes": 223652,
+  "clips": []
+ },
  "hangar": {
   "tier": 10.95,
   "mass": 260,
@@ -344,6 +374,84 @@
   "lodTris": 2314,
   "lod2Tris": 934,
   "bytes": 72592,
+  "clips": []
+ },
+ "pu_boost": {
+  "tier": 0.5,
+  "mass": 0,
+  "kind": "pickup",
+  "height": 1.412,
+  "pack": "powerups",
+  "effect": "boost",
+  "clone": true,
+  "tris": 4460,
+  "lodTris": 1114,
+  "lod2Tris": 644,
+  "bytes": 45424,
+  "clips": [
+   "float"
+  ]
+ },
+ "pu_ghost": {
+  "tier": 0.5,
+  "mass": 0,
+  "kind": "pickup",
+  "height": 1.39,
+  "pack": "powerups",
+  "effect": "ghost",
+  "clone": true,
+  "tris": 6062,
+  "lodTris": 1514,
+  "lod2Tris": 632,
+  "bytes": 56476,
+  "clips": [
+   "float"
+  ]
+ },
+ "pu_magnet": {
+  "tier": 0.5,
+  "mass": 0,
+  "kind": "pickup",
+  "height": 1.628,
+  "pack": "powerups",
+  "effect": "magnet",
+  "clone": true,
+  "tris": 6028,
+  "lodTris": 1506,
+  "lod2Tris": 652,
+  "bytes": 54936,
+  "clips": [
+   "float"
+  ]
+ },
+ "pu_split": {
+  "tier": 0.5,
+  "mass": 0,
+  "kind": "pickup",
+  "height": 1.362,
+  "pack": "powerups",
+  "effect": "split",
+  "clone": true,
+  "tris": 6658,
+  "lodTris": 1662,
+  "lod2Tris": 658,
+  "bytes": 60348,
+  "clips": [
+   "float"
+  ]
+ },
+ "rubber_duck": {
+  "tier": 0.5,
+  "mass": 0.1,
+  "kind": "prop",
+  "height": 1.18,
+  "pack": "mutators",
+  "mutator": "ducks",
+  "unit_scale": true,
+  "tris": 9212,
+  "lodTris": 2302,
+  "lod2Tris": 736,
+  "bytes": 62308,
   "clips": []
  },
  "scarecrow": {
@@ -489,5 +597,22 @@
   "clips": [
    "lights"
   ]
+ },
+ "water_tower": {
+  "tier": 3.099,
+  "mass": 30,
+  "kind": "prop",
+  "height": 12.14,
+  "pack": "chain",
+  "effect": "flood",
+  "lod": [
+   0.4,
+   0.14
+  ],
+  "tris": 12100,
+  "lodTris": 4840,
+  "lod2Tris": 1846,
+  "bytes": 97396,
+  "clips": []
  }
 }
