@@ -4,7 +4,7 @@ import * as THREE from 'three/webgpu';
 import { Fn, uniform, positionGeometry, clamp, atan, mix, smoothstep, sin, exp, pow, vec2, vec3, vec4, hash, floor, step, length, fract, mx_noise_float, log } from 'three/tsl';
 import { SKINS } from './skins.js';
 
-export const GROWTH = 0.25;
+export const GROWTH = 0.17;
 export const MAX_HOLES = 4;
 
 /** Shared uniform: vec3(x, z, r) per hole; r = 0 means the slot is empty. */

@@ -10,6 +10,7 @@ import {
   time, oneMinus,
 } from 'three/tsl';
 import { triplanar, layerMean, waterGrad, macro, L } from './pbr.js';
+import { Q } from './quality.js';
 
 export const surfaceTime = uniform(0); // legacy tick (kept for callers); shaders use it for hole pulses
 export const surfaceOn = uniform(1); // 0 on low-spec devices (set by the fps watchdog)
@@ -71,7 +72,9 @@ const objectFlags = uniform(new THREE.Vector4()).onObjectUpdate(({ object }) => 
 });
 
 /** Material subclass whose `preInstanceNode` deforms vertices in object space before instancing is applied. */
-export class ToyNodeMaterial extends THREE.MeshPhysicalNodeMaterial {
+// low tier: the standard BRDF (no clearcoat layer to evaluate on every prop)
+const ToyBase = Q.surface === 'lite' ? THREE.MeshStandardNodeMaterial : THREE.MeshPhysicalNodeMaterial;
+export class ToyNodeMaterial extends ToyBase {
   setupPosition(builder) {
     if (this.preInstanceNode) positionLocal.assign(this.preInstanceNode);
     return super.setupPosition(builder);
@@ -146,7 +149,7 @@ function buildToy(mat, { ground = false, holes = null } = {}) {
   const scanRough = clamp(tri.rough.mul(0.6).add(orm.g.mul(0.5)), 0.04, 1);
   mat.roughnessNode = select(water, float(0.04), mix(orm.g, scanRough, k.mul(select(paint, float(0.3), float(1)))));
   mat.metalnessNode = ground ? select(sw.equal(21), float(0.6), orm.b) : orm.b;
-  if (!ground) { // vehicles: glossy clearcoat over the body paint (flags.w)
+  if (!ground && Q.surface !== 'lite') { // vehicles: glossy clearcoat over the body paint (flags.w)
     const body = paint.and(objectFlags.w.greaterThan(0.5));
     mat.clearcoatNode = select(body, float(1), float(0));
     mat.clearcoatRoughnessNode = float(0.06);

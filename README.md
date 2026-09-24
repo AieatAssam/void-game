@@ -14,15 +14,21 @@ The city fights back as you grow: police barricades, cement trucks, helicopters 
 | ![Morning: suburban blocks, police closing in](docs/screens/heat-morning.jpg) | ![Noon: a small hole among giant toy trees](docs/screens/suburbs-noon.jpg) |
 
 ## The game
-- **Grow:** everything has a size. Swallow what fits; each bite widens the hole by a share of the object's footprint.
-- **Starve:** a belly meter drains. Keep eating or you shrink — too small and the ground seals.
-- **Heat ★1–4:** the bigger you get, the harder the city responds — police cars that chase and ram you, barricades, cement pours, concrete drops with red warning rings, tank shells. Shrink and it calms down.
+- **Grow:** everything has a size. Swallow what fits; each bite widens the hole by a share of the object's footprint —
+  crumbs much smaller than you barely count, so you have to keep chasing real meals.
+- **Starve:** a belly meter drains, and faster the longer the run goes on. Keep eating or you shrink — too small and the ground seals.
+- **Cravings:** every so often the void wants something specific (3 cars, 4 people, 2 buildings…) against the clock. Satisfy it for a full belly, a combo kick and dust; miss it and you go hungry.
+- **Heat ★1–4:** set by the higher of your size and your **notoriety** — eating police, units, buildings and cars makes the city hunt you;
+  it cools only while you lay low. Police chase and ram, barricades toll you, cement trucks pour, helicopters drop concrete (red warning rings),
+  tanks shell. Concrete stays **wet** for a while: sit in it and you slow down and shrink. From ★2 people **evacuate** into buildings, so food thins out.
 - **Rival holes:** other holes eat the same city. Bigger swallows smaller — including you.
 - **Poison:** gas cans shrink you, toxic barrels reverse your controls, spiky art jams the hole. Oversized cars can **clog** it.
 - **Win:** swallow every building. Clear time is your score; the **Daily city** is the same map for everyone that day.
 - **Challenge cards:** pick one rule twist per run (Car Crusher, Rush Hour, Glass Cannon, Crowded…) for a dust multiplier.
 - **Collection book:** every type of thing gets a page the first time you swallow it. Rare golden variants are hiding.
-- **Progress:** void dust buys upgrades and hole skins (Galaxy, Lava, Cotton Candy, Black Hole).
+- **Progress:** void dust is scarce — a strong clear pays ~200 before its card multiplier, a defeat keeps half of its meal and combo dust.
+  It buys small upgrades (a few percent per level, most with a catch) and hole skins (Galaxy, Lava, Cotton Candy, Black Hole). Unlocking
+  everything takes dozens of runs.
 - **Every city is different:** random size, style (Old Town, Suburbia, Waterfront, Seaside with a tide, Neon Nights with searchlights, Boomtown), time of day and start spot.
 
 Controls: mouse, touch-drag or WASD · `M` mutes.
@@ -31,7 +37,7 @@ Controls: mouse, touch-drag or WASD · `M` mutes.
 - **Engine:** [three.js](https://threejs.org) `WebGPURenderer` + Vite, every shader written in TSL (three's node shading language).
   Runs on WebGPU and falls back to WebGL2 automatically (force it with `?webgl`). Static build, no backend — runs on GitHub Pages.
 - **Rendering:** physically based sky with sky-lit IBL, 4K soft sun shadows, aerial-perspective fog, GTAO ambient occlusion,
-  HDR bloom, ACES filmic tonemapping with per-time-of-day exposure, tilt-shift lens blur, SMAA, vignette, lens fringe and film grain.
+  HDR bloom, ACES filmic tonemapping with per-time-of-day exposure, SMAA, vignette, lens fringe and film grain.
 - **Materials:** 16 CC0 scanned PBR materials from [Poly Haven](https://polyhaven.com) (asphalt, paving, grass, brick, roof tiles, bark,
   rock…) packed into texture arrays. Every palette swatch maps to a scan, projected triplanar with tangent-free surface-gradient
   normal mapping, so toy models get real albedo, normal, roughness and AO detail. Cars get clearcoat paint; water has depth, waves and shore foam.
@@ -39,7 +45,10 @@ Controls: mouse, touch-drag or WASD · `M` mutes.
   procedurally grown trees and bushes built from leaf-cluster cards cut from [ambientCG](https://ambientcg.com) leaf scans,
   and GPU grass — hundreds of thousands of procedural blades — all swaying in travelling gusts and thrashing when the hole passes.
 - **Art:** ~100 models (detailed toy people with a GPU walk cycle, AAA-detailed toy cars), all procedural Blender Python scripts (`blender/assets/*.py`) driven through **Blender MCP**. One shared palette atlas + roughness/metalness atlas, so the whole city is one material; chrome, glass and gold are real metals/gloss.
-- **Performance:** every model ships 3 LODs (full, ~25%, ~8% via meshoptimizer). The city is instanced per asset per 40 m chunk and culled; far chunks drop to LOD2 and stop casting shadows. Tilt-shift post-process and full-detail models switch off automatically on slow devices.
+- **Performance:** every model ships 3 LODs (full, ~25%, ~8% via meshoptimizer). The city is instanced per asset per 40 m chunk and culled; far chunks drop to LOD2 and stop casting shadows.
+- **Quality tiers:** tablets and phones start on `low` (1x resolution, single-projection texture sampling, lighter AO, sparse grass, no full-detail models
+  downloaded) and keep the full look; desktops start on `high`. A watchdog sheds the least visible cost first if the frame rate drops
+  (resolution, AO resolution, grass, then AO and bloom). Force a tier with `?q=low|medium|high`; `?fps` shows a live performance overlay.
 - **Design rules:** no dead ends — nothing blocks movement, a size-ladder check (`npm run check`) guarantees there's always something slightly smaller to eat, and every hit is capped.
 
 ## Develop
@@ -51,10 +60,13 @@ npm run build        # static site in dist/
 python3 tools/textures.py   # rebuild the PBR texture library in public/tex (Pillow + numpy; downloads CC0 scans)
 ```
 Debug URL flags: `?webgl` (WebGL2 backend), `?seed=7`, `?time=golden|noon|morning|dusk|night`, `?mood=seaside`, `?r=6` (start radius),
-`?view=x,z,dist[,yaw,pitch]` (fixed camera), `?grass=0.5` (blade density), `?nopost`, `?noao`, `?low`. `test.html?mat=trees|grass|toy`
+`?view=x,z,dist[,yaw,pitch]` (fixed camera), `?start=beach` (start tile), `?tide` (hold the flood), `?grass=0.5` (blade density),
+`?q=low|medium|high`, `?fps`, `?nopost`, `?noao`, `?low`. `test.html?mat=trees|grass|toy`
 renders materials in isolation; `node tools/shot.mjs out.png "?seed=7&webgl"` captures a frame headlessly.
 Rebuild art (Blender with the MCP add-on running): run `blender/build_all.py` inside Blender, then `npm run optimize`.
 
-Playtest bot: open `/?bot` and run `__runBot(600)` in the console (`__sloppy = true` for a careless player).
+Playtest bot: open `/?bot` and run `__runBot(600)` in the console (`__sloppy = true` for a careless player), or headless:
+`node tools/botrun.mjs "&seed=7" 900 [1]` prints the run log and the itemised dust payout.
+Latest balance check: greedy bot clears in ~3.5–4 min on 2 of 3 seeds (dies to rams + rising hunger on the third); careless bot dies 3 of 3.
 
 See [PLAN.md](PLAN.md) for the build stages and [ART.md](ART.md) for the art bible.
