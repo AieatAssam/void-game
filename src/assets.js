@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { applySurface } from './surface.js';
 
 const base = import.meta.env.BASE_URL;
 const tex = new THREE.TextureLoader();
@@ -28,6 +29,8 @@ export const toyMaterial = new THREE.MeshStandardMaterial({
   roughness: 1,
   metalness: 1,
 });
+toyMaterial.onBeforeCompile = (s) => applySurface(s);
+toyMaterial.customProgramCacheKey = () => 'toy-surface';
 
 export async function loadAll(onProgress) {
   const manifest = await (await fetch(base + 'models/index.json')).json();
@@ -54,6 +57,7 @@ export async function loadAll(onProgress) {
 export const pedTime = { value: 0 };
 export const pedMaterial = toyMaterial.clone();
 pedMaterial.onBeforeCompile = (s) => {
+  applySurface(s);
   s.uniforms.uPedTime = pedTime;
   s.vertexShader = s.vertexShader
     .replace('#include <common>', `#include <common>

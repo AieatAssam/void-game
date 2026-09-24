@@ -6,14 +6,14 @@ def build():
     H = F * FH
     p = [box('walls', (D, W, H), loc=(0, 0, H / 2), color='butter', bev=0.25),
          box('base', (D + 0.4, W + 0.4, 4.0), loc=(0, 0, 2.0), color='white', bev=0.2),
-         box('parapet', (D + 0.5, W + 0.5, 0.6), loc=(0, 0, H + 0.1), color='white', bev=0.15),
-         box('roof', (D - 0.5, W - 0.5, 0.1), loc=(0, 0, H + 0.2), color='concrete', bev=0.02),
+
          box('sign', (1.0, 10.0, 2.2), loc=(0, 0, H + 1.7), color='red', bev=0.2),
          box('signface', (1.1, 9.0, 1.4), loc=(0, 0, H + 1.7), color='glow', bev=0.1),
          box('entry', (0.3, 4.0, 3.0), loc=(D / 2 + 0.2, 0, 1.5), color='glow', bev=0.08),
          box('canopy', (2.8, 5.0, 0.3), loc=(D / 2 + 1.2, 0, 3.4), color='red', bev=0.1)]
     for y in (-2.2, 2.2):
         p.append(cyl(f'pillar{y}', 0.12, 3.3, loc=(D / 2 + 2.3, y, 0), color='hazard', seg=10, bev=0.02))
+    p += parapet(D, W, H - 0.05, h=0.6) + rooftop(D, W, H - 0.05, seed=9, solar=False)
     # pool on the roof
     p += [box('pooledge', (5.0, 7.0, 0.4), loc=(-1.5, -2.5, H + 0.3), color='white', bev=0.1),
           box('pool', (4.4, 6.4, 0.1), loc=(-1.5, -2.5, H + 0.51), color='teal', bev=0.02)]

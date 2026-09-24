@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { toyMaterial, pedMaterial } from './assets.js';
+import { applySurface } from './surface.js';
 
 export const TILE = 40;
 const CHUNK = 40;
@@ -63,6 +64,7 @@ export function flatGeometry(asset, lod = 0) {
 export function groundMaterial(holeField) {
   const mat = toyMaterial.clone();
   mat.onBeforeCompile = (s) => {
+    applySurface(s, true);
     s.uniforms.uHoles = holeField;
     s.vertexShader = s.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vWorldP;')
@@ -77,6 +79,7 @@ export function groundMaterial(holeField) {
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
         for (int i = 0; i < 4; i++) if (uHoles[i].z > 0.0 && distance(vWorldP.xz, uHoles[i].xy) < uHoles[i].z) discard;`);
   };
+  mat.customProgramCacheKey = () => 'ground-surface';
   return mat;
 }
 
@@ -361,7 +364,7 @@ export class City {
     const e = this.entities.find((q) => !q.alive && q.name === name && q.mover?.reserve);
     if (!e) return null;
     const m = e.mover;
-    Object.assign(e, { x, z, y: 0, s: 1, tilt: 0, alive: true, falling: false, vy: 0, eater: null });
+    Object.assign(e, { x, z, y: 0, s: 1, tilt: 0, alive: true, falling: false, vy: 0, eater: null, fallT: 0 });
     m.h = Math.atan2(-(tz - z), tx - x) + (this.r() - 0.5) * 1.2;
     m.v = name.startsWith('ped') || name === 'pigeon' || name === 'dog' ? this.r.range(1, 1.8) : this.r.range(3, 5);
     m.t = this.r() * 10;
@@ -631,10 +634,10 @@ export class City {
         this.fall(e, dt, e.eater || hole, eaten);
         continue;
       }
-      if (e.clog > 0) { // wedged in the hole: tipped in, then pops back out (PLAN.md rule 3: <=1.5s)
+      if (e.clog > 0) { // stuck across the hole, rocking on the rim, then rolls off (PLAN.md rule 3: <=1.5s)
         e.clog -= dt;
-        e.tilt = e.clog > 0 ? 0.45 : 0;
-        e.y = e.clog > 0 ? -0.35 : 0;
+        e.tilt = e.clog > 0 ? 0.08 + Math.sin(e.clog * 22) * 0.05 : 0; // rocks on top: never sinks into the ground
+        e.y = e.clog > 0 ? Math.abs(Math.sin(e.clog * 22)) * 0.06 : 0;
         e.clogCool = 4;
         this.place(e);
         continue;
@@ -732,12 +735,21 @@ export class City {
   }
 
   fall(e, dt, hole, eaten) {
-    const k = Math.min(1, dt * 2.5);
+    // Slide fully over the opening before sinking, and only tip as far as keeps the object inside the
+    // well - nothing ever pokes through the ground outside the hole.
+    const tier = e.meta.tier, h = Math.max(0.3, e.meta.height);
+    const d = Math.hypot(e.x - hole.x, e.z - hole.z);
+    e.fallT = (e.fallT || 0) + dt;
+    const inside = d + tier * 0.9 <= hole.r || e.fallT > 1.2; // (timeout: a shrinking hole still finishes the job)
+    const k = Math.min(1, dt * (inside ? 2.5 : 7));
     e.x += (hole.x - e.x) * k;
     e.z += (hole.z - e.z) * k;
-    e.vy += 30 * dt;
-    e.y -= e.vy * dt;
-    e.tilt = Math.min(1.2, e.tilt + dt * 3);
+    if (inside) {
+      e.vy += 30 * dt;
+      e.y -= e.vy * dt;
+    }
+    const room = Math.max(0.02, hole.r - tier * 0.95);
+    e.tilt = Math.min(e.tilt + dt * 3, 1.2, Math.atan2(room, h * 0.6));
     this.place(e);
     if (e.y < -(e.meta.height + 1.5)) {
       e.s = 0;

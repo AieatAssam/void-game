@@ -48,6 +48,14 @@ LOD2 (~8%) via meshoptimizer. The city is instanced per (asset, 40m tile chunk):
 the camera draw LOD0, to 60m LOD1, beyond LOD2 (and stop casting shadows). Traffic is LOD1/LOD2.
 Idle snack pools are skipped. Low fps → tilt-shift off and LOD0 never used.
 
+## Surface detail (height + bump)
+Models have no real UVs (faces point at palette swatches), so texture detail is procedural, in object space:
+each swatch maps to a surface type (`src/surface.js`) - asphalt grain, concrete pores, grass, paving stones,
+sand ripples, dirt, brick bond, wood grain, leaves, brushed metal, animated water. The type's height field
+drives bump-mapped normals (screen-space derivative bump) plus albedo variation. Ground tiles and objects use
+separate tables (a mint car is paint, a mint lawn is grass). Detail fades out by ~70 m and switches off on
+low-spec devices.
+
 ## Time of day
 Four presets (morning, noon, golden, dusk) drive sun angle/colour, hemisphere light, sky dome, fog and
 window/lamp glow (emissive intensity). Dusk is the "cosy" preset: windows and lamps glow strongly.

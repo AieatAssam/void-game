@@ -190,7 +190,7 @@ def tile_base():
         m = Matrix.Rotation(rot * math.pi / 2, 4, 'Z')
         parts = []
         for k in range(8):  # center-line dashes, half of a shared line
-            parts.append(box(f'dash{rot}{k}', (0.16, 2.2, 0.02), loc=(h - 0.08, -16 + k * 4.6, 0.01), color='white', bev=0, seg=1))
+            parts.append(box(f'dash{rot}{k}', (0.3, 2.2, 0.02), loc=(h, -16.1 + k * 4.6, 0.01), color='white', bev=0.02, seg=1))  # centred on the shared edge, mirror-symmetric
         for end in (-1, 1):  # zebra crossings just before each junction (never overlapping the other road's)
             for k in range(4):
                 parts.append(box(f'zeb{rot}{end}{k}', (0.55, 2.6, 0.02), loc=(BLOCK / 2 + 0.8 + k * 1.15, end * (BLOCK / 2 - 2.2), 0.01),
@@ -201,3 +201,37 @@ def tile_base():
             o.matrix_world = m @ o.matrix_world
         p += parts
     return p
+
+
+def parapet(D, W, z, h=0.45, t=0.3, color='white'):
+    """Hollow roof parapet (a ring, not a slab - so the roof inside shows)."""
+    out = []
+    for k, (sx, sy, cx, cy) in enumerate(((D + t, t, 0, (W + t) / 2 - t / 2), (D + t, t, 0, -(W + t) / 2 + t / 2),
+                                          (t, W, (D + t) / 2 - t / 2, 0), (t, W, -(D + t) / 2 + t / 2, 0))):
+        out.append(box(f'par{k}', (sx, sy, h), loc=(cx, cy, z + h / 2), color=color, bev=0.06, seg=2))
+    return out
+
+
+def rooftop(D, W, z, seed=0, solar=True):
+    """Top-down richness for flat roofs: gravel deck, skylights, solar panels, vents, pipes, hatch."""
+    import random
+    r = random.Random(seed)
+    out = [box('deck', (D - 0.2, W - 0.2, 0.08), loc=(0, 0, z + 0.04), color='concrete', bev=0.02, seg=1)]
+    for k in range(r.randint(1, 3)):  # skylights
+        x, y = r.uniform(-D / 2 + 1.2, D / 2 - 1.2), r.uniform(-W / 2 + 1.2, W / 2 - 1.2)
+        out += [box(f'skyf{k}', (1.3, 0.9, 0.18), loc=(x, y, z + 0.17), color='white', bev=0.04),
+                box(f'skyg{k}', (1.1, 0.7, 0.06), loc=(x, y, z + 0.28), color='glass', bev=0.02)]
+    if solar:
+        x0 = r.uniform(-D / 2 + 1.5, 0)
+        for i in range(3):
+            for j in range(2):
+                out += [box(f'sol{i}{j}', (0.9, 0.55, 0.04), loc=(x0 + i * 1.0, -W / 2 + 1.2 + j * 0.65, z + 0.35), color='navy', bev=0.01, seg=1, rot=(0.3, 0, 0)),
+                        box(f'solf{i}{j}', (0.94, 0.04, 0.05), loc=(x0 + i * 1.0, -W / 2 + 1.2 + j * 0.65 - 0.27, z + 0.28), color='chrome', bev=0, seg=1)]
+    for k in range(r.randint(2, 4)):  # mushroom vents
+        x, y = r.uniform(-D / 2 + 0.8, D / 2 - 0.8), r.uniform(-W / 2 + 0.8, W / 2 - 0.8)
+        out += [cyl(f'vent{k}', 0.12, 0.35, loc=(x, y, z + 0.08), color='steel', seg=12, bev=0.02),
+                cyl(f'ventc{k}', 0.22, 0.08, loc=(x, y, z + 0.43), color='steel', seg=14, bev=0.02)]
+    px = r.uniform(-D / 2 + 1, D / 2 - 1)
+    out += [cyl('pipe', 0.07, W * 0.6, loc=(px, W * 0.3, z + 0.2), color='steel', rot=(math.pi / 2, 0, 0), seg=10, bev=0.01),
+            box('hatch', (0.9, 0.9, 0.25), loc=(D / 2 - 1.2, W / 2 - 1.2, z + 0.12), color='asphalt_lt', bev=0.05)]
+    return out

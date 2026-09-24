@@ -1,13 +1,13 @@
 {
  "apartment": {
-  "tier": 5.7,
-  "mass": 938.448,
+  "tier": 5.668,
+  "mass": 930.336,
   "kind": "prop",
   "height": 19.6,
-  "tris": 13516,
-  "lodTris": 5320,
-  "lod2Tris": 5252,
-  "bytes": 140740,
+  "tris": 18564,
+  "lodTris": 5370,
+  "lod2Tris": 5294,
+  "bytes": 173256,
   "clips": []
  },
  "arcade": {
@@ -396,14 +396,14 @@
   "clips": []
  },
  "hotel": {
-  "tier": 8.25,
-  "mass": 2077.845,
+  "tier": 8.2,
+  "mass": 2057.216,
   "kind": "prop",
   "height": 24.5,
-  "tris": 16148,
-  "lodTris": 11686,
-  "lod2Tris": 11652,
-  "bytes": 218204,
+  "tris": 20596,
+  "lodTris": 11720,
+  "lod2Tris": 11694,
+  "bytes": 247948,
   "clips": []
  },
  "house": {
@@ -829,10 +829,10 @@
   "mass": 153.075,
   "kind": "prop",
   "height": 5.55,
-  "tris": 7944,
-  "lodTris": 1986,
-  "lod2Tris": 640,
-  "bytes": 61932,
+  "tris": 12940,
+  "lodTris": 3234,
+  "lod2Tris": 1034,
+  "bytes": 98348,
   "clips": []
  },
  "skyscraper": {
@@ -913,10 +913,10 @@
   "mass": 0,
   "kind": "tile",
   "height": 1.04,
-  "tris": 11448,
-  "lodTris": 3755,
-  "lod2Tris": 3752,
-  "bytes": 103296,
+  "tris": 12472,
+  "lodTris": 4765,
+  "lod2Tris": 4779,
+  "bytes": 120304,
   "clips": []
  },
  "tile_canal": {
@@ -924,10 +924,10 @@
   "mass": 0,
   "kind": "tile",
   "height": 7.75,
-  "tris": 17606,
-  "lodTris": 4400,
-  "lod2Tris": 2982,
-  "bytes": 138836,
+  "tris": 18630,
+  "lodTris": 4656,
+  "lod2Tris": 4006,
+  "bytes": 156224,
   "clips": []
  },
  "tile_construction": {
@@ -935,10 +935,10 @@
   "mass": 0,
   "kind": "tile",
   "height": 0.67,
-  "tris": 12672,
-  "lodTris": 4538,
-  "lod2Tris": 4506,
-  "bytes": 130896,
+  "tris": 13696,
+  "lodTris": 5626,
+  "lod2Tris": 5540,
+  "bytes": 148712,
   "clips": []
  },
  "tile_lot": {
@@ -946,10 +946,10 @@
   "mass": 0,
   "kind": "tile",
   "height": 0.172,
-  "tris": 5108,
-  "lodTris": 1828,
-  "lod2Tris": 1804,
-  "bytes": 50240,
+  "tris": 6132,
+  "lodTris": 2852,
+  "lod2Tris": 2828,
+  "bytes": 67520,
   "clips": []
  },
  "tile_neon": {
@@ -957,10 +957,10 @@
   "mass": 0,
   "kind": "tile",
   "height": 4.57,
-  "tris": 14390,
-  "lodTris": 3596,
-  "lod2Tris": 2358,
-  "bytes": 104556,
+  "tris": 15414,
+  "lodTris": 3852,
+  "lod2Tris": 3382,
+  "bytes": 121660,
   "clips": []
  },
  "tile_park": {
@@ -968,10 +968,10 @@
   "mass": 0,
   "kind": "tile",
   "height": 0.33,
-  "tris": 13582,
-  "lodTris": 3395,
-  "lod2Tris": 2217,
-  "bytes": 106608,
+  "tris": 14606,
+  "lodTris": 3651,
+  "lod2Tris": 3197,
+  "bytes": 124200,
   "clips": []
  },
  "tile_parking": {
@@ -979,10 +979,10 @@
   "mass": 0,
   "kind": "tile",
   "height": 1.37,
-  "tris": 10480,
-  "lodTris": 2620,
-  "lod2Tris": 2344,
-  "bytes": 85896,
+  "tris": 11504,
+  "lodTris": 3384,
+  "lod2Tris": 3368,
+  "bytes": 101020,
   "clips": []
  },
  "tile_plaza": {
@@ -990,10 +990,10 @@
   "mass": 0,
   "kind": "tile",
   "height": 0.202,
-  "tris": 7004,
-  "lodTris": 2594,
-  "lod2Tris": 2596,
-  "bytes": 63348,
+  "tris": 8028,
+  "lodTris": 3632,
+  "lod2Tris": 3632,
+  "bytes": 80616,
   "clips": []
  },
  "tile_residential": {
@@ -1001,10 +1001,10 @@
   "mass": 0,
   "kind": "tile",
   "height": 0.21,
-  "tris": 11722,
-  "lodTris": 2930,
-  "lod2Tris": 1920,
-  "bytes": 87720,
+  "tris": 12746,
+  "lodTris": 3186,
+  "lod2Tris": 2944,
+  "bytes": 104476,
   "clips": []
  },
  "toxic_barrel": {

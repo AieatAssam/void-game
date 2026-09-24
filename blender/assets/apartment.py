@@ -6,12 +6,12 @@ def build():
     H = F * FH
     p = [box('walls', (D, W, H), loc=(0, 0, H / 2), color='terracotta', bev=0.2),
          box('base', (D + 0.3, W + 0.3, FH), loc=(0, 0, FH / 2), color='clay', bev=0.15),
-         box('parapet', (D + 0.4, W + 0.4, 0.5), loc=(0, 0, H + 0.1), color='cream', bev=0.12),
-         box('roof', (D - 0.4, W - 0.4, 0.1), loc=(0, 0, H + 0.15), color='concrete', bev=0.02),
+
          box('entry', (0.3, 2.4, 2.6), loc=(D / 2 + 0.1, 0, 1.3), color='glow', bev=0.06),
          box('canopy', (1.4, 3.0, 0.2), loc=(D / 2 + 0.6, 0, 2.8), color='cream', bev=0.06),
          box('ac', (1.4, 1.0, 0.8), loc=(2.0, 3.0, H + 0.6), color='steel', bev=0.1),
          box('stair', (2.0, 2.2, 2.0), loc=(-2.0, -3.2, H + 1.0), color='cream', bev=0.15)]
+    p += parapet(D, W, H - 0.05, h=0.55, color='cream') + rooftop(D, W, H - 0.05, seed=5, solar=False)
     # satellite dishes + vent pipes
     for k, (x, y) in enumerate(((3.0, -3.5), (2.2, -1.0))):
         p += [cyl(f'dishpost{k}', 0.05, 0.5, loc=(x, y, H + 0.2), color='steel', seg=8, bev=0),

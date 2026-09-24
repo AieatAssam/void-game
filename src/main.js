@@ -13,6 +13,7 @@ import { UPGRADES, save, persist, level, buy, todaySeed } from './meta.js';
 import * as sfx from './sfx.js';
 import { Post } from './post.js';
 import { Sparks } from './fx.js';
+import { surfaceTime, surfaceOn } from './surface.js';
 
 const $ = (id) => document.getElementById(id);
 const renderer = createRenderer($('c'));
@@ -449,13 +450,16 @@ function frame(dt) {
   camera.position.set(camTarget.x + Math.sin(camYaw) * horiz + (Math.random() - 0.5) * sh, Math.sin(PITCH) * camDist,
     camTarget.z + Math.cos(camYaw) * horiz + (Math.random() - 0.5) * sh);
   camera.lookAt(camTarget);
-  city.budget(camera, hole.r, post.lowSpec || location.search.includes('low'));
+  const low = post.lowSpec || location.search.includes('low');
+  surfaceOn.value = low ? 0 : 1;
+  city.budget(camera, hole.r, low);
   followSun(sun, camTarget);
   const sc = sun.shadow.camera, ext = Math.max(25, camDist * 0.9);
   if (sc.right !== ext) { sc.left = sc.bottom = -ext; sc.right = sc.top = ext; sc.updateProjectionMatrix(); }
 
   sparks.update(dt);
   pedTime.value += dt;
+  surfaceTime.value += dt;
   for (const q of rivals.list) q.hole.update(dt, state.time, 0);
   if (state.playing) { hud(); rivals.labels(camera); }
   if (!window.__headless) {
