@@ -1,25 +1,42 @@
 # Void Hole City
 
-You are a hole in a toy town. Swallow what fits, grow, and keep eating or the ground seals.
-The city fights back as heat rises: police barricades, cement trucks, helicopters dropping concrete, tanks.
+**You are a hole in a toy town.** Swallow anything smaller than you, grow until skyscrapers fit, and keep eating — or the ground seals over you.
+The city fights back as you grow: police barricades, cement trucks, helicopters dropping concrete, and tanks.
 
-Three.js, static build, no backend. Runs on GitHub Pages.
+**▶ Play in your browser:** https://aieatassam.github.io/void-game/
 
-- **Play:** `npm run dev` → http://localhost:5173 · **Showroom:** `/gallery.html` (every model + clips + triangle counts)
-- **Deploy:** push to `main`; `.github/workflows/pages.yml` checks, builds and publishes `dist/`
-  (repo Settings → Pages → Source: GitHub Actions).
+![Golden hour: a taxi wedges into the hole at a plaza crossing](docs/screens/gameplay-golden.jpg)
 
-## Art pipeline (Blender MCP)
-All 50 models are procedural Blender scripts in `blender/assets/*.py` built on `blender/lib.py` + `blender/kit.py`.
-One shared 8×4 palette atlas material; theme and budgets in [ART.md](ART.md).
+| | |
+|---|---|
+| ![Dusk: late game, the hole swallowing a whole plaza](docs/screens/late-game-dusk.jpg) | ![Morning: suburban blocks, police barricades closing in](docs/screens/heat-morning.jpg) |
+| ![Noon: a small hole among giant toy trees](docs/screens/suburbs-noon.jpg) | |
 
-1. With Blender + the MCP addon running: `exec(open('blender/build_all.py').read())` (set `ONLY = ['name']` for one asset).
-2. `npm run optimize` → meshopt GLBs + LOD1 in `public/models/` and `index.json` (tier, mass, kind read by the game).
-3. `npm run check` → size ladder: no step between edible sizes above ×1.3 (no dead ends).
+## The game
+- **Grow:** everything has a size. Swallow what fits; each bite widens the hole by a share of the object's footprint.
+- **Starve:** a belly meter drains. Keep eating or you shrink — too small and the ground seals.
+- **Heat ★1–4:** the bigger you get, the harder the city responds — barricades (toll zones), cement pours, concrete drops with red warning rings, tank shells. Shrink and it calms down.
+- **Poison:** gas cans shrink you, toxic barrels reverse your controls, spiky art jams the hole. Oversized cars can **clog** it.
+- **Win:** swallow every building. Clear time is your score; the **Daily city** is the same map for everyone that day.
+- **Progress:** void dust buys upgrades. Every run randomises city size, style (Old Town, Suburbia, Waterfront, Boomtown), time of day and start spot.
 
-## Checks
-- `npm run check` — size ladder from exported metadata.
-- Playtest bot: open `/?bot`, then in the console `__runBot(420)` — the greedy bot must clear the city without starving;
-  `__sloppy = true` first for a careless bot that should die some of the time (proves the failure mode is real).
+Controls: mouse, touch-drag or WASD · `M` mutes.
 
-See [PLAN.md](PLAN.md) for stages and the no-dead-end rules.
+## How it's made
+- **Engine:** [three.js](https://threejs.org) + Vite. Static build, no backend — runs on GitHub Pages.
+- **Art:** ~90 models, all procedural Blender Python scripts (`blender/assets/*.py`) driven through **Blender MCP**. One shared palette atlas + roughness/metalness atlas, so the whole city is one material; chrome, glass and gold are real metals/gloss.
+- **Performance:** every model ships 3 LODs (full, ~25%, ~8% via meshoptimizer). The city is instanced per asset per 40 m chunk and culled; far chunks drop to LOD2 and stop casting shadows. Tilt-shift post-process and full-detail models switch off automatically on slow devices.
+- **Design rules:** no dead ends — nothing blocks movement, a size-ladder check (`npm run check`) guarantees there's always something slightly smaller to eat, and every hit is capped.
+
+## Develop
+```bash
+npm install
+npm run dev          # game at http://localhost:5174, model showroom at /gallery.html
+npm run check        # size ladder: no gaps > 1.3x between edible sizes
+npm run build        # static site in dist/
+```
+Rebuild art (Blender with the MCP add-on running): run `blender/build_all.py` inside Blender, then `npm run optimize`.
+
+Playtest bot: open `/?bot` and run `__runBot(600)` in the console (`__sloppy = true` for a careless player).
+
+See [PLAN.md](PLAN.md) for the build stages and [ART.md](ART.md) for the art bible.

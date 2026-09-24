@@ -1,6 +1,7 @@
 // The shared "Toybox Town" look: warm light on a tabletop city. Used by game + gallery.
 // Time of day is picked per run; every preset keeps the warm-world / cold-void contrast.
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 export const COLORS = { sky: 0xf4dcc0, ground: 0xe6cfa7, void: 0x1a0f3a, lilac: 0xb58cff };
 
@@ -8,7 +9,7 @@ export const TIMES = {
   morning: { top: 0x8fc6ee, horizon: 0xfde2c4, sun: 0xfff0da, sunI: 2.4, elev: 28, azim: 120, hemiSky: 0xeaf4ff, hemiGround: 0xc9a27a, hemiI: 1.5, glow: 1.1, exposure: 1.05, grade: [1.0, 1.0, 1.03] },
   noon: { top: 0x6fb6ea, horizon: 0xe4f1f6, sun: 0xffffff, sunI: 2.9, elev: 62, azim: 200, hemiSky: 0xf2f7ff, hemiGround: 0xd0b08a, hemiI: 1.5, glow: 1.0, exposure: 1.0, grade: [1.0, 1.0, 1.0] },
   golden: { top: 0x7aa7d8, horizon: 0xffc58a, sun: 0xffb46a, sunI: 2.7, elev: 16, azim: 250, hemiSky: 0xffe0bf, hemiGround: 0xb77a55, hemiI: 1.3, glow: 1.6, exposure: 1.05, grade: [1.06, 1.0, 0.93] },
-  dusk: { top: 0x3a3f7a, horizon: 0xf59a78, sun: 0xff9a70, sunI: 2.0, elev: 12, azim: 285, hemiSky: 0xb9b2ea, hemiGround: 0x6d5070, hemiI: 1.6, glow: 2.6, exposure: 1.2, grade: [1.0, 0.95, 1.06] },
+  dusk: { top: 0x3a3f7a, horizon: 0xf59a78, sun: 0xff9a70, sunI: 2.0, elev: 12, azim: 285, hemiSky: 0xb9b2ea, hemiGround: 0x6d5070, hemiI: 1.6, glow: 2.6, envI: 0.18, exposure: 1.2, grade: [1.0, 0.95, 1.06] },
 };
 
 export function createRenderer(canvas) {
@@ -53,6 +54,7 @@ export function createScene() {
   sky.frustumCulled = false;
   sky.renderOrder = -1;
   scene.add(hemi, sun, sun.target, sky);
+  scene.userData.needsEnv = true;
   sun.userData.dir = new THREE.Vector3(-0.5, 0.8, 0.3).normalize();
   return { scene, sun, hemi, sky };
 }
@@ -60,6 +62,11 @@ export function createScene() {
 /** Apply a time-of-day preset. Returns the preset so callers can read glow/grade. */
 export function applyTime({ scene, sun, hemi }, renderer, name, toyMaterial) {
   const t = TIMES[name];
+  if (scene.userData.needsEnv) { // soft studio reflections so chrome, glass and gold read as real materials
+    scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.userData.needsEnv = false;
+  }
+  scene.environmentIntensity = t.envI ?? 0.35;
   const e = THREE.MathUtils.degToRad(t.elev), a = THREE.MathUtils.degToRad(t.azim);
   sun.userData.dir.set(Math.cos(e) * Math.cos(a), Math.sin(e), Math.cos(e) * Math.sin(a));
   sun.color.set(t.sun);

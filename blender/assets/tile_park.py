@@ -5,11 +5,11 @@ from kit import *
 def build():
     p = tile_base()
 
-    def lawn(i, j):
+    def lawn(i, j):  # mowing stripes + a clean cross path
         x, y = i - 13.5, j - 13.5
-        if abs(x) < 1.6 or abs(y) < 1.6 or abs(abs(x) - abs(y)) < 1.1:
+        if abs(x) < 1.6 or abs(y) < 1.6:
             return 'sand'
-        return 'sage' if (i // 3 + j // 3) % 2 else 'mint'
+        return 'sage' if (i // 3) % 2 else 'mint'
     p.append(grid('lawn', 28, 28, 28, 28, z=0.17, color_fn=lawn))
     p.append(cyl('pond_edge', 4.2, 0.08, loc=(7, 7, 0.14), color='concrete', seg=40, bev=0.03))
     p.append(cyl('pond', 3.9, 0.06, loc=(7, 7, 0.17), color='sky', seg=40, bev=0))

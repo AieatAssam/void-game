@@ -2,7 +2,7 @@
 from lib import *
 
 
-def wheel(name, r, w, x, y, z=None, tire='ink', hub='steel'):
+def wheel(name, r, w, x, y, z=None, tire='ink', hub='chrome'):
     """Wheel with axle along Y centered at (x, y, z). Returns parts list."""
     z = r if z is None else z
     rot = (math.pi / 2, 0, 0)
@@ -21,7 +21,7 @@ def wheel(name, r, w, x, y, z=None, tire='ink', hub='steel'):
     return out
 
 
-def wheels(L, W, r, w, xs=None, tire='ink', hub='steel'):
+def wheels(L, W, r, w, xs=None, tire='ink', hub='chrome'):
     xs = xs or (L * 0.32, -L * 0.32)
     out = []
     for i, x in enumerate(xs):
@@ -30,7 +30,7 @@ def wheels(L, W, r, w, xs=None, tire='ink', hub='steel'):
     return out
 
 
-def car(L, W, body, roof=None, glass='sky', cabin=0.52, cabin_x=-0.15, H=0.62, ch=0.6, r=0.42):
+def car(L, W, body, roof=None, glass='glass', cabin=0.52, cabin_x=-0.15, H=0.62, ch=0.6, r=0.42):
     """Toy car: chunky body, glass cabin, roof slab, bumpers, lights, 4 fat wheels. Returns parts."""
     z0 = r * 0.7
     roof = roof or body
@@ -38,8 +38,8 @@ def car(L, W, body, roof=None, glass='sky', cabin=0.52, cabin_x=-0.15, H=0.62, c
         box('body', (L, W, H), loc=(0, 0, z0 + H / 2), color=body, bev=0.2),
         box('glass', (L * cabin, W * 0.84, ch), loc=(L * cabin_x, 0, z0 + H + ch / 2 - 0.05), color=glass, bev=0.12),
         box('roof', (L * cabin + 0.12, W * 0.9, 0.14), loc=(L * cabin_x, 0, z0 + H + ch - 0.02), color=roof, bev=0.06),
-        box('bump_f', (0.22, W * 0.96, 0.26), loc=(L / 2, 0, z0 + 0.14), color='steel', bev=0.09),
-        box('bump_r', (0.22, W * 0.96, 0.26), loc=(-L / 2, 0, z0 + 0.14), color='steel', bev=0.09),
+        box('bump_f', (0.22, W * 0.96, 0.26), loc=(L / 2, 0, z0 + 0.14), color='chrome', bev=0.09),
+        box('bump_r', (0.22, W * 0.96, 0.26), loc=(-L / 2, 0, z0 + 0.14), color='chrome', bev=0.09),
     ]
     for s in (-1, 1):
         p.append(cyl(f'hl{s}', 0.14, 0.08, loc=(L / 2 - 0.02, s * W * 0.32, z0 + H * 0.62), color='glow', rot=(0, math.pi / 2, 0), seg=16, bev=0.02))
@@ -47,14 +47,14 @@ def car(L, W, body, roof=None, glass='sky', cabin=0.52, cabin_x=-0.15, H=0.62, c
         p.append(box(f'tl{s}', (0.06, 0.3, 0.14), loc=(-L / 2, s * W * 0.34, z0 + H * 0.65), color='siren_red', bev=0.02))
         p.append(box(f'mirror{s}', (0.12, 0.18, 0.1), loc=(L * (cabin_x + cabin / 2) + 0.05, s * (W / 2 + 0.06), z0 + H + 0.05), color=body, bev=0.03))
         # chrome side trim, door seam, handle
-        p.append(box(f'trim{s}', (L * 0.86, 0.03, 0.05), loc=(0, s * (W / 2 + 0.005), z0 + H * 0.35), color='steel', bev=0.012, seg=1))
+        p.append(box(f'trim{s}', (L * 0.86, 0.03, 0.05), loc=(0, s * (W / 2 + 0.005), z0 + H * 0.35), color='chrome', bev=0.012, seg=1))
         p.append(box(f'seam{s}', (0.025, 0.02, H * 0.8), loc=(L * (cabin_x + 0.02), s * (W / 2 + 0.004), z0 + H * 0.55), color='ink', bev=0, seg=1))
-        p.append(box(f'handle{s}', (0.16, 0.03, 0.04), loc=(L * (cabin_x + 0.1), s * (W / 2 + 0.01), z0 + H * 0.75), color='steel', bev=0.01, seg=1))
+        p.append(box(f'handle{s}', (0.16, 0.03, 0.04), loc=(L * (cabin_x + 0.1), s * (W / 2 + 0.01), z0 + H * 0.75), color='chrome', bev=0.01, seg=1))
         # wheel arches: body-coloured half rings over each wheel
         for x in (L * 0.32, -L * 0.32):
             p.append(torus(f'arch{s}{x}', r * 1.12, 0.07, loc=(x, s * (W / 2 - 0.02), r), color=body, seg=24, rseg=8, rot=(math.pi / 2, 0, 0)))
     # grille, plates, roof rails
-    p.append(box('grille', (0.06, W * 0.42, H * 0.36), loc=(L / 2 + 0.01, 0, z0 + H * 0.5), color='steel', bev=0.02))
+    p.append(box('grille', (0.06, W * 0.42, H * 0.36), loc=(L / 2 + 0.01, 0, z0 + H * 0.5), color='chrome', bev=0.02))
     for i in range(4):
         p.append(box(f'slot{i}', (0.07, W * 0.38, 0.025), loc=(L / 2 + 0.02, 0, z0 + H * 0.38 + i * 0.07), color='ink', bev=0, seg=1))
     for sx in (1, -1):
@@ -138,16 +138,16 @@ def tile_base():
     h = TILE / 2
     p = [grid('road', TILE, TILE, 1, 1, color_fn=lambda i, j: 'asphalt'),
          box('curb', (BLOCK + 0.6, BLOCK + 0.6, 0.16), loc=(0, 0, 0.08), color='concrete', bev=0.05, seg=2),
-         grid('walk', BLOCK, BLOCK, 15, 15, z=0.162, color_fn=lambda i, j: 'sand' if (i + j) % 2 else 'cream')]
+         grid('walk', BLOCK, BLOCK, 10, 10, z=0.162, color_fn=lambda i, j: 'sand' if i in (0, 9) or j in (0, 9) else 'cream')]
     for rot in range(4):
         m = Matrix.Rotation(rot * math.pi / 2, 4, 'Z')
         parts = []
         for k in range(8):  # center-line dashes, half of a shared line
             parts.append(box(f'dash{rot}{k}', (0.16, 2.2, 0.02), loc=(h - 0.08, -16 + k * 4.6, 0.01), color='white', bev=0, seg=1))
-        for end in (-1, 1):  # zebra crossings at both block corners
+        for end in (-1, 1):  # zebra crossings just before each junction (never overlapping the other road's)
             for k in range(4):
-                parts.append(box(f'zeb{rot}{end}{k}', (0.6, 3.0, 0.02), loc=(BLOCK / 2 + 0.9 + k * 1.1, end * (BLOCK / 2 + 2.0), 0.01),
-                                 color='white', bev=0, seg=1))
+                parts.append(box(f'zeb{rot}{end}{k}', (0.55, 2.6, 0.02), loc=(BLOCK / 2 + 0.8 + k * 1.15, end * (BLOCK / 2 - 2.2), 0.01),
+                                 color='white', bev=0.01, seg=1))
         parts.append(cyl(f'manhole{rot}', 0.5, 0.03, loc=(h - 2.5, 7 * (1 if rot % 2 else -1), 0), color='steel', seg=20, bev=0.01))
         bpy.context.view_layer.update()
         for o in parts:

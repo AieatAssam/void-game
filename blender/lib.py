@@ -9,7 +9,7 @@ from mathutils import Vector, Matrix
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RAW = os.path.join(ROOT, 'assets-raw')
-COLS, ROWS, PX = 8, 4, 16
+COLS, ROWS, PX = 8, 5, 16
 # Detail multiplier for LOD0. Curves get more segments, bevels more steps. The optimizer derives
 # LOD1 (~25%) and LOD2 (~8%) from these, so raising Q only costs triangles up close.
 Q = 1.6
@@ -28,7 +28,14 @@ PALETTE = [
     # Row 3 is emissive: the emissive atlas lights these swatches only.
     [('glow', 'FFE7A3'), ('siren_red', 'FF3B3B'), ('siren_blue', '3B8BFF'), ('toxic', '7CFF6B'),
      ('lilac', 'B58CFF'), ('void', '1A0F3A'), ('warn', 'FF8A3D'), ('glow_white', 'FFFFFF')],
+    # Row 4 is premium finishes: metals + gloss (see ORM below).
+    [('gold', 'E0B040'), ('chrome', 'D6DDE6'), ('copper', 'C8744A'), ('glass', '9FD2EE'),
+     ('gloss_black', '1C1C24'), ('pearl', 'F4F0EA'), ('rose_gold', 'E3A58C'), ('hot_pink', 'FF5FC8')],
 ]
+# Per-swatch (roughness, metalness). Default satin toy paint; glass + metals shine.
+ORM = {'sky': (0.2, 0.0), 'teal': (0.35, 0.0), 'steel': (0.4, 0.3), 'gold': (0.22, 1.0), 'chrome': (0.12, 1.0),
+       'copper': (0.3, 1.0), 'glass': (0.06, 0.0), 'gloss_black': (0.18, 0.0), 'pearl': (0.3, 0.15),
+       'rose_gold': (0.24, 1.0), 'hot_pink': (0.35, 0.0)}
 SWATCH = {n: (c, r) for r, row in enumerate(PALETTE) for c, (n, _) in enumerate(row)}
 
 
@@ -36,7 +43,7 @@ def _hex(h):
     return [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]
 
 
-def _atlas(name, emissive):
+def _atlas(name, emissive, orm=False):
     img = bpy.data.images.get(name)
     if img and tuple(img.size) == (COLS * PX, ROWS * PX):
         return img
@@ -46,7 +53,11 @@ def _atlas(name, emissive):
     px = [0.0] * (COLS * PX * ROWS * PX * 4)
     for r, row in enumerate(PALETTE):
         for c, (_, h) in enumerate(row):
-            rgb = _hex(h) if (not emissive or r == 3) else [0, 0, 0]
+            if orm:  # glTF packing: G = roughness, B = metalness
+                ro, me = ORM.get(PALETTE[r][c][0], (0.55, 0.0))
+                rgb = [1.0, ro, me]
+            else:
+                rgb = _hex(h) if (not emissive or r == 3) else [0, 0, 0]
             for y in range((ROWS - 1 - r) * PX, (ROWS - r) * PX):
                 for x in range(c * PX, (c + 1) * PX):
                     i = (y * COLS * PX + x) * 4
@@ -67,6 +78,7 @@ def material():
     mat.use_nodes = True
     nt = mat.node_tree
     bsdf = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')
+    _atlas('palette_orm', False, orm=True)
     for img, sock in ((_atlas('palette', False), 'Base Color'), (_atlas('palette_emit', True), 'Emission Color')):
         tex = nt.nodes.new('ShaderNodeTexImage')
         tex.image = img
@@ -391,3 +403,14 @@ def run_all(names, cols=8):
             import traceback
             out.append({'name': n, 'error': traceback.format_exc(limit=3)})
     return out
+
+
+def recolor(ob, mapping):
+    """Swap palette swatches on a finished mesh, e.g. {'red': 'hazard'}. Used for rare variants."""
+    uv = ob.data.uv_layers['UVMap']
+    src = {uv_of(k): v for k, v in mapping.items()}
+    for d in uv.data:
+        key = min(src, key=lambda u: (u[0] - d.uv[0]) ** 2 + (u[1] - d.uv[1]) ** 2, default=None)
+        if key and (key[0] - d.uv[0]) ** 2 + (key[1] - d.uv[1]) ** 2 < 1e-6:
+            d.uv = uv_of(src[key])
+    return ob

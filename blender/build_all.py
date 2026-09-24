@@ -22,6 +22,10 @@ ASSETS = [
     # ground + fx
     'tile_lot', 'tile_park', 'tile_plaza', 'tile_residential', 'tile_construction', 'tile_parking', 'tile_canal',
     'concrete_plug', 'hole_rim', 'cloud',
+    # stage 8: beach, neon, rares
+    'tile_beach', 'land_sea', 'beach_umbrella', 'deckchair', 'sandcastle', 'beach_ball', 'surfboard', 'lifeguard_tower',
+    'crab', 'sailboat', 'pier', 'tile_neon', 'arcade', 'karaoke', 'neon_sign', 'noodle_stall', 'searchlight',
+    'golden_gnome', 'gold_hydrant', 'rainbow_pigeon', 'mayor_limo',
     # countryside scenery ring
     'land_meadow', 'land_farm', 'land_lake', 'windmill', 'barn', 'cow',
 ]

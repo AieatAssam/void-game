@@ -15,12 +15,18 @@ function paletteTexture(file, srgb) {
   return t;
 }
 
+// One material for the whole game. The ORM atlas gives each swatch its own finish:
+// satin toy paint by default, glossy glass, real metals (gold, chrome, copper).
+const orm = paletteTexture('palette_orm.png', false);
 export const toyMaterial = new THREE.MeshStandardMaterial({
   map: paletteTexture('palette.png', true),
   emissiveMap: paletteTexture('palette_emit.png', true),
   emissive: 0xffffff,
   emissiveIntensity: 1.4,
-  roughness: 0.55,
+  roughnessMap: orm,
+  metalnessMap: orm,
+  roughness: 1,
+  metalness: 1,
 });
 
 export async function loadAll(onProgress) {

@@ -39,3 +39,16 @@ Bot (latest): greedy clears 7/8 (3–5.5 min, Boomtown slowest); sloppy dies ~1/
 - **Tilt-shift:** post-process (blur band + vignette + grade), auto-off if fps drops.
 - **Juice:** swallow sparks, floating combo text + combo dust bonus, pedestrians flee a big hole,
   first-run hints, slow attract camera behind the menu.
+
+## Stage 8 — Rivals, challenges, collection, skins, beach, neon
+Models first, then systems, then districts, then bot check.
+- **Models (Blender):** beach set (tile_beach, land_sea, umbrella, deckchair, sandcastle, beach ball, surfboard,
+  lifeguard tower, crab, sailboat, pier), neon set (tile_neon, arcade, karaoke bar, neon sign, noodle stall,
+  searchlight tower), rares (golden gnome, gold hydrant, rainbow pigeon, mayor's limo). Thumbnails rendered in Blender.
+- **18 Skins:** hole look is data (rim colour, void gradient, swirl, lensing ring). Buy with dust; rivals wear skins too.
+- **13 Rival holes:** up to 4 holes share one ground-cut uniform array. Rivals are bots: eat, grow, starve, chase smaller
+  holes, flee bigger ones. Eat a rival → take half its area. Get eaten → run over. Rivals respawn small.
+- **14 Challenge cards:** pick 1 of 3 before a run (daily city has a fixed card). Rule changes + dust multiplier.
+- **17 Collection book:** first swallow of each type is recorded; rare variants spawn sometimes. Book page with thumbnails.
+- **7 Beach + pier:** Seaside edge of town, sea beyond. Tide event every ~45s floods the sand: slow + hungrier.
+- **12 Neon district:** night preset; neon signs give combo points; searchlights sweep: caught = +1 heat for 12s.

@@ -63,3 +63,11 @@ renderer.setAnimationLoop(() => {
   controls.update();
   renderer.render(scene, camera);
 });
+
+// capture hook for docs: render + read back in one task (buffer isn't preserved between frames)
+window.__shot = (dist = 1) => {
+  camera.position.sub(controls.target).multiplyScalar(dist).add(controls.target);
+  controls.update();
+  renderer.render(scene, camera);
+  return renderer.domElement.toDataURL('image/jpeg', 0.9);
+};
