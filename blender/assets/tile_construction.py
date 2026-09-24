@@ -6,7 +6,7 @@ import random
 def build():
     r = random.Random(11)
     p = tile_base()
-    p.append(grid('dirt', 28, 28, 7, 7, z=0.17, color_fn=lambda i, j: r.choice(('clay', 'clay', 'clay', 'sand'))))
+    p.append(grid('dirt', 28, 28, 1, 1, z=0.17, color_fn=lambda i, j: 'dirt'))  # textured dirt (surface shader), no patchwork
     p.append(box('slab', (10, 10, 0.3), loc=(-5, -5, 0.2), color='concrete', bev=0.05, seg=1))
     for i in range(5):  # rebar grid on the slab
         p.append(box(f'rbx{i}', (9.5, 0.06, 0.06), loc=(-5, -9 + i * 2, 0.4), color='terracotta', bev=0, seg=1))

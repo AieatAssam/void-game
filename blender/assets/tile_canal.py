@@ -12,7 +12,7 @@ def build():
         for k in range(8):
             p.append(cyl(f'bollard{s}{k}', 0.12, 0.45, loc=(-12 + k * 3.4, s * 4.4, 0.22), color='ink', seg=12, bev=0.03))
     p.append(box('bed', (28, 8, 0.2), loc=(0, 0, -1.0), color='teal', bev=0, seg=1))
-    p.append(box('water', (28, 8, 0.05), loc=(0, 0, -0.35), color='sky', bev=0, seg=1))
+    p.append(box('water', (28, 8, 0.05), loc=(0, 0, -0.35), color='water', bev=0, seg=1))
     for k, x in enumerate((-7, 7)):  # arched footbridges
         p.append(box(f'deck{k}', (2.2, 9.6, 0.25), loc=(x, 0, 0.55), color='clay', bev=0.06))
         for s in (-1, 1):

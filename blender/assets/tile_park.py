@@ -12,7 +12,7 @@ def build():
         return 'sage' if (i // 3) % 2 else 'mint'
     p.append(grid('lawn', 28, 28, 28, 28, z=0.17, color_fn=lawn))
     p.append(cyl('pond_edge', 4.2, 0.08, loc=(7, 7, 0.14), color='concrete', seg=40, bev=0.03))
-    p.append(cyl('pond', 3.9, 0.06, loc=(7, 7, 0.17), color='sky', seg=40, bev=0))
+    p.append(cyl('pond', 3.9, 0.06, loc=(7, 7, 0.17), color='water', seg=40, bev=0))
     for k, (x, y, c) in enumerate(((-8, 6, 'pink'), (-6, -9, 'butter'), (9, -7, 'peach'))):
         p.append(cyl(f'bed{k}', 2.0, 0.06, loc=(x, y, 0.16), color='forest', seg=24, bev=0.02))
         for i in range(8):

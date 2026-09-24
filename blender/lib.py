@@ -34,13 +34,13 @@ PALETTE = [
     # Row 5 is textured materials: the surface shader gives these real wood/leaf/tile/brick/dirt detail.
     # Plain colours above stay smooth paint, so only the parts that should be textured are.
     [('wood', 'B67A4E'), ('foliage', '3F7F5E'), ('foliage_lt', '6DB08E'), ('roof_tile', 'D2654A'),
-     ('brick_wall', 'A8483A'), ('dirt', '8E5E3E'), ('gravel', 'B8B2A7'), ('foliage_mint', '9ED9BF')],
+     ('brick_wall', 'A8483A'), ('dirt', '8E5E3E'), ('water', '6FB2D6'), ('foliage_mint', '9ED9BF')],
 ]
 # Per-swatch (roughness, metalness). Default satin toy paint; glass + metals shine.
 ORM = {'sky': (0.45, 0.0), 'teal': (0.4, 0.0), 'steel': (0.4, 0.3), 'gold': (0.22, 1.0), 'chrome': (0.12, 1.0),
        'copper': (0.3, 1.0), 'glass': (0.06, 0.0), 'gloss_black': (0.18, 0.0), 'pearl': (0.3, 0.15),
        'rose_gold': (0.24, 1.0), 'hot_pink': (0.35, 0.0), 'wood': (0.6, 0.0), 'foliage': (0.75, 0.0), 'foliage_lt': (0.75, 0.0),
-       'roof_tile': (0.6, 0.0), 'brick_wall': (0.8, 0.0), 'dirt': (0.95, 0.0), 'gravel': (0.9, 0.0), 'foliage_mint': (0.75, 0.0)}
+       'roof_tile': (0.6, 0.0), 'brick_wall': (0.8, 0.0), 'dirt': (0.95, 0.0), 'water': (0.12, 0.0), 'foliage_mint': (0.75, 0.0)}
 SWATCH = {n: (c, r) for r, row in enumerate(PALETTE) for c, (n, _) in enumerate(row)}
 
 
@@ -429,4 +429,13 @@ def swing(ob, kind, pivot):
         a = me.attributes.get(name) or me.attributes.new(name, 'FLOAT', 'POINT')
         for d in a.data:
             d.value = val
+    return ob
+
+
+def tube(name, a, b, r=0.025, color='steel', seg=10):
+    """Cylinder from point a to point b (frames, rails, legs)."""
+    a, b = Vector(a), Vector(b)
+    d = b - a
+    ob = cyl(name, r, d.length, loc=a, color=color, seg=seg, bev=0)
+    ob.rotation_euler = d.to_track_quat('Z', 'Y').to_euler()
     return ob

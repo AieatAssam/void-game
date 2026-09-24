@@ -15,7 +15,7 @@ const OBJECT = [
   1, 1, 1, 1, 3, 11, 1, 1, //  red police navy olive concrete steel ink hazard
   0, 0, 0, 0, 0, 0, 0, 0, //  emissive row
   11, 11, 11, 0, 1, 1, 11, 1, // gold chrome copper glass gloss_black pearl rose_gold hot_pink
-  9, 10, 10, 13, 8, 7, 3, 10, // wood foliage foliage_lt roof_tile brick_wall dirt gravel foliage_mint  (textured row)
+  9, 10, 10, 13, 8, 7, 12, 10, // wood foliage foliage_lt roof_tile brick_wall dirt water foliage_mint  (textured row)
 ];
 const GROUND = [
   5, 5, 6, 7, 5, 5, 2, 2,
@@ -23,7 +23,7 @@ const GROUND = [
   1, 1, 1, 1, 3, 3, 1, 1,
   0, 0, 0, 0, 0, 0, 0, 0,
   11, 11, 11, 0, 1, 1, 11, 1,
-  9, 4, 4, 5, 8, 7, 3, 4,
+  9, 4, 4, 5, 8, 7, 12, 4,
 ];
 
 const GLSL = /* glsl */ `

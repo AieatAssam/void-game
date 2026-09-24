@@ -4,7 +4,10 @@ from lib import *
 
 def build():
     p = [lathe('tower', [(0.0, 0.0), (3.2, 0.0), (3.2, 0.6), (2.8, 0.8), (2.0, 11.0), (2.3, 11.2), (0.0, 11.4)], color='cream', seg=32),
-         lathe('cap', [(0.0, 11.2), (2.5, 11.2), (2.2, 12.6), (1.2, 13.6), (0.0, 14.0)], color='terracotta', seg=32),
+         lathe('cap', [(0.0, 11.2), (2.55, 11.2), (2.6, 11.5), (2.35, 12.4), (1.8, 13.2), (1.0, 13.8), (0.3, 14.05), (0.0, 14.1)], color='roof_tile', seg=40),
+         cyl('finial', 0.08, 0.9, loc=(0, 0, 14.05), color='ink', seg=8, bev=0),
+         sphere('ball', 0.18, loc=(0, 0, 14.95), color='gold', seg=12),
+         torus('gallery', 2.7, 0.06, loc=(0, 0, 6.05), color='white', seg=40, rseg=6),
          box('door', (0.2, 1.4, 2.4), loc=(3.0, 0, 1.4), color='forest', bev=0.1, rot=(0, 0.1, 0)),
          box('balcony', (1.8, 5.8, 0.2), loc=(2.2, 0, 6.0), color='wood', bev=0.05)]
     for k, z in enumerate((4.0, 8.0)):

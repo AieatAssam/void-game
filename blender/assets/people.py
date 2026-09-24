@@ -61,7 +61,7 @@ def body(p, top, legs, shoes, skin, sleeve=None, kid=False):
         p += [leg, arm]
 
 
-def person(name, top, legs, shoes, skin, hair, style, extras=(), glasses=False, sleeve=None, scale=1.0, tier=None):
+def person(name, top, legs, shoes, skin, hair, style, extras=(), glasses=False, sleeve=None, scale=1.22, tier=None):
     p = []
     body(p, top, legs, shoes, skin, sleeve)
     face(p, skin, hair, style, glasses)
