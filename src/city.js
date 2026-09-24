@@ -480,9 +480,9 @@ export class City {
       if (train.stop > 0) { train.stop -= dt; train.v = 0; if (train.stop <= 0) train.left = 30; }
       else {
         train.left = Math.max(0, (train.left || 0) - dt);
-        const target = !train.left && toStation < 30 ? Math.max(0, (toStation - 2) * 0.45) : train.vmax;
+        const target = !train.left && toStation < 30 ? Math.min(train.vmax, Math.max(0.8, (toStation - 0.5) * 0.45)) : train.vmax;
         train.v += Math.max(-4 * dt, Math.min(1.5 * dt, target - train.v));
-        if (!train.left && toStation < 2.5 && lead.alive) { train.stop = 6; train.v = 0; }
+        if (!train.left && toStation < 0.6 && lead.alive) { train.stop = 6; train.v = 0; }
       }
     } else train.v = Math.max(0, train.v - 2.5 * dt); // decoupled: coasts to a halt
     train.x += train.v * train.dir * dt;
