@@ -177,13 +177,7 @@ export class Director {
   }
 
   /** Is (x, z) inside a standing building? Vehicles never drive through houses. */
-  blocked(x, z) {
-    this.buildings ??= this.city.entities.filter((e) => BUILDINGS.has(e.name));
-    for (const b of this.buildings) {
-      if (b.alive && !b.falling && (b.x - x) ** 2 + (b.z - z) ** 2 < (b.meta.tier * 0.85 + 1.2) ** 2) return true;
-    }
-    return false;
-  }
+  blocked(x, z) { return this.city.blocked(x, z); }
 
   /** Move along the road grid toward (tx, tz); beeline across open ground once close. */
   drive(u, dt, speed, tx, tz) {

@@ -10,7 +10,7 @@ export const surfaceOn = { value: 1 }; // 0 on low-spec devices (set by the fps 
 // swatch index = col + 8 * row (see blender/lib.py PALETTE). Types:
 // 0 none, 1 paint, 2 asphalt, 3 concrete, 4 grass, 5 paving, 6 sand, 7 dirt, 8 brick, 9 wood, 10 leaves, 11 metal, 12 water, 13 roof shingles
 const OBJECT = [
-  1, 1, 6, 1, 1, 1, 2, 2, //  cream white sand clay terracotta brick asphalt asphalt_lt  (plain colours = paint)
+  1, 1, 1, 1, 1, 1, 2, 2, //  cream white sand clay terracotta brick asphalt asphalt_lt  (plain colours = paint; sand skin stays smooth)
   1, 1, 1, 1, 1, 1, 1, 1, //  mint sage forest sky teal butter peach pink
   1, 1, 1, 1, 3, 11, 1, 1, //  red police navy olive concrete steel ink hazard
   0, 0, 0, 0, 0, 0, 0, 0, //  emissive row

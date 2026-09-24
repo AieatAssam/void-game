@@ -196,8 +196,11 @@ def sphere(name, r, loc=(0, 0, 0), color='cream', seg=24, scale=(1, 1, 1), rot=(
     return _obj(name, bm, color, loc, rot, scale)
 
 
-def torus(name, R, r, loc=(0, 0, 0), color='cream', seg=32, rseg=12, rot=(0, 0, 0)):
+def torus(name, R, r, loc=(0, 0, 0), color='cream', seg=32, rseg=12, rot=(0, 0, 0), arc=None):
+    """arc=(a0, a1) builds only that part of the ring (e.g. a half-ring wheel arch), with open ends capped."""
     seg, rseg = q(seg), q(rseg)
+    if arc:
+        return _torus_arc(name, R, r, loc, color, seg, rseg, rot, arc)
     bm = bmesh.new()
     grid = []
     for i in range(seg):
@@ -211,6 +214,23 @@ def torus(name, R, r, loc=(0, 0, 0), color='cream', seg=32, rseg=12, rot=(0, 0, 
     for i in range(seg):
         for j in range(rseg):
             bm.faces.new((grid[i][j], grid[(i + 1) % seg][j], grid[(i + 1) % seg][(j + 1) % rseg], grid[i][(j + 1) % rseg]))
+    return _obj(name, bm, color, loc, rot)
+
+
+def _torus_arc(name, R, r, loc, color, seg, rseg, rot, arc):
+    bm = bmesh.new()
+    a0, a1 = arc
+    n = max(2, int(seg * (a1 - a0) / (2 * math.pi)) + 1)
+    rings = []
+    for i in range(n):
+        a = a0 + (a1 - a0) * i / (n - 1)
+        rings.append([bm.verts.new(((R + r * math.cos(b)) * math.cos(a), (R + r * math.cos(b)) * math.sin(a), r * math.sin(b)))
+                      for b in (2 * math.pi * j / rseg for j in range(rseg))])
+    for i in range(n - 1):
+        for j in range(rseg):
+            bm.faces.new((rings[i][j], rings[i + 1][j], rings[i + 1][(j + 1) % rseg], rings[i][(j + 1) % rseg]))
+    bm.faces.new(rings[0][::-1])
+    bm.faces.new(rings[-1])
     return _obj(name, bm, color, loc, rot)
 
 
@@ -284,6 +304,16 @@ def finish(ob, tier=None, mass=None, kind='prop', smooth_angle=35, **extra):
         wn = o.modifiers.new('wn', 'WEIGHTED_NORMAL')
         wn.keep_sharp = True
         apply_mods(o)
+    if kind not in ('tile', 'fx', 'scenery'):
+        for o in [ob] + list(ob.children_recursive):
+            if o.type != 'MESH':
+                continue
+            mw, inv = o.matrix_world, o.matrix_world.inverted()
+            for v in o.data.vertices:
+                w = mw @ v.co
+                if w.z < 0.0:
+                    w.z = 0.0
+                    v.co = inv @ w
     lo, hi = bounds(ob)
     d = hi - lo
     if tier is None:

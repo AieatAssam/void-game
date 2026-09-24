@@ -41,6 +41,11 @@ def rim(name, r, w, x, y, z, side):
     return out
 
 
+def car_top(H=0.62, ch=0.6, r=0.42):
+    """Roof height of car() - roof racks, light bars and signs sit exactly on it (no floating, no clipping)."""
+    return r * 0.7 + H + ch
+
+
 def car(L, W, body, roof=None, glass='gloss_black', cabin=0.52, cabin_x=-0.15, H=0.62, ch=0.6, r=0.42):
     """AAA toy car: bevelled body with shoulder crease, sloped cabin shell, tinted glass panes with pillars,
     chrome bezels, LED DRLs, taillight clusters, five-spoke rims, mirrors, exhaust. Returns parts."""
@@ -93,7 +98,7 @@ def car(L, W, body, roof=None, glass='gloss_black', cabin=0.52, cabin_x=-0.15, H
               box(f'tl{sgn}', (0.06, 0.34, 0.12), loc=(-L / 2, sgn * W * 0.33, z0 + H * 0.68), color='siren_red', bev=0.02),
               box(f'rev{sgn}', (0.065, 0.1, 0.08), loc=(-L / 2, sgn * W * 0.2, z0 + H * 0.68), color='glow_white', bev=0.015, seg=1)]
         for x in (L * 0.32, -L * 0.32):
-            p.append(torus(f'arch{sgn}{x}', r * 1.12, 0.07, loc=(x, sgn * (W / 2 - 0.02), r), color=body, seg=24, rseg=8, rot=(math.pi / 2, 0, 0)))
+            p.append(torus(f'arch{sgn}{x}', r * 1.12, 0.07, loc=(x, sgn * (W / 2 - 0.02), r), color=body, seg=24, rseg=8, rot=(math.pi / 2, 0, 0), arc=(0.15, math.pi - 0.15)))  # half ring above the axle only
             p += rim(f'rim{sgn}{x}', r, 0.34, x, sgn * (W / 2 - 0.34 * 0.35), r, sgn)
     for sx in (1, -1):
         p.append(box(f'plate{sx}', (0.03, 0.44, 0.14), loc=(sx * (L / 2 + 0.12), 0, z0 + 0.14), color='white', bev=0.01))

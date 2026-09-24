@@ -151,6 +151,7 @@ export class City {
     this.half = (N * TILE) / 2;
     this.group = new THREE.Group();
     this.entities = [];
+    this.solids = []; // footprints of static props placed so far (layout only)
     this.mixers = [];
     this.dirty = new Set();
     this.holeField = holeField;
@@ -162,6 +163,12 @@ export class City {
   // ---------- layout: a list of placements, no three.js objects yet ----------
   add(name, x, z, rot = 0, mover = null) {
     const a = this.assets[name];
+    // static props never interpenetrate: a placement whose footprint overlaps one already standing is dropped
+    if (!mover || mover.type === 'peck') {
+      const rr = a.meta.tier * 0.6;
+      for (const o of this.solids) if ((o.x - x) ** 2 + (o.z - z) ** 2 < (o.r + rr) ** 2) return;
+      this.solids.push({ x, z, r: rr });
+    }
     if (mover) mover.t ??= 0;
     this.entities.push({ name, meta: a.meta, x, z, y: 0, rot, tilt: 0, tiltDir: 0, s: 1, alive: true, falling: false, vy: 0, mover });
   }
@@ -337,7 +344,14 @@ export class City {
     const mid = (N - 1) / 2;
     this.sceneryList = [];
     let cur;
-    const land = (name, x, y, z, rot) => this.sceneryList.push({ name, x, y, z, rot, tile: cur });
+    const land = (name, x, y, z, rot) => {
+      if (!name.startsWith('land_')) { // trees, cows, windmills and barns keep out of each other too
+        const rr = this.assets[name].meta.tier * 0.6;
+        if (this.sceneryList.some((o) => o.r && (o.x - x) ** 2 + (o.z - z) ** 2 < (o.r + rr) ** 2)) return;
+        return this.sceneryList.push({ name, x, y, z, rot, tile: cur, r: rr });
+      }
+      this.sceneryList.push({ name, x, y, z, rot, tile: cur });
+    };
     for (let i = -2; i < N + 2; i++) {
       for (let j = -2; j < N + 2; j++) {
         if (i >= 0 && i < N && j >= 0 && j < N) continue;
@@ -384,6 +398,15 @@ export class City {
     return [lo, hi];
   }
 
+  /** Is (x, z) inside a standing building (plus pad)? Vehicles and wanderers never go through houses. */
+  blocked(x, z, pad = 1.2) {
+    this.buildings ??= this.entities.filter((e) => BUILDINGS.has(e.name));
+    for (const b of this.buildings) {
+      if (b.alive && !b.falling && (b.x - x) ** 2 + (b.z - z) ** 2 < (b.meta.tier * 0.85 + pad) ** 2) return true;
+    }
+    return false;
+  }
+
   /** Win condition: buildings still standing. */
   buildingsLeft() {
     let n = 0;
@@ -406,7 +429,7 @@ export class City {
   /** Revive a dead reserve of `name` at (x, z) heading roughly toward (tx, tz). */
   revive(name, x, z, tx, tz) {
     const e = this.entities.find((q) => !q.alive && q.name === name && q.mover?.reserve);
-    if (!e) return null;
+    if (!e || this.blocked(x, z, e.meta.tier)) return null; // never pop up inside a building
     const m = e.mover;
     Object.assign(e, { x, z, y: 0, s: 1, tilt: 0, alive: true, falling: false, vy: 0, eater: null, fallT: 0 });
     m.h = Math.atan2(-(tz - z), tx - x) + (this.r() - 0.5) * 1.2;
@@ -752,8 +775,9 @@ export class City {
         } else if (m.type === 'wander') {
           m.h += Math.sin(m.t * 0.7 + e.x) * dt * 0.6;
           if (Math.abs(e.x) > H - 4 || Math.abs(e.z) > H - 4) m.h = Math.atan2(e.z, -e.x); // steer back to town
-          e.x += Math.cos(m.h) * m.v * dt;
-          e.z -= Math.sin(m.h) * m.v * dt;
+          const nx = e.x + Math.cos(m.h) * m.v * dt, nz = e.z - Math.sin(m.h) * m.v * dt;
+          if (this.blocked(nx, nz, e.meta.tier)) m.h += Math.PI * (0.5 + this.r() * 0.5); // bounce off walls, never walk through
+          else { e.x = nx; e.z = nz; }
           e.rot = m.h;
           const w = m.t * 9;
           e.y = e.meta.tier < 0.3 ? Math.abs(Math.sin(w)) * 0.07 : Math.abs(Math.sin(m.t * 7)) * 0.03;

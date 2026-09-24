@@ -18,7 +18,7 @@
   "tris": 18174,
   "lodTris": 4542,
   "lod2Tris": 1452,
-  "bytes": 119464,
+  "bytes": 121220,
   "clips": []
  },
  "barn": {
@@ -27,56 +27,56 @@
   "kind": "scenery",
   "height": 10.2,
   "tris": 8380,
-  "lodTris": 2914,
+  "lodTris": 2910,
   "lod2Tris": 2868,
-  "bytes": 79996,
+  "bytes": 79756,
   "clips": []
  },
  "barricade": {
   "tier": 1.11,
-  "mass": 0.924,
+  "mass": 0.907,
   "kind": "hazard",
-  "height": 1.223,
+  "height": 1.2,
   "effect": "toll",
   "tris": 6760,
   "lodTris": 1774,
-  "lod2Tris": 544,
-  "bytes": 50024,
+  "lod2Tris": 554,
+  "bytes": 50736,
   "clips": [
    "blink"
   ]
  },
  "beach_ball": {
-  "tier": 0.219,
+  "tier": 0.22,
   "mass": 0.02,
   "kind": "prop",
   "height": 0.49,
-  "tris": 1498,
-  "lodTris": 374,
-  "lod2Tris": 118,
-  "bytes": 16364,
+  "tris": 658,
+  "lodTris": 264,
+  "lod2Tris": 52,
+  "bytes": 10116,
   "clips": []
  },
  "beach_umbrella": {
   "tier": 1.299,
-  "mass": 5.943,
+  "mass": 5.932,
   "kind": "prop",
-  "height": 2.384,
+  "height": 2.38,
   "tris": 716,
   "lodTris": 178,
   "lod2Tris": 60,
-  "bytes": 10704,
+  "bytes": 10644,
   "clips": []
  },
  "bench": {
   "tier": 0.8,
-  "mass": 0.341,
+  "mass": 0.335,
   "kind": "prop",
-  "height": 0.935,
+  "height": 0.918,
   "tris": 3900,
   "lodTris": 974,
   "lod2Tris": 312,
-  "bytes": 29204,
+  "bytes": 29100,
   "clips": []
  },
  "bicycle": {
@@ -92,13 +92,13 @@
  },
  "bus": {
   "tier": 5.35,
-  "mass": 48.256,
+  "mass": 48.181,
   "kind": "prop",
-  "height": 3.546,
+  "height": 3.54,
   "tris": 27484,
   "lodTris": 6868,
   "lod2Tris": 4124,
-  "bytes": 212996,
+  "bytes": 215068,
   "clips": []
  },
  "cafe": {
@@ -114,47 +114,47 @@
  },
  "car": {
   "tier": 2.171,
-  "mass": 8.168,
+  "mass": 7.699,
   "kind": "prop",
-  "height": 2.063,
-  "tris": 26540,
-  "lodTris": 6634,
-  "lod2Tris": 4692,
-  "bytes": 217104,
+  "height": 1.944,
+  "tris": 24444,
+  "lodTris": 6110,
+  "lod2Tris": 4894,
+  "bytes": 204064,
   "clips": []
  },
  "car_b": {
   "tier": 1.971,
-  "mass": 8.681,
+  "mass": 7.188,
   "kind": "prop",
-  "height": 2.469,
-  "tris": 26840,
-  "lodTris": 6710,
-  "lod2Tris": 4734,
-  "bytes": 219620,
+  "height": 2.044,
+  "tris": 24920,
+  "lodTris": 6230,
+  "lod2Tris": 5078,
+  "bytes": 209640,
   "clips": []
  },
  "car_c": {
   "tier": 2.121,
-  "mass": 7.787,
+  "mass": 7.328,
   "kind": "prop",
-  "height": 2.013,
-  "tris": 26564,
-  "lodTris": 6640,
-  "lod2Tris": 4740,
-  "bytes": 217380,
+  "height": 1.894,
+  "tris": 24580,
+  "lodTris": 6144,
+  "lod2Tris": 5048,
+  "bytes": 206076,
   "clips": []
  },
  "cement_truck": {
   "tier": 4.222,
-  "mass": 40.814,
+  "mass": 40.762,
   "kind": "unit",
-  "height": 4.359,
+  "height": 4.354,
   "unit": "cement",
   "tris": 24644,
   "lodTris": 6160,
-  "lod2Tris": 3806,
-  "bytes": 203012,
+  "lod2Tris": 3800,
+  "bytes": 202132,
   "clips": [
    "drum"
   ]
@@ -164,10 +164,10 @@
   "mass": 800.247,
   "kind": "prop",
   "height": 27.05,
-  "tris": 19868,
-  "lodTris": 4966,
-  "lod2Tris": 4302,
-  "bytes": 176776,
+  "tris": 20392,
+  "lodTris": 5096,
+  "lod2Tris": 4342,
+  "bytes": 181600,
   "clips": [
    "hands0",
    "hands1",
@@ -183,7 +183,7 @@
   "tris": 10008,
   "lodTris": 2502,
   "lod2Tris": 800,
-  "bytes": 62996,
+  "bytes": 68148,
   "clips": []
  },
  "concrete_plug": {
@@ -194,7 +194,7 @@
   "tris": 3088,
   "lodTris": 772,
   "lod2Tris": 246,
-  "bytes": 25544,
+  "bytes": 25580,
   "clips": []
  },
  "cone": {
@@ -216,18 +216,18 @@
   "tris": 7240,
   "lodTris": 1810,
   "lod2Tris": 578,
-  "bytes": 53444,
+  "bytes": 53420,
   "clips": []
  },
  "crab": {
-  "tier": 0.256,
+  "tier": 0.259,
   "mass": 0.01,
   "kind": "prop",
-  "height": 0.27,
-  "tris": 3414,
-  "lodTris": 852,
-  "lod2Tris": 318,
-  "bytes": 29920,
+  "height": 0.256,
+  "tris": 3780,
+  "lodTris": 944,
+  "lod2Tris": 302,
+  "bytes": 32400,
   "clips": []
  },
  "crane": {
@@ -245,24 +245,24 @@
  },
  "deckchair": {
   "tier": 0.452,
-  "mass": 0.232,
+  "mass": 0.228,
   "kind": "prop",
-  "height": 0.953,
+  "height": 0.937,
   "tris": 1040,
-  "lodTris": 544,
+  "lodTris": 536,
   "lod2Tris": 440,
-  "bytes": 18132,
+  "bytes": 18260,
   "clips": []
  },
  "dirt_pile": {
   "tier": 1.6,
-  "mass": 8.086,
+  "mass": 7.177,
   "kind": "prop",
-  "height": 1.981,
+  "height": 1.758,
   "tris": 3488,
   "lodTris": 872,
   "lod2Tris": 278,
-  "bytes": 25168,
+  "bytes": 24804,
   "clips": []
  },
  "dog": {
@@ -273,7 +273,7 @@
   "tris": 12596,
   "lodTris": 3148,
   "lod2Tris": 1006,
-  "bytes": 84380,
+  "bytes": 82276,
   "clips": []
  },
  "fence": {
@@ -295,7 +295,7 @@
   "tris": 3440,
   "lodTris": 860,
   "lod2Tris": 274,
-  "bytes": 30064,
+  "bytes": 29676,
   "clips": []
  },
  "fountain": {
@@ -306,7 +306,7 @@
   "tris": 5140,
   "lodTris": 1284,
   "lod2Tris": 408,
-  "bytes": 44080,
+  "bytes": 45176,
   "clips": [
    "water"
   ]
@@ -328,10 +328,10 @@
   "mass": 0.02,
   "kind": "prop",
   "height": 0.52,
-  "tris": 3774,
-  "lodTris": 942,
-  "lod2Tris": 300,
-  "bytes": 31112,
+  "tris": 4090,
+  "lodTris": 1022,
+  "lod2Tris": 326,
+  "bytes": 33132,
   "clips": []
  },
  "gold_hydrant": {
@@ -352,10 +352,10 @@
   "kind": "prop",
   "height": 0.52,
   "rare": true,
-  "tris": 3774,
-  "lodTris": 942,
-  "lod2Tris": 300,
-  "bytes": 30944,
+  "tris": 4090,
+  "lodTris": 1022,
+  "lod2Tris": 326,
+  "bytes": 32112,
   "clips": []
  },
  "heli": {
@@ -367,7 +367,7 @@
   "tris": 26764,
   "lodTris": 6690,
   "lod2Tris": 2138,
-  "bytes": 166868,
+  "bytes": 174604,
   "clips": [
    "rotor",
    "tail"
@@ -381,18 +381,18 @@
   "tris": 12976,
   "lodTris": 3244,
   "lod2Tris": 1038,
-  "bytes": 84564,
+  "bytes": 86204,
   "clips": []
  },
  "hotdog_cart": {
   "tier": 1.216,
-  "mass": 5.101,
+  "mass": 5.095,
   "kind": "prop",
-  "height": 2.623,
+  "height": 2.62,
   "tris": 12896,
   "lodTris": 3224,
-  "lod2Tris": 1466,
-  "bytes": 97656,
+  "lod2Tris": 1452,
+  "bytes": 98360,
   "clips": []
  },
  "hotel": {
@@ -414,7 +414,7 @@
   "tris": 5790,
   "lodTris": 1446,
   "lod2Tris": 1052,
-  "bytes": 51352,
+  "bytes": 50696,
   "clips": []
  },
  "hydrant": {
@@ -430,13 +430,13 @@
  },
  "icecream_van": {
   "tier": 2.6,
-  "mass": 31.721,
+  "mass": 31.694,
   "kind": "prop",
-  "height": 5.375,
+  "height": 5.37,
   "tris": 21304,
   "lodTris": 5326,
-  "lod2Tris": 2684,
-  "bytes": 161308,
+  "lod2Tris": 2690,
+  "bytes": 164320,
   "clips": []
  },
  "karaoke": {
@@ -447,7 +447,7 @@
   "tris": 5470,
   "lodTris": 1366,
   "lod2Tris": 454,
-  "bytes": 41580,
+  "bytes": 41328,
   "clips": []
  },
  "kiosk": {
@@ -469,7 +469,7 @@
   "tris": 1676,
   "lodTris": 418,
   "lod2Tris": 134,
-  "bytes": 15068,
+  "bytes": 15236,
   "clips": []
  },
  "land_farm": {
@@ -502,7 +502,7 @@
   "tris": 17820,
   "lodTris": 4455,
   "lod2Tris": 1424,
-  "bytes": 105600,
+  "bytes": 104328,
   "clips": []
  },
  "land_sea": {
@@ -513,7 +513,7 @@
   "tris": 9982,
   "lodTris": 2494,
   "lod2Tris": 798,
-  "bytes": 67548,
+  "bytes": 67504,
   "clips": []
  },
  "lifeguard_tower": {
@@ -535,19 +535,19 @@
   "tris": 1624,
   "lodTris": 406,
   "lod2Tris": 128,
-  "bytes": 16116,
+  "bytes": 15920,
   "clips": []
  },
  "mayor_limo": {
   "tier": 3.371,
-  "mass": 13.239,
+  "mass": 12.478,
   "kind": "prop",
-  "height": 2.063,
+  "height": 1.944,
   "rare": true,
-  "tris": 26604,
-  "lodTris": 6650,
-  "lod2Tris": 4734,
-  "bytes": 214728,
+  "tris": 24508,
+  "lodTris": 6126,
+  "lod2Tris": 4950,
+  "bytes": 201956,
   "clips": []
  },
  "neon_sign": {
@@ -603,7 +603,7 @@
   "tris": 12562,
   "lodTris": 3140,
   "lod2Tris": 1004,
-  "bytes": 87420,
+  "bytes": 90456,
   "clips": []
  },
  "ped_chef": {
@@ -614,7 +614,7 @@
   "tris": 14090,
   "lodTris": 3522,
   "lod2Tris": 1126,
-  "bytes": 98636,
+  "bytes": 102072,
   "clips": []
  },
  "ped_granny": {
@@ -625,7 +625,7 @@
   "tris": 12584,
   "lodTris": 3146,
   "lod2Tris": 1006,
-  "bytes": 89460,
+  "bytes": 89740,
   "clips": []
  },
  "ped_jogger": {
@@ -636,7 +636,7 @@
   "tris": 12294,
   "lodTris": 3072,
   "lod2Tris": 982,
-  "bytes": 89860,
+  "bytes": 89504,
   "clips": []
  },
  "ped_kid": {
@@ -647,7 +647,7 @@
   "tris": 12688,
   "lodTris": 3172,
   "lod2Tris": 1014,
-  "bytes": 87712,
+  "bytes": 86204,
   "clips": []
  },
  "ped_student": {
@@ -658,7 +658,7 @@
   "tris": 14394,
   "lodTris": 3598,
   "lod2Tris": 1150,
-  "bytes": 99824,
+  "bytes": 99660,
   "clips": []
  },
  "ped_tourist": {
@@ -669,7 +669,7 @@
   "tris": 14742,
   "lodTris": 3684,
   "lod2Tris": 1178,
-  "bytes": 107112,
+  "bytes": 107636,
   "clips": []
  },
  "ped_worker": {
@@ -680,7 +680,7 @@
   "tris": 14774,
   "lodTris": 3692,
   "lod2Tris": 1180,
-  "bytes": 104320,
+  "bytes": 101400,
   "clips": []
  },
  "phone_booth": {
@@ -691,18 +691,18 @@
   "tris": 4960,
   "lodTris": 1240,
   "lod2Tris": 558,
-  "bytes": 40832,
+  "bytes": 40872,
   "clips": []
  },
  "picnic_table": {
   "tier": 1.3,
-  "mass": 2.091,
+  "mass": 2.055,
   "kind": "prop",
-  "height": 1.058,
+  "height": 1.04,
   "tris": 4168,
   "lodTris": 1042,
   "lod2Tris": 332,
-  "bytes": 31132,
+  "bytes": 30972,
   "clips": []
  },
  "pier": {
@@ -713,7 +713,7 @@
   "tris": 19448,
   "lodTris": 4862,
   "lod2Tris": 2902,
-  "bytes": 156116,
+  "bytes": 155476,
   "clips": [
    "wheel"
   ]
@@ -726,7 +726,7 @@
   "tris": 4668,
   "lodTris": 1166,
   "lod2Tris": 372,
-  "bytes": 34444,
+  "bytes": 35724,
   "clips": []
  },
  "planter": {
@@ -737,19 +737,19 @@
   "tris": 4010,
   "lodTris": 1002,
   "lod2Tris": 320,
-  "bytes": 30668,
+  "bytes": 28876,
   "clips": []
  },
  "police_car": {
   "tier": 2.295,
-  "mass": 9.957,
+  "mass": 8.495,
   "kind": "unit",
-  "height": 2.279,
+  "height": 1.944,
   "unit": "police",
-  "tris": 28416,
-  "lodTris": 7104,
-  "lod2Tris": 4794,
-  "bytes": 232696,
+  "tris": 26320,
+  "lodTris": 6580,
+  "lod2Tris": 4982,
+  "bytes": 218528,
   "clips": [
    "beacon"
   ]
@@ -763,18 +763,18 @@
   "tris": 4668,
   "lodTris": 1166,
   "lod2Tris": 372,
-  "bytes": 37184,
+  "bytes": 34484,
   "clips": []
  },
  "rowboat": {
   "tier": 1.703,
-  "mass": 2.285,
+  "mass": 2.303,
   "kind": "prop",
-  "height": 0.57,
+  "height": 0.575,
   "tris": 3920,
   "lodTris": 980,
   "lod2Tris": 312,
-  "bytes": 33084,
+  "bytes": 33016,
   "clips": []
  },
  "sailboat": {
@@ -801,13 +801,13 @@
  },
  "scooter": {
   "tier": 0.68,
-  "mass": 0.446,
+  "mass": 0.445,
   "kind": "prop",
-  "height": 1.242,
+  "height": 1.24,
   "tris": 12708,
   "lodTris": 3176,
-  "lod2Tris": 1404,
-  "bytes": 100000,
+  "lod2Tris": 1408,
+  "bytes": 98492,
   "clips": []
  },
  "searchlight": {
@@ -843,7 +843,7 @@
   "tris": 15864,
   "lodTris": 3966,
   "lod2Tris": 1268,
-  "bytes": 102620,
+  "bytes": 102712,
   "clips": []
  },
  "spiky": {
@@ -855,29 +855,29 @@
   "tris": 4344,
   "lodTris": 1086,
   "lod2Tris": 346,
-  "bytes": 37588,
+  "bytes": 36856,
   "clips": []
  },
  "surfboard": {
   "tier": 1.142,
-  "mass": 0.148,
+  "mass": 0.123,
   "kind": "prop",
-  "height": 0.295,
+  "height": 0.245,
   "tris": 1388,
   "lodTris": 346,
   "lod2Tris": 110,
-  "bytes": 12272,
+  "bytes": 12360,
   "clips": []
  },
  "swing": {
   "tier": 2.1,
-  "mass": 10.029,
+  "mass": 9.958,
   "kind": "prop",
-  "height": 2.296,
+  "height": 2.28,
   "tris": 2524,
   "lodTris": 628,
   "lod2Tris": 206,
-  "bytes": 22924,
+  "bytes": 22876,
   "clips": [
    "swing0",
    "swing1"
@@ -885,27 +885,27 @@
  },
  "tank": {
   "tier": 3.6,
-  "mass": 39.514,
+  "mass": 39.413,
   "kind": "unit",
-  "height": 3.92,
+  "height": 3.91,
   "unit": "tank",
   "tris": 16362,
   "lodTris": 4088,
-  "lod2Tris": 1898,
-  "bytes": 126512,
+  "lod2Tris": 1884,
+  "bytes": 124360,
   "clips": [
    "fire"
   ]
  },
  "taxi": {
   "tier": 2.321,
-  "mass": 10.026,
+  "mass": 8.592,
   "kind": "prop",
-  "height": 2.269,
-  "tris": 28600,
-  "lodTris": 7150,
-  "lod2Tris": 6466,
-  "bytes": 245060,
+  "height": 1.944,
+  "tris": 26504,
+  "lodTris": 6896,
+  "lod2Tris": 6650,
+  "bytes": 233688,
   "clips": []
  },
  "tile_beach": {
@@ -914,9 +914,9 @@
   "kind": "tile",
   "height": 1.04,
   "tris": 16740,
-  "lodTris": 4265,
-  "lod2Tris": 4250,
-  "bytes": 136800,
+  "lodTris": 4247,
+  "lod2Tris": 4238,
+  "bytes": 137932,
   "clips": []
  },
  "tile_canal": {
@@ -936,9 +936,9 @@
   "kind": "tile",
   "height": 0.67,
   "tris": 13600,
-  "lodTris": 5508,
-  "lod2Tris": 5476,
-  "bytes": 140400,
+  "lodTris": 5530,
+  "lod2Tris": 5506,
+  "bytes": 140984,
   "clips": []
  },
  "tile_lot": {
@@ -960,7 +960,7 @@
   "tris": 15414,
   "lodTris": 3852,
   "lod2Tris": 3382,
-  "bytes": 117508,
+  "bytes": 117252,
   "clips": []
  },
  "tile_park": {
@@ -970,8 +970,8 @@
   "height": 0.33,
   "tris": 14606,
   "lodTris": 3651,
-  "lod2Tris": 3191,
-  "bytes": 119192,
+  "lod2Tris": 3137,
+  "bytes": 118848,
   "clips": []
  },
  "tile_parking": {
@@ -982,7 +982,7 @@
   "tris": 11504,
   "lodTris": 3384,
   "lod2Tris": 3368,
-  "bytes": 96348,
+  "bytes": 97844,
   "clips": []
  },
  "tile_plaza": {
@@ -1016,7 +1016,7 @@
   "tris": 4826,
   "lodTris": 1206,
   "lod2Tris": 386,
-  "bytes": 36812,
+  "bytes": 36372,
   "clips": []
  },
  "trashcan": {
@@ -1034,22 +1034,22 @@
   "tier": 2.354,
   "mass": 4,
   "kind": "prop",
-  "height": 6.178,
+  "height": 6.12,
   "tris": 8546,
   "lodTris": 2136,
   "lod2Tris": 682,
-  "bytes": 61784,
+  "bytes": 55944,
   "clips": []
  },
  "tree_small": {
   "tier": 1.418,
   "mass": 1.2,
   "kind": "prop",
-  "height": 3.634,
+  "height": 3.6,
   "tris": 7790,
   "lodTris": 1946,
   "lod2Tris": 622,
-  "bytes": 57976,
+  "bytes": 55684,
   "clips": []
  },
  "vending": {
@@ -1060,7 +1060,7 @@
   "tris": 5682,
   "lodTris": 1420,
   "lod2Tris": 454,
-  "bytes": 40880,
+  "bytes": 40896,
   "clips": []
  },
  "windmill": {
@@ -1071,7 +1071,7 @@
   "tris": 6514,
   "lodTris": 1626,
   "lod2Tris": 518,
-  "bytes": 50904,
+  "bytes": 51112,
   "clips": [
    "blades"
   ]

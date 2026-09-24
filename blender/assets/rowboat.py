@@ -15,7 +15,7 @@ def build():
          box('seat2', (0.26, 1.0, 0.05), loc=(-0.65, 0, 0.36), color='wood', bev=0.015),
          box('keel', (2.4, 0.06, 0.08), loc=(0, 0, 0.02), color='navy', bev=0.02)]
     for s in (-1, 1):
-        p += [cyl(f'lock{s}', 0.025, 0.1, loc=(0.1, s * 0.6, 0.45), color='steel', seg=8, bev=0),
-              tube(f'oar{s}', (0.1, s * 0.6, 0.52), (-0.9, s * 1.2, 0.3), r=0.025, color='wood'),
+        p += [cyl(f'lock{s}', 0.025, 0.1, loc=(0.1, s * 0.66, 0.46), color='steel', seg=8, bev=0),  # on the gunwale, outside the hull wall
+              tube(f'oar{s}', (0.1, s * 0.68, 0.55), (-0.9, s * 1.25, 0.32), r=0.025, color='wood'),
               box(f'blade{s}', (0.45, 0.14, 0.02), loc=(-1.05, s * 1.3, 0.27), color='wood', bev=0.01, rot=(0, 0.2, s * -0.55))]
     return finish(join(p, 'rowboat'))

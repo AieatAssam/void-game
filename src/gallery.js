@@ -73,7 +73,9 @@ window.__shot = (dist = 1) => {
 };
 
 // contact sheet for art review: every asset framed in a grid, returned as one image
-window.__sheet = (names = sorted.map((a) => a.name), cols = 6, cell = 256) => {
+window.__sheet = (names = sorted.map((a) => a.name), cols = 6, cell = 256, dirs = null) => {
+  // dirs: optional list of camera directions; each name is rendered once per direction (for clipping review)
+  if (dirs) names = names.flatMap((n) => dirs.map((d) => [n, d]));
   const rows = Math.ceil(names.length / cols);
   const out = document.createElement('canvas');
   out.width = cols * cell;
@@ -83,10 +85,11 @@ window.__sheet = (names = sorted.map((a) => a.name), cols = 6, cell = 256) => {
   renderer.setSize(cell, cell, false);
   camera.aspect = 1;
   camera.updateProjectionMatrix();
-  names.forEach((n, i) => {
+  names.forEach((entry, i) => {
+    const [n, dir] = Array.isArray(entry) ? entry : [entry, [0.62, 0.62, 0.62]];
     const a = assets[n];
     const box = new THREE.Box3().setFromObject(a.scene), c = box.getCenter(new THREE.Vector3()), d = box.getSize(new THREE.Vector3()).length() * 1.1 + 0.5;
-    camera.position.set(c.x + d * 0.62, c.y + d * 0.62, c.z + d * 0.62);
+    camera.position.set(c.x + d * dir[0], c.y + d * dir[1], c.z + d * dir[2]);
     camera.lookAt(c);
     followSun(look.sun, c);
     renderer.render(scene, camera);
