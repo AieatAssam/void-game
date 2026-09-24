@@ -9,7 +9,7 @@ def build():
           for i in range(6)]
     for x in (-0.85, 0.85):
         for s in (-1, 1):
-            p.append(box(f'leg{x}{s}', (0.08, 0.08, 1.1), loc=(x, s * 0.2, 0.5), color='ink', bev=0.02, rot=(-s * 0.36, 0, 0)))
+            p.append(box(f'leg{x}{s}', (0.08, 0.08, 1.1), loc=(x, s * 0.2, 0.5), color='ink', bev=0.02, rot=(s * 0.36, 0, 0)))  # sawhorse: feet apart
         p.append(box(f'foot{x}', (0.12, 0.7, 0.05), loc=(x, 0, 0.025), color='ink', bev=0.02))
     root = join(p, 'barricade')
     lamp = sphere('lamp', 0.1, color='warn', seg=16, scale=(1, 1, 0.8))

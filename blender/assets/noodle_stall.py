@@ -3,7 +3,7 @@ from lib import *
 
 def build():
     p = [box('counter', (1.8, 1.0, 1.0), loc=(0, 0, 0.5), color='red', bev=0.08),
-         box('top', (1.9, 1.1, 0.08), loc=(0, 0, 1.04), color='clay', bev=0.03),
+         box('top', (1.9, 1.1, 0.08), loc=(0, 0, 1.04), color='wood', bev=0.03),
          cyl('pot', 0.25, 0.3, loc=(-0.4, 0, 1.08), color='steel', seg=16, bev=0.03),
          lathe('steam', [(0.0, 1.4), (0.15, 1.5), (0.06, 1.8), (0.12, 2.0), (0.0, 2.1)], loc=(-0.4, 0, 0), color='white', seg=12),
          lathe('bowl', [(0.0, 1.08), (0.12, 1.08), (0.2, 1.22), (0.0, 1.2)], loc=(0.4, 0, 0), color='white', seg=16),

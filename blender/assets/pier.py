@@ -4,8 +4,8 @@ from lib import *
 
 def build():
     L = 40.0
-    p = [box('deck', (5, L, 0.35), loc=(0, -L / 2, 1.2), color='clay', bev=0.05),
-         box('head', (14, 12, 0.35), loc=(0, -L - 5, 1.2), color='clay', bev=0.05)]
+    p = [box('deck', (5, L, 0.35), loc=(0, -L / 2, 1.2), color='wood', bev=0.05),
+         box('head', (14, 12, 0.35), loc=(0, -L - 5, 1.2), color='wood', bev=0.05)]
     for k in range(14):
         y = -2 - k * 3.2
         for s in (-1, 1):

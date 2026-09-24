@@ -49,6 +49,10 @@ the camera draw LOD0, to 60m LOD1, beyond LOD2 (and stop casting shadows). Traff
 Idle snack pools are skipped. Low fps → tilt-shift off and LOD0 never used.
 
 ## Surface detail (height + bump)
+Palette row 5 holds the *textured* materials (wood, foliage x3, roof tile, brick wall, dirt, gravel); every
+other swatch is smooth paint, so only parts that should be textured are (a businessman's hair is never wood).
+Objects also darken over their bottom 0.8 m (grounding) and sit on soft instanced contact-shadow blobs.
+The game camera uses a 26 deg lens (pulled back to keep framing) to cut perspective distortion on tall props.
 Models have no real UVs (faces point at palette swatches), so texture detail is procedural, in object space:
 each swatch maps to a surface type (`src/surface.js`) - asphalt grain, concrete pores, grass, paving stones,
 sand ripples, dirt, brick bond, wood grain, leaves, brushed metal, animated water. The type's height field

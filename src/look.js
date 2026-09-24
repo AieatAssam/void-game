@@ -50,7 +50,7 @@ export function createScene() {
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.03;
   const c = sun.shadow.camera;
-  c.left = c.bottom = -40; c.right = c.top = 40; c.near = 1; c.far = 400;
+  c.left = c.bottom = -40; c.right = c.top = 40; c.near = 60; c.far = 260; // sun sits 150 m out along its direction
   const sky = new THREE.Mesh(new THREE.SphereGeometry(100, 32, 16), skyMat);
   sky.frustumCulled = false;
   sky.renderOrder = -1;

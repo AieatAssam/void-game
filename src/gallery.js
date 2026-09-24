@@ -71,3 +71,30 @@ window.__shot = (dist = 1) => {
   renderer.render(scene, camera);
   return renderer.domElement.toDataURL('image/jpeg', 0.9);
 };
+
+// contact sheet for art review: every asset framed in a grid, returned as one image
+window.__sheet = (names = sorted.map((a) => a.name), cols = 6, cell = 256) => {
+  const rows = Math.ceil(names.length / cols);
+  const out = document.createElement('canvas');
+  out.width = cols * cell;
+  out.height = rows * cell;
+  const ctx = out.getContext('2d');
+  const size = renderer.getSize(new THREE.Vector2());
+  renderer.setSize(cell, cell, false);
+  camera.aspect = 1;
+  camera.updateProjectionMatrix();
+  names.forEach((n, i) => {
+    const a = assets[n];
+    const box = new THREE.Box3().setFromObject(a.scene), c = box.getCenter(new THREE.Vector3()), d = box.getSize(new THREE.Vector3()).length() * 1.1 + 0.5;
+    camera.position.set(c.x + d * 0.62, c.y + d * 0.62, c.z + d * 0.62);
+    camera.lookAt(c);
+    followSun(look.sun, c);
+    renderer.render(scene, camera);
+    ctx.drawImage(renderer.domElement, (i % cols) * cell, Math.floor(i / cols) * cell, cell, cell);
+    ctx.fillStyle = '#22222a';
+    ctx.font = '14px sans-serif';
+    ctx.fillText(n, (i % cols) * cell + 6, Math.floor(i / cols) * cell + 18);
+  });
+  renderer.setSize(size.x, size.y, false);
+  return out.toDataURL('image/jpeg', 0.85);
+};

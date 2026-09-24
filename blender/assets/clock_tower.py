@@ -4,7 +4,7 @@ from kit import *
 
 def build():
     S, H = 5.0, 16.0
-    p = [box('shaft', (S, S, H), loc=(0, 0, H / 2), color='brick', bev=0.2),
+    p = [box('shaft', (S, S, H), loc=(0, 0, H / 2), color='brick_wall', bev=0.2),
          box('base', (S + 1.0, S + 1.0, 2.5), loc=(0, 0, 1.25), color='concrete', bev=0.2),
          box('door', (0.2, 1.6, 2.4), loc=(S / 2 + 0.5, 0, 1.2), color='navy', bev=0.08),
          box('band1', (S + 0.3, S + 0.3, 0.4), loc=(0, 0, 8), color='cream', bev=0.1),

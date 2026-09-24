@@ -43,7 +43,7 @@ export class Director {
       const row = city.tiles.filter((t) => t.type === 'beach');
       const z = row[0].cz;
       const geo = new THREE.PlaneGeometry(city.half * 2, 18).rotateX(-Math.PI / 2);
-      geo.attributes.uv.array.forEach((_, i, arr) => { arr[i] = i % 2 ? 0.3 : 0.4375; }); // 'sky' swatch
+      geo.attributes.uv.array.forEach((_, i, arr) => { arr[i] = i % 2 ? 1.5 / 6 : 0.4375; }); // 'sky' swatch (col 3, row 1)
       this.floodMat = groundMaterial(city.holeField);
       this.floodMat.transparent = true;
       this.floodMat.opacity = 0.7;

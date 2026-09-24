@@ -26,7 +26,7 @@ def build():
         u, v = r.uniform(0.08, 0.92), r.uniform(0.08, 0.92)
         x, y, z = (u - 0.5) * TILE, (v - 0.5) * TILE, h(u, v)
         for c in range(3):
-            p.append(sphere(f'bush{k}{c}', r.uniform(0.5, 0.9), loc=(x + r.uniform(-0.7, 0.7), y + r.uniform(-0.7, 0.7), z + 0.2), color=r.choice(('forest', 'sage', 'mint')), seg=12, scale=(1, 1, 0.75)))
+            p.append(sphere(f'bush{k}{c}', r.uniform(0.5, 0.9), loc=(x + r.uniform(-0.7, 0.7), y + r.uniform(-0.7, 0.7), z + 0.2), color=r.choice(('foliage', 'foliage_lt', 'foliage_mint')), seg=12, scale=(1, 1, 0.75)))
     for k in range(30):
         u, v = r.uniform(0.05, 0.95), r.uniform(0.05, 0.95)
         p.append(sphere(f'fl{k}', 0.25, loc=((u - 0.5) * TILE, (v - 0.5) * TILE, h(u, v) + 0.1), color=r.choice(('pink', 'butter', 'white')), seg=8, scale=(1, 1, 0.5)))

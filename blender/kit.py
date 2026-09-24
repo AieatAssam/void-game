@@ -121,7 +121,7 @@ def window_grid(cx, cy, z0, w, h, cols, rows, gap_x, gap_z, face, color='glow', 
     return out
 
 
-def lolly_tree(scale=1.0, trunk='clay', leaf=('forest', 'sage'), seed=0):
+def lolly_tree(scale=1.0, trunk='wood', leaf=('foliage', 'foliage_lt'), seed=0):
     """Toy tree: stout trunk + clustered canopy spheres. Returns parts."""
     import random
     rnd = random.Random(seed)

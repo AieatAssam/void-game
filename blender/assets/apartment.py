@@ -4,7 +4,7 @@ from kit import *
 def build():
     W, D, F, FH = 11.0, 9.0, 5, 3.0
     H = F * FH
-    p = [box('walls', (D, W, H), loc=(0, 0, H / 2), color='terracotta', bev=0.2),
+    p = [box('walls', (D, W, H), loc=(0, 0, H / 2), color='brick_wall', bev=0.2),
          box('base', (D + 0.3, W + 0.3, FH), loc=(0, 0, FH / 2), color='clay', bev=0.15),
 
          box('entry', (0.3, 2.4, 2.6), loc=(D / 2 + 0.1, 0, 1.3), color='glow', bev=0.06),

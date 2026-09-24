@@ -3,7 +3,7 @@ from kit import *
 
 def build():
     W, D, H = 8.0, 12.0, 5.0
-    p = [box('walls', (D, W, H), loc=(0, 0, H / 2), color='red', bev=0.15),
+    p = [box('walls', (D, W, H), loc=(0, 0, H / 2), color='brick_wall', bev=0.15),
          prism('roof', W + 1.0, D + 0.6, 3.2, loc=(0, 0, H - 0.05), color='ink', bev=0.12),
          box('door', (0.2, 3.6, 3.8), loc=(D / 2 + 0.05, 0, 1.9), color='white', bev=0.08),
          box('x1', (0.25, 4.6, 0.25), loc=(D / 2 + 0.12, 0, 1.9), color='white', bev=0.05, rot=(0.8, 0, 0)),

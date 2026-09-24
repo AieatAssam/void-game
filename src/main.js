@@ -19,7 +19,9 @@ const $ = (id) => document.getElementById(id);
 const renderer = createRenderer($('c'));
 const look = createScene();
 const { scene, sun } = look;
-const camera = new THREE.PerspectiveCamera(38, 1, 0.3, 900);
+// Longer lens: less perspective distortion on tall props and a truer miniature/tilt-shift read.
+const FOV = 26, LENS = Math.tan(THREE.MathUtils.degToRad(19)) / Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+const camera = new THREE.PerspectiveCamera(FOV, 1, 0.5, 1600);
 const PITCH = THREE.MathUtils.degToRad(55);
 const post = new Post(renderer, scene, camera);
 const sparks = new Sparks();
@@ -338,7 +340,7 @@ function endRun(won, why) {
 const timer = new THREE.Clock();
 const camTarget = new THREE.Vector3(hole.x, 0, hole.z);
 const _v = new THREE.Vector3();
-let camDist = 14, camYaw = 0;
+let camDist = 14 * LENS, camYaw = 0;
 
 renderer.setAnimationLoop(() => frame(Math.min(timer.getDelta(), 1 / 20)));
 window.__tick = (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) frame(dt); };
@@ -437,11 +439,11 @@ function frame(dt) {
   }
   state.best = Math.max(state.best, hole.r);
   city.mixers.forEach((m) => m.update(dt));
-  hole.update(dt, state.time, Math.max(0, 0.5 - state.belly) * 2);
+  hole.update(dt, state.time, Math.max(0, 0.5 - state.belly) * 2, city.groundSpan(hole.x, hole.z, hole.r));
 
   // camera: pull back as the hole grows
   const portrait = Math.max(1, 1.2 / camera.aspect) ** 0.7; // phones see as much width as desktops
-  camDist += ((14 + hole.r * 8) * portrait - camDist) * Math.min(1, dt * 2);
+  camDist += ((14 + hole.r * 8) * portrait * LENS - camDist) * Math.min(1, dt * 2);
   camTarget.lerp(_v.set(hole.x, 0, hole.z), Math.min(1, dt * 6));
   const sh = state.shake * camDist * 0.02;
   // attract mode: slow orbit behind the menu; snaps back to north-up for play (steering is screen-relative)
@@ -454,13 +456,15 @@ function frame(dt) {
   surfaceOn.value = low ? 0 : 1;
   city.budget(camera, hole.r, low);
   followSun(sun, camTarget);
-  const sc = sun.shadow.camera, ext = Math.max(25, camDist * 0.9);
+  scene.fog.near = camDist * 1.15;
+  scene.fog.far = camDist * 3.2 + 200;
+  const sc = sun.shadow.camera, ext = Math.max(25, (camDist / LENS) * 0.9);
   if (sc.right !== ext) { sc.left = sc.bottom = -ext; sc.right = sc.top = ext; sc.updateProjectionMatrix(); }
 
   sparks.update(dt);
   pedTime.value += dt;
   surfaceTime.value += dt;
-  for (const q of rivals.list) q.hole.update(dt, state.time, 0);
+  for (const q of rivals.list) q.hole.update(dt, state.time, 0, city.groundSpan(q.hole.x, q.hole.z, q.hole.r));
   if (state.playing) { hud(); rivals.labels(camera); }
   if (!window.__headless) {
     if (state.playing && document.visibilityState === 'visible') post.watch(dt);

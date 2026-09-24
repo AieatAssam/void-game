@@ -82,19 +82,24 @@ export class Hole {
     this.area += Math.PI * tier * tier * GROWTH * mult;
   }
 
-  update(dt, time, hunger = 0) {
+  update(dt, time, hunger = 0, span = [0.18, 0.18]) {
     const r = this.hidden ? 0 : this.r;
+    // well opens at the lowest ground under the disc (never stands up like a can on the road);
+    // the lip rests on the highest (never buried under the sidewalk)
+    const k = Math.min(1, dt * 12);
+    this.gy = this.gy === undefined ? span[0] : this.gy + (span[0] - this.gy) * k;
+    this.gt = this.gt === undefined ? span[1] : this.gt + (span[1] - this.gt) * k;
     this.field.value[this.slot].set(this.x, this.z, r);
     this.group.visible = !this.hidden;
     const depth = Math.max(4, r * 5);
-    this.well.position.set(this.x, 0.18, this.z);
+    this.well.position.set(this.x, this.gy, this.z);
     this.well.scale.set(r || 1e-3, depth, r || 1e-3);
     this.pulse += dt * (2 + hunger * 10);
     this.bump = Math.max(0, (this.bump || 0) - dt * 0.8);
     const p = 1 + Math.sin(this.pulse) * (0.015 + hunger * 0.05) + this.bump;
-    this.rim.position.set(this.x, 0.19, this.z);
+    this.rim.position.set(this.x, this.gt + 0.01, this.z);
     this.rim.scale.set(r * p || 1e-3, Math.max(1, r * 0.35), r * p || 1e-3);
-    this.ghost.position.set(this.x, 0.2, this.z);
+    this.ghost.position.set(this.x, this.gt + 0.02, this.z);
     this.ghost.scale.setScalar(r * p || 1e-3);
     this.voidMat.uniforms.uTime.value = time;
   }

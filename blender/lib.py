@@ -9,7 +9,7 @@ from mathutils import Vector, Matrix
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RAW = os.path.join(ROOT, 'assets-raw')
-COLS, ROWS, PX = 8, 5, 16
+COLS, ROWS, PX = 8, 6, 16
 # Detail multiplier for LOD0. Curves get more segments, bevels more steps. The optimizer derives
 # LOD1 (~25%) and LOD2 (~8%) from these, so raising Q only costs triangles up close.
 Q = 1.6
@@ -31,11 +31,16 @@ PALETTE = [
     # Row 4 is premium finishes: metals + gloss (see ORM below).
     [('gold', 'E0B040'), ('chrome', 'D6DDE6'), ('copper', 'C8744A'), ('glass', '9FD2EE'),
      ('gloss_black', '1C1C24'), ('pearl', 'F4F0EA'), ('rose_gold', 'E3A58C'), ('hot_pink', 'FF5FC8')],
+    # Row 5 is textured materials: the surface shader gives these real wood/leaf/tile/brick/dirt detail.
+    # Plain colours above stay smooth paint, so only the parts that should be textured are.
+    [('wood', 'B67A4E'), ('foliage', '3F7F5E'), ('foliage_lt', '6DB08E'), ('roof_tile', 'D2654A'),
+     ('brick_wall', 'A8483A'), ('dirt', '8E5E3E'), ('gravel', 'B8B2A7'), ('foliage_mint', '9ED9BF')],
 ]
 # Per-swatch (roughness, metalness). Default satin toy paint; glass + metals shine.
 ORM = {'sky': (0.45, 0.0), 'teal': (0.4, 0.0), 'steel': (0.4, 0.3), 'gold': (0.22, 1.0), 'chrome': (0.12, 1.0),
        'copper': (0.3, 1.0), 'glass': (0.06, 0.0), 'gloss_black': (0.18, 0.0), 'pearl': (0.3, 0.15),
-       'rose_gold': (0.24, 1.0), 'hot_pink': (0.35, 0.0)}
+       'rose_gold': (0.24, 1.0), 'hot_pink': (0.35, 0.0), 'wood': (0.6, 0.0), 'foliage': (0.75, 0.0), 'foliage_lt': (0.75, 0.0),
+       'roof_tile': (0.6, 0.0), 'brick_wall': (0.8, 0.0), 'dirt': (0.95, 0.0), 'gravel': (0.9, 0.0), 'foliage_mint': (0.75, 0.0)}
 SWATCH = {n: (c, r) for r, row in enumerate(PALETTE) for c, (n, _) in enumerate(row)}
 
 

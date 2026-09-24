@@ -60,6 +60,33 @@ export function flatGeometry(asset, lod = 0) {
   return geo;
 }
 
+// Soft contact shadow ("ambient occlusion" blob) texture: grounds every object, one instanced draw call.
+const aoTex = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d'), grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0, 'rgba(0,0,0,0.55)');
+  grd.addColorStop(0.55, 'rgba(0,0,0,0.3)');
+  grd.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+})();
+
+function aoMaterial(holeField) {
+  const mat = new THREE.MeshBasicMaterial({ map: aoTex, transparent: true, depthWrite: false, color: 0x2a2030 });
+  mat.onBeforeCompile = (s) => { // never darken the inside of a hole
+    s.uniforms.uHoles = holeField;
+    s.vertexShader = s.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vAoW;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvAoW = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;');
+    s.fragmentShader = s.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vAoW;\nuniform vec3 uHoles[4];')
+      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+        for (int i = 0; i < 4; i++) if (uHoles[i].z > 0.0 && distance(vAoW.xz, uHoles[i].xy) < uHoles[i].z) discard;`);
+  };
+  mat.customProgramCacheKey = () => 'ao-blob';
+  return mat;
+}
+
 /** Tiles get a material that discards fragments inside the hole (the ground "opens"). */
 export function groundMaterial(holeField) {
   const mat = toyMaterial.clone();
@@ -340,6 +367,23 @@ export class City {
     }
   }
 
+  /** Ground surface height at (x, z): blocks sit 18 cm above the road. */
+  groundY(x, z) {
+    const lx = ((x + this.half) % TILE + TILE) % TILE - TILE / 2, lz = ((z + this.half) % TILE + TILE) % TILE - TILE / 2;
+    return Math.abs(lx) < 15.3 && Math.abs(lz) < 15.3 ? 0.18 : 0.0;
+  }
+
+  /** [lowest, highest] ground under a disc: the well opens at the lowest, the lip rests on the highest. */
+  groundSpan(x, z, r) {
+    let lo = Infinity, hi = -Infinity;
+    for (const [dx, dz] of [[0, 0], [r, 0], [-r, 0], [0, r], [0, -r]]) {
+      const y = this.groundY(x + dx, z + dz);
+      lo = Math.min(lo, y);
+      hi = Math.max(hi, y);
+    }
+    return [lo, hi];
+  }
+
   /** Win condition: buildings still standing. */
   buildingsLeft() {
     let n = 0;
@@ -388,6 +432,7 @@ export class City {
       }
       this.mixers.push(e.mixer);
     }
+    if (this.aoFree?.length && a.meta.tier < 6) e.ao = this.aoFree.pop();
     this.entities.push(e);
     this.place(e);
     return e;
@@ -395,6 +440,7 @@ export class City {
 
   remove(e) {
     e.alive = false;
+    if (e.ao !== undefined && this.ao) { this.aoHide(e.ao); if (e.obj) this.aoFree.push(e.ao); e.ao = undefined; }
     if (e.obj) {
       this.group.remove(e.obj);
       if (e.mixer) { e.mixer.stopAllAction(); this.mixers.splice(this.mixers.indexOf(e.mixer), 1); }
@@ -499,7 +545,32 @@ export class City {
       this.group.add(mesh);
     }
     this.buildScenery();
+    // contact shadows under every small/medium thing (buildings already cast real shadows)
+    const aoList = this.entities.filter((e) => e.meta.tier < 6);
+    this.ao = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), aoMaterial(this.holeField), aoList.length + 64);
+    this.ao.frustumCulled = false;
+    this.ao.renderOrder = 1;
+    this.aoFree = [];
+    aoList.forEach((e, i) => { e.ao = i; });
+    for (let i = aoList.length; i < aoList.length + 64; i++) { this.aoFree.push(i); this.aoHide(i); }
+    for (const e of aoList) this.placeAO(e);
+    this.group.add(this.ao);
     this.dirty.clear();
+  }
+
+  aoHide(i) {
+    this.ao.setMatrixAt(i, _m.makeScale(0, 0, 0));
+    this.dirty.add(this.ao);
+  }
+
+  placeAO(e) {
+    if (!this.ao) return;
+    if (!e.alive || e.falling || !e.s || e.y > 1.5 || e.clog > 0) { this.aoHide(e.ao); return; }
+    const r = e.meta.tier * 2.1 * e.s;
+    _p.set(e.x, this.groundY(e.x, e.z) + 0.03, e.z);
+    _s.set(r, 1, r);
+    this.ao.setMatrixAt(e.ao, _m.compose(_p, _q.identity(), _s));
+    this.dirty.add(this.ao);
   }
 
   buildScenery() {
@@ -542,7 +613,7 @@ export class City {
     // countryside continues to the horizon
     // Uses the hole-cutting ground material (palette 'sage' swatch) so the hole never shows grass inside.
     const fieldGeo = new THREE.CircleGeometry(1400, 64).rotateX(-Math.PI / 2);
-    const swatch = (geo, col, row) => geo.attributes.uv.array.forEach((_, i, arr) => { arr[i] = i % 2 ? (row + 0.5) / 5 : (col + 0.5) / 8; });
+    const swatch = (geo, col, row) => geo.attributes.uv.array.forEach((_, i, arr) => { arr[i] = i % 2 ? (row + 0.5) / 6 : (col + 0.5) / 8; });
     swatch(fieldGeo, 1, 1); // 'sage'
     const field = new THREE.Mesh(fieldGeo, this.groundMat);
     if (this.beach) { // open water to the horizon on the seaside
@@ -578,7 +649,7 @@ export class City {
       if (u.scenery) {
         const d = camera.position.distanceTo(m.boundingSphere.center) - m.boundingSphere.radius;
         m.geometry = u.geos[d > LOD_DIST[1] ? 2 : d > near ? 1 : 0];
-        m.castShadow = d < 60;
+        m.castShadow = d < 35;
         continue;
       }
       m.visible = u.tier >= holeR * 0.03 && (!u.list || u.list.some((e) => e.alive)); // idle reserve pools cost nothing
@@ -586,13 +657,16 @@ export class City {
       // roaming traffic spans the whole city, so it can't be distance-LOD'd per instance: mid detail, low when zoomed out
       const d = u.roams ? (holeR > 4 ? 999 : 30) : camera.position.distanceTo(m.boundingSphere.center) - m.boundingSphere.radius;
       m.geometry = u.geos[d > LOD_DIST[1] ? 2 : d > near ? 1 : 0];
-      if (d > LOD_DIST[1]) m.castShadow = false; // far chunks: shadows smaller than a shadow-map texel
+      // Shadow pass budget: only near chunks cast; city-wide movers (never culled) cast only up close.
+      if (u.roams ? holeR > 2.5 : d > 35) m.castShadow = false;
     }
   }
 
   dispose() {
     for (const m of this.meshes) m.dispose();
     this.clouds.dispose();
+    this.ao.dispose();
+    this.ao.material.dispose();
     this.field.geometry.dispose();
     this.field.userData.sea?.geometry.dispose();
     for (const mx of this.mixers) mx.stopAllAction();
@@ -613,10 +687,12 @@ export class City {
       e.obj.position.copy(_p);
       e.obj.quaternion.copy(_q);
       e.obj.scale.copy(_s);
+      if (e.ao !== undefined) this.placeAO(e);
       return;
     }
     e.mesh.setMatrixAt(e.index, _m.compose(_p, _q, _s));
     this.dirty.add(e.mesh);
+    if (e.ao !== undefined) this.placeAO(e);
   }
 
   /** Movers + falling + swallow checks. Returns list of entities consumed this frame. */
