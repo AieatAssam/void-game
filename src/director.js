@@ -1,5 +1,5 @@
 // The city fights back (heat ★1-4) and feeds you (snack floor). See PLAN.md no-dead-end rules.
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { TILE, SNACK_NAMES, groundMaterial, BUILDINGS } from './city.js';
 
 // Heat follows the hole's current size (with hysteresis), so a shrinking hole also cools the city down:

@@ -1,10 +1,11 @@
 // Seeded Toybox Town: tile grid, buildings, street furniture, pedestrians, traffic.
 // Static things are instanced per (asset, chunk) so off-screen chunks are culled;
 // movers are instanced per asset; animated landmarks are cloned with a mixer.
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import { Fn, uniformArray, uv, vec4, length, smoothstep, pow, If, Discard, positionWorld } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { toyMaterial } from './assets.js';
-import { applySurface } from './surface.js';
+import { groundMaterial } from './surface.js';
 
 export const TILE = 40;
 const CHUNK = 40;
@@ -60,55 +61,22 @@ export function flatGeometry(asset, lod = 0) {
   return geo;
 }
 
-// Soft contact shadow ("ambient occlusion" blob) texture: grounds every object, one instanced draw call.
-const aoTex = (() => {
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const g = c.getContext('2d'), grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grd.addColorStop(0, 'rgba(0,0,0,0.55)');
-  grd.addColorStop(0.55, 'rgba(0,0,0,0.3)');
-  grd.addColorStop(1, 'rgba(0,0,0,0)');
-  g.fillStyle = grd;
-  g.fillRect(0, 0, 64, 64);
-  return new THREE.CanvasTexture(c);
-})();
-
+// Soft contact shadow blobs: ground every small thing (GTAO handles the rest), one instanced draw call.
 function aoMaterial(holeField) {
-  const mat = new THREE.MeshBasicMaterial({ map: aoTex, transparent: true, depthWrite: false, color: 0x2a2030 });
-  mat.onBeforeCompile = (s) => { // never darken the inside of a hole
-    s.uniforms.uHoles = holeField;
-    s.vertexShader = s.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vAoW;')
-      .replace('#include <project_vertex>', '#include <project_vertex>\nvAoW = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;');
-    s.fragmentShader = s.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vAoW;\nuniform vec3 uHoles[4];')
-      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
-        for (int i = 0; i < 4; i++) if (uHoles[i].z > 0.0 && distance(vAoW.xz, uHoles[i].xy) < uHoles[i].z) discard;`);
-  };
-  mat.customProgramCacheKey = () => 'ao-blob';
+  const holes = uniformArray(holeField.value, 'vec3');
+  const mat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false });
+  mat.colorNode = Fn(() => {
+    for (let i = 0; i < 4; i++) { // never darken the inside of a hole
+      const h = holes.element(i);
+      If(h.z.greaterThan(0).and(length(positionWorld.xz.sub(h.xy)).lessThan(h.z)), () => { Discard(); });
+    }
+    const d = length(uv().sub(0.5)).mul(2);
+    return vec4(0.1, 0.08, 0.12, pow(smoothstep(1, 0, d), 1.6).mul(0.42));
+  })();
   return mat;
 }
 
-/** Tiles get a material that discards fragments inside the hole (the ground "opens"). */
-export function groundMaterial(holeField) {
-  const mat = toyMaterial.clone();
-  mat.onBeforeCompile = (s) => {
-    applySurface(s, true);
-    s.uniforms.uHoles = holeField;
-    s.vertexShader = s.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vWorldP;')
-      .replace('#include <project_vertex>', `#include <project_vertex>
-        vec4 wp = vec4(transformed, 1.0);
-        #ifdef USE_INSTANCING
-          wp = instanceMatrix * wp;
-        #endif
-        vWorldP = (modelMatrix * wp).xyz;`);
-    s.fragmentShader = s.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vWorldP;\nuniform vec3 uHoles[4];')
-      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
-        for (int i = 0; i < 4; i++) if (uHoles[i].z > 0.0 && distance(vWorldP.xz, uHoles[i].xy) < uHoles[i].z) discard;`);
-  };
-  mat.customProgramCacheKey = () => 'ground-surface';
-  return mat;
-}
+export { groundMaterial };
 
 const SIDEWALK = ['lamp', 'tree_small', 'bench', 'hydrant', 'trashcan', 'mailbox', 'newsbox', 'vending', 'phone_booth',
   'planter', 'flower_pot', 'bicycle', 'scooter', 'cone', 'tree_small', 'bench'];
@@ -320,7 +288,7 @@ export class City {
       }
       if (r() < 0.5) this.add('swing', cx + 7, cz - 7, r() * 6.28);
       for (let k = 0; k < 6; k++) this.add('pigeon', cx + r.range(-10, 10), cz + r.range(-10, 10), r() * 6.28, { type: 'peck', t: r() * 10 });
-      for (let k = 0; k < 5; k++) this.walker(cx, cz, 9);
+      for (let k = 0; k < 5; k++) this.walker(cx, cz, 12); // loop outside the pond (tile-local 7,7, r 4.2) at any rotation
     } else {
       this.add('fountain', cx, cz, 0);
       for (let k = 0; k < 4; k++) {
@@ -568,7 +536,7 @@ export class City {
       const mesh = new THREE.InstancedMesh(full, mat, g.list.length);
       mesh.castShadow = !g.ground;
       mesh.receiveShadow = true;
-      mesh.userData = { geos: [full, lod, lod2], full, tier: g.ground ? Infinity : a.meta.tier, ground: !!g.ground, roams: g.roams, list: g.reserve ? g.list : null };
+      mesh.userData = { geos: [full, lod, lod2], full, tier: g.ground ? Infinity : a.meta.tier, ground: !!g.ground, roams: g.roams, list: g.reserve ? g.list : null, toyFlags: a.flags };
       g.list.forEach((e, i) => { e.mesh = mesh; e.index = i; this.place(e); });
       mesh.instanceMatrix.setUsage(g.mover ? THREE.DynamicDrawUsage : THREE.StaticDrawUsage);
       if (g.roams) mesh.frustumCulled = false;
@@ -639,7 +607,7 @@ export class City {
       const geos = [0, 1, 2].map((l) => flatGeometry(a, l));
       const mesh = new THREE.InstancedMesh(geos[0], a.material, g.list.length);
       mesh.castShadow = mesh.receiveShadow = true;
-      mesh.userData = { geos, tier: Infinity, scenery: true };
+      mesh.userData = { geos, tier: Infinity, scenery: true, toyFlags: a.flags };
       g.list.forEach((e, i) => { e.mesh = mesh; e.index = i; this.place(e); });
       mesh.computeBoundingSphere();
       this.meshes.push(mesh);

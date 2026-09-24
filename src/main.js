@@ -1,12 +1,12 @@
-import * as THREE from 'three';
-import { createRenderer, createScene, followSun, applyTime, TIMES } from './look.js';
-import { loadAll, toyMaterial, pedTime, syncMaterials } from './assets.js';
+import * as THREE from 'three/webgpu';
+import { createRenderer, createScene, followSun, applyTime, setFogRange, TIMES } from './look.js';
+import { loadAll, pedTime, glow } from './assets.js';
 import { City, rng, BUILDINGS, PEOPLE } from './city.js';
 import { Hole, holeField } from './hole.js';
 import { Rivals } from './rivals.js';
 import { SKINS } from './skins.js';
 import { CARDS, VEHICLES, offer, dailyCard } from './cards.js';
-import { record, renderBook, title, bookEntries, thumb } from './book.js';
+import { record, renderBook, title, bookEntries, thumb, warmThumbs } from './book.js';
 import { Director } from './director.js';
 import { installBot } from './bot.js';
 import { UPGRADES, save, persist, level, buy, todaySeed } from './meta.js';
@@ -16,7 +16,7 @@ import { Sparks, Debris, SMOKE } from './fx.js';
 import { surfaceTime, surfaceOn, world } from './surface.js';
 
 const $ = (id) => document.getElementById(id);
-const renderer = createRenderer($('c'));
+const renderer = await createRenderer($('c'));
 const look = createScene();
 const { scene, sun } = look;
 // Longer lens: less perspective distortion on tall props and a truer miniature/tilt-shift read.
@@ -49,7 +49,7 @@ const MILESTONES = [['people', ['ped_business', 'ped_granny', 'ped_kid']], ['ben
   ['apartments', ['apartment', 'office', 'hotel']], ['skyscrapers', ['skyscraper', 'clock_tower', 'crane']]]
   .map(([label, names]) => { names = names.filter((n) => assets[n]); return { label, names, need: Math.max(...names.map((n) => assets[n].meta.tier)) / 0.95 }; })
   .sort((a, b) => a.need - b.need);
-setTimeout(() => { for (const m of MILESTONES) m.icons = m.names.map((n) => thumb(assets[n])); }, 1200); // pre-render, never mid-run
+if (!location.search.includes('nothumbs')) setTimeout(async () => { await warmThumbs(assets); for (const m of MILESTONES) m.icons = m.names.map((n) => thumb(assets[n])); }, 1200); // pre-render, never mid-run
 const levelEl = Object.assign(document.createElement('div'), { id: 'levelup' });
 document.body.append(levelEl);
 function sizeUp(m) {
@@ -101,8 +101,9 @@ function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false, card = 'non
   // Randomised start: time of day, and a calm open tile (never a downtown lot) at a random spot on it.
   const r = rng(seed ^ 0x5eed);
   const time = new URLSearchParams(location.search).get('time') || (city.mood.night ? 'night' : r.pick(DAY_TIMES));
-  look.grade = applyTime(look, renderer, time, toyMaterial).grade;
-  syncMaterials();
+  const preset = applyTime(look, renderer, time);
+  look.grade = preset.grade;
+  glow.value = preset.glow;
   world.night.value = TIMES[time]?.night ? 1 : 0;
   world.edCol.value.set(SKINS[save.skin || 'void'].rim);
   const open = city.tiles.filter((t) => ['plaza', 'park', 'residential', 'canal', 'parking', 'beach', 'neon'].includes(t.type));
@@ -121,7 +122,8 @@ function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false, card = 'non
     reverse: 0, jam: 0, slow: 0, invuln: 0, shake: 0, sealing: 0, hits: [], left: city.buildingsLeft(), combo: 0, comboT: 0, bonus: 0,
     rareDust: 0, rivalsEaten: 0, hitstop: 0, punch: 0, finale: 0, mi: MILESTONES.filter((m) => hole.r >= m.need).length };
 }
-newRun();
+const URL_SEED = new URLSearchParams(location.search).get('seed');
+newRun(URL_SEED ? +URL_SEED : undefined);
 window.__game = () => ({ hole, city, state, renderer, director, rivals });
 if (location.search.includes('bot')) installBot();
 
@@ -274,7 +276,7 @@ function start(seed, daily) {
   sfx.unlock();
   const card = daily ? dailyCard(rng(seed)) : pickedCard;
   // Play the city shown behind the menu; reroll for daily/replays or when the card changes the city.
-  const fresh = state.over || state.time > 0;
+  const fresh = state.over || state.time > 0 || false;
   if (seed !== undefined || fresh || card !== 'none') newRun(seed ?? (fresh ? undefined : state.seed), daily, card);
   $('screen').hidden = true;
   $('hud').hidden = false;
@@ -560,13 +562,11 @@ function frame(dt) {
   surfaceOn.value = low ? 0 : 1;
   city.budget(camera, hole.r, low);
   followSun(sun, camTarget);
-  scene.fog.near = camDist * 1.15;
-  scene.fog.far = camDist * 3.2 + 200;
+  setFogRange(camDist);
   const sc = sun.shadow.camera, ext = Math.max(25, (camDist / LENS) * 0.9);
   if (sc.right !== ext) { sc.left = sc.bottom = -ext; sc.right = sc.top = ext; sc.updateProjectionMatrix(); }
 
   sparks.update(dt);
-  debris.puffs.material.uniforms.uPx.value = canvas.height * 0.5; // world-size puffs
   debris.update(dt);
   for (const s of bubbles) {
     if (s.t <= 0) continue;

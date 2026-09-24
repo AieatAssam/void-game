@@ -1,21 +1,40 @@
 // Swallow sparks: lilac/white motes that burst out of the rim, sized by the bite. One Points draw call.
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import { instancedBufferAttribute, vec4, uv, length, smoothstep, cameraProjectionMatrix, float, pow } from 'three/tsl';
+
+/** Camera-facing instanced sprites (WebGPU has no sized points): position/colour/size/alpha per instance. */
+function spriteCloud(n, { additive, world }) {
+  const pos = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage);
+  const col = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage);
+  const size = new THREE.InstancedBufferAttribute(new Float32Array(n).fill(0.3), 1).setUsage(THREE.DynamicDrawUsage);
+  const alpha = new THREE.InstancedBufferAttribute(new Float32Array(n).fill(1), 1).setUsage(THREE.DynamicDrawUsage);
+  const mat = new THREE.PointsNodeMaterial({ transparent: true, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending, sizeAttenuation: true });
+  mat.positionNode = instancedBufferAttribute(pos);
+  // world: size is in metres (projection-scaled); otherwise it matches three's attenuated point size
+  const s = instancedBufferAttribute(size);
+  mat.sizeNode = world ? s.mul(cameraProjectionMatrix.element(1).element(1)) : s;
+  const d = length(uv().sub(0.5));
+  const a = instancedBufferAttribute(alpha);
+  mat.colorNode = additive
+    ? vec4(instancedBufferAttribute(col).mul(pow(smoothstep(0.5, 0.0, d), float(1.5))).mul(2.2), 1)
+    : vec4(instancedBufferAttribute(col), a.mul(smoothstep(0.5, 0.15, d)));
+  const sprite = new THREE.Sprite(mat);
+  sprite.count = n;
+  sprite.frustumCulled = false;
+  return { sprite, pos, col, size, alpha };
+}
 
 const MAX = 400;
 
 export class Sparks {
   constructor() {
-    this.pos = new Float32Array(MAX * 3);
+    this.cloud = spriteCloud(MAX, { additive: true, world: false });
+    this.pos = this.cloud.pos.array;
+    this.col = this.cloud.col.array;
     this.vel = new Float32Array(MAX * 3);
     this.life = new Float32Array(MAX);
-    this.col = new Float32Array(MAX * 3);
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
-    g.setAttribute('color', new THREE.BufferAttribute(this.col, 3).setUsage(THREE.DynamicDrawUsage));
-    this.points = new THREE.Points(g, new THREE.PointsMaterial({
-      size: 0.35, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true,
-    }));
-    this.points.frustumCulled = false;
+    this.pos.fill(-999);
+    this.points = this.cloud.sprite;
     this.next = 0;
     this.lilac = new THREE.Color(0xb58cff);
     this.white = new THREE.Color(0xffffff);
@@ -32,7 +51,8 @@ export class Sparks {
       this.life[i] = 0.6 + Math.random() * 0.5;
       (Math.random() < 0.7 ? this.lilac : this.white).toArray(this.col, i * 3);
     }
-    this.points.material.size = 0.25 + r * 0.06;
+    this.cloud.size.array.fill(0.25 + r * 0.06);
+    this.cloud.size.needsUpdate = true;
   }
 
   update(dt) {
@@ -48,8 +68,8 @@ export class Sparks {
       const f = Math.max(0, this.life[i]);
       this.col[j] *= 0.97 + f * 0.03; this.col[j + 1] *= 0.97 + f * 0.03; this.col[j + 2] *= 0.97 + f * 0.03;
     }
-    this.points.geometry.attributes.position.needsUpdate = true;
-    this.points.geometry.attributes.color.needsUpdate = true;
+    this.cloud.pos.needsUpdate = true;
+    this.cloud.col.needsUpdate = true;
   }
 }
 
@@ -68,31 +88,17 @@ export class Debris {
     for (let i = 0; i < CHUNKS; i++) { this.mesh.setMatrixAt(i, _m4.makeScale(0, 0, 0)); this.mesh.setColorAt(i, CONFETTI[0]); }
     this.next = 0;
     // puffs: soft round sprites with per-point size + alpha
-    this.pos = new Float32Array(PUFFS * 3);
+    this.cloud = spriteCloud(PUFFS, { additive: false, world: true });
+    this.pos = this.cloud.pos.array;
+    this.size = this.cloud.size.array;
+    this.alpha = this.cloud.alpha.array;
+    this.col = this.cloud.col.array;
+    this.alpha.fill(0);
     this.vel = new Float32Array(PUFFS * 3);
-    this.size = new Float32Array(PUFFS);
-    this.alpha = new Float32Array(PUFFS);
-    this.col = new Float32Array(PUFFS * 3);
     this.plife = new Float32Array(PUFFS);
     this.pmax = new Float32Array(PUFFS);
     this.grow = new Float32Array(PUFFS);
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
-    g.setAttribute('aSize', new THREE.BufferAttribute(this.size, 1).setUsage(THREE.DynamicDrawUsage));
-    g.setAttribute('aAlpha', new THREE.BufferAttribute(this.alpha, 1).setUsage(THREE.DynamicDrawUsage));
-    g.setAttribute('color', new THREE.BufferAttribute(this.col, 3).setUsage(THREE.DynamicDrawUsage));
-    this.puffs = new THREE.Points(g, new THREE.ShaderMaterial({
-      transparent: true, depthWrite: false, vertexColors: true, uniforms: { uPx: { value: 500 } },
-      vertexShader: /* glsl */ `
-        attribute float aSize; attribute float aAlpha; uniform float uPx; varying float vA; varying vec3 vC;
-        void main() { vA = aAlpha; vC = color; vec4 mv = modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = aSize * projectionMatrix[1][1] * uPx / -mv.z; gl_Position = projectionMatrix * mv; }`,
-      fragmentShader: /* glsl */ `
-        varying float vA; varying vec3 vC;
-        void main() { float d = length(gl_PointCoord - 0.5); if (d > 0.5) discard;
-          gl_FragColor = vec4(vC, vA * smoothstep(0.5, 0.15, d)); }`,
-    }));
-    this.puffs.frustumCulled = false;
+    this.puffs = this.cloud.sprite;
     this.pnext = 0;
     this.group = new THREE.Group().add(this.mesh, this.puffs);
   }
@@ -175,8 +181,8 @@ export class Debris {
       this.size[i] += this.grow[i] * dt;
       this.alpha[i] *= f > 0.02 ? 1 - dt * (0.6 / Math.max(0.2, this.pmax[i])) : 0;
     }
-    const a = this.puffs.geometry.attributes;
-    a.position.needsUpdate = a.aSize.needsUpdate = a.aAlpha.needsUpdate = a.color.needsUpdate = true;
+    const c = this.cloud;
+    c.pos.needsUpdate = c.size.needsUpdate = c.alpha.needsUpdate = c.col.needsUpdate = true;
   }
 }
 

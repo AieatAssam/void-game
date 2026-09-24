@@ -1,23 +1,23 @@
 // Showroom: every asset on the tabletop, sorted by tier, clips playing. Click a name to frame it.
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createRenderer, createScene, applyTime, followSun, COLORS } from './look.js';
-import { loadAll } from './assets.js';
+import { loadAll, glow } from './assets.js';
 
-const renderer = createRenderer(document.getElementById('c'));
+const renderer = await createRenderer(document.getElementById('c'));
 const look = createScene();
 const { scene } = look;
 const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 500);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 
-const table = new THREE.Mesh(new THREE.CircleGeometry(200, 64), new THREE.MeshStandardMaterial({ color: COLORS.ground }));
+const table = new THREE.Mesh(new THREE.CircleGeometry(200, 64), new THREE.MeshStandardMaterial({ color: COLORS.ground, roughness: 0.9 }));
 table.rotation.x = -Math.PI / 2;
 table.receiveShadow = true;
 scene.add(table);
 
 const assets = await loadAll();
-import('./assets.js').then(({ toyMaterial, syncMaterials }) => { applyTime(look, renderer, new URLSearchParams(location.search).get('time') || 'golden', toyMaterial); syncMaterials(); });
+glow.value = applyTime(look, renderer, new URLSearchParams(location.search).get('time') || 'golden').glow;
 const mixers = [];
 const list = document.getElementById('list');
 const sorted = Object.values(assets).sort((p, q) => p.meta.tier - q.meta.tier);
