@@ -1,19 +1,19 @@
 import * as THREE from 'three';
 import { createRenderer, createScene, followSun, applyTime, TIMES } from './look.js';
-import { loadAll, toyMaterial, pedTime } from './assets.js';
+import { loadAll, toyMaterial, pedTime, syncMaterials } from './assets.js';
 import { City, rng, BUILDINGS, PEOPLE } from './city.js';
 import { Hole, holeField } from './hole.js';
 import { Rivals } from './rivals.js';
 import { SKINS } from './skins.js';
 import { CARDS, VEHICLES, offer, dailyCard } from './cards.js';
-import { record, renderBook, title, bookEntries } from './book.js';
+import { record, renderBook, title, bookEntries, thumb } from './book.js';
 import { Director } from './director.js';
 import { installBot } from './bot.js';
 import { UPGRADES, save, persist, level, buy, todaySeed } from './meta.js';
 import * as sfx from './sfx.js';
 import { Post } from './post.js';
-import { Sparks } from './fx.js';
-import { surfaceTime, surfaceOn } from './surface.js';
+import { Sparks, Debris, SMOKE } from './fx.js';
+import { surfaceTime, surfaceOn, world } from './surface.js';
 
 const $ = (id) => document.getElementById(id);
 const renderer = createRenderer($('c'));
@@ -26,6 +26,10 @@ const PITCH = THREE.MathUtils.degToRad(55);
 const post = new Post(renderer, scene, camera);
 const sparks = new Sparks();
 scene.add(sparks.points);
+const debris = new Debris();
+scene.add(debris.group);
+const LOW_FX = location.search.includes('low');
+const smokeCol = new THREE.Color();
 
 // ---------- starvation tuning (PLAN.md: keep moving or the ground seals) ----------
 const BELLY_DRAIN = 1 / 8; // a full belly lasts 8s
@@ -38,6 +42,51 @@ const MAX_HIT = 0.25; // rule 3: no single hit takes more than 25%
 const assets = await loadAll((p) => { $('load').querySelector('b').textContent = `${Math.round(p * 100)}%`; });
 $('load').hidden = true;
 $('menu').hidden = false;
+
+// Size-up moments: each milestone is reached when every example in it fits the hole (sizes come from the manifest).
+const MILESTONES = [['people', ['ped_business', 'ped_granny', 'ped_kid']], ['benches & bikes', ['bench', 'bicycle', 'vending']],
+  ['cars', ['car', 'taxi', 'car_c']], ['vans & buses', ['icecream_van', 'police_car', 'bus']], ['houses', ['house', 'shop', 'cafe']],
+  ['apartments', ['apartment', 'office', 'hotel']], ['skyscrapers', ['skyscraper', 'clock_tower', 'crane']]]
+  .map(([label, names]) => { names = names.filter((n) => assets[n]); return { label, names, need: Math.max(...names.map((n) => assets[n].meta.tier)) / 0.95 }; })
+  .sort((a, b) => a.need - b.need);
+setTimeout(() => { for (const m of MILESTONES) m.icons = m.names.map((n) => thumb(assets[n])); }, 1200); // pre-render, never mid-run
+const levelEl = Object.assign(document.createElement('div'), { id: 'levelup' });
+document.body.append(levelEl);
+function sizeUp(m) {
+  hole.shockwave();
+  sfx.levelUp();
+  levelEl.innerHTML = `<small>Size up · ${hole.r.toFixed(1)} m</small><b>Now eating ${m.label}!</b><span>${(m.icons || []).map((u) => `<img alt="" src="${u}">`).join('')}</span>`;
+  levelEl.classList.remove('show');
+  void levelEl.offsetWidth;
+  levelEl.classList.add('show');
+}
+
+// Panicked shouts over fleeing people (a small pool of DOM bubbles that follow their owner).
+const bubbles = Array.from({ length: 6 }, () => {
+  const b = Object.assign(document.createElement('div'), { className: 'shout', hidden: true });
+  document.body.append(b);
+  return { b, e: null, t: 0 };
+});
+const SHOUTS = ['!', 'Aah!', 'Eek!', 'Run!', 'Help!', '!!', 'Nooo!'];
+function shout(e) {
+  const s = bubbles.find((q) => q.t <= 0);
+  if (!s) return;
+  Object.assign(s, { e, t: 1.1 });
+  s.b.textContent = SHOUTS[Math.floor(Math.random() * SHOUTS.length)];
+  s.b.hidden = false;
+  s.b.classList.remove('pop');
+  void s.b.offsetWidth;
+  s.b.classList.add('pop');
+}
+
+/** Small JPEG of the frame just drawn (for the "biggest bite" polaroid). */
+function snapshot() {
+  const c = document.createElement('canvas');
+  c.width = 320;
+  c.height = Math.round(320 * canvas.height / canvas.width);
+  c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.8);
+}
 
 const field = holeField();
 const DAY_TIMES = Object.keys(TIMES).filter((k) => !TIMES[k].night);
@@ -53,6 +102,9 @@ function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false, card = 'non
   const r = rng(seed ^ 0x5eed);
   const time = new URLSearchParams(location.search).get('time') || (city.mood.night ? 'night' : r.pick(DAY_TIMES));
   look.grade = applyTime(look, renderer, time, toyMaterial).grade;
+  syncMaterials();
+  world.night.value = TIMES[time]?.night ? 1 : 0;
+  world.edCol.value.set(SKINS[save.skin || 'void'].rim);
   const open = city.tiles.filter((t) => ['plaza', 'park', 'residential', 'canal', 'parking', 'beach', 'neon'].includes(t.type));
   const t = r.pick(open);
   const a = r() * Math.PI * 2;
@@ -67,7 +119,7 @@ function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false, card = 'non
   scene.add(city.group, hole.group);
   state = { playing: false, seed, daily, card, time: 0, belly: 1, eaten: 0, score: 0, best: hole.r, stars: 0,
     reverse: 0, jam: 0, slow: 0, invuln: 0, shake: 0, sealing: 0, hits: [], left: city.buildingsLeft(), combo: 0, comboT: 0, bonus: 0,
-    rareDust: 0, rivalsEaten: 0 };
+    rareDust: 0, rivalsEaten: 0, hitstop: 0, punch: 0, finale: 0, mi: MILESTONES.filter((m) => hole.r >= m.need).length };
 }
 newRun();
 window.__game = () => ({ hole, city, state, renderer, director, rivals });
@@ -312,7 +364,7 @@ function endRun(won, why) {
   pickedCard = 'none';
   renderCards();
   state.over = true;
-  if (won) sfx.star();
+  if (won) { sfx.star(); state.finale = 3.4; }
   else { state.sealing = 1.2; sfx.seal(); }
   const mult = CARDS[state.card].mult;
   const dust = Math.floor((Math.floor(2 * Math.sqrt(state.score)) + Math.floor(state.bonus / 4) + state.rareDust + (won ? 150 : 0)) * mult);
@@ -334,10 +386,11 @@ function endRun(won, why) {
     $('result').innerHTML = (won
       ? `Every building gone in <b>${clock(state.time)}</b>${state.daily ? ' — today\'s city' : ''}. Fastest ever <b>${clock(save.fastest)}</b>.`
       : `You swallowed <b>${state.eaten}</b> things and grew to <b>${state.best.toFixed(1)} m</b>${state.daily ? ' in today\'s city' : ''}. <b>${state.left}</b> buildings still stand.`)
-      + `<br>+<b>${dust}</b> void dust${mult > 1 ? ` (×${mult} ${CARDS[state.card].name})` : ''}${state.rivalsEaten ? ` · ate ${state.rivalsEaten} rival${state.rivalsEaten > 1 ? 's' : ''}` : ''} · best ever <b>${save.best.toFixed(1)} m</b>`;
+      + (state.bite ? `<span class="bite"><img alt="" src="${state.bite}"><small>Biggest bite · ${title(state.biteName)}</small></span>` : '<br>')
+      + `+<b>${dust}</b> void dust${mult > 1 ? ` (×${mult} ${CARDS[state.card].name})` : ''}${state.rivalsEaten ? ` · ate ${state.rivalsEaten} rival${state.rivalsEaten > 1 ? 's' : ''}` : ''} · best ever <b>${save.best.toFixed(1)} m</b>`;
     $('play').textContent = 'Dig again';
     renderShop();
-  }, 1300);
+  }, won ? 3600 : 1300);
 }
 
 // ---------- loop ----------
@@ -350,6 +403,7 @@ renderer.setAnimationLoop(() => frame(Math.min(timer.getDelta(), 1 / 20)));
 window.__tick = (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) frame(dt); };
 
 function frame(dt) {
+  if (state.hitstop > 0) { state.hitstop -= dt; dt *= 0.1; } // hit-stop: the world freezes for a beat on a big bite
   const w = innerWidth, h = innerHeight;
   if (canvas.width !== Math.floor(w * renderer.getPixelRatio())) {
     renderer.setSize(w, h, false);
@@ -415,6 +469,22 @@ function frame(dt) {
   if (!state.playing) rivals.update(dt, hole, false);
   const eaten = city.update(dt, [hole, ...rivals.holes], state.jam > 0 || !state.playing);
   for (const ev of city.events) {
+    if (ev.type === 'fall') {
+      const e = ev.e, t = e.meta.tier, mine = e.eater === hole && state.playing;
+      if (t >= 2.5) {
+        debris.collapse(e, e.eater || hole, LOW_FX || post.lowSpec);
+        if (mine) state.shake = Math.max(state.shake, Math.min(0.5, t * 0.04));
+      }
+      if (mine && t >= 0.5 && t > hole.r * 0.6 && state.time > (state.stopCool || 0)) {
+        state.stopCool = state.time + 1;
+        state.hitstop = 0.05 + Math.min(0.08, t * 0.012);
+        state.punch = 1;
+        sfx.bigGulp(t);
+      }
+      if (mine && t >= 0.5 && t > (state.biteTier || 0)) { state.biteTier = t; state.biteName = e.name; state.snapAt = state.time + 0.25; }
+    }
+    if (ev.type === 'scream' && state.playing) { shout(ev.e); sfx.eek(); }
+    if (ev.type === 'honk' && state.playing) sfx.honk(ev.d);
     if (ev.type === 'clog' && state.playing) { state.jam = Math.max(state.jam, 1.5); flash('Clogged!'); sfx.hurt(); }
     if (ev.type === 'tooBig' && state.playing && !(state.time < (state.tooBigT || 0))) {
       state.tooBigT = state.time + 6;
@@ -447,24 +517,43 @@ function frame(dt) {
     state.score += Math.PI * e.meta.tier ** 2;
     hole.bump = Math.min(0.25, (hole.bump || 0) + e.meta.tier / hole.r * 0.3);
     sparks.burst(hole.x, hole.z, hole.r, e.meta.tier);
+    if (e.meta.tier > hole.r * 0.12) debris.crumbs(hole, e.meta.tier);
     state.combo = state.comboT > 0 ? state.combo + 1 : 1;
     state.comboT = 0.9;
     state.bonus += state.combo - 1;
     if (state.combo >= 3) combo(state.combo);
   }
   state.best = Math.max(state.best, hole.r);
+  if (state.playing) {
+    let top = null;
+    while (state.mi < MILESTONES.length && hole.r >= MILESTONES[state.mi].need) top = MILESTONES[state.mi++];
+    if (top) sizeUp(top); // several at once (ate a rival): announce only the biggest
+  }
+  // chimney + street-food smoke near the camera
+  if (!LOW_FX && !post.lowSpec) for (const e of city.smokers ??= city.entities.filter((q) => SMOKE[q.name])) {
+    if (!e.alive || e.falling || (e.smokeT = (e.smokeT ?? Math.random()) - dt) > 0) continue;
+    e.smokeT = 0.35 + Math.random() * 0.3;
+    if (Math.abs(e.x - camTarget.x) > camDist * 0.8 || Math.abs(e.z - camTarget.z) > camDist * 0.8) continue;
+    const [lx, ly, lz, c] = SMOKE[e.name], cs = Math.cos(e.rot), sn = Math.sin(e.rot);
+    debris.puff(e.x + lx * cs + lz * sn, ly + e.y, e.z - lx * sn + lz * cs, 0.25 + Math.random() * 0.2, 0.8 + Math.random() * 0.4,
+      (Math.random() - 0.5) * 0.2, 0.3, 0.7, 2.6, smokeCol.set(c), 0.4);
+  }
   city.mixers.forEach((m) => m.update(dt));
   hole.update(dt, state.time, Math.max(0, 0.5 - state.belly) * 2, city.groundSpan(hole.x, hole.z, hole.r));
 
   // camera: pull back as the hole grows
   const portrait = Math.max(1, 1.2 / camera.aspect) ** 0.7; // phones see as much width as desktops
-  camDist += ((14 + hole.r * 8) * portrait * LENS - camDist) * Math.min(1, dt * 2);
+  state.finale = Math.max(0, state.finale - dt);
+  state.punch = Math.max(0, state.punch - dt * 2.5);
+  const lift = state.finale > 0 ? 2.2 : 1; // victory: pull up over the emptied city
+  camDist += ((14 + hole.r * 8) * portrait * LENS * lift - camDist) * Math.min(1, dt * (state.finale > 0 ? 0.8 : 2));
   camTarget.lerp(_v.set(hole.x, 0, hole.z), Math.min(1, dt * 6));
   const sh = state.shake * camDist * 0.02;
   // attract mode: slow orbit behind the menu; snaps back to north-up for play (steering is screen-relative)
-  camYaw = state.playing || state.over ? Math.atan2(Math.sin(camYaw), Math.cos(camYaw)) * Math.max(0, 1 - dt * 4) : camYaw + dt * 0.06;
-  const horiz = Math.cos(PITCH) * camDist;
-  camera.position.set(camTarget.x + Math.sin(camYaw) * horiz + (Math.random() - 0.5) * sh, Math.sin(PITCH) * camDist,
+  camYaw = state.finale > 0 ? camYaw + dt * 0.3 : state.playing || state.over ? Math.atan2(Math.sin(camYaw), Math.cos(camYaw)) * Math.max(0, 1 - dt * 4) : camYaw + dt * 0.06;
+  const camD = camDist * (1 - state.punch * 0.07); // punch-in on big bites
+  const horiz = Math.cos(PITCH) * camD;
+  camera.position.set(camTarget.x + Math.sin(camYaw) * horiz + (Math.random() - 0.5) * sh, Math.sin(PITCH) * camD,
     camTarget.z + Math.cos(camYaw) * horiz + (Math.random() - 0.5) * sh);
   camera.lookAt(camTarget);
   const low = post.lowSpec || location.search.includes('low');
@@ -477,6 +566,16 @@ function frame(dt) {
   if (sc.right !== ext) { sc.left = sc.bottom = -ext; sc.right = sc.top = ext; sc.updateProjectionMatrix(); }
 
   sparks.update(dt);
+  debris.puffs.material.uniforms.uPx.value = canvas.height * 0.5; // world-size puffs
+  debris.update(dt);
+  for (const s of bubbles) {
+    if (s.t <= 0) continue;
+    s.t -= dt;
+    if (s.t <= 0 || !s.e.alive || s.e.falling || !state.playing) { s.t = 0; s.b.hidden = true; continue; }
+    _v.set(s.e.x, s.e.y + s.e.meta.height + 0.3, s.e.z).project(camera);
+    s.b.style.transform = `translate(${(_v.x * 0.5 + 0.5) * innerWidth}px, ${(-_v.y * 0.5 + 0.5) * innerHeight}px) translate(-10%, -100%)`;
+  }
+  world.hole.value.set(hole.x, hole.z, hole.hidden || !state.playing ? 0 : hole.r, hole.vac || 0);
   pedTime.value += dt;
   surfaceTime.value += dt;
   for (const q of rivals.list) q.hole.update(dt, state.time, 0, city.groundSpan(q.hole.x, q.hole.z, q.hole.r));
@@ -484,5 +583,6 @@ function frame(dt) {
   if (!window.__headless) {
     if (state.playing && document.visibilityState === 'visible') post.watch(dt);
     post.render(look.grade || [1, 1, 1]);
+    if (state.snapAt && state.time >= state.snapAt) { state.snapAt = 0; state.bite = snapshot(); }
   }
 }

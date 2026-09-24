@@ -28,7 +28,7 @@ export function record(name) {
 let thumbR, thumbScene, thumbCam;
 const thumbs = new Map();
 
-function thumb(asset) {
+export function thumb(asset) {
   if (thumbs.has(asset.name)) return thumbs.get(asset.name);
   if (!thumbR) {
     thumbR = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });

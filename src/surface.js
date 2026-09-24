@@ -4,8 +4,12 @@
 // Models have no real UVs (faces point at swatch centres), so patterns run in object space, projected on the
 // dominant axis of the local normal. They fade with distance to avoid shimmer.
 
+import { Vector4, Color } from 'three';
+
 export const surfaceTime = { value: 0 };
 export const surfaceOn = { value: 1 }; // 0 on low-spec devices (set by the fps watchdog)
+// Shared world state for every toy material: player hole (x, z, r, vacuum), night amount, edible-glow colour.
+export const world = { hole: { value: new Vector4() }, night: { value: 0 }, edCol: { value: new Color(0xb58cff) } };
 
 // swatch index = col + 8 * row (see blender/lib.py PALETTE). Types:
 // 0 none, 1 paint, 2 asphalt, 3 concrete, 4 grass, 5 paving, 6 sand, 7 dirt, 8 brick, 9 wood, 10 leaves, 11 metal, 12 water, 13 roof shingles
@@ -27,8 +31,9 @@ const GROUND = [
 ];
 
 const GLSL = /* glsl */ `
-  varying vec3 vSurfP; varying vec3 vSurfN;
-  uniform float uSurfTime; uniform float uSurfOn;
+  varying vec3 vSurfP; varying vec3 vSurfN; varying vec3 vSurfW;
+  uniform float uSurfTime; uniform float uSurfOn; uniform vec4 uHole; uniform vec4 uFlags; uniform float uNight; uniform vec3 uEdCol;
+  float sPud = 0.0;
   float sH21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
   float sNoise(vec2 p) {
     vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
@@ -93,16 +98,72 @@ const GLSL = /* glsl */ `
   }
 `;
 
-/** Patch a MeshStandardMaterial shader (inside onBeforeCompile) with surface detail. ground = use the ground table. */
-export function applySurface(s, ground = false) {
+const NO_FLAGS = { value: null };
+// Street wear, laid out in world space so every tile is different: hairline cracks, puddles that mirror the sky,
+// oil stains on roads and fallen leaves on paths and lawns.
+const WEAR = /* glsl */ `
+  vec2 w = vSurfW.xz;
+  if (st == 2) { // jagged hairline cracks in sparse patches
+    vec2 cw = w * 0.8 + (sFbm(w * 2.3) - 0.5) * 0.9;
+    float crack = smoothstep(0.018, 0.0, abs(sNoise(cw) - 0.5)) * smoothstep(0.62, 0.7, sNoise(w * 0.05 + 5.0));
+    diffuseColor.rgb *= 1.0 - crack * 0.45 * fade;
+    sBump -= crack * 0.02 * fade;
+  }
+  if (st == 2) {
+    float pud = smoothstep(0.68, 0.73, sFbm(w * 0.08 + 11.0));
+    sPud = pud * fade;
+    diffuseColor.rgb *= 1.0 - pud * 0.4;
+    sBump *= 1.0 - pud;
+    float oil = smoothstep(0.35, 0.05, length(fract(w * 0.13) - 0.5)) * step(0.93, sH21(floor(w * 0.13)));
+    diffuseColor.rgb *= 1.0 - oil * 0.22 * fade;
+  }
+  if (st == 4 || st == 5) {
+    vec2 lc = floor(w * 1.6);
+    float lh = sH21(lc + 3.3);
+    if (lh > 0.955) {
+      vec2 lf = fract(w * 1.6) - 0.5;
+      float a = lh * 40.0;
+      lf = mat2(cos(a), -sin(a), sin(a), cos(a)) * lf;
+      float leaf = smoothstep(0.2, 0.14, length(lf * vec2(1.0, 2.3)));
+      vec3 lcol = mix(vec3(1.3, 0.72, 0.32), vec3(1.2, 1.0, 0.42), fract(lh * 17.0));
+      diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * lcol, leaf * fade);
+      sBump += leaf * 0.01 * fade;
+    }
+  }
+`;
+
+/** Patch a MeshStandardMaterial shader (inside onBeforeCompile) with surface detail. ground = use the ground table.
+ *  flags (per-asset uniform, vec4): x = tree (sways, rustles near the hole), y = building (night windows),
+ *  z = tier when edible (rim glow once the hole can take it). */
+export function applySurface(s, ground = false, flags = NO_FLAGS) {
   const baseAO = ground ? '' : 'diffuseColor.rgb *= mix(0.72, 1.0, smoothstep(0.0, 0.8, vSurfP.y)); // grounding: darker where it meets the floor';
   if (typeof location !== 'undefined' && location.search.includes('nosurf')) return; // A/B perf switch
   const table = ground ? GROUND : OBJECT;
   s.uniforms.uSurfTime = surfaceTime;
   s.uniforms.uSurfOn = surfaceOn;
+  s.uniforms.uHole = world.hole;
+  s.uniforms.uNight = world.night;
+  s.uniforms.uEdCol = world.edCol;
+  s.uniforms.uFlags = flags.value ? flags : { value: new Vector4() };
   s.vertexShader = s.vertexShader
-    .replace('#include <common>', '#include <common>\nvarying vec3 vSurfP; varying vec3 vSurfN;')
-    .replace('#include <project_vertex>', 'vSurfP = transformed; vSurfN = objectNormal;\n#include <project_vertex>');
+    .replace('#include <common>', `#include <common>
+      varying vec3 vSurfP; varying vec3 vSurfN; varying vec3 vSurfW;
+      uniform vec4 uHole; uniform vec4 uFlags; uniform float uSurfTime;
+      #ifdef USE_INSTANCING
+        #define SURF_M (modelMatrix * instanceMatrix)
+      #else
+        #define SURF_M modelMatrix
+      #endif`)
+    .replace('#include <begin_vertex>', `#include <begin_vertex>
+      if (uFlags.x > 0.5) { // trees: canopy sways in the breeze, thrashes when the hole passes underneath
+        vec2 org = (SURF_M * vec4(0.0, 0.0, 0.0, 1.0)).xz;
+        float sh = max(0.0, transformed.y - 1.0), ph = dot(org, vec2(0.37, 0.61));
+        float rustle = smoothstep(uHole.z + 5.0, uHole.z + 0.5, length(org - uHole.xy));
+        float amp = sh * sh * (0.006 + 0.02 * rustle);
+        transformed.x += sin(uSurfTime * (1.3 + rustle * 7.0) + ph) * amp;
+        transformed.z += cos(uSurfTime * (1.1 + rustle * 6.0) + ph * 1.3) * amp;
+      }`)
+    .replace('#include <project_vertex>', 'vSurfP = transformed; vSurfN = objectNormal; vSurfW = (SURF_M * vec4(transformed, 1.0)).xyz;\n#include <project_vertex>');
   s.fragmentShader = s.fragmentShader
     .replace('#include <common>', `#include <common>\n${GLSL}\nconst int SURF_TABLE[48] = int[48](${table.join(', ')});\nfloat sBump = 0.0;`)
     .replace('#include <map_fragment>', `#include <map_fragment>
@@ -116,8 +177,26 @@ export function applySurface(s, ground = false) {
           vec3 sp = surfacePattern(st, q);
           diffuseColor.rgb *= mix(vec3(1.0), sp.y * sTint, fade);
           sBump = sp.x * sp.z * 0.035 * fade;
+          ${ground ? WEAR : ''}
         }
         ${baseAO}
+      }`)
+    .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+      roughnessFactor = mix(roughnessFactor, 0.05, sPud); // puddles mirror the sky`)
+    .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      {
+        int sw2 = clamp(int(floor(vMapUv.x * 8.0)) + 8 * int(floor(vMapUv.y * 6.0)), 0, 47);
+        if (uNight > 0.0 && uFlags.y > 0.5 && sw2 == 35) { // lived-in windows: some rooms lit at night
+          vec3 c = floor(vSurfP * vec3(1.1, 0.8, 1.1));
+          float h = fract(sin(dot(c, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+          totalEmissiveRadiance += vec3(1.0, 0.7, 0.36) * step(0.42, h) * uNight * (0.7 + 0.6 * h);
+        }
+        if (uFlags.z > 0.0 && uHole.z > 0.0 && uFlags.z < uHole.z * 0.95) { // edible: a soft rim glow near the hole
+          float near = smoothstep(uHole.z * 1.6 + 5.0, uHole.z + 0.5, length(vSurfW.xz - uHole.xy));
+          float rim = pow(1.0 - clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0), 4.0);
+          float small = smoothstep(uHole.z * 0.95, uHole.z * 0.4, uFlags.z); // big bites don't need the nudge
+          totalEmissiveRadiance += uEdCol * (0.07 + rim * 0.55) * near * small * (0.8 + 0.2 * sin(uSurfTime * 5.0));
+        }
       }`)
     .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
       if (sBump != 0.0) {

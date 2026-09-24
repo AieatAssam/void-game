@@ -3,7 +3,7 @@
 // movers are instanced per asset; animated landmarks are cloned with a mixer.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { toyMaterial, pedMaterial } from './assets.js';
+import { toyMaterial } from './assets.js';
 import { applySurface } from './surface.js';
 
 export const TILE = 40;
@@ -564,7 +564,7 @@ export class City {
     for (const g of groups.values()) {
       const a = this.assets[g.name];
       const full = flatGeometry(a), lod = flatGeometry(a, 1), lod2 = flatGeometry(a, 2);
-      const mat = g.ground ? this.groundMat : full.attributes._swing ? pedMaterial : toyMaterial;
+      const mat = g.ground ? this.groundMat : a.material;
       const mesh = new THREE.InstancedMesh(full, mat, g.list.length);
       mesh.castShadow = !g.ground;
       mesh.receiveShadow = true;
@@ -637,7 +637,7 @@ export class City {
     for (const g of groups.values()) {
       const a = this.assets[g.name];
       const geos = [0, 1, 2].map((l) => flatGeometry(a, l));
-      const mesh = new THREE.InstancedMesh(geos[0], toyMaterial, g.list.length);
+      const mesh = new THREE.InstancedMesh(geos[0], a.material, g.list.length);
       mesh.castShadow = mesh.receiveShadow = true;
       mesh.userData = { geos, tier: Infinity, scenery: true };
       g.list.forEach((e, i) => { e.mesh = mesh; e.index = i; this.place(e); });
@@ -789,7 +789,15 @@ export class City {
         m.t += dt;
         // anything the hole could eat panics when it gets close
         const fdx = e.x - hole.x, fdz = e.z - hole.z, near = fdx * fdx + fdz * fdz < (hole.r * 2.2 + 3) ** 2;
-        const scared = near && e.meta.tier < hole.r * 0.95 && e.meta.tier < 0.8;
+        e.panic = Math.max(0, (e.panic || 0) - dt);
+        const scared = (near && e.meta.tier < hole.r * 0.95 && e.meta.tier < 0.8) || e.panic > 0;
+        if (scared && !e.wasScared && m.type === 'walk') { // a shout, and the panic spreads to people close by
+          if (Math.random() < 0.5) this.events.push({ type: 'scream', e });
+          for (const o of this.walkers ??= this.entities.filter((q) => q.mover?.type === 'walk')) {
+            if (o !== e && o.alive && !(o.panic > 0) && (o.x - e.x) ** 2 + (o.z - e.z) ** 2 < 16) o.panic = 2.5;
+          }
+        }
+        e.wasScared = scared;
         if (m.type === 'walk') {
           if (scared) {
             const [dx0, dz0] = WALK_DIR[Math.floor(m.s / (2 * m.h))];
@@ -810,6 +818,14 @@ export class City {
         } else if (m.type === 'drive') {
           m.cur = Math.max(0, Math.min(m.v, (m.cur ?? m.v) + (this.clearAhead(e) ? 4 : -14) * dt)); // ease off / brake
           const d = m.cur * m.dir * dt;
+          // the hole in the lane ahead: honk and swerve a little (eases back; stays inside clearAhead's lane width)
+          m.lane ??= m.axis === 'x' ? e.z : e.x;
+          const fwd = m.axis === 'x' ? (hole.x - e.x) * m.dir : (e.z - hole.z) * m.dir, lat = m.axis === 'x' ? hole.z - m.lane : hole.x - m.lane;
+          const danger = !hole.hidden && fwd > 0 && fwd < 12 + hole.r && Math.abs(lat) < hole.r + 1.4;
+          m.off = (m.off || 0) + ((danger ? -Math.sign(lat || 1) * 1.0 : 0) - (m.off || 0)) * Math.min(1, dt * 3);
+          if (danger && !(m.honk > 0) && e.meta.tier >= 1) { m.honk = 4; this.events.push({ type: 'honk', e, d: fwd }); }
+          m.honk = (m.honk || 0) - dt;
+          if (m.axis === 'x') e.z = m.lane + m.off; else e.x = m.lane + m.off;
           if (m.axis === 'x') { e.x += d; if (e.x > H) e.x -= 2 * H; if (e.x < -H) e.x += 2 * H; e.rot = m.dir > 0 ? 0 : Math.PI; }
           else { // north-south roads stop at the shoreline on seaside maps
             const top = this.beach ? H - 10 : H;
@@ -862,6 +878,7 @@ export class City {
         if (tier < q.r * 0.95 && dx * dx + dz * dz < (q.r * (q.pull || 1) - tier * 0.5) ** 2) {
           e.falling = true;
           e.eater = q;
+          this.events.push({ type: 'fall', e });
           e.vy = 0;
           e.tiltDir = Math.atan2(dz, dx);
           break;

@@ -17,7 +17,7 @@ table.receiveShadow = true;
 scene.add(table);
 
 const assets = await loadAll();
-import('./assets.js').then(({ toyMaterial }) => applyTime(look, renderer, new URLSearchParams(location.search).get('time') || 'golden', toyMaterial));
+import('./assets.js').then(({ toyMaterial, syncMaterials }) => { applyTime(look, renderer, new URLSearchParams(location.search).get('time') || 'golden', toyMaterial); syncMaterials(); });
 const mixers = [];
 const list = document.getElementById('list');
 const sorted = Object.values(assets).sort((p, q) => p.meta.tier - q.meta.tier);

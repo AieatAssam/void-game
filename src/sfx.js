@@ -68,3 +68,37 @@ export function thump() {
   tone('sine', 120, 45, 0.25, 0.6);
   tone('square', 300, 90, 0.12, 0.15);
 }
+
+let lastHonk = 0;
+/** Toy car horn (two detuned squares), throttled, quieter with distance. */
+export function honk(dist = 5) {
+  if (!ctx || muted || ctx.currentTime - lastHonk < 0.7) return;
+  lastHonk = ctx.currentTime;
+  const v = Math.max(0.03, 0.12 - dist * 0.004), f = 380 + Math.random() * 90;
+  tone('square', f, f * 0.98, 0.16, v);
+  tone('square', f * 1.26, f * 1.24, 0.16, v * 0.8);
+  if (Math.random() < 0.5) { tone('square', f, f, 0.12, v, 0.22); tone('square', f * 1.26, f * 1.26, 0.12, v * 0.8, 0.22); }
+}
+
+let lastEek = 0;
+/** Tiny panicked yelp. */
+export function eek() {
+  if (!ctx || muted || ctx.currentTime - lastEek < 0.25) return;
+  lastEek = ctx.currentTime;
+  const f = 900 + Math.random() * 500;
+  tone('triangle', f, f * 1.5, 0.12, 0.06);
+}
+
+/** Big swallow: a deep thump under a rising whoosh. */
+export function bigGulp(tier) {
+  const base = 70 + 200 / (1 + tier);
+  tone('sine', base, base * 0.5, 0.45, 0.7);
+  tone('sawtooth', base * 1.5, base * 5, 0.35, 0.08, 0.05);
+  tone('triangle', base * 2, base * 6, 0.4, 0.12, 0.08);
+}
+
+/** Size-up fanfare. */
+export function levelUp() {
+  [392, 523, 659, 784, 1046].forEach((f, i) => tone('triangle', f, f, 0.2, 0.22, i * 0.07));
+  tone('sine', 1046, 1568, 0.5, 0.12, 0.35);
+}

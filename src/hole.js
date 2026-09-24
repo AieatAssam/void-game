@@ -82,15 +82,22 @@ export class Hole {
     });
     this.swirl = new THREE.Mesh(new THREE.RingGeometry(1, 4.8, 96, 1).rotateX(-Math.PI / 2), this.swirlMat);
     this.swirl.renderOrder = 2;
-    this.group.add(this.well, this.rim, this.ghost, this.swirl);
+    // size-up shockwave: a bright ring racing outward over the ground
+    this.wave = new THREE.Mesh(new THREE.RingGeometry(0.9, 1, 128).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: this.skin.rim, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    this.wave.visible = false;
+    this.waveT = 0;
+    this.group.add(this.well, this.rim, this.ghost, this.swirl, this.wave);
     this.pulse = 0;
   }
 
   dispose() {
-    for (const m of [...this.well.children, this.ghost, this.swirl]) { m.geometry.dispose(); m.material.dispose(); }
+    for (const m of [...this.well.children, this.ghost, this.swirl, this.wave]) { m.geometry.dispose(); m.material.dispose(); }
     this.rimMat.dispose();
     this.field.value[this.slot].set(0, 0, 0);
   }
+
+  shockwave() { this.waveT = 0.9; }
 
   get r() { return Math.sqrt(this.area / Math.PI); }
 
@@ -126,5 +133,13 @@ export class Hole {
     Object.assign(this.swirlMat.uniforms.uVac, { value: vac * 1.4 });
     this.swirlMat.uniforms.uReach.value = 1.4 + vac * 0.5 + 1.2 / Math.max(r, 0.1); // same reach as city.js pulls
     this.swirlMat.uniforms.uTime.value = time;
+    if (this.waveT > 0) {
+      this.waveT = Math.max(0, this.waveT - dt);
+      const k = 1 - this.waveT / 0.9;
+      this.wave.position.set(this.x, this.gt + 0.05, this.z);
+      this.wave.scale.setScalar((r || 1e-3) * (1 + k * 5));
+      this.wave.material.opacity = (1 - k) * 0.9;
+    }
+    this.wave.visible = this.waveT > 0;
   }
 }
