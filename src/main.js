@@ -376,6 +376,7 @@ function frame(dt) {
     const kick = state.kick || { x: 0, z: 0 };
     hole.x = THREE.MathUtils.clamp(hole.x + (hole.sx * speed + kick.x) * dt, -lim, lim);
     hole.z = THREE.MathUtils.clamp(hole.z + (hole.sz * speed + kick.z) * dt, -lim, lim);
+    hole.vac = Math.max(0, (hole.vac || 0) - dt);
     kick.x *= Math.max(0, 1 - dt * 5);
     kick.z *= Math.max(0, 1 - dt * 5);
     hole.vx = (hole.x - px) / dt;
@@ -415,6 +416,11 @@ function frame(dt) {
   const eaten = city.update(dt, [hole, ...rivals.holes], state.jam > 0 || !state.playing);
   for (const ev of city.events) {
     if (ev.type === 'clog' && state.playing) { state.jam = Math.max(state.jam, 1.5); flash('Clogged!'); sfx.hurt(); }
+    if (ev.type === 'tooBig' && state.playing && !(state.time < (state.tooBigT || 0))) {
+      state.tooBigT = state.time + 6;
+      const need = (ev.e.meta.tier / 0.95).toFixed(1);
+      hint(ev.e.name.startsWith('tree') ? `Roots too wide — grow to ${need} m` : `Too big — grow to ${need} m`);
+    }
   }
   for (const e of eaten) {
     if (e.eater && e.eater !== hole) { // a rival's meal
@@ -427,6 +433,7 @@ function frame(dt) {
     }
     if (!state.playing) continue;
     sfx.gulp(e.meta.tier);
+    hole.vac = Math.min(1.4, (hole.vac || 0) + 0.55); // whirlpool: each bite keeps the suction going (chains)
     if (record(e.name)) flash(`New in the book: ${title(e.name)}`, false);
     if (e.meta.rare) { state.rareDust += 25; sparks.burst(hole.x, hole.z, hole.r, 4); sfx.star(); }
     if (e.meta.kind === 'poison') { poison(e.meta.effect); continue; }

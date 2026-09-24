@@ -65,12 +65,29 @@ export class Hole {
     this.ghost = new THREE.Mesh(new THREE.RingGeometry(0.97, 1.03, 96).rotateX(-Math.PI / 2),
       new THREE.MeshBasicMaterial({ color: this.skin.rim, transparent: true, opacity: 0.55, depthTest: false, depthWrite: false }));
     this.ghost.renderOrder = 10;
-    this.group.add(this.well, this.rim, this.ghost);
+    // whirlpool: log-spiral arms streaming into the rim while the vacuum is on
+    this.swirlMat = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      uniforms: { uTime: { value: 0 }, uVac: { value: 0 }, uReach: { value: 2 }, uCol: { value: new THREE.Color(this.skin.rim) } },
+      vertexShader: /* glsl */ `varying vec2 vP; void main() { vP = position.xz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      fragmentShader: /* glsl */ `
+        uniform float uTime, uVac, uReach; uniform vec3 uCol; varying vec2 vP;
+        void main() {
+          float r = length(vP), a = atan(vP.y, vP.x);
+          float arms = sin(a * 5.0 + log(r) * 9.0 + uTime * 14.0);
+          float band = smoothstep(0.35, 0.95, arms);
+          float fade = smoothstep(uReach, 1.15, r) * smoothstep(1.0, 1.08, r);
+          gl_FragColor = vec4(uCol * band * fade * min(1.0, uVac) * 0.9, 1.0);
+        }`,
+    });
+    this.swirl = new THREE.Mesh(new THREE.RingGeometry(1, 4.8, 96, 1).rotateX(-Math.PI / 2), this.swirlMat);
+    this.swirl.renderOrder = 2;
+    this.group.add(this.well, this.rim, this.ghost, this.swirl);
     this.pulse = 0;
   }
 
   dispose() {
-    for (const m of [...this.well.children, this.ghost]) { m.geometry.dispose(); m.material.dispose(); }
+    for (const m of [...this.well.children, this.ghost, this.swirl]) { m.geometry.dispose(); m.material.dispose(); }
     this.rimMat.dispose();
     this.field.value[this.slot].set(0, 0, 0);
   }
@@ -102,5 +119,12 @@ export class Hole {
     this.ghost.position.set(this.x, this.gt + 0.02, this.z);
     this.ghost.scale.setScalar(r * p || 1e-3);
     this.voidMat.uniforms.uTime.value = time;
+    const vac = this.vac || 0;
+    this.swirl.visible = vac > 0.01;
+    this.swirl.position.set(this.x, this.gt + 0.03, this.z);
+    this.swirl.scale.setScalar(r || 1e-3);
+    Object.assign(this.swirlMat.uniforms.uVac, { value: vac * 1.4 });
+    this.swirlMat.uniforms.uReach.value = 1.4 + vac * 0.5 + 1.2 / Math.max(r, 0.1); // same reach as city.js pulls
+    this.swirlMat.uniforms.uTime.value = time;
   }
 }

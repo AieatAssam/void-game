@@ -126,25 +126,63 @@ def window_grid(cx, cy, z0, w, h, cols, rows, gap_x, gap_z, face, color='glow', 
     return out
 
 
-def lolly_tree(scale=1.0, trunk='wood', leaf=('foliage', 'foliage_lt'), seed=0):
-    """Toy tree: stout trunk + clustered canopy spheres. Returns parts."""
+def blob(name, r, loc, color, seed=0, amp=0.16, scale=(1, 1, 1)):
+    """Lumpy foliage cluster: a sphere pushed in and out by smooth noise, so canopies read as leaf masses."""
+    from mathutils import noise, Vector as V
+    ob = sphere(name, r, loc=loc, color=color, seg=16, scale=scale)
+    off = V((seed * 3.1, seed * 1.7, seed * 2.3))
+    for v in ob.data.vertices:
+        n = v.co.normalized()
+        v.co += n * r * amp * noise.noise(v.co / r * 1.6 + off)
+    return ob
+
+
+def lolly_tree(scale=1.0, trunk='wood', leaf=('foliage', 'foliage_lt'), seed=0, roots=1.1):
+    """Park tree: flared trunk forking into branches, clustered lumpy canopy (dark underneath, sunlit on top),
+    and a root system spreading `roots` m wide *below* ground. The ground hides it; the hole's void reveals it,
+    and its spread is what the hole must be wide enough to take (finish(tier=roots, below=True))."""
     import random
     rnd = random.Random(seed)
     s = scale
-    p = [cyl('trunk', 0.22 * s, 1.6 * s, color=trunk, r2=0.16 * s, seg=16, bev=0.05 * s)]
-    p.append(sphere('c0', 1.0 * s, loc=(0, 0, 2.3 * s), color=leaf[0], seg=20))
-    for i in range(7):
-        a = i * 2 * math.pi / 7 + rnd.random()
-        p.append(sphere(f'c{i+1}', (0.5 + rnd.random() * 0.22) * s,
-                        loc=(math.cos(a) * 0.78 * s, math.sin(a) * 0.78 * s, (1.8 + rnd.random() * 0.9) * s),
-                        color=leaf[i % 2], seg=16))
-    p.append(sphere('crown', 0.6 * s, loc=(0.1 * s, -0.1 * s, 3.0 * s), color=leaf[1], seg=16))
-    for i in range(3):  # roots
-        a = i * 2 * math.pi / 3 + 0.4
-        p.append(sphere(f'root{i}', 0.14 * s, loc=(math.cos(a) * 0.2 * s, math.sin(a) * 0.2 * s, 0.05 * s), color=trunk, seg=10, scale=(2, 1, 0.6), rot=(0, 0, a)))
-    for i in range(5):  # fruit/blossom dots for readability up close
+    p = [lathe('trunk', [(0.0, -0.05), (0.3 * s, -0.05), (0.3 * s, 0.02), (0.2 * s, 0.2 * s), (0.15 * s, 0.8 * s),
+                         (0.13 * s, 1.35 * s), (0.0, 1.45 * s)], color=trunk, seg=16)]
+    tops = []
+    for i in range(3):  # fork into three limbs that disappear into the canopy
+        a = i * 2 * math.pi / 3 + rnd.random() * 0.6
+        mid = (math.cos(a) * 0.3 * s, math.sin(a) * 0.3 * s, 1.75 * s)
+        top = (math.cos(a) * 0.62 * s, math.sin(a) * 0.62 * s, 2.2 * s)
+        p += [tube(f'limb{i}', (0, 0, 1.2 * s), mid, r=0.1 * s, color=trunk, seg=10),
+              tube(f'twig{i}', mid, top, r=0.065 * s, color=trunk, seg=8)]
+        tops.append(top)
+    # canopy: a low dark ring, a mid ring and a sunlit crown, all lumpy and overlapping
+    k = 0
+    for ring, n, rad, z, rr, col in ((0, 6, 0.85, 1.95, 0.62, leaf[0]), (1, 6, 0.6, 2.45, 0.62, leaf[1]), (2, 3, 0.25, 2.95, 0.55, leaf[1])):
+        for i in range(n):
+            a = i * 2 * math.pi / n + ring * 0.5 + rnd.random() * 0.4
+            r = rr * (0.85 + rnd.random() * 0.3) * s
+            p.append(blob(f'leaf{k}', r, (math.cos(a) * rad * s, math.sin(a) * rad * s, (z + rnd.random() * 0.2) * s),
+                          col, seed=seed * 31 + k, scale=(1, 1, 0.82)))
+            k += 1
+    p.append(blob('core', 0.95 * s, (0, 0, 2.35 * s), leaf[0], seed=seed + 99))
+    for i in range(6):  # blossom/fruit accents sitting on the canopy surface
         a = rnd.random() * 2 * math.pi
-        p.append(sphere(f'dot{i}', 0.09 * s, loc=(math.cos(a) * 1.05 * s, math.sin(a) * 1.05 * s, (2.0 + rnd.random() * 0.8) * s), color='pink' if seed % 2 else 'butter', seg=8))
+        p.append(sphere(f'dot{i}', 0.07 * s, loc=(math.cos(a) * 1.12 * s, math.sin(a) * 1.12 * s, (2.1 + rnd.random() * 0.6) * s),
+                        color='pink' if seed % 2 else 'butter', seg=8))
+    # roots: surface flare knuckles, then tapering roots diving outward to `roots` m, with side rootlets
+    R = roots
+    for i in range(7):
+        a = i * 2 * math.pi / 7 + rnd.random() * 0.4
+        c, sn = math.cos(a), math.sin(a)
+        pt = lambda d, z: (c * d, sn * d, z)
+        p.append(sphere(f'knuckle{i}', 0.13 * s, loc=pt(0.3 * s, 0.02), color=trunk, seg=10, scale=(2.2, 1, 0.55), rot=(0, 0, a)))
+        a0, a1, a2, a3 = pt(0.2 * s, 0.0), pt(0.45 * R, -0.18 * R), pt(0.78 * R, -0.3 * R), pt(R, -0.34 * R)
+        p += [tube(f'root{i}a', a0, a1, r=0.1 * s, color=trunk, seg=8),
+              tube(f'root{i}b', a1, a2, r=0.065 * s, color=trunk, seg=8),
+              tube(f'root{i}c', a2, a3, r=0.035 * s, color=trunk, seg=6)]
+        for j, side in enumerate((-1, 1)):  # rootlets
+            b = a + side * 0.55
+            tip = (math.cos(b) * 0.72 * R, math.sin(b) * 0.72 * R, -0.42 * R)
+            p.append(tube(f'rootlet{i}{j}', a1, tip, r=0.03 * s, color=trunk, seg=6))
     return p
 
 

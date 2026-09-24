@@ -1031,25 +1031,25 @@
   "clips": []
  },
  "tree_big": {
-  "tier": 2.354,
+  "tier": 1.8,
   "mass": 4,
   "kind": "prop",
-  "height": 6.12,
-  "tris": 8546,
-  "lodTris": 2136,
-  "lod2Tris": 682,
-  "bytes": 55944,
+  "height": 6.09,
+  "tris": 14764,
+  "lodTris": 3690,
+  "lod2Tris": 1180,
+  "bytes": 108792,
   "clips": []
  },
  "tree_small": {
-  "tier": 1.418,
+  "tier": 1.1,
   "mass": 1.2,
   "kind": "prop",
-  "height": 3.6,
-  "tris": 7790,
-  "lodTris": 1946,
-  "lod2Tris": 622,
-  "bytes": 55684,
+  "height": 3.654,
+  "tris": 14008,
+  "lodTris": 3502,
+  "lod2Tris": 1120,
+  "bytes": 100152,
   "clips": []
  },
  "vending": {

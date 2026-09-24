@@ -412,7 +412,7 @@ export class City {
     const m = e.mover, fx = m.axis === 'x' ? m.dir : 0, fz = m.axis === 'x' ? 0 : -m.dir;
     this.drivers ??= this.entities.filter((q) => q.mover?.type === 'drive');
     for (const o of this.drivers) {
-      if (o === e || !o.alive || o.falling || (m.axis === 'x' && o.mover.axis !== 'x')) continue;
+      if (o === e || !o.alive || o.falling || o.mover.type !== 'drive' || (m.axis === 'x' && o.mover.axis !== 'x')) continue;
       const dx = o.x - e.x, dz = o.z - e.z, ahead = dx * fx + dz * fz, side = Math.abs(dx * fz - dz * fx);
       if (ahead > 0 && ahead < e.meta.tier + o.meta.tier + 1.5 && side < (o.mover.axis === m.axis ? 1.2 : o.meta.tier + 0.6)) return false;
     }
@@ -754,7 +754,38 @@ export class City {
         continue;
       }
       e.clogCool = Math.max(0, (e.clogCool || 0) - dt);
-      if (m) {
+      const tier0 = e.meta.tier;
+      if (hole.vac > 0 && !jammed && !hole.hidden && !e.noSwallow && !e.flying && e.meta.kind === 'prop' && tier0 < hole.r * 0.95) {
+        // whirlpool: right after a swallow, small things nearby spiral into the player's hole
+        // tuned to help small holes chain (fixed reach bonus) without snowballing big ones (weaker pull)
+        const dx = hole.x - e.x, dz = hole.z - e.z, d = Math.hypot(dx, dz) || 1e-3, reach = hole.r * (1.4 + hole.vac * 0.5) + 1.2;
+        if (d < reach) {
+          const f = Math.min(1, hole.vac) * Math.sqrt(1 - d / reach) / (1 + hole.r * 0.12), pull = (3 + hole.r * 2.5) * f, swirl = (4 + hole.r * 3) * f;
+          e.x += ((dx * pull + dz * swirl) / d) * dt; // inward + tangential
+          e.z += ((dz * pull - dx * swirl) / d) * dt;
+          e.rot += (swirl / Math.max(0.3, tier0)) * dt * 0.6;
+          e.tilt = Math.min(0.35, f * 0.45);
+          e.tiltDir = Math.atan2(-dz, -dx);
+          if (m && (m.type === 'walk' || m.type === 'drive')) e.mover = { type: 'wander', h: e.rot, v: m.type === 'walk' ? 1.4 : 4, t: m.t }; // no snapping back to a path
+          e.sucked = 0.3;
+          this.place(e);
+        }
+      }
+      if (e.sucked > 0) {
+        e.sucked -= dt;
+        if (e.sucked <= 0) { e.tilt = 0; this.place(e); }
+      } else if (!e.mover && tier0 >= hole.r * 0.95 && tier0 < hole.r * 2.5 && !hole.hidden) {
+        // too big: it trembles while the hole tugs at it (trees show their roots in the void)
+        const under = (hole.x - e.x) ** 2 + (hole.z - e.z) ** 2 < (hole.r * 0.9) ** 2;
+        if (under) {
+          if (!e.tug) this.events.push({ type: 'tooBig', e });
+          e.tug = (e.tug || 0) + dt;
+          e.tilt = Math.abs(Math.sin(e.tug * 26)) * 0.03;
+          e.tiltDir = Math.atan2(hole.z - e.z, hole.x - e.x);
+          this.place(e);
+        } else if (e.tug) { e.tug = 0; e.tilt = 0; this.place(e); }
+      }
+      if (m && !(e.sucked > 0)) {
         m.t += dt;
         // anything the hole could eat panics when it gets close
         const fdx = e.x - hole.x, fdz = e.z - hole.z, near = fdx * fdx + fdz * fdz < (hole.r * 2.2 + 3) ** 2;

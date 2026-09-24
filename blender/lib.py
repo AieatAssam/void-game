@@ -304,7 +304,8 @@ def finish(ob, tier=None, mass=None, kind='prop', smooth_angle=35, **extra):
         wn = o.modifiers.new('wn', 'WEIGHTED_NORMAL')
         wn.keep_sharp = True
         apply_mods(o)
-    if kind not in ('tile', 'fx', 'scenery'):
+    below = extra.pop('below', False)  # roots etc. deliberately live underground (seen only through the hole)
+    if kind not in ('tile', 'fx', 'scenery') and not below:
         for o in [ob] + list(ob.children_recursive):
             if o.type != 'MESH':
                 continue
@@ -315,6 +316,7 @@ def finish(ob, tier=None, mass=None, kind='prop', smooth_angle=35, **extra):
                     w.z = 0.0
                     v.co = inv @ w
     lo, hi = bounds(ob)
+    lo.z = max(lo.z, 0.0) if below else lo.z  # height = what stands above ground
     d = hi - lo
     if tier is None:
         tier = round(0.5 * max(d.x, d.y), 3)
