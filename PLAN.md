@@ -52,3 +52,10 @@ Models first, then systems, then districts, then bot check.
 - **17 Collection book:** first swallow of each type is recorded; rare variants spawn sometimes. Book page with thumbnails.
 - **7 Beach + pier:** Seaside edge of town, sea beyond. Tide event every ~45s floods the sand: slow + hungrier.
 - **12 Neon district:** night preset; neon signs give combo points; searchlights sweep: caught = +1 heat for 12s.
+
+## Stage 9 — AAA rendering (WebGPU + TSL)
+- **Renderer:** `WebGPURenderer` with WebGL2 fallback; all shaders rewritten in TSL (palette materials, hole, particles, sky).
+- **Post:** GTAO, bloom, ACES filmic + per-time exposure, tilt-shift, SMAA, vignette, fringe, grain.
+- **Materials:** scanned PBR texture arrays, triplanar + surface-gradient normals, clearcoat cars, deep water with shore foam.
+- **Nature:** heightfield countryside, procedural trees/bushes, GPU grass, shared wind field.
+- **Checks:** `tools/shot.mjs` captures frames headlessly (WebGL2 backend in CI-like containers without a GPU).

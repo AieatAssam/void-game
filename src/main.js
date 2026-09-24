@@ -130,6 +130,7 @@ function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false, card = 'non
 const URL_SEED = new URLSearchParams(location.search).get('seed');
 newRun(URL_SEED ? +URL_SEED : undefined);
 window.__game = () => ({ hole, city, state, renderer, director, rivals });
+window.__info = () => { const r = renderer.info.render; return { calls: r.drawCalls, tris: r.triangles, frameCalls: r.frameCalls }; };
 if (location.search.includes('bot')) installBot();
 
 // ---------- input: steer toward pointer / drag / keys ----------

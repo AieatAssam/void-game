@@ -185,7 +185,8 @@ export class Grass {
     this.fadeFar.value = Math.min(66, 26 + camDist * 0.55);
     // blades are sub-pixel once the camera pulls far back: shrink them away and let the ground texture take over
     this.zoomFade.value = 1 - THREE.MathUtils.smoothstep(camDist, 42, 75);
-    if (this.layers[1]) this.layers[1].visible = !lowSpec && camDist < 60;
+    // the far ring (beyond +-30 m) only matters once blades are drawn that far out
+    if (this.layers[1]) this.layers[1].visible = !lowSpec && camDist < 60 && this.fadeFar.value > 34;
     for (const l of this.layers) l.count = Math.round(l.userData.full * (lowSpec ? 0.5 : 1)); // slow GPUs: half the blades
     this.group.visible = this.zoomFade.value > 0.01;
   }

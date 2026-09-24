@@ -51,7 +51,7 @@ export class Sparks {
       this.life[i] = 0.6 + Math.random() * 0.5;
       (Math.random() < 0.7 ? this.lilac : this.white).toArray(this.col, i * 3);
     }
-    this.cloud.size.array.fill(0.25 + r * 0.06);
+    this.cloud.size.array.fill(0.45 + r * 0.1);
     this.cloud.size.needsUpdate = true;
   }
 

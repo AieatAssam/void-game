@@ -18,7 +18,16 @@ if (kind !== 'std') {
   await loadPBR();
   mat = kind === 'ground' ? s.groundMaterial({ value: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] }) : s.toyMaterial();
 }
-if (kind === 'grass') {
+if (kind === 'fx') {
+  const { Sparks, Debris } = await import('./fx.js');
+  const sp = new Sparks(), db = new Debris();
+  scene.add(sp.points, db.group);
+  sp.burst(0, 0, 1, 1.5);
+  const hole = { x: 0, z: 0, r: 1 };
+  db.collapse({ x: 3, z: 0, meta: { tier: 3, height: 6 } }, hole, false);
+  for (let i = 0; i < 12; i++) { sp.update(1 / 60); db.update(1 / 60); }
+  window.__fxTick = () => { sp.update(1 / 60); db.update(1 / 60); };
+} else if (kind === 'grass') {
   const { Grass } = await import('./grass.js');
   const tsl = await import('three/tsl');
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x3a5a25 }));

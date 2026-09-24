@@ -13,6 +13,6 @@ await p.waitForTimeout(+wait);
 await p.addStyleTag({ content: '#screen,#hud,#mute,#hint,#toast,#status,#levelup,.rival-tag{display:none!important}' });
 await p.waitForTimeout(1500);
 await p.screenshot({ path: out, timeout: 600000 });
-const fps = await p.evaluate(() => window.__fps?.() ?? null);
-console.log('saved', out, 'fps', fps);
+const info = await p.evaluate(() => window.__info?.() ?? null);
+console.log('saved', out, 'info', JSON.stringify(info));
 await b.close();

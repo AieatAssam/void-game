@@ -1,10 +1,10 @@
-// Post pipeline (WebGPU, TSL): scene pass with normals in MRT -> half-res GTAO (edge-aware denoised) ->
+// Post pipeline (WebGPU, TSL): scene pass -> half-res GTAO (edge-aware denoised) ->
 // bloom on HDR highlights -> tilt-shift lens blur (the miniature look, ART.md) -> colour grade ->
 // AgX filmic tonemap -> SMAA -> vignette, faint lens fringing and film grain.
 // Drops to a plain render if the frame rate can't afford it.
 import * as THREE from 'three/webgpu';
 import {
-  pass, mrt, output, normalView, packNormalToRGB, unpackRGBToNormal, sample, screenUV, uniform, vec2, vec3, vec4, float, mix,
+  pass, sample, screenUV, uniform, vec2, vec3, vec4, float, mix,
   smoothstep, abs, dot, renderOutput, clamp, max, time, fract, sin, luminance, pow, toneMappingExposure,
 } from 'three/tsl';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
@@ -31,12 +31,10 @@ export class Post {
     const pipeline = (this.pipeline = new THREE.RenderPipeline(renderer));
     pipeline.outputColorTransform = false; // we tonemap ourselves so grading/vignette/grain happen in display space
     const scenePass = pass(scene, camera);
-    scenePass.setMRT(mrt({ output, normal: packNormalToRGB(normalView) }));
-    const normalTex = scenePass.getTexture('normal');
-    normalTex.type = THREE.UnsignedByteType; // bandwidth
     const color = scenePass.getTextureNode('output');
     const depth = scenePass.getTextureNode('depth');
-    const normal = sample((uv) => unpackRGBToNormal(scenePass.getTextureNode('normal').sample(uv)));
+    // AO works from depth-reconstructed normals: no MRT bandwidth, and transparent sprites/water can't corrupt it
+    const normal = null;
 
     // ---- ambient occlusion: contact darkening in corners, under cars, between buildings
     const aoPass = (this.aoPass = ao(depth, normal, camera));
