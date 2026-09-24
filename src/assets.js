@@ -26,8 +26,10 @@ function dequantize(geo) {
   }
 }
 
-export async function loadAll(onProgress) {
+export async function loadAll(onProgress, { packs = false } = {}) {
   const manifest = await (await fetch(base + 'models/index.json')).json();
+  // opt-in (gallery/tools only until the pack loader lands - see HANDOVER.md)
+  if (packs) Object.assign(manifest, await (await fetch(base + 'models/packs.json')).json());
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   const names = Object.keys(manifest);
   // low tier never draws LOD0, so it downloads only the 25% and 8% models (and uses LOD1 as its "full" model)

@@ -278,3 +278,77 @@ def rooftop(D, W, z, seed=0, solar=True):
     out += [cyl('pipe', 0.07, W * 0.6, loc=(px, W * 0.3, z + 0.2), color='steel', rot=(math.pi / 2, 0, 0), seg=10, bev=0.01),
             box('hatch', (0.9, 0.9, 0.25), loc=(D / 2 - 1.2, W / 2 - 1.2, z + 0.12), color='asphalt_lt', bev=0.05)]
     return out
+
+
+# ---------- variety-pack helpers ----------
+def rope(name, a, b, sag=0.3, r=0.02, color='ink', segs=6):
+    """Catenary-ish rope from a to b sagging by `sag` m (chain of tubes). Returns parts."""
+    a, b = Vector(a), Vector(b)
+    pts = []
+    for i in range(segs + 1):
+        t = i / segs
+        p = a.lerp(b, t)
+        p.z -= sag * 4 * t * (1 - t)
+        pts.append(p)
+    return [tube(f'{name}{i}', pts[i], pts[i + 1], r=r, color=color, seg=6) for i in range(segs)] + \
+           [sphere(f'{name}k{i}', r, loc=pts[i], color=color, seg=6) for i in range(1, segs)]
+
+
+def bunting(name, a, b, n=8, colors=('red', 'butter', 'sky', 'mint', 'pink'), sag=0.35, size=0.28):
+    """String of triangular pennants between a and b. Returns parts."""
+    a, b = Vector(a), Vector(b)
+    p = rope(name + 'r', a, b, sag=sag, r=0.012, color='white', segs=max(4, n // 2))
+    d = (b - a)
+    side = Vector((-d.y, d.x, 0)).normalized() if d.xy.length > 1e-4 else Vector((1, 0, 0))
+    along = d.normalized()
+    for i in range(n):
+        t = (i + 0.5) / n
+        c = a.lerp(b, t)
+        c.z -= sag * 4 * t * (1 - t)
+        h = size * 0.5
+        v0, v1, v2 = c - along * h, c + along * h, c - Vector((0, 0, size * 1.1))
+        th = side * 0.008
+        p.append(mesh(f'{name}f{i}', [v0 - th, v1 - th, v2 - th, v0 + th, v1 + th, v2 + th],
+                      [(0, 1, 2), (3, 5, 4), (0, 3, 4, 1), (1, 4, 5, 2), (2, 5, 3, 0)], color=colors[i % len(colors)]))
+    return p
+
+
+def rivets(name, a, b, n, r=0.02, color='chrome'):
+    """Row of rivet/bolt heads from a to b. Returns parts."""
+    a, b = Vector(a), Vector(b)
+    return [sphere(f'{name}{i}', r, loc=a.lerp(b, i / max(1, n - 1)), color=color, seg=6, scale=(1, 1, 0.6)) for i in range(n)]
+
+
+def scallops(name, cx, cy, sx, sy, z, r=0.16, color='white'):
+    """Scalloped skirt trim around a rectangle (half-spheres along the edges). Returns parts."""
+    p = []
+    for side, (x0, y0, x1, y1) in enumerate(((cx - sx / 2, cy - sy / 2, cx + sx / 2, cy - sy / 2), (cx + sx / 2, cy - sy / 2, cx + sx / 2, cy + sy / 2),
+                                            (cx + sx / 2, cy + sy / 2, cx - sx / 2, cy + sy / 2), (cx - sx / 2, cy + sy / 2, cx - sx / 2, cy - sy / 2))):
+        L = math.hypot(x1 - x0, y1 - y0)
+        n = max(2, int(L / (r * 1.9)))
+        for i in range(n):
+            t = (i + 0.5) / n
+            p.append(sphere(f'{name}{side}_{i}', r, loc=(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, z), color=color, seg=8, scale=(1, 1, 0.8)))
+    return p
+
+
+def checker(name, x, y, z, w, h, n, axis='x', colors=('ink', 'white'), depth=0.04):
+    """Checkered band (finish-line / flag strip), n squares along `axis`, 2 rows. Returns parts."""
+    p = []
+    s = w / n
+    for i in range(n):
+        for j in range(2):
+            c = colors[(i + j) % 2]
+            if axis == 'x':
+                p.append(box(f'{name}{i}{j}', (s, depth, h / 2), loc=(x - w / 2 + s * (i + 0.5), y, z + h / 4 + j * h / 2), color=c, bev=0, seg=1))
+            else:
+                p.append(box(f'{name}{i}{j}', (depth, s, h / 2), loc=(x, y - w / 2 + s * (i + 0.5), z + h / 4 + j * h / 2), color=c, bev=0, seg=1))
+    return p
+
+
+def tag(ob, pack, **extra):
+    """Mark an exported root as belonging to a content pack (+ any extra metadata)."""
+    ob['pack'] = pack
+    for k, v in extra.items():
+        ob[k] = v
+    return ob

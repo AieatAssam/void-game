@@ -22,7 +22,10 @@ for (const f of readdirSync('assets-raw').filter((f) => f.endsWith('.glb')).sort
   await doc.transform(dedup(), weld(), prune());
   // LOD1 (~25%) for mid distance, LOD2 (~8%) for far / zoomed-out views (ART.md budgets).
   const lods = [];
-  for (const [dir, ratio, error] of [['lod', 0.25, 0.02], ['lod2', 0.08, 0.06]]) {
+  // thin structures (spokes, rails, bunting) can ask for gentler LODs with a `lod: [r1, r2]` extra
+  const lodExtra = (await io.read(`assets-raw/${f}`)).getRoot().getDefaultScene().listChildren()[0].getExtras().lod;
+  const [r1, r2] = Array.isArray(lodExtra) ? lodExtra : [0.25, 0.08];
+  for (const [dir, ratio, error] of [['lod', r1, 0.02], ['lod2', r2, 0.06]]) {
     const lod = await io.read(`assets-raw/${f}`);
     await lod.transform(dedup(), weld(), simplify({ simplifier: MeshoptSimplifier, ratio, error }), prune(),
       meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
@@ -37,5 +40,9 @@ for (const f of readdirSync('assets-raw').filter((f) => f.endsWith('.glb')).sort
   await io.write(out, doc);
   manifest[name] = { ...node.getExtras(), tris, lodTris, lod2Tris, bytes: statSync(out).size, clips: root.listAnimations().map((a) => a.getName()) };
 }
-writeFileSync('public/models/index.json', JSON.stringify(manifest, null, 1));
+// Pack assets (extras.pack) live in their own manifest so the base game never downloads them up front.
+const base = {}, packs = {};
+for (const [n, m] of Object.entries(manifest)) (m.pack ? packs : base)[n] = m;
+writeFileSync('public/models/index.json', JSON.stringify(base, null, 1));
+writeFileSync('public/models/packs.json', JSON.stringify(packs, null, 1));
 console.table(manifest);

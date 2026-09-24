@@ -1,0 +1,164 @@
+{
+ "alien": {
+  "tier": 0.278,
+  "mass": 0.08,
+  "kind": "prop",
+  "height": 1.33,
+  "pack": "events",
+  "event": "ufo",
+  "tris": 13108,
+  "lodTris": 3276,
+  "lod2Tris": 1048,
+  "bytes": 94468,
+  "clips": []
+ },
+ "balloon_float": {
+  "tier": 2.9,
+  "mass": 6,
+  "kind": "prop",
+  "height": 9.65,
+  "pack": "events",
+  "event": "parade",
+  "flying": true,
+  "mover": "parade",
+  "lod": [
+   0.3,
+   0.1
+  ],
+  "tris": 34698,
+  "lodTris": 10408,
+  "lod2Tris": 3468,
+  "bytes": 230324,
+  "clips": []
+ },
+ "classic_car": {
+  "tier": 2.788,
+  "mass": 9,
+  "kind": "prop",
+  "height": 1.844,
+  "pack": "events",
+  "event": "carshow",
+  "rare": true,
+  "tris": 33884,
+  "lodTris": 8470,
+  "lod2Tris": 5728,
+  "bytes": 270548,
+  "clips": []
+ },
+ "drummer": {
+  "tier": 0.352,
+  "mass": 0.08,
+  "kind": "prop",
+  "height": 1.899,
+  "pack": "events",
+  "event": "parade",
+  "tris": 19028,
+  "lodTris": 4756,
+  "lod2Tris": 1786,
+  "bytes": 141308,
+  "clips": []
+ },
+ "finish_arch": {
+  "tier": 4.568,
+  "mass": 5,
+  "kind": "prop",
+  "height": 5,
+  "pack": "events",
+  "event": "marathon",
+  "lod": [
+   0.35,
+   0.12
+  ],
+  "tris": 11188,
+  "lodTris": 3914,
+  "lod2Tris": 2992,
+  "bytes": 97048,
+  "clips": []
+ },
+ "marathon_runner": {
+  "tier": 0.355,
+  "mass": 0.08,
+  "kind": "prop",
+  "height": 1.378,
+  "pack": "events",
+  "event": "marathon",
+  "tris": 12758,
+  "lodTris": 3188,
+  "lod2Tris": 1020,
+  "bytes": 93904,
+  "clips": []
+ },
+ "parade_float": {
+  "tier": 3.542,
+  "mass": 10,
+  "kind": "prop",
+  "height": 3.189,
+  "pack": "events",
+  "event": "parade",
+  "mover": "parade",
+  "lod": [
+   0.35,
+   0.12
+  ],
+  "tris": 41558,
+  "lodTris": 14544,
+  "lod2Tris": 4986,
+  "bytes": 316128,
+  "clips": []
+ },
+ "show_turntable": {
+  "tier": 4.947,
+  "mass": 4,
+  "kind": "prop",
+  "height": 3.506,
+  "pack": "events",
+  "event": "carshow",
+  "clone": true,
+  "lod": [
+   0.35,
+   0.12
+  ],
+  "tris": 27016,
+  "lodTris": 9454,
+  "lod2Tris": 3240,
+  "bytes": 189156,
+  "clips": [
+   "turn"
+  ]
+ },
+ "supercar": {
+  "tier": 2.483,
+  "mass": 8,
+  "kind": "prop",
+  "height": 1.47,
+  "pack": "events",
+  "event": "carshow",
+  "rare": true,
+  "tris": 37204,
+  "lodTris": 9300,
+  "lod2Tris": 7468,
+  "bytes": 304352,
+  "clips": []
+ },
+ "ufo": {
+  "tier": 3.096,
+  "mass": 12,
+  "kind": "prop",
+  "height": 2.9,
+  "pack": "events",
+  "event": "ufo",
+  "clone": true,
+  "rare": true,
+  "lod": [
+   0.3,
+   0.1
+  ],
+  "tris": 18612,
+  "lodTris": 5582,
+  "lod2Tris": 1854,
+  "bytes": 137772,
+  "clips": [
+   "lights"
+  ]
+ }
+}

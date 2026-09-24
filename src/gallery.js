@@ -16,7 +16,7 @@ table.rotation.x = -Math.PI / 2;
 table.receiveShadow = true;
 scene.add(table);
 
-const assets = await loadAll();
+const assets = await loadAll(undefined, { packs: location.search.includes('packs') });
 glow.value = applyTime(look, renderer, new URLSearchParams(location.search).get('time') || 'golden').glow;
 const mixers = [];
 const list = document.getElementById('list');
@@ -88,11 +88,20 @@ window.__sheet = (names = sorted.map((a) => a.name), cols = 6, cell = 256, dirs 
   names.forEach((entry, i) => {
     const [n, dir] = Array.isArray(entry) ? entry : [entry, [0.62, 0.62, 0.62]];
     const a = assets[n];
-    const box = new THREE.Box3().setFromObject(a.scene), c = box.getCenter(new THREE.Vector3()), d = box.getSize(new THREE.Vector3()).length() * 1.1 + 0.5;
+    const box = new THREE.Box3().setFromObject(a.scene);
+    let ref = null;
+    if (window.__sheetRef && assets[window.__sheetRef] && n !== window.__sheetRef) { // a person beside it for scale
+      ref = assets[window.__sheetRef].scene.clone();
+      ref.position.set(box.max.x + 0.6, box.min.y, (box.min.z + box.max.z) / 2);
+      scene.add(ref);
+      box.expandByObject(ref);
+    }
+    const c = box.getCenter(new THREE.Vector3()), d = box.getSize(new THREE.Vector3()).length() * 1.1 + 0.5;
     camera.position.set(c.x + d * dir[0], c.y + d * dir[1], c.z + d * dir[2]);
     camera.lookAt(c);
     followSun(look.sun, c);
     renderer.render(scene, camera);
+    if (ref) scene.remove(ref);
     ctx.drawImage(renderer.domElement, (i % cols) * cell, Math.floor(i / cols) * cell, cell, cell);
     ctx.fillStyle = '#22222a';
     ctx.font = '14px sans-serif';
