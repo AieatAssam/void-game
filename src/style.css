@@ -139,3 +139,23 @@ button.ghost { background: #fff8ee22; color: var(--cream); box-shadow: none; fon
   background: conic-gradient(var(--c) calc(var(--p) * 360deg), #1a0f3a99 0); box-shadow: 0 2px 0 #0004, 0 0 14px var(--c); }
 #powers .chip i { position: absolute; inset: 4px; border-radius: 50%; background: #1a0f3add; }
 #powers .chip b { position: relative; font-size: 22px; }
+
+/* ---------- stage 11: city picker + star results ---------- */
+.cities { display: flex; gap: 8px; max-width: min(96vw, 820px); overflow-x: auto; padding: 4px 6px 8px; scroll-snap-type: x mandatory; }
+.city { position: relative; flex: 0 0 auto; display: grid; justify-items: center; gap: 2px; width: 104px; padding: 8px 6px; border-radius: 16px;
+  font-size: 12px; background: #fff8ee1f; color: var(--cream); border: 2px solid #fff8ee40; box-shadow: none; scroll-snap-align: center; backdrop-filter: blur(6px); }
+.city img, .city > i { width: 56px; height: 56px; display: grid; place-items: center; font-size: 34px; font-style: normal; }
+.city b { line-height: 1.1; }
+.city span { color: var(--butter); letter-spacing: 1px; }
+.city.on { background: var(--cream); color: var(--ink); border-color: var(--butter); box-shadow: 0 0 0 3px #f7d77466, 0 4px 0 #b8912a; }
+.city.on span { color: #c98a00; }
+.city.locked { opacity: .5; cursor: default; }
+.city.locked img, .city.locked > i { filter: grayscale(1) brightness(.6); }
+.city em { position: absolute; top: 6px; right: 8px; font-style: normal; }
+#result .goals { display: grid; gap: 3px; margin: 10px auto 0; text-align: left; width: fit-content; }
+#result .goals small { color: var(--butter); text-align: center; }
+#result .goals i { font-style: normal; font-weight: 600; font-size: 14px; opacity: .6; }
+#result .goals i.done { opacity: 1; color: var(--butter); }
+#result .goals i.fresh { animation: starPop .6s var(--d) cubic-bezier(.2, 1.6, .4, 1) both; text-shadow: 0 0 12px #f7d774; }
+@keyframes starPop { from { opacity: 0; transform: scale(.4); } }
+#result .unlock { display: block; margin-top: 6px; color: #9dff7a; }

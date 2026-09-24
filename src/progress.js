@@ -104,3 +104,21 @@ export function scoreRun(mood, stats, won, time) {
   persist();
   return { list: out, fresh: out.filter((c) => c.fresh).length, opened: nowOpen };
 }
+
+/** The horizontal city picker: landmark, name, stars, lock. onPick(mood) for open cities. */
+export function renderPicker(el, selected, onPick, thumbOf) {
+  el.replaceChildren(...ORDER.map((mood) => {
+    const open = unlocked(mood), [land, emoji] = LANDMARK[mood], img = thumbOf(land);
+    const b = document.createElement('button');
+    b.className = `city${mood === selected ? ' on' : ''}${open ? '' : ' locked'}`;
+    b.disabled = !open;
+    const st = starMask(mood);
+    b.innerHTML = `${img ? `<img alt="" src="${img}">` : `<i>${emoji}</i>`}<b>${mood}</b>`
+      + `<span>${[0, 1, 2].map((k) => (st & (1 << k) ? '★' : '☆')).join('')}</span>${open ? '' : '<em>🔒</em>'}`;
+    b.title = open ? forMood(mood).map((c, k) => `${st & (1 << k) ? '★' : '☆'} ${c.text}`).join('\n')
+      : `Clear ${ORDER[ORDER.indexOf(mood) - 1]} or earn 2 of its stars`;
+    b.onclick = () => open && onPick(mood);
+    return b;
+  }));
+  el.querySelector('.on')?.scrollIntoView?.({ block: 'nearest', inline: 'center' });
+}

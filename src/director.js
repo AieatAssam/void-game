@@ -144,6 +144,10 @@ export class Director {
     if (!this.flood) return;
     const t = (this.tideT = (this.tideT + dt) % TIDE.period);
     if (t >= TIDE.warn && t - dt < TIDE.warn) this.hooks.warn?.('🌊 Tide incoming!');
+    if (t >= TIDE.flood && t - dt < TIDE.flood) this.hooks.tide?.('in');
+    const out = TIDE.end % TIDE.period; // the flood runs past the wrap
+    if (t >= out && t - dt < out && this.tideSeen) this.hooks.tide?.('out');
+    if (t >= TIDE.flood && t - dt < TIDE.flood) this.tideSeen = true;
     const up = FORCE_TIDE ? 1 : t < TIDE.flood ? 0 : t < TIDE.flood + 1.5 ? (t - TIDE.flood) / 1.5 : t < TIDE.end - 1.5 ? 1 : Math.max(0, (TIDE.end - t) / 1.5);
     this.flood.position.y = -0.5 + up * 0.82;
     this.floodFade.value = Math.min(1, up * 1.6);
