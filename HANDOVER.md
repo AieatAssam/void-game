@@ -4,8 +4,10 @@ Branch: `feature/variety-pack`. All **38 new models are built, reviewed and comm
 optimized GLBs + LODs, manifest). What remains is **integration, the game systems, and the AAA visual pass** described
 below. Read this top to bottom once; then work the milestones in order (§9), committing after each.
 
-> You (the cloud agent) cannot run Blender. Treat the models as final art. Every model was checked from two angles with a
-> person beside it for scale, for clipping, floating parts, texture mapping and triangle budget. If a model truly needs a
+> You (the cloud agent) cannot run Blender. Treat the models as final art. Review done locally: every model was rendered
+> in the gallery from two angles with a person beside it for scale (the four power-ups after their last fix: one angle,
+> no person) and checked for clipping, floating parts, texture mapping and triangle budget. Small details on the
+> station and hangar interiors were only seen at game-camera distance. If a model truly needs a
 > geometry change, note it in `HANDOVER-FEEDBACK.md` and move on; do not hand-edit GLBs.
 
 ---
@@ -144,7 +146,8 @@ Add tile types and moods; keep existing ones intact.
 - **Fairground** (`tile_fair`): the tile places `ferris_wheel` at local (−7.5, 7.5) and `carousel` at (7.5, −7.5).
   Along the promenade circle (r ≈ 9.5): `hoopla_stall`, `balloon_stand`, `ticket_booth`, and a few
   `fireworks_stand`s. A small rink of 4–6 `bumper_car`s (wander, bouncing inside a 5 m circle) goes in the free
-  quadrant. Walkers are dense here (a crowd).
+  quadrant. Walkers are dense here (a crowd). Swallowing a `balloon_stand` releases its balloons: 10–14 small emissive
+  balloon particles drift up and away (a pure FX beat, pairs with the fireworks).
 - **Airport** (`tile_runway` ×N): like the beach row, one full row of runway tiles along an edge. Tiles only turn
   by 180° (`rot180`). One `airliner` is parked on the middle runway tile; optionally it taxis slowly along X
   (`taxi` mover, 3 m/s, stopping at the row ends). `hangar` and `control_tower` go on the lot tiles next to the row,
@@ -279,7 +282,8 @@ Fix these first; they're visible on the new models.
    swatch: fresnel reflection of the IBL, a darkened interior tint, and a faint window-interior parallax (cube-map
    "fake rooms") for buildings. At night, `y` (building) flags already light random windows.
 3. **Clearcoat for new vehicles:** add `supercar`, `classic_car`, `bumper_car`, `tractor`, `baggage_tug`,
-   `locomotive`, `carriage` and `airliner` to `VEHICLES` in `assets.js`.
+   `locomotive`, `carriage` and `airliner` to `VEHICLES` in `assets.js` **and** to `VEHICLES` in `cards.js` (the Car
+   Crusher card uses its own set).
 
 Then the look upgrades (each behind `Q` tiers):
 - **Relief:** WebGPU has no hardware tessellation.
@@ -315,7 +319,8 @@ a 2021 iPad at the start of a run. Measure with `?fps`.
 ## 8. Acceptance checks (run before every commit)
 
 - `npm run check`: the ladder passes for base + every pack (it does today).
-- `npm run build` is clean. The Pages workflow runs `npm ci && npm run check && npm run build`.
+- `npm run build` is clean. The Pages workflow runs `npm ci && npm run check && npm run build` and only triggers on
+  `main`, so pushes to this branch show no CI runs (expected).
 - **Balance:** `node tools/botrun.mjs "&seed=777" 420` (greedy) and `node tools/botrun.mjs "&seed=777" 420 1` (sloppy),
   plus 4 more seeds. Record the baseline **before** your first system change. Stage 10 target: greedy clears in
   3.5–4 min on most seeds and can die; sloppy mostly dies. New systems must not push greedy below 2:45 or sloppy
@@ -341,6 +346,9 @@ a 2021 iPad at the start of a run. Measure with `?fps`.
     rules), then open the PR from `feature/variety-pack`.
 
 ## 10. Known gotchas
+
+- In a hidden or background browser pane the game (on `main` too) stalls at "Unpacking the toybox… 74%": loading waits
+  on animation frames. Use the headless tools (`botrun.mjs`, `shot.mjs`) or a visible tab.
 
 - Palette `glass` is opaque today (see §7.2). The power-up capsules therefore carry their icon **on top** of an open
   capsule, not inside a dome.
