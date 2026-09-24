@@ -9,6 +9,7 @@ import { SKINS } from './skins.js';
 import { CARDS, VEHICLES, offer, dailyCard } from './cards.js';
 import { record, renderBook, title, bookEntries, thumb, warmThumbs } from './book.js';
 import { Director } from './director.js';
+import { Events } from './events.js';
 import { installBot } from './bot.js';
 import { UPGRADES, ECON, save, persist, level, buy, todaySeed } from './meta.js';
 import * as sfx from './sfx.js';
@@ -109,7 +110,7 @@ function snapshot() {
 
 const field = holeField();
 const DAY_TIMES = Object.keys(TIMES).filter((k) => !TIMES[k].night);
-let city, hole, state, director, rivals, grass;
+let city, hole, state, director, rivals, grass, events;
 const randomSeed = () => (Math.random() * 2 ** 31) | 0;
 
 /** Download (once) every pack a mood needs, with the staged loading line. Resolves true if anything was fetched. */
@@ -123,13 +124,14 @@ async function ensurePacks(moodName, show = setLoad) {
 }
 
 function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null) {
-  if (city) { scene.remove(city.group, hole.group, grass.group); city.dispose(); hole.dispose(); director.dispose(); rivals.dispose(); grass.dispose(); }
+  if (city) { scene.remove(city.group, hole.group, grass.group); city.dispose(); hole.dispose(); director.dispose(); rivals.dispose(); grass.dispose(); events.dispose(); }
   const debugR = +new URLSearchParams(location.search).get('r') || 0; // screenshot/debug: start bigger
   hole = new Hole(assets, field, 0, { r: debugR || 0.45 + level('headstart') * 0.04, skin: save.skin || 'void' });
   hole.pull = 1 + level('gravity') * 0.06;
   city = new City(assets, seed, field, { mood });
   director = new Director(city, scene, { hurt, toll, spotted, ram, drain, siren: sfx.siren, warn: (t) => flash(t, false) }, card === 'hot' ? 2 : 0);
   director.notorietyMult = 1 - level('quiet') * 0.1;
+  events = new Events(city, scene, { warn: (t) => { flash(t, false); sfx.drums(); }, boom: sfx.boom });
   rivals = new Rivals(assets, field, city, scene, card === 'crowded' ? 3 : card === 'lonely' ? 0 : 2, save.skin || 'void');
   // Randomised start: time of day, and a calm open tile (never a downtown lot) at a random spot on it.
   const r = rng(seed ^ 0x5eed);
@@ -171,7 +173,7 @@ setLoad('Opening the ground…', 0.98);
 await nextPaint();
 $('load').hidden = true;
 $('menu').hidden = false;
-window.__game = () => ({ hole, city, state, renderer, director, rivals });
+window.__game = () => ({ hole, city, state, renderer, director, rivals, events });
 window.__info = () => { const r = renderer.info.render; return { calls: r.drawCalls, tris: r.triangles, frameCalls: r.frameCalls }; };
 if (location.search.includes('bot')) installBot();
 
@@ -242,12 +244,32 @@ function hud() {
       arrow.style.transform = `translate(${Math.cos(a) * rad}px, ${Math.sin(a) * rad}px) rotate(${a}rad)`;
     }
   }
+  const ef = events.focus;
+  edgeArrow('event', ef, { parade: '🎺', marathon: '🏃', carshow: '🏎️', ufo: '🛸' }[events.kind], '#ffd166');
   const st = [state.reverse > 0 && 'Controls reversed', state.jam > 0 && 'Jammed', state.wet > 0 ? 'Wet concrete! Get out' : state.slow > 0 && 'Slowed', state.flooded && 'Tide! Slow + hungry',
     director.bonusT > 0 && 'Spotted'].filter(Boolean);
   const c = CARDS[state.card];
   $('card').hidden = state.card === 'none';
   $('card').textContent = state.card === 'rush' ? `${c.name} · ${clock(Math.max(0, 300 - state.time))}` : `${c.name} ×${c.mult}`;
   $('status').textContent = st.join(' · ');
+}
+
+/** Edge-of-screen compass arrows (the event, a power-up capsule): point from the screen centre at a world spot. */
+const edgeArrows = {};
+function edgeArrow(id, target, glyph, color) {
+  let el = edgeArrows[id];
+  if (!el) {
+    el = edgeArrows[id] = Object.assign(document.createElement('div'), { className: 'edge-arrow', hidden: true });
+    el.innerHTML = `<b>➜</b><i></i>`;
+    document.body.append(el);
+  }
+  el.hidden = !target || !state.playing;
+  if (el.hidden) return;
+  const a = Math.atan2(target[1] - hole.z, target[0] - hole.x), rad = Math.min(innerWidth, innerHeight) * 0.4;
+  el.style.transform = `translate(${Math.cos(a) * rad}px, ${Math.sin(a) * rad}px)`;
+  el.firstChild.style.transform = `rotate(${a}rad)`;
+  el.lastChild.textContent = glyph;
+  el.style.setProperty('--c', color);
 }
 
 // ---------- first-run hints (once per browser) ----------
@@ -345,6 +367,9 @@ function growthShare(tier, r) {
 
 /** How much the city notices a meal (heat builds from aggression, not just size). */
 function notoriety(e) {
+  return notorietyBase(e) * (e.meta.event === 'parade' ? 1.5 : 1); // spoiling the parade gets noticed
+}
+function notorietyBase(e) {
   const n = e.name, k = e.meta.kind;
   if (k === 'unit' || n === 'police_car') return 12;
   if (BUILDINGS.has(n)) return 5 + e.meta.tier;
@@ -539,6 +564,7 @@ function endRun(won, why) {
   if (!state.playing) return;
   state.playing = false;
   rivals.hideLabels();
+  for (const el of Object.values(edgeArrows)) el.hidden = true;
   offered = offer(rng((Math.random() * 2 ** 31) | 0));
   pickedCard = 'none';
   renderCards();
@@ -644,6 +670,7 @@ function frame(dt) {
     const fed = DECAY_FED / (1 + hole.r * 0.1); // big holes need proportionally bigger meals already
     hole.area *= 1 - (state.belly > 0 ? fed : DECAY_STARVING) * slower * dt;
     director.update(dt, hole, state);
+    events.update(dt, hole, state);
     city.alarm = director.stars; // at high heat the city evacuates: people hide indoors
     if (director.stars > state.stars) {
       sfx.star();
@@ -717,6 +744,7 @@ function frame(dt) {
     craveEat(e);
     if (e.meta.kind === 'poison') { poison(e.meta.effect); continue; }
     if (e.meta.effect === 'combo') { state.combo += 3; state.comboT = 1.2; }
+    if (e.name === 'drummer') { state.combo += 1; state.comboT = Math.max(state.comboT, 1); } // each drummer is +1 combo
     const before = hole.area;
     const mult = state.card === 'vehicles' ? (VEHICLES.has(e.name) ? 1.5 : 0.25) : state.card === 'glass' ? 1.5 : 1;
     hole.grow(e.meta.tier, mult * growthShare(e.meta.tier, hole.r));

@@ -6,6 +6,7 @@ import { Fn, uniformArray, uv, vec4, length, smoothstep, pow, If, Discard, posit
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { groundMaterial, groundMaskMaterial } from './surface.js';
 import { Terrain } from './terrain.js';
+import { planEvent } from './events.js';
 
 export const TILE = 40;
 const CHUNK = 40;
@@ -14,6 +15,17 @@ const _m = new THREE.Matrix4(), _q = new THREE.Quaternion();
 const _p = new THREE.Vector3(), _s = new THREE.Vector3(), _ax = new THREE.Vector3(), _qt = new THREE.Quaternion();
 const UP = new THREE.Vector3(0, 1, 0);
 const WALK_DIR = [[0, 1], [-1, 0], [0, -1], [1, 0]]; // travel direction per side of a walk loop (v > 0)
+
+/** Point + travel direction at distance s round a rectangle loop { cx, cz, hx, hz } (counter-clockwise on screen). */
+function perimeter(m, s) {
+  const P = 4 * (m.hx + m.hz);
+  let u = ((s % P) + P) % P;
+  if (u < 2 * m.hx) return [m.cx - m.hx + u, m.cz - m.hz, 1, 0];
+  if ((u -= 2 * m.hx) < 2 * m.hz) return [m.cx + m.hx, m.cz - m.hz + u, 0, 1];
+  if ((u -= 2 * m.hz) < 2 * m.hx) return [m.cx + m.hx - u, m.cz + m.hz, -1, 0];
+  u -= 2 * m.hx;
+  return [m.cx - m.hx, m.cz + m.hz - u, 0, -1];
+}
 
 export function rng(seed) {
   let a = seed >>> 0;
@@ -91,7 +103,7 @@ export const BUILDINGS = new Set(['house', 'shop', 'cafe', 'apartment', 'clock_t
 // wanderers and bumping traffic bounce off these (buildings plus the big fair rides)
 const SOLID = new Set([...BUILDINGS, 'ferris_wheel', 'carousel']);
 // movers that range across the whole town: never frustum-culled per chunk, mid LOD
-const ROAMERS = new Set(['drive', 'wander', 'taxi', 'apron', 'field', 'rail', 'parade', 'jog']);
+const ROAMERS = new Set(['drive', 'wander', 'taxi', 'apron', 'field', 'rail', 'parade', 'jog', 'still']);
 const RAIL_Y = 0.47; // top of the rails on tile_rail (manifest rail_top)
 const WHEEL_V = 4.5; // wheel clips are authored for 4.5 m/s rolling
 const FAIR_STALLS = ['hoopla_stall', 'balloon_stand', 'ticket_booth', 'hoopla_stall', 'balloon_stand', 'fireworks_stand'];
@@ -206,6 +218,7 @@ export class City {
     }
     this.traffic();
     this.districts();
+    this.eventPlan = planEvent(this); // this run's city event, its crowd parked as dormant entities
     this.reserves();
     this.scenery();
     this.rares();
@@ -418,6 +431,20 @@ export class City {
     for (let k = 0; k < 1 + Math.floor(r() * 2); k++) this.put(t, 'prize_pumpkin', r.range(-11, -3), r.range(-11, -3), r.range(-0.4, 0.4));
     for (let k = 0; k < 4; k++) this.put(t, 'hay_bale', r.range(-12, 12), r.range(3, 12), r() * 6.28);
     this.put(t, 'scarecrow', r.range(3, 11), r.range(3, 11), r() * 6.28);
+  }
+
+  /** Parade members follow the route polyline at their distance behind the head, offset sideways (drummer columns). */
+  moveParade(e, dt) {
+    const m = e.mover;
+    m.t += dt;
+    m.s += m.v * dt;
+    if (m.s > m.path.total - 1) { e.alive = false; e.s = 0; this.place(e); return; } // marched out of town
+    const [x, z, tx, tz] = m.path.at(Math.max(0, m.s));
+    e.x = x - tz * m.lat;
+    e.z = z + tx * m.lat;
+    e.rot = Math.atan2(-tz, tx);
+    e.y = e.name === 'drummer' ? Math.abs(Math.sin(m.t * 8)) * 0.05 : 0;
+    this.place(e);
   }
 
   /** Row districts laid over the tile grid: the train on the railway, the airliner + baggage trains at the airport, tractors. */
@@ -955,7 +982,11 @@ export class City {
           }
         }
         e.wasScared = scared;
-        if (m.type === 'walk') {
+        if (e.cheer > 0 && !scared && (m.type === 'walk' || m.type === 'loop')) { // the parade goes by: stop and cheer
+          e.cheer -= dt;
+          e.y = Math.abs(Math.sin(m.t * 11)) * 0.22;
+          e.tilt = 0;
+        } else if (m.type === 'walk') {
           if (scared) {
             const [dx0, dz0] = WALK_DIR[Math.floor(m.s / (2 * m.h))];
             const away = dx0 * fdx + dz0 * fdz >= 0 ? 1 : -1; // run the way that leads away
@@ -1051,6 +1082,28 @@ export class City {
           else { e.x = nx; e.z = nz; }
           e.rot = m.h;
           e.y = Math.abs(Math.sin(m.t * 11)) * 0.03;
+        } else if (m.type === 'parade') {
+          this.moveParade(e, dt);
+          continue;
+        } else if (m.type === 'jog') { // marathon: a rectangle of roads, each runner in their own line
+          if (scared) {
+            const [, , dx, dz] = perimeter(m, m.s);
+            m.v = (dx * fdx + dz * fdz >= 0 ? 1 : -1) * Math.max(Math.abs(m.v), 4.5); // run the way that leads away
+          } else if (Math.abs(m.v) > 3.8) m.v *= 1 - dt * 0.4;
+          m.s += m.v * dt;
+          const [x, z, dx, dz] = perimeter(m, m.s);
+          e.x = x + -dz * m.lat;
+          e.z = z + dx * m.lat;
+          e.rot = Math.atan2(-dz * Math.sign(m.v), dx * Math.sign(m.v));
+          e.y = Math.abs(Math.sin(m.t * 11)) * 0.08;
+        } else if (m.type === 'show') { // car show: ride the turntable's spinning plate
+          const tt = m.tt;
+          if (!tt.alive || tt.falling || !tt.obj) { e.mover = null; e.y = 0; }
+          else {
+            m.top ??= tt.obj.getObjectByName('turntable_top');
+            if (m.top) { m.top.getWorldQuaternion(_qt); e.rot = 2 * Math.atan2(_qt.y, _qt.w); }
+            e.x = tt.x; e.z = tt.z; e.y = tt.y + 0.36 * tt.s; e.s = tt.s;
+          }
         } else if (m.type === 'rail') { // placed by placeTrain before this loop
         } else if (m.type === 'scuttle') { // crabs: sideways dashes along the waterline
           e.x = m.x0 + Math.sin(m.t * 1.4) * 1.6 + (scared ? Math.sign(fdx || 1) * 2 : 0);

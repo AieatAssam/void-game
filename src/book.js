@@ -5,13 +5,21 @@ import { save, persist } from './meta.js';
 const TITLES = { ped_business: 'Businessman', ped_jogger: 'Jogger', ped_tourist: 'Tourist', ped_granny: 'Granny', ped_student: 'Student',
   ped_chef: 'Chef', ped_worker: 'Construction worker', ped_kid: 'Kid with balloon',
   car_b: 'Estate car', car_c: 'Sports coupé', icecream_van: 'Ice-cream van', hotdog_cart: 'Hot-dog cart', gas_can: 'Gas can',
-  toxic_barrel: 'Toxic barrel', spiky: 'Spiky sculpture', police_car: 'Police car', cement_truck: 'Cement truck', heli: 'Police helicopter' };
+  toxic_barrel: 'Toxic barrel', spiky: 'Spiky sculpture', police_car: 'Police car', cement_truck: 'Cement truck', heli: 'Police helicopter',
+  // Stage 11: events, districts, chain reactions
+  alien: 'Little green visitor', drummer: 'Parade drummer', marathon_runner: 'Marathon runner', supercar: 'Show supercar',
+  classic_car: 'Concours classic', balloon_float: 'Parade balloon', ufo: 'Flying saucer', parade_float: 'Parade float', finish_arch: 'Finish arch',
+  show_turntable: 'Car-show turntable', balloon_stand: 'Balloon seller', bumper_car: 'Bumper car', ticket_booth: 'Ticket booth',
+  hoopla_stall: 'Hoopla stall', carousel: 'Carousel', ferris_wheel: 'Ferris wheel', baggage_tug: 'Baggage train', control_tower: 'Control tower',
+  hangar: 'Hangar', airliner: 'Airliner', hay_bale: 'Hay bale', scarecrow: 'Scarecrow', prize_pumpkin: 'Prize pumpkin', tractor: 'Tractor',
+  carriage: 'Railway carriage', locomotive: 'Steam locomotive', station: 'Railway station', fireworks_stand: 'Fireworks stand',
+  water_tower: 'Water tower', gas_station: 'Gas station', rubber_duck: 'Rubber duck' };
 export const title = (n) => TITLES[n] || n.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
 export const BOOK_KINDS = new Set(['prop', 'poison', 'unit', 'hazard']);
 
 export function bookEntries(assets) {
-  return Object.values(assets).filter((a) => BOOK_KINDS.has(a.meta.kind))
+  return Object.values(assets).filter((a) => BOOK_KINDS.has(a.meta.kind) && !a.meta.mutator) // the duck is a costume, not a meal
     .sort((a, b) => (a.meta.rare ? 1 : 0) - (b.meta.rare ? 1 : 0) || a.meta.tier - b.meta.tier);
 }
 
