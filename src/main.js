@@ -68,7 +68,9 @@ if (!location.search.includes('nothumbs')) {
 }
 const levelEl = Object.assign(document.createElement('div'), { id: 'levelup' });
 document.body.append(levelEl);
+let bannerUntil = 0; // while the size-up banner owns the top of the screen, friendly toasts and combos wait their turn
 function sizeUp(m) {
+  bannerUntil = performance.now() + 1800;
   hole.shockwave();
   sfx.levelUp();
   levelEl.innerHTML = `<small>Size up · ${hole.r.toFixed(1)} m</small><b>Now eating ${m.label}!</b><span>${m.names.map((n) => thumb(assets[n])).filter(Boolean).map((u) => `<img alt="" src="${u}">`).join('')}</span>`;
@@ -280,6 +282,8 @@ function drain(dt) {
   state.wet = 0.2;
 }
 function flash(text, red = true) {
+  const wait = bannerUntil - performance.now();
+  if (!red && wait > 0) { setTimeout(() => flash(text, red), wait); return; } // queue behind the banner; hits stay instant
   const el = $('toast');
   el.textContent = text;
   el.classList.remove('show');
@@ -291,6 +295,7 @@ function flash(text, red = true) {
   document.body.classList.add('hurt');
 }
 function combo(n) {
+  if (performance.now() < bannerUntil) return; // the next bite re-shows it
   const el = $('combo');
   el.textContent = `×${n} combo`;
   el.style.fontSize = `${Math.min(44, 18 + n * 1.5)}px`;

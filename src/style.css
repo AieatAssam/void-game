@@ -101,7 +101,7 @@ button.ghost { background: #fff8ee22; color: var(--cream); box-shadow: none; fon
 #levelup { position: fixed; top: 16%; left: 50%; transform: translateX(-50%); display: grid; justify-items: center; gap: 4px; pointer-events: none; opacity: 0;
   color: var(--cream); text-align: center; text-shadow: 0 3px 0 var(--void), 0 0 24px var(--lilac); }
 #levelup small { font-size: 14px; letter-spacing: .2em; text-transform: uppercase; color: var(--butter); }
-#levelup b { font-size: clamp(24px, 6vw, 40px); line-height: 1; }
+#levelup b { font-size: clamp(20px, 5.5vw, 40px); line-height: 1; white-space: nowrap; }
 #levelup span { display: flex; gap: 6px; margin-top: 4px; }
 #levelup img { width: 56px; height: 56px; border-radius: 14px; background: #fff8ee2a; box-shadow: 0 0 0 2px #fff8ee55; }
 #levelup.show { animation: levelup 2.6s cubic-bezier(.2, 1.4, .4, 1); }
