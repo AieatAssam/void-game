@@ -1,0 +1,408 @@
+// Countryside terrain around the town: a heightfield that starts flat at the city limits and rolls out into
+// hills, ridges and distant mountains, with carved lakes, a meandering river, a patchwork of farm fields
+// behind hedgerows, forests and rocky outcrops. Materials height-blend scanned layers (grass, forest floor,
+// dirt, rock, shore) by slope, altitude and painted splat masks. Scenery (trees, rocks, hedges, barns,
+// windmills, cows) is placed on the surface by the city from `scatter()`.
+import * as THREE from 'three/webgpu';
+import {
+  Fn, vec3, vec4, float, int, attribute, positionWorld, normalWorldGeometry, normalViewGeometry, mix, smoothstep, max, pow,
+  normalize, clamp, texture, sin, abs, length, positionView, time, select, viewportDepthTexture, cameraNear, cameraFar,
+  perspectiveDepthToViewZ, screenUV,
+} from 'three/tsl';
+import { pbrCol, pbrNrm, pbrRha, L, triplanar, waterGrad, macro } from './pbr.js';
+import { positionGeometry, normalGeometry } from 'three/tsl';
+import { surfaceOn } from './surface.js';
+
+// ---------- seeded value noise ----------
+function makeNoise(seed) {
+  const perm = new Uint8Array(512);
+  let a = seed >>> 0;
+  const rnd = () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const p = Array.from({ length: 256 }, (_, i) => i);
+  for (let i = 255; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [p[i], p[j]] = [p[j], p[i]]; }
+  for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+  const grad = (h, x, y) => { const g = h & 7; const u = g < 4 ? x : y, v = g < 4 ? y : x; return ((g & 1) ? -u : u) + ((g & 2) ? -2 * v : 2 * v); };
+  const fade = (t) => t * t * t * (t * (t * 6 - 15) + 10);
+  const noise = (x, y) => { // Perlin, ~[-1, 1]
+    const X = Math.floor(x), Y = Math.floor(y), xf = x - X, yf = y - Y, xi = X & 255, yi = Y & 255;
+    const u = fade(xf), v = fade(yf);
+    const aa = perm[perm[xi] + yi], ab = perm[perm[xi] + yi + 1], ba = perm[perm[xi + 1] + yi], bb = perm[perm[xi + 1] + yi + 1];
+    const l1 = grad(aa, xf, yf) + u * (grad(ba, xf - 1, yf) - grad(aa, xf, yf));
+    const l2 = grad(ab, xf, yf - 1) + u * (grad(bb, xf - 1, yf - 1) - grad(ab, xf, yf - 1));
+    return (l1 + v * (l2 - l1)) * 0.5;
+  };
+  const fbm = (x, y, oct = 5) => { let s = 0, amp = 0.5, f = 1; for (let i = 0; i < oct; i++) { s += noise(x * f, y * f) * amp; f *= 2.03; amp *= 0.5; } return s; };
+  const ridged = (x, y, oct = 4) => { let s = 0, amp = 0.5, f = 1; for (let i = 0; i < oct; i++) { const n = 1 - Math.abs(noise(x * f, y * f) * 1.6); s += n * n * amp; f *= 2.1; amp *= 0.5; } return s; };
+  return { noise, fbm, ridged, rnd };
+}
+const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+export class Terrain {
+  constructor(seed, half, { beach = false } = {}) {
+    this.half = half;
+    this.beach = beach;
+    this.nz = makeNoise(seed ^ 0x7e55a1);
+    this.water = beach ? -0.02 : -0.9;
+    const r = this.nz.rnd;
+    // river: meanders past one side of town (not on the coast side)
+    this.river = beach ? null : { side: Math.floor(r() * 4), off: half + 70 + r() * 50, amp: 30 + r() * 30, freq: 1 / (110 + r() * 80), ph: r() * 6.28 };
+    this.fields = this.layoutFields(r);
+    this.group = new THREE.Group();
+    this.build();
+  }
+
+  /** Signed distance outside the town square (negative inside). */
+  outside(x, z) { return Math.max(Math.abs(x), Math.abs(z)) - this.half; }
+
+  riverDist(x, z) {
+    const rv = this.river;
+    if (!rv) return Infinity;
+    // rotate world so the river runs along +x at z = off
+    const [u, v] = [[x, z], [z, -x], [-x, -z], [-z, x]][rv.side];
+    const c = rv.off + Math.sin(u * rv.freq + rv.ph) * rv.amp + Math.sin(u * rv.freq * 2.7 + 1.3) * rv.amp * 0.25;
+    return Math.abs(v - c);
+  }
+
+  /** Farm patchwork: rotated rectangles in a band around town. */
+  layoutFields(r) {
+    const out = [];
+    for (let k = 0; k < 60 && out.length < 26; k++) {
+      const a = r() * Math.PI * 2, d = this.half + 55 + r() * 260;
+      const x = Math.cos(a) * d, z = Math.sin(a) * d;
+      if (this.beach && z > this.half - 20) continue;
+      const f = { x, z, w: 30 + r() * 45, h: 25 + r() * 40, rot: Math.round(a / (Math.PI / 2)) * Math.PI / 2 + (r() - 0.5) * 0.35, crop: Math.floor(r() * 4) };
+      if (out.some((o) => Math.hypot(o.x - x, o.z - z) < (o.w + f.w) * 0.55)) continue;
+      if (this.riverDist(x, z) < Math.max(f.w, f.h) * 0.6 + 12) continue;
+      if ([[0, 0], [f.w / 2, f.h / 2], [-f.w / 2, f.h / 2], [f.w / 2, -f.h / 2], [-f.w / 2, -f.h / 2]]
+        .some(([u, v]) => this.nz.fbm((x + u) / 210 - 9.4, (z + v) / 210 + 2.2, 3) > 0.06)) continue; // no fields in lakes
+      out.push(f);
+    }
+    return out;
+  }
+
+  /** Which field (if any) covers (x, z), with the local coordinates inside it. */
+  fieldAt(x, z) {
+    for (const f of this.fields) {
+      const c = Math.cos(f.rot), s = Math.sin(f.rot), dx = x - f.x, dz = z - f.z;
+      const u = dx * c + dz * s, v = -dx * s + dz * c;
+      if (Math.abs(u) < f.w / 2 && Math.abs(v) < f.h / 2) return { f, u, v, edge: Math.min(f.w / 2 - Math.abs(u), f.h / 2 - Math.abs(v)) };
+    }
+    return null;
+  }
+
+  /** Forest density 0..1 (clumps of woodland away from town, fields and water). */
+  forest(x, z) {
+    const d = this.outside(x, z);
+    if (d < 45) return 0;
+    const n = this.nz.fbm(x / 170 + 11.3, z / 170 - 4.1, 4);
+    return smooth(-0.04, 0.1, n) * smooth(40, 80, d);
+  }
+
+  heightAt(x, z) {
+    const { nz } = this;
+    const d = this.outside(x, z);
+    const w = smooth(3, 45, d); // flat apron at the city limits
+    const grow = 0.85 + smooth(60, 900, d) * 2.4; // hills swell into mountains toward the horizon
+    let h = nz.fbm(x / 240, z / 240, 5) * 30 * grow
+      + nz.ridged(x / 170 + 3.7, z / 170 - 1.2, 4) * 14 * (grow - 0.55)
+      + nz.fbm(x / 55 + 7.1, z / 55, 3) * 1.1
+      + nz.noise(x / 9, z / 9) * 0.18;
+    h = Math.max(h, -3) + 1.5;
+    // lakes: low basins filled by the water plane
+    const lake = nz.fbm(x / 210 - 9.4, z / 210 + 2.2, 3);
+    h -= smooth(0.12, 0.3, lake) * (h + 3.8);
+    // river channel with soft banks
+    const rd = this.riverDist(x, z);
+    if (rd < 30) h = h * smooth(4, 26, rd) + (-2.2 + rd * 0.12) * (1 - smooth(4, 26, rd));
+    // fields are levelled
+    const fa = this.fieldAt(x, z);
+    if (fa) h = h * 0.35 + Math.max(0.3, h * 0.2) * 0.65 * smooth(0, 6, fa.edge) + h * 0.65 * (1 - smooth(0, 6, fa.edge));
+    // coast: the land slides under the sea beyond the beach
+    if (this.beach) h = h * (1 - smooth(this.half - 30, this.half + 5, z)) - smooth(this.half, this.half + 90, z) * 9;
+    return h * w - 0.08;
+  }
+
+  normalAt(x, z, out = new THREE.Vector3()) {
+    const e = 0.8;
+    return out.set(this.heightAt(x - e, z) - this.heightAt(x + e, z), 2 * e, this.heightAt(x, z - e) - this.heightAt(x, z + e)).normalize();
+  }
+
+  // ---------- mesh ----------
+  axisCoords() {
+    const inner = this.half + 130, R = 1700, cs = [];
+    for (let c = -inner; c <= inner + 1e-6; c += 2) cs.push(c);
+    let step = 2, c = inner;
+    const outer = [];
+    while (c < R) { step = Math.min(70, step * 1.09); c += step; outer.push(c); }
+    return [...outer.map((v) => -v).reverse(), ...cs, ...outer];
+  }
+
+  build() {
+    const cs = this.axisCoords(), n = cs.length;
+    const pos = new Float32Array(n * n * 3), nrm = new Float32Array(n * n * 3), splat = new Float32Array(n * n * 4), extra = new Float32Array(n * n * 2);
+    const v = new THREE.Vector3();
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) {
+        const x = cs[i], z = cs[j], k = j * n + i;
+        const y = this.heightAt(x, z);
+        pos.set([x, y, z], k * 3);
+        this.normalAt(x, z, v);
+        nrm.set([v.x, v.y, v.z], k * 3);
+        const fa = this.fieldAt(x, z);
+        const rd = this.riverDist(x, z);
+        // splat: x forest floor, y field (crop id + 1) / 4, z dirt tracks/erosion, w wet shore
+        const dirt = Math.max(0, this.nz.fbm(x / 60 - 3, z / 60 + 5, 3) - 0.28) * 3 + (fa && fa.edge < 2.5 ? 0.6 : 0);
+        // topographic moisture: hollows collect water (lush, dark), crests dry out; wildflower drifts in meadows
+        const ring = 9, avg = (this.heightAt(x + ring, z) + this.heightAt(x - ring, z) + this.heightAt(x, z + ring) + this.heightAt(x, z - ring)) / 4;
+        extra.set([Math.max(-1, Math.min(1, (avg - y) * 0.6)), Math.max(0, this.nz.fbm(x / 25 + 40, z / 25 - 17, 3) - 0.12) * 4], k * 2);
+        splat.set([this.forest(x, z), fa ? (fa.f.crop + 1) / 4 : 0, Math.min(1, dirt), 1 - smooth(0.1, 0.75, y - this.water)], k * 4);
+      }
+    }
+    const idx = [];
+    const h = this.half - 0.5;
+    for (let j = 0; j < n - 1; j++) {
+      for (let i = 0; i < n - 1; i++) {
+        const x0 = cs[i], x1 = cs[i + 1], z0 = cs[j], z1 = cs[j + 1];
+        if (Math.max(Math.abs(x0), Math.abs(x1)) < h && Math.max(Math.abs(z0), Math.abs(z1)) < h) continue; // under the town
+        const a = j * n + i, b = a + 1, c = a + n, d = c + 1;
+        idx.push(a, c, b, b, c, d);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+    g.setAttribute('aSplat', new THREE.BufferAttribute(splat, 4));
+    g.setAttribute('aExtra', new THREE.BufferAttribute(extra, 2));
+    g.setIndex(new THREE.BufferAttribute(n * n > 65535 ? new Uint32Array(idx) : new Uint16Array(idx), 1));
+    g.computeBoundingSphere();
+    this.mesh = new THREE.Mesh(g, terrainMaterial(this.water));
+    this.mesh.receiveShadow = true;
+    this.mesh.castShadow = true;
+    this.mesh.userData.grassMask = terrainMaskMaterial(this.water);
+    this.group.add(this.mesh);
+    // water: one plane at the global level; the terrain decides where it shows
+    const wg = new THREE.PlaneGeometry(3600, 3600, 1, 1).rotateX(-Math.PI / 2);
+    this.waterMesh = new THREE.Mesh(wg, waterMaterial(this.half));
+    this.waterMesh.position.y = this.water;
+    this.waterMesh.renderOrder = 2;
+    this.group.add(this.waterMesh);
+  }
+
+  /** Scenery placements for the city to instance: [{ name, x, y, z, rot, s }]. */
+  scatter(assets) {
+    const out = [], r = this.nz.rnd, taken = [];
+    const free = (x, z, rad) => !taken.some((t) => (t.x - x) ** 2 + (t.z - z) ** 2 < (t.r + rad) ** 2);
+    const put = (name, x, z, s = 1, rot = r() * 6.28, sink = 0.15) => {
+      const rad = (assets[name]?.meta.tier || 1) * 0.6 * s;
+      if (!free(x, z, rad)) return false;
+      const y = this.heightAt(x, z);
+      if (y < this.water + 0.15 && !name.startsWith('rock')) return false;
+      taken.push({ x, z, r: rad });
+      out.push({ name, x, y: y - sink * s, z, rot, s });
+      return true;
+    };
+    const R = this.half + 420;
+    // barns, windmills and cows on the farms; hedgerows around every field
+    for (const f of this.fields) {
+      const c = Math.cos(f.rot), s = Math.sin(f.rot);
+      const at = (u, v) => [f.x + u * c - v * s, f.z + u * s + v * c];
+      if (r() < 0.45) { const [x, z] = at(f.w / 2 + 12, 0); put('barn', x, z, 1, -f.rot + Math.PI / 2, 0.3); }
+      else if (r() < 0.35) { const [x, z] = at(-f.w / 2 - 14, f.h / 2); put('windmill', x, z, 1, r() * 6.28, 0.3); }
+      for (const [u0, v0, u1, v1] of [[-1, -1, 1, -1], [1, -1, 1, 1], [1, 1, -1, 1], [-1, 1, -1, -1]]) {
+        const len = Math.hypot((u1 - u0) * f.w / 2, (v1 - v0) * f.h / 2), steps = Math.floor(len / 1.6);
+        const gap = r() * steps;
+        for (let k = 0; k < steps; k++) {
+          if (Math.abs(k - gap) < 3) continue; // a gate
+          const t = k / steps;
+          const [x, z] = at((u0 + (u1 - u0) * t) * (f.w / 2 + 1), (v0 + (v1 - v0) * t) * (f.h / 2 + 1));
+          if (r() < 0.9) put('bush', x + (r() - 0.5) * 0.6, z + (r() - 0.5) * 0.6, 0.9 + r() * 0.9);
+          if (r() < 0.06) put(r() < 0.5 ? 'tree_big' : 'tree_small', x, z, 0.9 + r() * 0.4);
+        }
+      }
+      if (f.crop === 0) for (let k = 0; k < 4; k++) { const [x, z] = at((r() - 0.5) * f.w * 0.8, (r() - 0.5) * f.h * 0.8); put('cow', x, z, 1, r() * 6.28, 0); }
+    }
+    // forests, meadow trees, bushes and rocks
+    for (let k = 0; k < 16000; k++) {
+      const x = (r() * 2 - 1) * R, z = (r() * 2 - 1) * R;
+      const d = this.outside(x, z);
+      if (d < 8) continue;
+      if (this.fieldAt(x, z)) continue;
+      const fo = this.forest(x, z);
+      const slope = 1 - this.normalAt(x, z).y;
+      const far = smooth(250, 420, d);
+      if (r() < fo * 1.6 * (1 - far * 0.5)) {
+        const pine = this.nz.noise(x / 90, z / 90) > -0.05;
+        put(pine ? 'tree_pine' : r() < 0.6 ? 'tree_big' : 'tree_small', x, z, 0.8 + r() * 0.55);
+        if (r() < 0.3) put('bush', x + (r() - 0.5) * 4, z + (r() - 0.5) * 4, 0.9 + r() * 0.8);
+      } else if (slope > 0.22 && r() < 0.35) put('rock', x, z, 0.6 + r() * 2.4, r() * 6.28, 0.35);
+      else if (d < 220 && r() < 0.035) put(r() < 0.5 ? 'tree_big' : 'tree_small', x, z, 0.85 + r() * 0.5);
+      else if (d < 200 && r() < 0.05) put('bush', x, z, 0.8 + r() * 1.2);
+      else if (d < 200 && r() < 0.012) put('rock', x, z, 0.4 + r() * 1.0, r() * 6.28, 0.3);
+    }
+    // river banks: reeds of bushes and stones
+    if (this.river) for (let k = 0; k < 700; k++) {
+      const x = (r() * 2 - 1) * R, z = (r() * 2 - 1) * R, rd = this.riverDist(x, z);
+      if (rd > 7 && rd < 13 && this.outside(x, z) > 20) put(r() < 0.6 ? 'bush' : 'rock', x, z, 0.5 + r() * 0.8, r() * 6.28, 0.25);
+    }
+    return out;
+  }
+
+  dispose() {
+    this.mesh.geometry.dispose();
+    this.mesh.material.dispose();
+    this.waterMesh.geometry.dispose();
+    this.waterMesh.material.dispose();
+  }
+}
+
+// ---------- materials ----------
+const planar = (pw, layer, scale) => {
+  const q = pw.xz.mul(scale);
+  const l = int(layer);
+  return {
+    c: texture(pbrCol, q).depth(l).rgb,
+    n: texture(pbrNrm, q).depth(l).xyz.mul(2).sub(1),
+    r: texture(pbrRha, q).depth(l).xyz,
+  };
+};
+
+function terrainMaterial(waterLevel) {
+  const m = new THREE.MeshStandardNodeMaterial();
+  const pw = positionWorld;
+  const sp = attribute('aSplat', 'vec4');
+  const nW = normalWorldGeometry;
+  const slope = clamp(float(1).sub(nW.y).mul(3.2), 0, 1);
+  const dist = length(positionView);
+  const fade = smoothstep(260, 40, dist).mul(surfaceOn);
+  const G = planar(pw, L.grass, 0.28), Gf = planar(pw, L.grass, 0.045); // near + far scale kills tiling
+  const F = planar(pw, L.forest, 0.22), D = planar(pw, L.dirt, 0.3), S = planar(pw, L.shore, 0.25);
+  const R = triplanar(pw, nW, int(L.rock), float(0.09));
+  const cropId = sp.y.mul(4).sub(1).round();
+  const field = sp.y.greaterThan(0.1);
+  const h = pw.y.sub(waterLevel);
+  // splat weights, then height-blend using each scan's relief so edges look natural (stones poke through grass)
+  const wRock = smoothstep(0.35, 0.75, slope.add(macro(pw, 0.02).sub(0.5).mul(0.4))).add(smoothstep(40, 90, h).mul(0.6));
+  const wShore = sp.w.mul(float(1).sub(wRock));
+  const wForest = sp.x.mul(float(1).sub(wRock));
+  const wDirt = sp.z.mul(0.8).add(field.and(cropId.equal(1)).select(1, 0)).mul(float(1).sub(wRock)); // ploughed field
+  const wGrass = max(float(1).sub(wRock).sub(wShore).sub(wForest).sub(wDirt), 0.02);
+  const hb = (wgt, ht) => pow(wgt.mul(ht.add(0.6)), 4);
+  const bG = hb(wGrass, G.r.y), bF = hb(wForest, F.r.y), bD = hb(wDirt, D.r.y), bS = hb(wShore, S.r.y), bR = hb(wRock, R.height.add(0.2));
+  const sum = bG.add(bF).add(bD).add(bS).add(bR).add(1e-5);
+  const blend = (a, b, c, d, e) => a.mul(bG).add(b.mul(bF)).add(c.mul(bD)).add(d.mul(bS)).add(e.mul(bR)).div(sum);
+
+  m.colorNode = Fn(() => {
+    // grass: scanned lawn pushed toward a lush meadow green, far sample mixed in with distance
+    // meadow: the scan's luminance detail on a living green that drifts between lush and sun-dried patches
+    const gscan = mix(G.c, Gf.c, smoothstep(30, 140, dist).mul(0.6));
+    const gl = gscan.dot(vec3(0.3, 0.59, 0.11)).div(0.14);
+    const dry = smoothstep(0.5, 0.85, macro(pw, 0.011)), hue = macro(pw, 0.05);
+    const meadow = mix(mix(vec3(0.05, 0.12, 0.022), vec3(0.075, 0.14, 0.03), hue), vec3(0.15, 0.15, 0.055), dry.mul(0.7));
+    const ex = attribute('aExtra', 'vec2');
+    const wet = ex.x; // + hollow, - crest
+    const meadow2 = mix(meadow, vec3(0.035, 0.1, 0.02), smoothstep(0.0, 0.8, wet).mul(0.7)).mul(mix(1, 1.25, smoothstep(0, -0.8, wet)));
+    let gcol = mix(meadow2.mul(gl), gscan.mul(0.8), 0.2).toVar();
+    // wildflower drifts: specks of white, yellow and violet in the meadow texture
+    const fl = smoothstep(0.2, 1.0, ex.y).mul(smoothstep(0.62, 0.8, G.r.y));
+    const flc = select(macro(pw, 1.7).greaterThan(0.55), vec3(0.8, 0.72, 0.2), select(macro(pw, 2.3).greaterThan(0.5), vec3(0.75, 0.75, 0.8), vec3(0.45, 0.3, 0.6)));
+    gcol.assign(mix(gcol, flc, fl.mul(0.8)));
+    let col = blend(gcol, F.c.mul(vec3(0.45, 0.5, 0.36)), D.c, S.c, R.col).toVar();
+    // crops: wheat stripes (gold), young green rows, fallow; rows follow the field
+    const rows = sin(pw.x.add(pw.z.mul(0.37)).mul(5.5)).mul(0.5).add(0.5);
+    const wheat = mix(vec3(0.38, 0.28, 0.1), vec3(0.62, 0.48, 0.2), rows.mul(0.6).add(macro(pw, 0.2).mul(0.4)));
+    const young = mix(vec3(0.07, 0.12, 0.03), vec3(0.16, 0.26, 0.06), rows);
+    const fallow = mix(vec3(0.3, 0.3, 0.12), vec3(0.22, 0.26, 0.1), rows);
+    const crop = select(cropId.equal(0), col, select(cropId.equal(1), col.mul(rows.mul(0.35).add(0.75)), select(cropId.equal(2), wheat, select(cropId.equal(3), young, fallow))));
+    col.assign(select(field, mix(col, crop, 0.85), col));
+    // wet dark band at the waterline, macro brightness breakup
+    col.mulAssign(mix(1, 0.55, smoothstep(0.6, 0.0, h)));
+    col.mulAssign(mix(0.85, 1.12, macro(pw, 0.03)));
+    return vec4(col, 1);
+  })();
+  // vegetation and soil are near-perfectly rough; only wet banks and bare rock get any sheen
+  const rough = blend(G.r.x.mul(0.1).add(0.9), F.r.x.mul(0.1).add(0.88), D.r.x.mul(0.2).add(0.8), S.r.x.mul(0.4).add(0.55), R.rough.mul(0.35).add(0.6));
+  m.roughnessNode = clamp(mix(rough, 0.3, smoothstep(0.5, 0.0, h)), 0.25, 1);
+  m.metalnessNode = float(0);
+  const ao = blend(G.r.z, F.r.z, D.r.z, S.r.z, R.ao);
+  m.aoNode = mix(float(1), ao, fade);
+  // relief: planar layers share the XZ basis; rock brings its own triplanar gradient
+  m.normalNode = Fn(() => {
+    const dpx = positionView.dFdx(), dpy = positionView.dFdy(), n = normalViewGeometry;
+    const r1 = dpy.cross(n), r2 = n.cross(dpx), det = dpx.dot(r1);
+    const kk = det.sign().div(max(det.abs(), 1e-12));
+    const dx = pw.dFdx(), dy = pw.dFdy();
+    const gX = r1.mul(dx.x).add(r2.mul(dy.x)).mul(kk), gZ = r1.mul(dx.z).add(r2.mul(dy.z)).mul(kk);
+    const sl = (t) => t.xy.div(max(t.z, 0.25)).negate();
+    const flat = sl(G.n).mul(bG).add(sl(F.n).mul(bF)).add(sl(D.n).mul(bD)).add(sl(S.n).mul(bS)).div(sum);
+    const grad = gX.mul(flat.x).add(gZ.mul(flat.y)).add(R.grad.mul(bR.div(sum)));
+    return normalize(n.sub(grad.mul(fade)));
+  })();
+  return m;
+}
+
+function terrainMaskMaterial(waterLevel) {
+  const m = new THREE.MeshBasicNodeMaterial({ fog: false });
+  const sp = attribute('aSplat', 'vec4');
+  const slope = clamp(float(1).sub(normalWorldGeometry.y).mul(3.2), 0, 1);
+  const grassy = float(1).sub(smoothstep(0.25, 0.5, slope)).mul(float(1).sub(sp.x.mul(0.7))).mul(float(1).sub(sp.z))
+    .mul(float(1).sub(sp.w)).mul(sp.y.greaterThan(0.1).select(0, 1)).mul(smoothstep(0.3, 0.8, positionWorld.y.sub(waterLevel)));
+  const ex = attribute('aExtra', 'vec2');
+  const dry = clamp(smoothstep(0.5, 0.85, macro(positionWorld, 0.011)).mul(0.6).add(smoothstep(0, -0.8, ex.x).mul(0.5)).sub(smoothstep(0, 0.8, ex.x).mul(0.4)), 0, 1);
+  m.colorNode = vec4(grassy.mul(0.85), positionWorld.y, 1, dry);
+  return m;
+}
+
+/** Lakes, river and sea: wave normals, sky reflections, depth-tinted and soft where it meets the shore. */
+function waterMaterial(half) {
+  const m = new THREE.MeshPhysicalNodeMaterial({ transparent: true, depthWrite: false, roughness: 0.05, metalness: 0 });
+  const pw = positionWorld;
+  // the town sits on dry land: never show the water table under it (or down an open hole)
+  m.maskNode = max(abs(pw.x), abs(pw.z)).greaterThan(half - 0.3);
+  // how much water is between the surface and the ground behind it
+  const sceneZ = perspectiveDepthToViewZ(viewportDepthTexture(screenUV).r, cameraNear, cameraFar);
+  const depthM = positionView.z.sub(sceneZ).max(0);
+  const shallow = smoothstep(0.0, 2.5, depthM);
+  const deep = vec3(0.02, 0.06, 0.07), mid = vec3(0.05, 0.16, 0.16);
+  m.colorNode = vec4(mix(mid, deep, shallow), mix(0.25, 0.94, smoothstep(0.0, 0.9, depthM)));
+  m.normalNode = normalize(normalViewGeometry.sub(waterGrad(pw).mul(1.1)));
+  // foam line where it laps the shore
+  const foam = smoothstep(0.25, 0.0, depthM).mul(sin(time.mul(1.6).add(pw.x.mul(0.9)).add(pw.z.mul(0.7))).mul(0.3).add(0.7));
+  m.emissiveNode = vec3(0.35, 0.38, 0.36).mul(foam).mul(0.6);
+  m.specularIntensityNode = float(1);
+  return m;
+}
+
+// ---------- rocks: displaced, flattened icosahedra with scanned rock, moss on their upper faces ----------
+function rockGeometry(seed, detail) {
+  const nz = makeNoise(seed);
+  const g = new THREE.IcosahedronGeometry(1, [3, 2, 1][detail]);
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const k = 1 + nz.fbm(x * 1.3 + 5, y * 1.3 + z * 0.7, 4) * 0.55 + nz.ridged(x * 2.5, z * 2.5 + y, 2) * 0.12;
+    p.setXYZ(i, x * k * 1.15, Math.max(-0.35, y * k * 0.62) + 0.25, z * k * 0.95);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+function rockMaterial() {
+  const m = new THREE.MeshStandardNodeMaterial();
+  const tri = triplanar(positionGeometry.mul(1.0), normalGeometry, int(L.rock), float(0.45));
+  const up = smoothstep(0.45, 0.85, normalWorldGeometry.y);
+  const moss = macro(positionWorld, 0.6);
+  m.colorNode = vec4(mix(tri.col.mul(0.9), vec3(0.09, 0.14, 0.05).mul(moss.add(0.6)), up.mul(smoothstep(0.35, 0.65, moss))), 1);
+  m.roughnessNode = clamp(tri.rough.mul(0.5).add(0.5), 0.5, 1);
+  m.aoNode = tri.ao;
+  m.normalNode = normalize(normalViewGeometry.sub(tri.grad.mul(1.4)));
+  return m;
+}
+
+/** Scenery-only procedural assets the terrain scatters (rocks). */
+export function installTerrainAssets(assets) {
+  const mat = rockMaterial();
+  const variants = [0, 1, 2].map((v) => [0, 1, 2].map((d) => rockGeometry(911 + v * 37, d)));
+  const scene = new THREE.Group().add(new THREE.Mesh(variants[0][0], mat));
+  assets.rock = { name: 'rock', clips: [], meta: { tier: 1.1, mass: 20, kind: 'scenery', height: 1.2, tris: 1280 }, material: mat,
+    flags: new THREE.Vector4(), flatVariants: variants, scene, lod: scene, lod2: scene };
+}

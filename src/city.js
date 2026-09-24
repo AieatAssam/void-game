@@ -1,10 +1,11 @@
 // Seeded Toybox Town: tile grid, buildings, street furniture, pedestrians, traffic.
 // Static things are instanced per (asset, chunk) so off-screen chunks are culled;
 // movers are instanced per asset; animated landmarks are cloned with a mixer.
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import { Fn, uniformArray, uv, vec4, length, smoothstep, pow, If, Discard, positionWorld } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { toyMaterial } from './assets.js';
-import { applySurface } from './surface.js';
+import { groundMaterial, groundMaskMaterial } from './surface.js';
+import { Terrain } from './terrain.js';
 
 export const TILE = 40;
 const CHUNK = 40;
@@ -30,7 +31,8 @@ export function rng(seed) {
 
 /** Bake a glTF scene (with quantized attributes + child nodes) into one float geometry. */
 const flatCache = new Map();
-export function flatGeometry(asset, lod = 0) {
+export function flatGeometry(asset, lod = 0, variant = 0) {
+  if (asset.flatVariants) return asset.flatVariants[variant % asset.flatVariants.length][lod]; // procedural vegetation
   const key = asset.name + '|' + lod;
   if (flatCache.has(key)) return flatCache.get(key);
   const src = [asset.scene, asset.lod, asset.lod2][lod];
@@ -60,59 +62,26 @@ export function flatGeometry(asset, lod = 0) {
   return geo;
 }
 
-// Soft contact shadow ("ambient occlusion" blob) texture: grounds every object, one instanced draw call.
-const aoTex = (() => {
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const g = c.getContext('2d'), grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grd.addColorStop(0, 'rgba(0,0,0,0.55)');
-  grd.addColorStop(0.55, 'rgba(0,0,0,0.3)');
-  grd.addColorStop(1, 'rgba(0,0,0,0)');
-  g.fillStyle = grd;
-  g.fillRect(0, 0, 64, 64);
-  return new THREE.CanvasTexture(c);
-})();
-
+// Soft contact shadow blobs: ground every small thing (GTAO handles the rest), one instanced draw call.
 function aoMaterial(holeField) {
-  const mat = new THREE.MeshBasicMaterial({ map: aoTex, transparent: true, depthWrite: false, color: 0x2a2030 });
-  mat.onBeforeCompile = (s) => { // never darken the inside of a hole
-    s.uniforms.uHoles = holeField;
-    s.vertexShader = s.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vAoW;')
-      .replace('#include <project_vertex>', '#include <project_vertex>\nvAoW = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;');
-    s.fragmentShader = s.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vAoW;\nuniform vec3 uHoles[4];')
-      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
-        for (int i = 0; i < 4; i++) if (uHoles[i].z > 0.0 && distance(vAoW.xz, uHoles[i].xy) < uHoles[i].z) discard;`);
-  };
-  mat.customProgramCacheKey = () => 'ao-blob';
+  const holes = uniformArray(holeField.value, 'vec3');
+  const mat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false });
+  mat.colorNode = Fn(() => {
+    for (let i = 0; i < 4; i++) { // never darken the inside of a hole
+      const h = holes.element(i);
+      If(h.z.greaterThan(0).and(length(positionWorld.xz.sub(h.xy)).lessThan(h.z)), () => { Discard(); });
+    }
+    const d = length(uv().sub(0.5)).mul(2);
+    return vec4(0.1, 0.08, 0.12, pow(smoothstep(1, 0, d), 1.6).mul(0.42));
+  })();
   return mat;
 }
 
-/** Tiles get a material that discards fragments inside the hole (the ground "opens"). */
-export function groundMaterial(holeField) {
-  const mat = toyMaterial.clone();
-  mat.onBeforeCompile = (s) => {
-    applySurface(s, true);
-    s.uniforms.uHoles = holeField;
-    s.vertexShader = s.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vWorldP;')
-      .replace('#include <project_vertex>', `#include <project_vertex>
-        vec4 wp = vec4(transformed, 1.0);
-        #ifdef USE_INSTANCING
-          wp = instanceMatrix * wp;
-        #endif
-        vWorldP = (modelMatrix * wp).xyz;`);
-    s.fragmentShader = s.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vWorldP;\nuniform vec3 uHoles[4];')
-      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
-        for (int i = 0; i < 4; i++) if (uHoles[i].z > 0.0 && distance(vWorldP.xz, uHoles[i].xy) < uHoles[i].z) discard;`);
-  };
-  mat.customProgramCacheKey = () => 'ground-surface';
-  return mat;
-}
+export { groundMaterial };
 
 const SIDEWALK = ['lamp', 'tree_small', 'bench', 'hydrant', 'trashcan', 'mailbox', 'newsbox', 'vending', 'phone_booth',
-  'planter', 'flower_pot', 'bicycle', 'scooter', 'cone', 'tree_small', 'bench'];
-const PARK = ['tree_small', 'tree_big', 'bench', 'picnic_table', 'flower_pot', 'dog', 'planter', 'hotdog_cart', 'tree_small', 'gnome'];
+  'planter', 'flower_pot', 'bicycle', 'scooter', 'cone', 'tree_small', 'bench', 'bush', 'tree_small'];
+const PARK = ['tree_small', 'tree_big', 'bench', 'picnic_table', 'flower_pot', 'dog', 'bush', 'hotdog_cart', 'tree_small', 'gnome', 'bush', 'tree_big', 'bush'];
 const TRAFFIC = ['car', 'car_b', 'car_c', 'taxi', 'car', 'car_b', 'icecream_van', 'bus'];
 export const PEOPLE = ['ped_business', 'ped_jogger', 'ped_tourist', 'ped_granny', 'ped_student', 'ped_chef', 'ped_worker', 'ped_kid'];
 const PEDS = PEOPLE;
@@ -258,6 +227,7 @@ export class City {
         this.put(t, r() < 0.3 ? 'swing' : r.pick(['tree_small', 'tree_big', 'flower_pot', 'planter']), sx * 2.5, sz * 11, r() * 6.28);
         if (r() < 0.5) this.put(t, 'dog', sx * r.range(1, 3), sz * r.range(2, 4), r() * 6.28);
         this.put(t, 'mailbox', sx * 13.6, sz * 4.2, 0);
+        for (let k = 0; k < 3; k++) this.put(t, 'bush', sx * r.range(8.5, 12), sz * r.range(8, 13), r() * 6.28);
       }
       for (let k = 0; k < 3; k++) this.walker(cx, cz, 13.2);
     } else if (t.type === 'construction') {
@@ -313,14 +283,24 @@ export class City {
       this.put(t, 'searchlight', 11, 11, 0);
       for (let k = 0; k < 6; k++) this.walker(cx, cz, 11);
     } else if (t.type === 'park') {
+      const [px, pz] = this.at(t, 7, -7); // the pond (tile_park.py puts it at Blender (7, 7))
+      const dry = (x, z) => (x - px) ** 2 + (z - pz) ** 2 > 5.4 ** 2;
       for (let k = 0; k < 16; k++) {
         const x = cx + r.range(-12, 12), z = cz + r.range(-12, 12);
-        if (Math.abs(x - cx) < 2 || Math.abs(z - cz) < 2) continue; // keep paths clear
+        if (Math.abs(x - cx) < 2 || Math.abs(z - cz) < 2 || !dry(x, z)) continue; // keep paths and the pond clear
         this.add(r.pick(PARK), x, z, r() * Math.PI * 2);
       }
+      for (let k = 0; k < 6; k++) { // shrub clusters at the lawn corners
+        const qx = r() < 0.5 ? -1 : 1, qz = r() < 0.5 ? -1 : 1;
+        const x = cx + qx * r.range(4, 12.5), z = cz + qz * r.range(4, 12.5);
+        if (dry(x, z)) this.add('bush', x, z, r() * 6.28);
+      }
       if (r() < 0.5) this.add('swing', cx + 7, cz - 7, r() * 6.28);
-      for (let k = 0; k < 6; k++) this.add('pigeon', cx + r.range(-10, 10), cz + r.range(-10, 10), r() * 6.28, { type: 'peck', t: r() * 10 });
-      for (let k = 0; k < 5; k++) this.walker(cx, cz, 9);
+      for (let k = 0; k < 6; k++) {
+        const x = cx + r.range(-10, 10), z = cz + r.range(-10, 10);
+        if (dry(x, z)) this.add('pigeon', x, z, r() * 6.28, { type: 'peck', t: r() * 10 });
+      }
+      for (let k = 0; k < 5; k++) this.walker(cx, cz, 12); // loop outside the pond (tile-local 7,7, r 4.2) at any rotation
     } else {
       this.add('fountain', cx, cz, 0);
       for (let k = 0; k < 4; k++) {
@@ -338,46 +318,12 @@ export class City {
     }
   }
 
-  /** Countryside ring around the city: rolling hills, farms, lakes, windmills. Scenery only (never swallowed). */
+  /** Countryside around the town: a real terrain (src/terrain.js) with its own scatter. Scenery only (never swallowed). */
   scenery() {
-    const { r, N } = this;
-    const mid = (N - 1) / 2;
-    this.sceneryList = [];
-    let cur;
-    const land = (name, x, y, z, rot) => {
-      if (!name.startsWith('land_')) { // trees, cows, windmills and barns keep out of each other too
-        const rr = this.assets[name].meta.tier * 0.6;
-        if (this.sceneryList.some((o) => o.r && (o.x - x) ** 2 + (o.z - z) ** 2 < (o.r + rr) ** 2)) return;
-        return this.sceneryList.push({ name, x, y, z, rot, tile: cur, r: rr });
-      }
-      this.sceneryList.push({ name, x, y, z, rot, tile: cur });
-    };
-    for (let i = -2; i < N + 2; i++) {
-      for (let j = -2; j < N + 2; j++) {
-        if (i >= 0 && i < N && j >= 0 && j < N) continue;
-        const cx = (i - mid) * TILE, cz = (j - mid) * TILE, rot = this.beach && j >= N ? 0 : Math.floor(r() * 4) * Math.PI / 2;
-        cur = { cx, cz, rot };
-        const type = this.beach && j >= N ? 'sea' : weighted(r, { meadow: 6, farm: 2.5, lake: 1.5 });
-        land('land_' + type, cx, 0, cz, rot);
-        if (type === 'sea') {
-          if (r() < 0.35) land('sailboat', cx + r.range(-12, 12), 0, cz + r.range(-12, 12), r() * 6.28);
-          continue;
-        }
-        const spot = (m) => [cx + r.range(-m, m), cz + r.range(-m, m)];
-        if (type === 'meadow') {
-          for (let k = 0; k < 5; k++) { const [x, z] = spot(17); land(r.pick(['tree_small', 'tree_big', 'tree_small']), x, 'ground', z, r() * 6.28); }
-          if (r() < 0.3) { const [x, z] = spot(8); land('windmill', x, 'ground', z, r() * 6.28); }
-          for (let k = 0; k < 2; k++) { const [x, z] = spot(15); land('cow', x, 'ground', z, r() * 6.28); }
-        } else if (type === 'farm') {
-          if (r() < 0.5) land('barn', cx + 10, 0, cz - 10, rot);
-          for (let k = 0; k < 3; k++) { const [x, z] = spot(15); land('cow', x, 0, z, r() * 6.28); }
-        } else {
-          for (let k = 0; k < 4; k++) {
-            const a = r() * 6.28;
-            land(r.pick(['tree_small', 'tree_big']), cx + Math.cos(a) * 17, 0, cz + Math.sin(a) * 17, r() * 6.28);
-          }
-        }
-      }
+    this.terrain = new Terrain((this.r() * 2 ** 31) | 0, this.half, { beach: this.beach });
+    this.sceneryList = this.terrain.scatter(this.assets);
+    if (this.beach) for (let k = 0; k < 6; k++) {
+      this.sceneryList.push({ name: 'sailboat', x: this.r.range(-this.half - 100, this.half + 100), y: this.terrain.water - 0.1, z: this.half + this.r.range(40, 260), rot: this.r() * 6.28 });
     }
   }
 
@@ -563,12 +509,13 @@ export class City {
     this.meshes = [];
     for (const g of groups.values()) {
       const a = this.assets[g.name];
-      const full = flatGeometry(a), lod = flatGeometry(a, 1), lod2 = flatGeometry(a, 2);
+      const variant = (this.groupCount = (this.groupCount || 0) + 1); // procedural trees differ chunk to chunk
+      const full = flatGeometry(a, 0, variant), lod = flatGeometry(a, 1, variant), lod2 = flatGeometry(a, 2, variant);
       const mat = g.ground ? this.groundMat : a.material;
       const mesh = new THREE.InstancedMesh(full, mat, g.list.length);
       mesh.castShadow = !g.ground;
       mesh.receiveShadow = true;
-      mesh.userData = { geos: [full, lod, lod2], full, tier: g.ground ? Infinity : a.meta.tier, ground: !!g.ground, roams: g.roams, list: g.reserve ? g.list : null };
+      mesh.userData = { geos: [full, lod, lod2], full, tier: g.ground ? Infinity : a.meta.tier, ground: !!g.ground, roams: g.roams, list: g.reserve ? g.list : null, toyFlags: a.flags };
       g.list.forEach((e, i) => { e.mesh = mesh; e.index = i; this.place(e); });
       mesh.instanceMatrix.setUsage(g.mover ? THREE.DynamicDrawUsage : THREE.StaticDrawUsage);
       if (g.roams) mesh.frustumCulled = false;
@@ -580,6 +527,11 @@ export class City {
       this.group.add(mesh);
     }
     this.buildScenery();
+    // what the grass mask pass rasterises (src/grass.js)
+    const lawnMask = groundMaskMaterial(0, 1);
+    this.groundMeshes = this.meshes.filter((m) => m.userData.ground);
+    for (const m of this.groundMeshes) m.userData.grassMask = lawnMask;
+    this.groundMeshes.push(this.field); // terrain brings its own meadow mask
     // contact shadows under every small/medium thing (buildings already cast real shadows)
     const aoList = this.entities.filter((e) => e.meta.tier < 6);
     this.ao = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), aoMaterial(this.holeField), aoList.length + 64);
@@ -610,17 +562,9 @@ export class City {
 
   buildScenery() {
     if (this.pierAt) this.sceneryList.push({ name: 'pier', x: this.pierAt[0], y: 0, z: this.pierAt[1], rot: 0 });
-    // Sit meadow props on the hills: raycast the (unrotated) hill mesh in tile-local space.
-    const hill = new THREE.Mesh(flatGeometry(this.assets.land_meadow, 0));
-    const ray = new THREE.Raycaster(), down = new THREE.Vector3(0, -1, 0), o = new THREE.Vector3();
     const groups = new Map();
     for (const it of this.sceneryList) {
-      if (it.y === 'ground') {
-        const { cx, cz, rot } = it.tile, c = Math.cos(rot), s = Math.sin(rot), dx = it.x - cx, dz = it.z - cz;
-        ray.set(o.set(dx * c - dz * s, 50, dx * s + dz * c), down);
-        it.y = (ray.intersectObject(hill)[0]?.point.y ?? 0) - 0.1;
-      }
-      const e = { ...it, tilt: 0, s: 1 };
+      const e = { ...it, tilt: 0, s: it.s ?? 1 };
       if (this.assets[it.name].clips.length) { // windmills turn
         e.obj = this.assets[it.name].scene.clone();
         const m = new THREE.AnimationMixer(e.obj);
@@ -636,39 +580,27 @@ export class City {
     }
     for (const g of groups.values()) {
       const a = this.assets[g.name];
-      const geos = [0, 1, 2].map((l) => flatGeometry(a, l));
+      const variant = (this.groupCount = (this.groupCount || 0) + 1);
+      const geos = [0, 1, 2].map((l) => flatGeometry(a, l, variant));
       const mesh = new THREE.InstancedMesh(geos[0], a.material, g.list.length);
       mesh.castShadow = mesh.receiveShadow = true;
-      mesh.userData = { geos, tier: Infinity, scenery: true };
+      mesh.userData = { geos, tier: Infinity, scenery: true, toyFlags: a.flags };
       g.list.forEach((e, i) => { e.mesh = mesh; e.index = i; this.place(e); });
       mesh.computeBoundingSphere();
       this.meshes.push(mesh);
       this.group.add(mesh);
     }
-    // countryside continues to the horizon
-    // Uses the hole-cutting ground material (palette 'sage' swatch) so the hole never shows grass inside.
-    const fieldGeo = new THREE.CircleGeometry(1400, 64).rotateX(-Math.PI / 2);
-    const swatch = (geo, col, row) => geo.attributes.uv.array.forEach((_, i, arr) => { arr[i] = i % 2 ? (row + 0.5) / 6 : (col + 0.5) / 8; });
-    swatch(fieldGeo, 1, 1); // 'sage'
-    const field = new THREE.Mesh(fieldGeo, this.groundMat);
-    if (this.beach) { // open water to the horizon on the seaside
-      const seaGeo = new THREE.PlaneGeometry(3000, 1400).rotateX(-Math.PI / 2);
-      swatch(seaGeo, 3, 1); // 'sky'
-      const sea = new THREE.Mesh(seaGeo, this.groundMat);
-      sea.position.set(0, 0.06, this.half + 80 + 700); // just above the field (child of it)
-      field.add(sea);
-      field.userData.sea = sea;
-    }
-    field.position.y = -0.08;
-    field.receiveShadow = true;
-    this.group.add(field);
-    this.field = field;
+    this.group.add(this.terrain.group);
+    this.field = this.terrain.mesh;
     // drifting clouds
     const n = 14;
-    this.clouds = new THREE.InstancedMesh(flatGeometry(this.assets.cloud, 1), toyMaterial, n);
+    // clouds are never seen from the game camera, only their soft shadows drifting over town
+    const cloudMat = new THREE.MeshBasicNodeMaterial({ colorWrite: false, depthWrite: false });
+    this.clouds = new THREE.InstancedMesh(flatGeometry(this.assets.cloud, 2), cloudMat, n);
     this.clouds.frustumCulled = false;
+    this.clouds.castShadow = true;
     this.cloudList = Array.from({ length: n }, (_, i) => ({
-      x: this.r.range(-600, 600), z: this.r.range(-600, 600), y: this.r.range(55, 90), s: this.r.range(0.8, 2), rot: this.r() * 6.28, tilt: 0, v: this.r.range(1, 2.5),
+      x: this.r.range(-600, 600), z: this.r.range(-600, 600), y: this.r.range(70, 95), s: this.r.range(2.5, 4.5), rot: this.r() * 6.28, tilt: 0, v: this.r.range(1, 2.5),
       mesh: this.clouds, index: i,
     }));
     this.cloudList.forEach((c) => this.place(c));
@@ -702,8 +634,7 @@ export class City {
     this.clouds.dispose();
     this.ao.dispose();
     this.ao.material.dispose();
-    this.field.geometry.dispose();
-    this.field.userData.sea?.geometry.dispose();
+    this.terrain.dispose();
     for (const mx of this.mixers) mx.stopAllAction();
     this.groundMat.dispose();
   }

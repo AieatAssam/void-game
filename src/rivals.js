@@ -1,5 +1,5 @@
 // Rival holes (item 13): bots that eat the same city. Bigger eats smaller — including you.
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { Hole } from './hole.js';
 import { SKINS } from './skins.js';
 

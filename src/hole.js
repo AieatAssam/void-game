@@ -1,6 +1,7 @@
 // A hole: the one cold thing in a warm toy world. Void well + starfield + rim (Blender model), styled by a skin.
 // Up to MAX_HOLES holes share one ground-cut uniform (player + rivals).
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import { Fn, uniform, positionGeometry, clamp, atan, mix, smoothstep, sin, exp, pow, vec2, vec3, vec4, hash, floor, step, length, fract, mx_noise_float, log } from 'three/tsl';
 import { SKINS } from './skins.js';
 
 export const GROWTH = 0.25;
@@ -12,35 +13,38 @@ export function holeField() {
 }
 
 function voidMaterial(skin) {
-  return new THREE.ShaderMaterial({
-    side: THREE.BackSide,
-    uniforms: {
-      uTime: { value: 0 }, uTop: { value: new THREE.Color(skin.top) }, uDeep: { value: new THREE.Color(skin.deep) },
-      uStar: { value: new THREE.Color(skin.star) }, uRim: { value: new THREE.Color(skin.rim) },
-      uSwirl: { value: skin.swirl }, uLens: { value: skin.lens },
-    },
-    vertexShader: /* glsl */ `
-      varying vec3 vP;
-      void main() { vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-    fragmentShader: /* glsl */ `
-      uniform float uTime, uSwirl, uLens; uniform vec3 uTop, uDeep, uStar, uRim;
-      varying vec3 vP;
-      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-      void main() {
-        float d = clamp(-vP.y, 0.0, 1.0), ang = atan(vP.z, vP.x);
-        vec3 col = mix(uTop * 0.7, uDeep * 0.35, smoothstep(0.0, 0.3, d));
-        // spiral arms drifting down the well
-        float arms = sin(ang * 3.0 + d * 18.0 - uTime * 1.2) * 0.5 + 0.5;
-        col = mix(col, uTop * 0.9, uSwirl * arms * smoothstep(0.5, 0.05, d) * 0.6);
-        // lensing: a hot accretion ring just under the lip
-        col += uRim * uLens * 2.2 * exp(-pow((d - 0.06) * 28.0, 2.0));
-        vec2 g = vec2(ang * 18.0, (vP.y + uTime * 0.03) * 60.0);
-        float h = hash(floor(g));
-        float star = step(0.93, h) * smoothstep(0.5, 0.0, length(fract(g) - 0.5)) * (0.6 + 0.4 * sin(uTime * 3.0 + h * 40.0));
-        col += star * uStar * 0.8 * smoothstep(0.05, 0.25, d);
-        gl_FragColor = vec4(col, 1.0);
-      }`,
-  });
+  const u = {
+    uTop: uniform(new THREE.Color(skin.top)), uDeep: uniform(new THREE.Color(skin.deep)), uStar: uniform(new THREE.Color(skin.star)),
+    uRim: uniform(new THREE.Color(skin.rim)), uSwirl: uniform(skin.swirl), uLens: uniform(skin.lens), uTime: uniform(0), uDepth: uniform(4),
+  };
+  const mat = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, fog: false });
+  mat.colorNode = Fn(() => {
+    const vP = positionGeometry;
+    const d = clamp(vP.y.negate(), 0, 1), ang = atan(vP.z, vP.x);
+    const col = mix(u.uTop.mul(0.7), u.uDeep.mul(0.35), smoothstep(0.0, 0.3, d)).toVar();
+    // spiral arms drifting down the well
+    const arms = sin(ang.mul(3).add(d.mul(18)).sub(u.uTime.mul(1.2))).mul(0.5).add(0.5);
+    col.assign(mix(col, u.uTop.mul(0.9), u.uSwirl.mul(arms).mul(smoothstep(0.5, 0.05, d)).mul(0.6)));
+    // lensing: a hot accretion ring just under the lip
+    col.addAssign(u.uRim.mul(u.uLens).mul(2.2).mul(exp(pow(d.sub(0.06).mul(28), 2).negate())));
+    const g = vec2(ang.mul(18), vP.y.add(u.uTime.mul(0.03)).mul(60));
+    const h = hash(floor(g).add(vec2(2048, 4096)).dot(vec2(1, 8192)));
+    const star = step(0.93, h).mul(smoothstep(0.5, 0, length(fract(g).sub(0.5)))).mul(sin(u.uTime.mul(3).add(h.mul(40))).mul(0.4).add(0.6));
+    col.addAssign(u.uStar.mul(star).mul(0.8).mul(smoothstep(0.05, 0.25, d)));
+    // torn earth at the lip: road crust, then banded soil with pebbles, fading into the void
+    const depthM = d.mul(u.uDepth);
+    const n = mx_noise_float(vec3(ang.mul(6), depthM.mul(9), 0.5)).mul(0.5).add(0.5);
+    const crust = vec3(0.09, 0.09, 0.1).mul(n.mul(0.4).add(0.8));
+    const soilA = vec3(0.26, 0.17, 0.1), soilB = vec3(0.16, 0.1, 0.06);
+    const band = sin(depthM.mul(22).add(n.mul(4))).mul(0.5).add(0.5);
+    const pebble = step(0.8, mx_noise_float(vec3(ang.mul(40), depthM.mul(40), 3.1)).mul(0.5).add(0.5));
+    const soil = mix(soilB, soilA, band).mul(n.mul(0.5).add(0.6)).add(pebble.mul(0.12));
+    const earth = mix(crust, soil, smoothstep(0.12, 0.2, depthM.add(n.mul(0.05))));
+    const edge = smoothstep(0.55, 0.9, depthM.add(n.mul(0.25)));
+    return vec4(mix(earth.mul(0.55), col, edge), 1);
+  })();
+  mat.userData.u = u;
+  return mat;
 }
 
 export class Hole {
@@ -56,7 +60,7 @@ export class Hole {
     this.voidMat = voidMaterial(this.skin);
     const well = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 64, 1, true).translate(0, -0.5, 0), this.voidMat);
     const floor = new THREE.Mesh(new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2).translate(0, -1, 0),
-      new THREE.MeshBasicMaterial({ color: new THREE.Color(this.skin.deep).multiplyScalar(0.3) }));
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(this.skin.deep).multiplyScalar(0.3), fog: false }));
     this.well = new THREE.Group().add(well, floor);
     this.rimMat = new THREE.MeshStandardMaterial({ color: this.skin.rim, emissive: this.skin.rim, emissiveIntensity: 0.55, roughness: 0.3, metalness: 0.2 });
     this.rim = assets.hole_rim.scene.clone();
@@ -66,20 +70,17 @@ export class Hole {
       new THREE.MeshBasicMaterial({ color: this.skin.rim, transparent: true, opacity: 0.55, depthTest: false, depthWrite: false }));
     this.ghost.renderOrder = 10;
     // whirlpool: log-spiral arms streaming into the rim while the vacuum is on
-    this.swirlMat = new THREE.ShaderMaterial({
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-      uniforms: { uTime: { value: 0 }, uVac: { value: 0 }, uReach: { value: 2 }, uCol: { value: new THREE.Color(this.skin.rim) } },
-      vertexShader: /* glsl */ `varying vec2 vP; void main() { vP = position.xz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-      fragmentShader: /* glsl */ `
-        uniform float uTime, uVac, uReach; uniform vec3 uCol; varying vec2 vP;
-        void main() {
-          float r = length(vP), a = atan(vP.y, vP.x);
-          float arms = sin(a * 5.0 + log(r) * 9.0 + uTime * 14.0);
-          float band = smoothstep(0.35, 0.95, arms);
-          float fade = smoothstep(uReach, 1.15, r) * smoothstep(1.0, 1.08, r);
-          gl_FragColor = vec4(uCol * band * fade * min(1.0, uVac) * 0.9, 1.0);
-        }`,
-    });
+    const su = { uTime: uniform(0), uVac: uniform(0), uReach: uniform(2), uCol: uniform(new THREE.Color(this.skin.rim)) };
+    this.swirlMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+    this.swirlMat.colorNode = Fn(() => {
+      const vP = positionGeometry.xz;
+      const r = length(vP), a = atan(vP.y, vP.x);
+      const arms = sin(a.mul(5).add(log(r).mul(9)).add(su.uTime.mul(14)));
+      const band = smoothstep(0.35, 0.95, arms);
+      const fade = smoothstep(su.uReach, 1.15, r).mul(smoothstep(1.0, 1.08, r));
+      return vec4(su.uCol.mul(band).mul(fade).mul(su.uVac.min(1)).mul(0.9), 1);
+    })();
+    this.swirlMat.userData.u = su;
     this.swirl = new THREE.Mesh(new THREE.RingGeometry(1, 4.8, 96, 1).rotateX(-Math.PI / 2), this.swirlMat);
     this.swirl.renderOrder = 2;
     // size-up shockwave: a bright ring racing outward over the ground
@@ -125,14 +126,15 @@ export class Hole {
     this.rim.scale.set(r * p || 1e-3, Math.max(1, r * 0.35), r * p || 1e-3);
     this.ghost.position.set(this.x, this.gt + 0.02, this.z);
     this.ghost.scale.setScalar(r * p || 1e-3);
-    this.voidMat.uniforms.uTime.value = time;
+    this.voidMat.userData.u.uTime.value = time;
+    this.voidMat.userData.u.uDepth.value = depth;
     const vac = this.vac || 0;
     this.swirl.visible = vac > 0.01;
     this.swirl.position.set(this.x, this.gt + 0.03, this.z);
     this.swirl.scale.setScalar(r || 1e-3);
-    Object.assign(this.swirlMat.uniforms.uVac, { value: vac * 1.4 });
-    this.swirlMat.uniforms.uReach.value = 1.4 + vac * 0.5 + 1.2 / Math.max(r, 0.1); // same reach as city.js pulls
-    this.swirlMat.uniforms.uTime.value = time;
+    this.swirlMat.userData.u.uVac.value = vac * 1.4;
+    this.swirlMat.userData.u.uReach.value = 1.4 + vac * 0.5 + 1.2 / Math.max(r, 0.1); // same reach as city.js pulls
+    this.swirlMat.userData.u.uTime.value = time;
     if (this.waveT > 0) {
       this.waveT = Math.max(0, this.waveT - dt);
       const k = 1 - this.waveT / 0.9;

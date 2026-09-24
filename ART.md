@@ -48,17 +48,35 @@ LOD2 (~8%) via meshoptimizer. The city is instanced per (asset, 40m tile chunk):
 the camera draw LOD0, to 60m LOD1, beyond LOD2 (and stop casting shadows). Traffic is LOD1/LOD2.
 Idle snack pools are skipped. Low fps → tilt-shift off and LOD0 never used.
 
-## Surface detail (height + bump)
-Palette row 5 holds the *textured* materials (wood, foliage x3, roof tile, brick wall, dirt, gravel); every
-other swatch is smooth paint, so only parts that should be textured are (a businessman's hair is never wood).
-Objects also darken over their bottom 0.8 m (grounding) and sit on soft instanced contact-shadow blobs.
-The game camera uses a 26 deg lens (pulled back to keep framing) to cut perspective distortion on tall props.
-Models have no real UVs (faces point at palette swatches), so texture detail is procedural, in object space:
-each swatch maps to a surface type (`src/surface.js`) - asphalt grain, concrete pores, grass, paving stones,
-sand ripples, dirt, brick bond, wood grain, leaves, brushed metal, animated water. The type's height field
-drives bump-mapped normals (screen-space derivative bump) plus albedo variation. Ground tiles and objects use
-separate tables (a mint car is paint, a mint lawn is grass). Detail fades out by ~70 m and switches off on
-low-spec devices.
+## Surface detail (scanned PBR, TSL)
+The palette atlas still decides *what* a face is; the look of *what it is made of* comes from real scans. `tools/textures.py`
+pulls 16 CC0 materials from Poly Haven (plaster, asphalt, concrete, grass, paving, sand, dirt, brick, wood, foliage, metal, roof
+tiles, rock, bark, forest floor, shore) and ships each as three 512px maps: albedo, OpenGL normal, and RHA (roughness, height, AO).
+`src/pbr.js` packs them into texture arrays. `src/surface.js` maps every swatch to a layer with its own repeat, relief strength
+and *chroma* — how much of the scan's natural colour shows through (lawns and asphalt mostly real; toy paint keeps its colour and
+only gets a whisper of orange-peel). Buildings' painted walls become rendered stucco.
+Models have no UVs or tangents, so layers are projected triplanar (object space for props, so detail sticks to moving things;
+world space for the ground, so no two blocks match) and normals use Mikkelsen's surface-gradient framework, which is exact
+under instancing. Detail fades with distance; ground gets macro variation so repeats never read as a grid.
+Objects still darken over their bottom 0.7 m (grounding) and sit on soft contact-shadow blobs; GTAO does the rest.
+
+## Nature
+- **Terrain** (`src/terrain.js`): a heightfield around town — flat apron at the city limits, rolling hills swelling into mountains,
+  lakes, a meandering river, farm fields (ploughed, wheat, young crops, pasture) behind hedgerows, forests and rocky outcrops.
+  Height-blended splatting by slope, altitude and painted masks; hollows are lusher, crests drier; wildflower drifts.
+- **Trees and bushes** (`src/vegetation.js`): grown procedurally — tapered bark tubes with root flare, branches, and lobed crowns
+  of leaf-cluster cards (composited from scanned leaves) with canopy-shaped normals, per-card occlusion and back-lit translucency.
+  Three variants x three LODs per species; the game keeps each model's size (tier/height).
+- **Grass** (`src/grass.js`): a top-down mask pass records where grass grows, the ground height and how wild it is; blades are
+  fully procedural (hashed from the instance index in camera-snapped patches). Short lawns in town, tall meadow outside.
+- **Wind**: one travelling-gust field bends trunks, flutters leaves and waves the grass; the hole makes everything near it thrash,
+  and grass leans into its suction.
+
+## Lighting and post
+Physical (Preetham) sky; the IBL is the same sky PMREM-filtered per time of day. Sun shadows are 4096² PCF, snapped to texels.
+Aerial-perspective fog thins with altitude and warms toward the sun. Post: MRT normals -> half-res GTAO + denoise -> bloom on
+exposed HDR -> tilt-shift lens blur -> white balance + saturation -> ACES filmic -> S-curve -> SMAA -> vignette, fringe, grain.
+Each time of day meters its own exposure, like a camera.
 
 ## Time of day
 Four presets (morning, noon, golden, dusk) drive sun angle/colour, hemisphere light, sky dome, fog and

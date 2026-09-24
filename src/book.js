@@ -1,5 +1,5 @@
 // Collection book (item 17): every swallowable thing gets a page the first time you eat it. Rares shine.
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { save, persist } from './meta.js';
 
 const TITLES = { ped_business: 'Businessman', ped_jogger: 'Jogger', ped_tourist: 'Tourist', ped_granny: 'Granny', ped_student: 'Student',
@@ -24,33 +24,41 @@ export function record(name) {
   return first;
 }
 
-// ---------- thumbnails: rendered once on demand with a tiny offscreen renderer ----------
+// ---------- thumbnails: rendered once, up front, with a tiny offscreen WebGPU renderer ----------
 let thumbR, thumbScene, thumbCam;
 const thumbs = new Map();
 
+/** Cached thumbnail data URL ('' until warmThumbs has rendered it). */
 export function thumb(asset) {
-  if (thumbs.has(asset.name)) return thumbs.get(asset.name);
+  return thumbs.get(asset.name) || '';
+}
+
+/** Render every collection-book thumbnail once (async; call after loading, off the critical path). */
+export async function warmThumbs(assets) {
   if (!thumbR) {
-    thumbR = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
-    thumbR.setSize(160, 160);
-    thumbR.toneMapping = THREE.NeutralToneMapping;
+    const canvas = document.createElement('canvas');
+    thumbR = new THREE.WebGPURenderer({ canvas, antialias: true, alpha: true, forceWebGL: location.search.includes('webgl') });
+    await thumbR.init();
+    thumbR.setSize(160, 160, false);
+    thumbR.toneMapping = THREE.AgXToneMapping;
     thumbScene = new THREE.Scene();
-    thumbScene.add(new THREE.HemisphereLight(0xfff4e0, 0xc98b5b, 2.2));
-    const sun = new THREE.DirectionalLight(0xffe2b8, 2.4);
+    thumbScene.add(new THREE.HemisphereLight(0xfff4e0, 0x9a7a5b, 2.2));
+    const sun = new THREE.DirectionalLight(0xffe2b8, 3.2);
     sun.position.set(-3, 5, 4);
     thumbScene.add(sun);
     thumbCam = new THREE.PerspectiveCamera(30, 1, 0.05, 500);
   }
-  const obj = asset.scene.clone();
-  thumbScene.add(obj);
-  const box = new THREE.Box3().setFromObject(obj), c = box.getCenter(new THREE.Vector3()), d = box.getSize(new THREE.Vector3()).length();
-  thumbCam.position.set(c.x + d * 1.1, c.y + d * 0.8, c.z + d * 1.4);
-  thumbCam.lookAt(c);
-  thumbR.render(thumbScene, thumbCam);
-  thumbScene.remove(obj);
-  const url = thumbR.domElement.toDataURL('image/png');
-  thumbs.set(asset.name, url);
-  return url;
+  for (const asset of bookEntries(assets)) {
+    if (thumbs.has(asset.name)) continue;
+    const obj = asset.scene.clone();
+    thumbScene.add(obj);
+    const box = new THREE.Box3().setFromObject(obj), c = box.getCenter(new THREE.Vector3()), d = box.getSize(new THREE.Vector3()).length();
+    thumbCam.position.set(c.x + d * 1.1, c.y + d * 0.8, c.z + d * 1.4);
+    thumbCam.lookAt(c);
+    thumbR.render(thumbScene, thumbCam);
+    thumbs.set(asset.name, thumbR.domElement.toDataURL('image/png'));
+    thumbScene.remove(obj);
+  }
 }
 
 export function renderBook(el, assets) {
