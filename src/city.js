@@ -4,8 +4,8 @@
 import * as THREE from 'three/webgpu';
 import { Fn, uniformArray, uv, vec4, length, smoothstep, pow, If, Discard, positionWorld } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { toyMaterial } from './assets.js';
 import { groundMaterial, groundMaskMaterial } from './surface.js';
+import { Terrain } from './terrain.js';
 
 export const TILE = 40;
 const CHUNK = 40;
@@ -312,46 +312,12 @@ export class City {
     }
   }
 
-  /** Countryside ring around the city: rolling hills, farms, lakes, windmills. Scenery only (never swallowed). */
+  /** Countryside around the town: a real terrain (src/terrain.js) with its own scatter. Scenery only (never swallowed). */
   scenery() {
-    const { r, N } = this;
-    const mid = (N - 1) / 2;
-    this.sceneryList = [];
-    let cur;
-    const land = (name, x, y, z, rot) => {
-      if (!name.startsWith('land_')) { // trees, cows, windmills and barns keep out of each other too
-        const rr = this.assets[name].meta.tier * 0.6;
-        if (this.sceneryList.some((o) => o.r && (o.x - x) ** 2 + (o.z - z) ** 2 < (o.r + rr) ** 2)) return;
-        return this.sceneryList.push({ name, x, y, z, rot, tile: cur, r: rr });
-      }
-      this.sceneryList.push({ name, x, y, z, rot, tile: cur });
-    };
-    for (let i = -2; i < N + 2; i++) {
-      for (let j = -2; j < N + 2; j++) {
-        if (i >= 0 && i < N && j >= 0 && j < N) continue;
-        const cx = (i - mid) * TILE, cz = (j - mid) * TILE, rot = this.beach && j >= N ? 0 : Math.floor(r() * 4) * Math.PI / 2;
-        cur = { cx, cz, rot };
-        const type = this.beach && j >= N ? 'sea' : weighted(r, { meadow: 6, farm: 2.5, lake: 1.5 });
-        land('land_' + type, cx, 0, cz, rot);
-        if (type === 'sea') {
-          if (r() < 0.35) land('sailboat', cx + r.range(-12, 12), 0, cz + r.range(-12, 12), r() * 6.28);
-          continue;
-        }
-        const spot = (m) => [cx + r.range(-m, m), cz + r.range(-m, m)];
-        if (type === 'meadow') {
-          for (let k = 0; k < 5; k++) { const [x, z] = spot(17); land(r.pick(['tree_small', 'tree_big', 'tree_small']), x, 'ground', z, r() * 6.28); }
-          if (r() < 0.3) { const [x, z] = spot(8); land('windmill', x, 'ground', z, r() * 6.28); }
-          for (let k = 0; k < 2; k++) { const [x, z] = spot(15); land('cow', x, 'ground', z, r() * 6.28); }
-        } else if (type === 'farm') {
-          if (r() < 0.5) land('barn', cx + 10, 0, cz - 10, rot);
-          for (let k = 0; k < 3; k++) { const [x, z] = spot(15); land('cow', x, 0, z, r() * 6.28); }
-        } else {
-          for (let k = 0; k < 4; k++) {
-            const a = r() * 6.28;
-            land(r.pick(['tree_small', 'tree_big']), cx + Math.cos(a) * 17, 0, cz + Math.sin(a) * 17, r() * 6.28);
-          }
-        }
-      }
+    this.terrain = new Terrain((this.r() * 2 ** 31) | 0, this.half, { beach: this.beach });
+    this.sceneryList = this.terrain.scatter(this.assets);
+    if (this.beach) for (let k = 0; k < 6; k++) {
+      this.sceneryList.push({ name: 'sailboat', x: this.r.range(-this.half - 100, this.half + 100), y: this.terrain.water - 0.1, z: this.half + this.r.range(40, 260), rot: this.r() * 6.28 });
     }
   }
 
@@ -559,8 +525,7 @@ export class City {
     const lawnMask = groundMaskMaterial(0, 1);
     this.groundMeshes = this.meshes.filter((m) => m.userData.ground);
     for (const m of this.groundMeshes) m.userData.grassMask = lawnMask;
-    this.field.userData.grassMask = groundMaskMaterial(1, 0.9);
-    this.groundMeshes.push(this.field);
+    this.groundMeshes.push(this.field); // terrain brings its own meadow mask
     // contact shadows under every small/medium thing (buildings already cast real shadows)
     const aoList = this.entities.filter((e) => e.meta.tier < 6);
     this.ao = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), aoMaterial(this.holeField), aoList.length + 64);
@@ -591,17 +556,9 @@ export class City {
 
   buildScenery() {
     if (this.pierAt) this.sceneryList.push({ name: 'pier', x: this.pierAt[0], y: 0, z: this.pierAt[1], rot: 0 });
-    // Sit meadow props on the hills: raycast the (unrotated) hill mesh in tile-local space.
-    const hill = new THREE.Mesh(flatGeometry(this.assets.land_meadow, 0));
-    const ray = new THREE.Raycaster(), down = new THREE.Vector3(0, -1, 0), o = new THREE.Vector3();
     const groups = new Map();
     for (const it of this.sceneryList) {
-      if (it.y === 'ground') {
-        const { cx, cz, rot } = it.tile, c = Math.cos(rot), s = Math.sin(rot), dx = it.x - cx, dz = it.z - cz;
-        ray.set(o.set(dx * c - dz * s, 50, dx * s + dz * c), down);
-        it.y = (ray.intersectObject(hill)[0]?.point.y ?? 0) - 0.1;
-      }
-      const e = { ...it, tilt: 0, s: 1 };
+      const e = { ...it, tilt: 0, s: it.s ?? 1 };
       if (this.assets[it.name].clips.length) { // windmills turn
         e.obj = this.assets[it.name].scene.clone();
         const m = new THREE.AnimationMixer(e.obj);
@@ -627,30 +584,17 @@ export class City {
       this.meshes.push(mesh);
       this.group.add(mesh);
     }
-    // countryside continues to the horizon
-    // Uses the hole-cutting ground material (palette 'sage' swatch) so the hole never shows grass inside.
-    const fieldGeo = new THREE.CircleGeometry(1400, 64).rotateX(-Math.PI / 2);
-    const swatch = (geo, col, row) => geo.attributes.uv.array.forEach((_, i, arr) => { arr[i] = i % 2 ? (row + 0.5) / 6 : (col + 0.5) / 8; });
-    swatch(fieldGeo, 1, 1); // 'sage'
-    const field = new THREE.Mesh(fieldGeo, this.groundMat);
-    if (this.beach) { // open water to the horizon on the seaside
-      const seaGeo = new THREE.PlaneGeometry(3000, 1400).rotateX(-Math.PI / 2);
-      swatch(seaGeo, 3, 1); // 'sky'
-      const sea = new THREE.Mesh(seaGeo, this.groundMat);
-      sea.position.set(0, 0.06, this.half + 80 + 700); // just above the field (child of it)
-      field.add(sea);
-      field.userData.sea = sea;
-    }
-    field.position.y = -0.08;
-    field.receiveShadow = true;
-    this.group.add(field);
-    this.field = field;
+    this.group.add(this.terrain.group);
+    this.field = this.terrain.mesh;
     // drifting clouds
     const n = 14;
-    this.clouds = new THREE.InstancedMesh(flatGeometry(this.assets.cloud, 1), toyMaterial, n);
+    // clouds are never seen from the game camera, only their soft shadows drifting over town
+    const cloudMat = new THREE.MeshBasicNodeMaterial({ colorWrite: false, depthWrite: false });
+    this.clouds = new THREE.InstancedMesh(flatGeometry(this.assets.cloud, 2), cloudMat, n);
     this.clouds.frustumCulled = false;
+    this.clouds.castShadow = true;
     this.cloudList = Array.from({ length: n }, (_, i) => ({
-      x: this.r.range(-600, 600), z: this.r.range(-600, 600), y: this.r.range(55, 90), s: this.r.range(0.8, 2), rot: this.r() * 6.28, tilt: 0, v: this.r.range(1, 2.5),
+      x: this.r.range(-600, 600), z: this.r.range(-600, 600), y: this.r.range(70, 95), s: this.r.range(2.5, 4.5), rot: this.r() * 6.28, tilt: 0, v: this.r.range(1, 2.5),
       mesh: this.clouds, index: i,
     }));
     this.cloudList.forEach((c) => this.place(c));
@@ -684,8 +628,7 @@ export class City {
     this.clouds.dispose();
     this.ao.dispose();
     this.ao.material.dispose();
-    this.field.geometry.dispose();
-    this.field.userData.sea?.geometry.dispose();
+    this.terrain.dispose();
     for (const mx of this.mixers) mx.stopAllAction();
     this.groundMat.dispose();
   }

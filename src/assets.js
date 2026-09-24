@@ -5,6 +5,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { toyMaterial as makeToy, pedMaterial, glow, pedTime } from './surface.js';
 import { loadPBR } from './pbr.js';
 import { installVegetation } from './vegetation.js';
+import { installTerrainAssets } from './terrain.js';
 
 const base = import.meta.env.BASE_URL;
 
@@ -54,6 +55,7 @@ export async function loadAll(onProgress) {
   await pbr;
   const assets = Object.fromEntries(entries);
   installVegetation(assets);
+  installTerrainAssets(assets);
   return assets;
 }
 

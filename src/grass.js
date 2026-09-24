@@ -56,7 +56,7 @@ export class Grass {
     const near = [], far = [];
     for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) near.push(new THREE.Vector2(i, j));
     for (let i = -5; i <= 5; i++) for (let j = -5; j <= 5; j++) if (Math.abs(i) > 2 || Math.abs(j) > 2) far.push(new THREE.Vector2(i, j));
-    this.layers = [
+    this.layers = density <= 0 ? [] : [
       this.layer(near, Math.round(PATCH * PATCH * 85 * density), 1, holes),
       this.layer(far, Math.round(PATCH * PATCH * 16 * density), 2.3, holes),
     ];
@@ -143,9 +143,9 @@ export class Grass {
     mat.positionNode = vec3(wxz.x.add(across.x).add(off.x), groundY.add(topY).sub(inHole.mul(20)), wxz.y.add(across.y).add(off.y));
 
     // ---- shading: base-to-tip gradient, dry tips on wild grass, soft normals that lean toward the sky
-    const vTint = varying(vec3(mix(0.85, 1.12, clump), h4, wild), 'vGrassTint');
+    const vTint = varying(vec4(mix(0.85, 1.12, clump), h4, wild, m.a), 'vGrassTint');
     const bladeN = vec3(facing.x, 0.0, facing.y);
-    const nW = varying(normalize(mix(bladeN, vec3(0, 1, 0), 0.62).add(vec3(lean.x, 0, lean.y).mul(0.3))), 'vGrassN');
+    const nW = varying(normalize(mix(bladeN, vec3(0, 1, 0), mix(0.62, 0.78, wild)).add(vec3(lean.x, 0, lean.y).mul(0.3))), 'vGrassN');
     mat.normalNode = normalize(cameraViewMatrix.mul(vec4(nW, 0)).xyz);
     mat.colorNode = Fn(() => {
       for (let i = 0; i < 4; i++) { // never draw grass over an open hole
@@ -154,9 +154,12 @@ export class Grass {
       }
       const t = uv().y;
       const lawnBase = vec3(0.02, 0.05, 0.01), lawnTip = mix(vec3(0.11, 0.26, 0.03), vec3(0.2, 0.3, 0.06), pow(vTint.y, 3));
-      const wildBase = vec3(0.03, 0.06, 0.015), wildTip = mix(vec3(0.15, 0.29, 0.05), vec3(0.4, 0.36, 0.14), pow(vTint.y, 4));
+      // meadow blades follow the ground's moisture: lush in hollows, straw on dry crests
+      const dry = vTint.w;
+      const wildBase = mix(vec3(0.035, 0.075, 0.018), vec3(0.09, 0.085, 0.035), dry);
+      const wildTip = mix(mix(vec3(0.12, 0.26, 0.04), vec3(0.3, 0.28, 0.1), dry), vec3(0.42, 0.37, 0.15), pow(vTint.y, 5));
       const base = mix(lawnBase, wildBase, vTint.z), tip = mix(lawnTip, wildTip, vTint.z);
-      const c = mix(base, tip, pow(t, 0.8)).mul(vTint.x);
+      const c = mix(base, tip, pow(t, mix(0.8, 0.5, vTint.z))).mul(vTint.x);
       return vec4(c, 1);
     })();
     // thin blades glow a little when back-lit (cheap translucency)
@@ -176,7 +179,7 @@ export class Grass {
     this.origin.value.set(Math.floor(target.x / PATCH) * PATCH, Math.floor(target.z / PATCH) * PATCH);
     this.fadeCentre.value.set(target.x, target.z);
     this.fadeFar.value = Math.min(66, 26 + camDist * 0.55);
-    this.layers[1].visible = !lowSpec;
+    if (this.layers[1]) this.layers[1].visible = !lowSpec;
     this.group.visible = camDist < 140;
   }
 

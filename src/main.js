@@ -30,6 +30,8 @@ scene.add(sparks.points);
 const debris = new Debris();
 scene.add(debris.group);
 const LOW_FX = location.search.includes('low');
+// debug framing for screenshots: ?view=x,z,dist[,yaw,pitch]
+const VIEW = new URLSearchParams(location.search).get('view')?.split(',').map(Number);
 const smokeCol = new THREE.Color();
 
 // ---------- starvation tuning (PLAN.md: keep moving or the ground seals) ----------
@@ -555,9 +557,11 @@ function frame(dt) {
   const sh = state.shake * camDist * 0.02;
   // attract mode: slow orbit behind the menu; snaps back to north-up for play (steering is screen-relative)
   camYaw = state.finale > 0 ? camYaw + dt * 0.3 : state.playing || state.over ? Math.atan2(Math.sin(camYaw), Math.cos(camYaw)) * Math.max(0, 1 - dt * 4) : camYaw + dt * 0.06;
+  if (VIEW) { camTarget.set(VIEW[0], 0, VIEW[1]); camDist = VIEW[2]; camYaw = VIEW[3] || 0; }
+  const pitch = VIEW?.[4] ? THREE.MathUtils.degToRad(VIEW[4]) : PITCH;
   const camD = camDist * (1 - state.punch * 0.07); // punch-in on big bites
-  const horiz = Math.cos(PITCH) * camD;
-  camera.position.set(camTarget.x + Math.sin(camYaw) * horiz + (Math.random() - 0.5) * sh, Math.sin(PITCH) * camD,
+  const horiz = Math.cos(pitch) * camD;
+  camera.position.set(camTarget.x + Math.sin(camYaw) * horiz + (Math.random() - 0.5) * sh, Math.sin(pitch) * camD,
     camTarget.z + Math.cos(camYaw) * horiz + (Math.random() - 0.5) * sh);
   camera.lookAt(camTarget);
   const low = post.lowSpec || location.search.includes('low');

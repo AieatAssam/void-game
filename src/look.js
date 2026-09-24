@@ -9,8 +9,8 @@ export const COLORS = { sky: 0xf4dcc0, ground: 0xe6cfa7, void: 0x1a0f3a, lilac: 
 // sun: colour/intensity (lux-ish, AgX tonemapped), elev/azim in degrees; sky: Preetham turbidity/rayleigh;
 // fog: horizon haze colour + density; hemi: bounce fill; glow: window/lamp emissive; grade: final colour balance.
 export const TIMES = {
-  morning: { sun: 0xfff1de, sunI: 4.4, elev: 26, azim: 120, turb: 3.2, ray: 1.6, fog: 0xc9d6e2, fogD: 0.0026, hemiSky: 0xcfe2ff, hemiGround: 0x8a7a62, hemiI: 0.35, envI: 0.55, glow: 1.0, exposure: 1.0, grade: [1.0, 1.0, 1.02] },
-  noon: { sun: 0xfffaf2, sunI: 5.0, elev: 58, azim: 200, turb: 2.4, ray: 1.2, fog: 0xc6d8ea, fogD: 0.0022, hemiSky: 0xd8e8ff, hemiGround: 0x8c7f68, hemiI: 0.35, envI: 0.6, glow: 0.9, exposure: 0.95, grade: [1.0, 1.0, 1.0] },
+  morning: { sun: 0xfff1de, sunI: 4.4, elev: 26, azim: 120, turb: 3.2, ray: 1.6, fog: 0xc9d6e2, fogD: 0.0026, hemiSky: 0xcfe2ff, hemiGround: 0x8a7a62, hemiI: 0.35, envI: 0.55, glow: 1.0, exposure: 0.72, grade: [1.0, 1.0, 1.02] },
+  noon: { sun: 0xfffaf2, sunI: 5.0, elev: 58, azim: 200, turb: 2.4, ray: 1.2, fog: 0xc6d8ea, fogD: 0.0022, hemiSky: 0xd8e8ff, hemiGround: 0x8c7f68, hemiI: 0.35, envI: 0.6, glow: 0.9, exposure: 0.5, grade: [1.0, 1.0, 1.0] },
   golden: { sun: 0xffc184, sunI: 4.6, elev: 16, azim: 250, turb: 5.5, ray: 2.4, fog: 0xe8c29a, fogD: 0.0032, hemiSky: 0xffdcbc, hemiGround: 0x7a5840, hemiI: 0.3, envI: 0.5, glow: 1.5, exposure: 1.05, grade: [1.05, 1.0, 0.94] },
   night: { sun: 0x9fb4ff, sunI: 0.7, elev: 38, azim: 140, turb: 1.2, ray: 0.35, fog: 0x1c2140, fogD: 0.004, hemiSky: 0x4a56a0, hemiGround: 0x1a1428, hemiI: 0.55, envI: 0.2, glow: 3.2, exposure: 1.25, grade: [0.95, 0.98, 1.08], night: true },
   dusk: { sun: 0xff8f5e, sunI: 2.4, elev: 7, azim: 285, turb: 7, ray: 3.2, fog: 0xc9929a, fogD: 0.0038, hemiSky: 0xa8a0dc, hemiGround: 0x5a4058, hemiI: 0.6, envI: 0.5, glow: 2.8, exposure: 1.15, grade: [1.0, 0.95, 1.05] },

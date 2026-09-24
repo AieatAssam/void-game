@@ -5,7 +5,7 @@
 import * as THREE from 'three/webgpu';
 import {
   pass, mrt, output, normalView, packNormalToRGB, unpackRGBToNormal, sample, screenUV, uniform, vec2, vec3, vec4, float, mix,
-  smoothstep, abs, dot, renderOutput, clamp, max, time, fract, sin, luminance, pow,
+  smoothstep, abs, dot, renderOutput, clamp, max, time, fract, sin, luminance, pow, toneMappingExposure,
 } from 'three/tsl';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { denoise } from 'three/addons/tsl/display/DenoiseNode.js';
@@ -52,8 +52,9 @@ export class Post {
     const lit = color.rgb.mul(mix(float(1), pow(aoDenoised.r, 1.2), this.aoAmt.mul(0.85)));
 
     // ---- bloom from HDR highlights (windows, lamps, sirens, sun glints)
-    const bloomPass = (this.bloomPass = bloom(vec4(lit, 1), 0.35, 0.55, 0.85));
-    const hdr = lit.add(bloomPass.rgb);
+    // (measured on exposed values so only genuinely hot pixels bloom at any time of day)
+    const bloomPass = (this.bloomPass = bloom(vec4(lit.mul(toneMappingExposure), 1), 0.28, 0.6, 1.25));
+    const hdr = lit.add(bloomPass.rgb.div(max(toneMappingExposure, 0.05)));
 
     // ---- tilt-shift: a sharp band across the hole, soft lens blur above and below
     const blurred = gaussianBlur(vec4(hdr, 1), float(1), 5, { resolutionScale: 0.5 });
