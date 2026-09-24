@@ -227,7 +227,16 @@ function panel(id) {
   for (const p of ['shop', 'book']) $(p).hidden = p !== id || !$(p).hidden;
   if (!$('shop').hidden) renderShop();
   if (!$('book').hidden) renderBook($('book'), assets);
+  if (!$('book').hidden) $('book').prepend(closeBtn('book'));
 }
+function closeBtn(p) {
+  const b = document.createElement('button');
+  b.className = 'sheet-close';
+  b.textContent = '✕';
+  b.onclick = () => { $(p).hidden = true; };
+  return b;
+}
+addEventListener('keydown', (e) => { if (e.key === 'Escape') for (const p of ['shop', 'book']) $(p).hidden = true; });
 $('shopBtn').onclick = () => panel('shop');
 $('bookBtn').onclick = () => panel('book');
 
@@ -252,7 +261,7 @@ function renderShop() {
   $('bookBtn').querySelector('b').textContent = `${bookEntries(assets).filter((a) => save.book?.[a.name]).length}/${bookEntries(assets).length}`;
   const dailyBest = save.daily[todaySeed()];
   $('daily').textContent = dailyBest ? `Daily city · best ${dailyBest.clear ? `cleared ${clock(dailyBest.clear)}` : `${dailyBest.r.toFixed(1)} m`}` : 'Daily city';
-  $('shop').replaceChildren(...Object.entries(UPGRADES).map(([id, u]) => {
+  $('shop').replaceChildren(closeBtn('shop'), ...Object.entries(UPGRADES).map(([id, u]) => {
     const lv = level(id), cost = u.costs[lv];
     const b = document.createElement('button');
     b.className = 'card';

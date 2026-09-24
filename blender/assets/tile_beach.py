@@ -16,7 +16,7 @@ def build():
         if y > -9:
             return 'sand'
         if y > -11:
-            return 'clay'  # wet sand line
+            return 'peach'  # wet sand line
         return 'sky'
     p.append(grid('beach', 28, 28, 28, 28, z=0.17, color_fn=zone))
     for k in range(10):  # promenade railings along the sea wall
@@ -28,4 +28,8 @@ def build():
         p.append(sphere(f'sh{k}', r.uniform(0.06, 0.14), loc=(r.uniform(-13, 13), r.uniform(-10, 5), 0.19), color=r.choice(('white', 'peach', 'pink')), seg=8, scale=(1, 1, 0.5)))
     for k in range(6):  # foam line
         p.append(box(f'foam{k}', (r.uniform(2, 4), 0.25, 0.03), loc=(-11 + k * 4.4, -11.2 + r.uniform(-0.2, 0.2), 0.19), color='white', bev=0.01, seg=1))
+    # the sea runs right over the seaward edge: no road, curb or pavement between sand and water
+    p.append(grid('shore_sea', TILE, 9.2, 1, 1, z=0.2, color_fn=lambda i, j: 'sky', loc=(0, -15.4, 0)))
+    for k in range(9):
+        p.append(box(f'surf{k}', (r.uniform(2.5, 4.5), 0.35, 0.03), loc=(-18 + k * 4.5, -11.4 + r.uniform(-0.3, 0.3), 0.215), color='white', bev=0.015, seg=1))
     return finish(join(p, 'tile_beach'), tier=20, mass=0, kind='tile')

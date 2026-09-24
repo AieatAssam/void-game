@@ -6,7 +6,19 @@ import { TILE, SNACK_NAMES, groundMaterial, BUILDINGS } from './city.js';
 // no death spiral where a tiny hole is stuck at high heat (PLAN.md no-dead-end rules).
 export const HEAT_R = [0.8, 1.8, 3.2, 5];
 
-const spotMat = new THREE.MeshBasicMaterial({ color: 0xfff1b8, transparent: true, opacity: 0.32, depthWrite: false, blending: THREE.AdditiveBlending });
+// soft round glow for police lightbars (a bare sprite would be a hard square)
+const glowTex = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d'), grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0, 'rgba(255,255,255,1)');
+  grd.addColorStop(0.25, 'rgba(255,255,255,0.6)');
+  grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+})();
+const spotMat = new THREE.MeshBasicMaterial({ map: glowTex, color: 0xfff1b8, transparent: true, opacity: 0.75, depthWrite: false, blending: THREE.AdditiveBlending });
 const spotGeo = new THREE.CircleGeometry(1, 40).rotateX(-Math.PI / 2);
 const TIDE = { period: 45, warn: 37, flood: 40, end: 48 };
 const warnMat = new THREE.MeshBasicMaterial({ color: 0xff3b3b, transparent: true, opacity: 0.5, depthWrite: false });
@@ -240,8 +252,8 @@ export class Director {
   /** Flashing red/blue glow over a police car's light bar (one additive sprite, colour flips). */
   lightbar(u) {
     if (!u.glow) {
-      u.glow = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0xff3b3b, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false }));
-      u.glow.scale.setScalar(2.6);
+      u.glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff3b3b, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false }));
+      u.glow.scale.setScalar(3.2);
       u.obj.add(u.glow);
       u.glow.position.set(-0.6, 2.2, 0);
     }

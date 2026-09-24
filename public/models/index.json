@@ -498,11 +498,11 @@
   "tier": 20,
   "mass": 0,
   "kind": "scenery",
-  "height": 9.596,
-  "tris": 5052,
-  "lodTris": 1263,
-  "lod2Tris": 404,
-  "bytes": 35564,
+  "height": 9.751,
+  "tris": 17820,
+  "lodTris": 4455,
+  "lod2Tris": 1424,
+  "bytes": 104488,
   "clips": []
  },
  "land_sea": {
@@ -913,10 +913,10 @@
   "mass": 0,
   "kind": "tile",
   "height": 1.04,
-  "tris": 11050,
-  "lodTris": 3511,
-  "lod2Tris": 3485,
-  "bytes": 98104,
+  "tris": 11448,
+  "lodTris": 3755,
+  "lod2Tris": 3752,
+  "bytes": 103296,
   "clips": []
  },
  "tile_canal": {

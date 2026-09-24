@@ -81,3 +81,18 @@ button.ghost { background: #fff8ee22; color: var(--cream); box-shadow: none; fon
 .rival-tag { position: fixed; left: 0; top: 0; padding: 2px 10px; border-radius: 999px; background: #1a0f3acc; color: var(--cream);
   border: 2px solid var(--c); font-size: 12px; white-space: nowrap; pointer-events: none; }
 .rival-tag[hidden] { display: none; }
+
+/* ---------- modal sheets for shop + collection (premium pass) ---------- */
+#shop, #book { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 20; width: min(92vw, 760px); max-height: 78vh; overflow: auto;
+  padding: 44px 18px 18px; border-radius: 22px; background: linear-gradient(160deg, #2a1d5cf2, #1a0f3af7); box-shadow: 0 30px 80px #0009, inset 0 0 0 1px #b58cff55;
+  backdrop-filter: blur(10px); animation: sheet .22s ease-out; }
+#shop { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; align-content: start; }
+#shop[hidden], #book[hidden] { display: none; }
+@keyframes sheet { from { opacity: 0; transform: translate(-50%, -46%) scale(.97); } }
+.sheet-close { position: absolute; top: 10px; right: 12px; width: 32px; height: 32px; padding: 0; font-size: 18px; border-radius: 50%;
+  background: #fff8ee22; color: var(--cream); box-shadow: none; }
+.book-card { color: var(--ink); }
+.book-card b { font-size: 12px; text-align: center; line-height: 1.15; }
+.book-card.locked { color: var(--cream); }
+.book-head { font-size: 16px; margin-bottom: 10px; }
+#screen { overflow: auto; }

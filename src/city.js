@@ -404,16 +404,19 @@ export class City {
     const { r } = this;
     const { cx, cz } = t;
     for (let side = 0; side < 4; side++) {
+      if (t.type === 'beach' && side === 3) continue; // the seaward (+z) edge is open water
       const yaw = side * Math.PI / 2; // side 0 = +x edge
       const ox = Math.cos(yaw), oz = -Math.sin(yaw); // outward normal
       const tx = -oz, tz = ox; // along the edge
       for (let d = -12; d <= 12; d += 3) {
         const x = cx + ox * 14.2 + tx * d, z = cz + oz * 14.2 + tz * d;
+        if (t.type === 'beach' && z - cz > 9) continue; // past the waterline
         if (Math.abs(d) === 12) this.add('lamp', x, z, yaw);
         else if (r() < 0.55) this.add(r.pick(SIDEWALK), x, z, yaw + (r() < 0.5 ? 0 : Math.PI));
         if (r() < 0.04) this.add('toxic_barrel', x - ox * 1.2, z - oz * 1.2, 0);
       }
       for (let d = -10; d <= 10; d += 7) {
+        if (t.type === 'beach' && oz * 16 + tz * d > 9) continue;
         if (r() < 0.4) this.add(r.pick(['car', 'car_b', 'taxi']), cx + ox * 16 + tx * d, cz + oz * 16 + tz * d, yaw + Math.PI / 2);
       }
     }
@@ -430,6 +433,7 @@ export class City {
     for (let k = 0; k <= N; k++) {
       const line = (k - N / 2) * TILE;
       for (const axis of ['x', 'z']) {
+        if (this.beach && axis === 'x' && k === N) continue; // no coast road: it's sea
         for (const dir of [1, -1]) {
           const n = 1 + Math.floor(r() * 2);
           for (let c = 0; c < n; c++) {
@@ -661,7 +665,10 @@ export class City {
         } else if (m.type === 'drive') {
           const d = m.v * m.dir * dt;
           if (m.axis === 'x') { e.x += d; if (e.x > H) e.x -= 2 * H; if (e.x < -H) e.x += 2 * H; e.rot = m.dir > 0 ? 0 : Math.PI; }
-          else { e.z -= d; if (e.z > H) e.z -= 2 * H; if (e.z < -H) e.z += 2 * H; e.rot = m.dir > 0 ? Math.PI / 2 : -Math.PI / 2; }
+          else { // north-south roads stop at the shoreline on seaside maps
+            const top = this.beach ? H - 10 : H;
+            e.z -= d; if (e.z > top) e.z -= top + H; if (e.z < -H) e.z += top + H; e.rot = m.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+          }
           e.y = Math.abs(Math.sin(m.t * 7)) * 0.03;
         } else if (m.type === 'wander') {
           m.h += Math.sin(m.t * 0.7 + e.x) * dt * 0.6;
