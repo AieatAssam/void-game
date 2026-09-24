@@ -1,6 +1,7 @@
 // Challenge cards (item 14): one rule twist per run for a dust multiplier. Daily city gets a fixed card.
 export const VEHICLES = new Set(['car', 'car_b', 'car_c', 'taxi', 'bus', 'icecream_van', 'police_car', 'cement_truck', 'tank', 'heli',
-  'scooter', 'bicycle', 'mayor_limo', 'rowboat', 'hotdog_cart']);
+  'scooter', 'bicycle', 'mayor_limo', 'rowboat', 'hotdog_cart',
+  'supercar', 'classic_car', 'bumper_car', 'tractor', 'baggage_tug', 'locomotive', 'carriage', 'airliner']);
 
 export const CARDS = {
   none: { name: 'No card', desc: 'The classic city.', mult: 1 },

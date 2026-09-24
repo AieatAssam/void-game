@@ -1,7 +1,8 @@
 import * as THREE from 'three/webgpu';
 import { createRenderer, createScene, followSun, applyTime, setFogRange, TIMES } from './look.js';
-import { loadAll, pedTime, glow } from './assets.js';
-import { City, rng, BUILDINGS, PEOPLE } from './city.js';
+import { loadAll, loadPacks, packReady, pedTime, glow } from './assets.js';
+import { City, rng, BUILDINGS, PEOPLE, moodFor } from './city.js';
+import { packsFor, PACK_LABEL, MOOD_PACKS } from './packs.js';
 import { Hole, holeField } from './hole.js';
 import { Rivals } from './rivals.js';
 import { SKINS } from './skins.js';
@@ -109,12 +110,24 @@ function snapshot() {
 const field = holeField();
 const DAY_TIMES = Object.keys(TIMES).filter((k) => !TIMES[k].night);
 let city, hole, state, director, rivals, grass;
-function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false, card = 'none') {
+const randomSeed = () => (Math.random() * 2 ** 31) | 0;
+
+/** Download (once) every pack a mood needs, with the staged loading line. Resolves true if anything was fetched. */
+async function ensurePacks(moodName, show = setLoad) {
+  const need = packsFor(moodName).filter((p) => !packReady(assets, p));
+  if (!need.length) return false;
+  const label = PACK_LABEL[need.find((p) => Object.values(MOOD_PACKS).flat().includes(p)) || need[0]];
+  await loadPacks(assets, need, (p) => show(label, p));
+  if (!location.search.includes('nothumbs')) warmThumbs(assets, [], () => state?.playing); // book pages for the new models
+  return true;
+}
+
+function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null) {
   if (city) { scene.remove(city.group, hole.group, grass.group); city.dispose(); hole.dispose(); director.dispose(); rivals.dispose(); grass.dispose(); }
   const debugR = +new URLSearchParams(location.search).get('r') || 0; // screenshot/debug: start bigger
   hole = new Hole(assets, field, 0, { r: debugR || 0.45 + level('headstart') * 0.04, skin: save.skin || 'void' });
   hole.pull = 1 + level('gravity') * 0.06;
-  city = new City(assets, seed, field);
+  city = new City(assets, seed, field, { mood });
   director = new Director(city, scene, { hurt, toll, spotted, ram, drain, siren: sfx.siren, warn: (t) => flash(t, false) }, card === 'hot' ? 2 : 0);
   director.notorietyMult = 1 - level('quiet') * 0.1;
   rivals = new Rivals(assets, field, city, scene, card === 'crowded' ? 3 : card === 'lonely' ? 0 : 2, save.skin || 'void');
@@ -144,10 +157,12 @@ function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false, card = 'non
   state = { playing: false, seed, daily, card, time: 0, belly: 1, eaten: 0, score: 0, best: hole.r, stars: 0,
     reverse: 0, jam: 0, slow: 0, invuln: 0, shake: 0, sealing: 0, hits: [], left: city.buildingsLeft(), combo: 0, comboT: 0, bonus: 0,
     rares: 0, rivalsEaten: 0, hitstop: 0, punch: 0, finale: 0, mi: MILESTONES.filter((m) => hole.r >= m.need).length,
-    crave: null, craveCool: 18, cravings: 0, wet: 0 };
+    crave: null, craveCool: 18, cravings: 0, wet: 0, mood: city.mood.name };
 }
 const URL_SEED = new URLSearchParams(location.search).get('seed');
-newRun(URL_SEED ? +URL_SEED : undefined);
+const firstSeed = URL_SEED ? +URL_SEED : randomSeed();
+await ensurePacks(moodFor(firstSeed).name, (label, p) => setLoad(label, 0.82 + p * 0.06));
+newRun(firstSeed);
 // compile every pipeline now, behind the loading screen, instead of stuttering through the first seconds of play
 setLoad('Warming up shaders…', 0.9);
 await nextPaint();
@@ -412,12 +427,34 @@ window.__econ = () => ({ ...runDust(state.left === 0), score: state.score, bonus
 
 // ---------- menus ----------
 let pickedCard = 'none';
-function start(seed, daily) {
+let starting = false, nextSeed = null;
+async function start(seed, daily) {
+  if (starting) return;
   sfx.unlock();
   const card = daily ? dailyCard(rng(seed)) : pickedCard;
   // Play the city shown behind the menu; reroll for daily/replays or when the card changes the city.
   const fresh = state.over || state.time > 0 || false;
-  if (seed !== undefined || fresh || card !== 'none') newRun(seed ?? (fresh ? undefined : state.seed), daily, card);
+  if (seed !== undefined || fresh || card !== 'none') {
+    const s = seed ?? (fresh ? nextSeed ?? randomSeed() : state.seed);
+    const mood = moodFor(s).name;
+    // stays synchronous when the packs are already here (the bot and quick replays never wait a frame)
+    if (packsFor(mood).some((p) => !packReady(assets, p))) {
+      starting = true;
+      $('menu').hidden = true;
+      $('load').hidden = false;
+      try {
+        await ensurePacks(mood);
+        newRun(s, daily, card, mood);
+        setLoad('Warming up shaders…', 1);
+        await nextPaint();
+        try { await renderer.compileAsync(scene, camera); } catch (e) { console.warn('precompile skipped', e); }
+      } finally {
+        starting = false;
+        $('load').hidden = true;
+        $('menu').hidden = false;
+      }
+    } else newRun(s, daily, card, mood);
+  }
   $('screen').hidden = true;
   $('hud').hidden = false;
   state.playing = true;
@@ -490,7 +527,7 @@ function skinCards() {
       save.skin = id;
       persist();
       renderShop();
-      if (!state.playing) newRun(state.seed, state.daily, state.card); // preview the new skin behind the menu
+      if (!state.playing) newRun(state.seed, state.daily, state.card, state.mood); // preview the new skin behind the menu
     };
     return b;
   })];
@@ -506,6 +543,9 @@ function endRun(won, why) {
   pickedCard = 'none';
   renderCards();
   state.over = true;
+  // the next city rolls now so its district pack can download while the results screen is up
+  nextSeed = randomSeed();
+  ensurePacks(moodFor(nextSeed).name, () => {}).catch((e) => console.warn('pack preload failed', e));
   if (won) { sfx.star(); state.finale = 3.4; }
   else { state.sealing = 1.2; sfx.seal(); }
   const pay = runDust(won), dust = pay.total, mult = pay.mult;

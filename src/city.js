@@ -108,14 +108,28 @@ function weighted(r, weights) {
   return Object.keys(weights)[0];
 }
 
+/** ?mood=fun (prefix, any case) forces a mood for screenshots, bots and debugging. */
+export function forcedMood() {
+  const force = typeof location !== 'undefined' && new URLSearchParams(location.search).get('mood');
+  return force ? MOODS.find((m) => m.name.toLowerCase().startsWith(force.toLowerCase().replace(/[-_]/g, ' '))) : null;
+}
+
+/** The mood a seed rolls when none is chosen (same draws as the City constructor). */
+export function moodFor(seed) {
+  const r = rng(seed);
+  r();
+  return forcedMood() || r.pick(MOODS);
+}
+
 export class City {
-  constructor(assets, seed, holeField) {
+  /** opts.mood: a mood name (the city picker); otherwise the seed rolls one. */
+  constructor(assets, seed, holeField, opts = {}) {
     this.assets = assets;
     this.r = rng(seed);
     const N = (this.N = 5 + Math.floor(this.r() * 3));
     this.mood = this.r.pick(MOODS);
-    const force = typeof location !== 'undefined' && new URLSearchParams(location.search).get('mood');
-    if (force) this.mood = MOODS.find((m) => m.name.toLowerCase().startsWith(force.toLowerCase())) || this.mood;
+    if (opts.mood) this.mood = MOODS.find((m) => m.name === opts.mood) || this.mood;
+    this.mood = forcedMood() || this.mood;
     this.tileEntities = [];
     this.half = (N * TILE) / 2;
     this.group = new THREE.Group();
@@ -487,13 +501,14 @@ export class City {
       groups.get(k).list.push({ ...t, y: 0, tilt: 0, s: 1 });
     }
     for (const e of this.entities) {
-      if (CLONED.has(e.name)) {
+      if (CLONED.has(e.name) || e.meta.clone) { // animated landmarks + pack models tagged clone=true
         const a = this.assets[e.name];
         e.obj = a.scene.clone();
         this.group.add(e.obj);
-        if (a.clips.length) {
-          const m = new THREE.AnimationMixer(e.obj);
-          a.clips.forEach((c) => m.clipAction(c).play());
+        if (a.clips.length) { // play every clip (the ferris wheel's gondolas, a loco's 16 wheels) at one timeScale
+          const m = (e.mixer = new THREE.AnimationMixer(e.obj));
+          e.actions = Object.fromEntries(a.clips.map((c) => [c.name, m.clipAction(c)]));
+          for (const act of Object.values(e.actions)) act.play();
           this.mixers.push(m);
         }
         this.place(e);
