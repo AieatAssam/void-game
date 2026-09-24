@@ -28,10 +28,10 @@ const sparks = new Sparks();
 scene.add(sparks.points);
 
 // ---------- starvation tuning (PLAN.md: keep moving or the ground seals) ----------
-const BELLY_DRAIN = 1 / 6; // a full belly lasts 6s
+const BELLY_DRAIN = 1 / 8; // a full belly lasts 8s
 const MEAL = 0.15; // eating this fraction of the hole's own area fills the belly
-const DECAY_FED = 0.02; // area fraction lost per second while the belly has food
-const DECAY_STARVING = 0.12; // ... while it is empty
+const DECAY_FED = 0.014; // area fraction lost per second while the belly has food
+const DECAY_STARVING = 0.09; // ... while it is empty
 const DEAD_R = 0.26;
 const MAX_HIT = 0.25; // rule 3: no single hit takes more than 25%
 
@@ -96,10 +96,14 @@ function steer() {
   if (k.has('d') || k.has('arrowright')) x += 1;
   if (k.has('w') || k.has('arrowup')) z -= 1;
   if (k.has('s') || k.has('arrowdown')) z += 1;
-  const v = input.drag ? { x: input.drag.dx, y: input.drag.dy } : input.mouse;
+  let v = input.drag ? { x: input.drag.dx, y: input.drag.dy } : input.mouse;
+  if (v && !input.drag) { // mouse: steer from where the hole is drawn, not the screen centre (the camera trails a little)
+    _v.set(hole.x, 0, hole.z).project(camera);
+    v = { x: v.x - _v.x * innerWidth / 2, y: v.y + _v.y * innerHeight / 2 };
+  }
   if (!x && !z && v) {
-    const full = Math.min(innerWidth, innerHeight) * 0.25, len = Math.hypot(v.x, v.y);
-    if (len > 12) { const m = Math.min(1, len / full) / len; x = v.x * m; z = v.y * m; }
+    const full = Math.min(innerWidth, innerHeight) * 0.16, len = Math.hypot(v.x, v.y);
+    if (len > 8) { const m = Math.min(1, len / full) / len; x = v.x * m; z = v.y * m; }
   }
   const len = Math.hypot(x, z);
   if (len > 1) { x /= len; z /= len; }
@@ -199,7 +203,7 @@ function ram(dx, dz) {
   if (!state.playing) return;
   state.kick = { x: dx * 14, z: dz * 14 };
   sfx.thump();
-  hurt(0.06, 'Rammed by police!');
+  hurt(0.04, 'Rammed by police!');
 }
 function spotted() {
   flash('Spotted! ★+1', false);
@@ -362,12 +366,16 @@ function frame(dt) {
     const tide = state.flooded ? 2 : 1;
     state.belly = Math.max(0, state.belly - BELLY_DRAIN * tide * Math.min(1, 0.3 + state.time / 25) * dt); // gentle first 20s
     const [sx, sz] = window.__bot ? window.__bot(hole, city) : steer();
-    const speed = (5 + hole.r * 1.6) * (state.slow > 0 ? 0.45 : 1) * (state.flooded ? 0.6 : 1);
+    const speed = (6.5 + hole.r * 1.8) * (state.slow > 0 ? 0.45 : 1) * (state.flooded ? 0.6 : 1);
+    // a little weight (~0.1s to turn / reach speed), not a boat
+    const kv = 1 - Math.exp(-dt * 11);
+    hole.sx = (hole.sx || 0) + (sx - (hole.sx || 0)) * kv;
+    hole.sz = (hole.sz || 0) + (sz - (hole.sz || 0)) * kv;
     const lim = Math.max(2, city.half - hole.r * 0.95); // keep the whole hole disc inside town
     const px = hole.x, pz = hole.z;
     const kick = state.kick || { x: 0, z: 0 };
-    hole.x = THREE.MathUtils.clamp(hole.x + (sx * speed + kick.x) * dt, -lim, lim);
-    hole.z = THREE.MathUtils.clamp(hole.z + (sz * speed + kick.z) * dt, -lim, lim);
+    hole.x = THREE.MathUtils.clamp(hole.x + (hole.sx * speed + kick.x) * dt, -lim, lim);
+    hole.z = THREE.MathUtils.clamp(hole.z + (hole.sz * speed + kick.z) * dt, -lim, lim);
     kick.x *= Math.max(0, 1 - dt * 5);
     kick.z *= Math.max(0, 1 - dt * 5);
     hole.vx = (hole.x - px) / dt;

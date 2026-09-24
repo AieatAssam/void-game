@@ -4,7 +4,7 @@ import { TILE, SNACK_NAMES, groundMaterial, BUILDINGS } from './city.js';
 
 // Heat follows the hole's current size (with hysteresis), so a shrinking hole also cools the city down:
 // no death spiral where a tiny hole is stuck at high heat (PLAN.md no-dead-end rules).
-export const HEAT_R = [0.8, 1.8, 3.2, 5];
+export const HEAT_R = [1.1, 2.2, 3.6, 5.5];
 
 // soft round glow for police lightbars (a bare sprite would be a hard square)
 const glowTex = (() => {
@@ -229,7 +229,7 @@ export class Director {
         const k = 1 / (d || 1);
         this.hooks.ram((hole.x - u.x) * k, (hole.z - u.z) * k);
         u.back = 1.1;
-        u.ramCool = 3;
+        u.ramCool = 4.5;
       }
     }
     if (d < 30 && this.cool.barricade <= 0 && this.barricades.length < 4) {

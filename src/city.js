@@ -407,6 +407,18 @@ export class City {
     return false;
   }
 
+  /** Nothing within braking distance in this car's path? Same-axis traffic queues; north-south waits for east-west. */
+  clearAhead(e) {
+    const m = e.mover, fx = m.axis === 'x' ? m.dir : 0, fz = m.axis === 'x' ? 0 : -m.dir;
+    this.drivers ??= this.entities.filter((q) => q.mover?.type === 'drive');
+    for (const o of this.drivers) {
+      if (o === e || !o.alive || o.falling || (m.axis === 'x' && o.mover.axis !== 'x')) continue;
+      const dx = o.x - e.x, dz = o.z - e.z, ahead = dx * fx + dz * fz, side = Math.abs(dx * fz - dz * fx);
+      if (ahead > 0 && ahead < e.meta.tier + o.meta.tier + 1.5 && side < (o.mover.axis === m.axis ? 1.2 : o.meta.tier + 0.6)) return false;
+    }
+    return true;
+  }
+
   /** Win condition: buildings still standing. */
   buildingsLeft() {
     let n = 0;
@@ -765,7 +777,8 @@ export class City {
           e.tilt = 0;
           e.rot += Math.sin(w) * 0.12;
         } else if (m.type === 'drive') {
-          const d = m.v * m.dir * dt;
+          m.cur = Math.max(0, Math.min(m.v, (m.cur ?? m.v) + (this.clearAhead(e) ? 4 : -14) * dt)); // ease off / brake
+          const d = m.cur * m.dir * dt;
           if (m.axis === 'x') { e.x += d; if (e.x > H) e.x -= 2 * H; if (e.x < -H) e.x += 2 * H; e.rot = m.dir > 0 ? 0 : Math.PI; }
           else { // north-south roads stop at the shoreline on seaside maps
             const top = this.beach ? H - 10 : H;
