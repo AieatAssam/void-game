@@ -2,7 +2,8 @@
 import * as THREE from 'three';
 import { save, persist } from './meta.js';
 
-const TITLES = { peg_a: 'Pedestrian (cap)', peg_b: 'Pedestrian (bun)', peg_c: 'Pedestrian (bowler)', peg_d: 'Kid with balloon',
+const TITLES = { ped_business: 'Businessman', ped_jogger: 'Jogger', ped_tourist: 'Tourist', ped_granny: 'Granny', ped_student: 'Student',
+  ped_chef: 'Chef', ped_worker: 'Construction worker', ped_kid: 'Kid with balloon',
   car_b: 'Estate car', car_c: 'Sports coupé', icecream_van: 'Ice-cream van', hotdog_cart: 'Hot-dog cart', gas_can: 'Gas can',
   toxic_barrel: 'Toxic barrel', spiky: 'Spiky sculpture', police_car: 'Police car', cement_truck: 'Cement truck', heli: 'Police helicopter' };
 export const title = (n) => TITLES[n] || n.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());

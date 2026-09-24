@@ -30,37 +30,74 @@ def wheels(L, W, r, w, xs=None, tire='ink', hub='chrome'):
     return out
 
 
-def car(L, W, body, roof=None, glass='glass', cabin=0.52, cabin_x=-0.15, H=0.62, ch=0.6, r=0.42):
-    """Toy car: chunky body, glass cabin, roof slab, bumpers, lights, 4 fat wheels. Returns parts."""
+def rim(name, r, w, x, y, z, side):
+    """Five-spoke chrome rim face for a wheel at (x, y, z); side = +1/-1 (outer face direction)."""
+    out = [cyl(name + 'disc', r * 0.62, 0.02, loc=(x, y + side * w * 0.55, z), color='gloss_black', rot=(math.pi / 2, 0, 0), seg=20, bev=0)]
+    for k in range(5):
+        a = k * 2 * math.pi / 5
+        out.append(box(f'{name}sp{k}', (0.05, 0.03, r * 0.56), loc=(x + math.cos(a) * r * 0.28, y + side * w * 0.58, z + math.sin(a) * r * 0.28),
+                       color='chrome', bev=0.01, seg=1, rot=(0, -a + math.pi / 2, 0)))
+    out.append(torus(name + 'lip', r * 0.6, 0.025, loc=(x, y + side * w * 0.56, z), color='chrome', seg=24, rseg=6, rot=(math.pi / 2, 0, 0)))
+    return out
+
+
+def car(L, W, body, roof=None, glass='gloss_black', cabin=0.52, cabin_x=-0.15, H=0.62, ch=0.6, r=0.42):
+    """AAA toy car: bevelled body with shoulder crease, sloped cabin shell, tinted glass panes with pillars,
+    chrome bezels, LED DRLs, taillight clusters, five-spoke rims, mirrors, exhaust. Returns parts."""
     z0 = r * 0.7
     roof = roof or body
-    p = [
-        box('body', (L, W, H), loc=(0, 0, z0 + H / 2), color=body, bev=0.2),
-        box('glass', (L * cabin, W * 0.84, ch), loc=(L * cabin_x, 0, z0 + H + ch / 2 - 0.05), color=glass, bev=0.12),
-        box('roof', (L * cabin + 0.12, W * 0.9, 0.14), loc=(L * cabin_x, 0, z0 + H + ch - 0.02), color=roof, bev=0.06),
-        box('bump_f', (0.22, W * 0.96, 0.26), loc=(L / 2, 0, z0 + 0.14), color='chrome', bev=0.09),
-        box('bump_r', (0.22, W * 0.96, 0.26), loc=(-L / 2, 0, z0 + 0.14), color='chrome', bev=0.09),
-    ]
-    for s in (-1, 1):
-        p.append(cyl(f'hl{s}', 0.14, 0.08, loc=(L / 2 - 0.02, s * W * 0.32, z0 + H * 0.62), color='glow', rot=(0, math.pi / 2, 0), seg=16, bev=0.02))
-        p.append(torus(f'hlr{s}', 0.15, 0.025, loc=(L / 2 + 0.05, s * W * 0.32, z0 + H * 0.62), color='steel', seg=20, rseg=6, rot=(0, math.pi / 2, 0)))
-        p.append(box(f'tl{s}', (0.06, 0.3, 0.14), loc=(-L / 2, s * W * 0.34, z0 + H * 0.65), color='siren_red', bev=0.02))
-        p.append(box(f'mirror{s}', (0.12, 0.18, 0.1), loc=(L * (cabin_x + cabin / 2) + 0.05, s * (W / 2 + 0.06), z0 + H + 0.05), color=body, bev=0.03))
-        # chrome side trim, door seam, handle
-        p.append(box(f'trim{s}', (L * 0.86, 0.03, 0.05), loc=(0, s * (W / 2 + 0.005), z0 + H * 0.35), color='chrome', bev=0.012, seg=1))
-        p.append(box(f'seam{s}', (0.025, 0.02, H * 0.8), loc=(L * (cabin_x + 0.02), s * (W / 2 + 0.004), z0 + H * 0.55), color='ink', bev=0, seg=1))
-        p.append(box(f'handle{s}', (0.16, 0.03, 0.04), loc=(L * (cabin_x + 0.1), s * (W / 2 + 0.01), z0 + H * 0.75), color='chrome', bev=0.01, seg=1))
-        # wheel arches: body-coloured half rings over each wheel
-        for x in (L * 0.32, -L * 0.32):
-            p.append(torus(f'arch{s}{x}', r * 1.12, 0.07, loc=(x, s * (W / 2 - 0.02), r), color=body, seg=24, rseg=8, rot=(math.pi / 2, 0, 0)))
-    # grille, plates, roof rails
-    p.append(box('grille', (0.06, W * 0.42, H * 0.36), loc=(L / 2 + 0.01, 0, z0 + H * 0.5), color='chrome', bev=0.02))
+    zb, zt = z0 + H - 0.04, z0 + H + ch
+    xf, xr = L * (cabin_x + cabin / 2), L * (cabin_x - cabin / 2)
+    rake_f, rake_r = ch * 0.75, ch * 0.45
+    wb, wt = W * 0.43, W * 0.36
+    cab = mesh('cabin', [(xr, -wb, zb), (xf, -wb, zb), (xf - rake_f, -wt, zt), (xr + rake_r, -wt, zt),
+                         (xr, wb, zb), (xf, wb, zb), (xf - rake_f, wt, zt), (xr + rake_r, wt, zt)],
+               [(0, 1, 2, 3), (5, 4, 7, 6), (1, 5, 6, 2), (4, 0, 3, 7), (3, 2, 6, 7), (0, 4, 5, 1)], roof)
+    bevel(cab, 0.07, 3)
+    p = [box('body', (L, W, H), loc=(0, 0, z0 + H / 2), color=body, bev=0.2, seg=4),
+         cab,
+         box('crease', (L * 0.9, W + 0.02, 0.035), loc=(0, 0, z0 + H * 0.78), color=body, bev=0.015, seg=1),
+         box('bump_f', (0.22, W * 0.96, 0.26), loc=(L / 2, 0, z0 + 0.14), color='chrome', bev=0.09),
+         box('bump_r', (0.22, W * 0.96, 0.26), loc=(-L / 2, 0, z0 + 0.14), color='chrome', bev=0.09),
+         box('grille', (0.06, W * 0.42, H * 0.36), loc=(L / 2 + 0.01, 0, z0 + H * 0.5), color='chrome', bev=0.02),
+         cyl('exhaust', 0.05, 0.18, loc=(-L / 2 - 0.02, -W * 0.3, z0 + 0.08), color='chrome', rot=(0, -math.pi / 2, 0), seg=12, bev=0.01),
+         cyl('antenna', 0.008, 0.45, loc=(xr + 0.2, wt - 0.1, zt - 0.02), color='ink', seg=6, bev=0)]
     for i in range(4):
         p.append(box(f'slot{i}', (0.07, W * 0.38, 0.025), loc=(L / 2 + 0.02, 0, z0 + H * 0.38 + i * 0.07), color='ink', bev=0, seg=1))
+    # glass: windshield + rear window follow the rake, sides are split by the B-pillar
+    for name, (xa, za, xb, zbb, w_) in {'wind': (xf - 0.03, zb + 0.06, xf - rake_f + 0.04, zt - 0.05, wt * 0.9),
+                                        'rear': (xr + 0.03, zb + 0.06, xr + rake_r - 0.03, zt - 0.05, wt * 0.9)}.items():
+        side = 1 if name == 'wind' else -1
+        p.append(mesh(name, [(xa + side * 0.012, -w_, za), (xa + side * 0.012, w_, za), (xb + side * 0.012, w_, zbb), (xb + side * 0.012, -w_, zbb)],
+                      [(0, 1, 2, 3)], glass))
+    xm = (xf + xr) / 2 - 0.05
+    for sgn in (-1, 1):
+        y = sgn * (wb + 0.004)
+        yt = sgn * (wt + 0.004)
+        for (xa, xb) in ((xr + 0.12, xm - 0.05), (xm + 0.05, xf - 0.12)):
+            ta = xa + (rake_r if xa < xm else 0) * 0.75 * (1 if xa < xm else 0)
+            tb = xb - (rake_f * 0.75 if xb > xm else 0)
+            p.append(mesh(f'side{sgn}{xa:.2f}', [(xa, y, zb + 0.08), (xb, y, zb + 0.08), (tb, yt, zt - 0.08), (max(ta, xr + rake_r * 0.8), yt, zt - 0.08)],
+                          [(0, 1, 2, 3)], glass))
+        # mirrors, door handles, lights
+        p += [box(f'mstalk{sgn}', (0.06, 0.14, 0.04), loc=(xf - 0.12, sgn * (W / 2 + 0.05), z0 + H + 0.04), color='ink', bev=0.01, seg=1),
+              box(f'mirror{sgn}', (0.14, 0.12, 0.1), loc=(xf - 0.12, sgn * (W / 2 + 0.13), z0 + H + 0.1), color=body, bev=0.03),
+              box(f'mglass{sgn}', (0.02, 0.1, 0.07), loc=(xf - 0.2, sgn * (W / 2 + 0.13), z0 + H + 0.1), color='chrome', bev=0.005, seg=1),
+              box(f'handle{sgn}', (0.16, 0.03, 0.04), loc=(xm + 0.2, sgn * (W / 2 + 0.01), z0 + H * 0.72), color='chrome', bev=0.01, seg=1),
+              box(f'handle2{sgn}', (0.16, 0.03, 0.04), loc=(xm - 0.55, sgn * (W / 2 + 0.01), z0 + H * 0.72), color='chrome', bev=0.01, seg=1),
+              box(f'seam{sgn}', (0.02, 0.02, H * 0.8), loc=(xm, sgn * (W / 2 + 0.004), z0 + H * 0.55), color='ink', bev=0, seg=1),
+              box(f'trim{sgn}', (L * 0.86, 0.03, 0.05), loc=(0, sgn * (W / 2 + 0.005), z0 + H * 0.3), color='chrome', bev=0.012, seg=1),
+              cyl(f'hl{sgn}', 0.14, 0.08, loc=(L / 2 - 0.02, sgn * W * 0.32, z0 + H * 0.62), color='glow', rot=(0, math.pi / 2, 0), seg=16, bev=0.02),
+              torus(f'hlr{sgn}', 0.15, 0.025, loc=(L / 2 + 0.05, sgn * W * 0.32, z0 + H * 0.62), color='chrome', seg=20, rseg=6, rot=(0, math.pi / 2, 0)),
+              box(f'drl{sgn}', (0.03, 0.22, 0.03), loc=(L / 2 + 0.03, sgn * W * 0.32, z0 + H * 0.42), color='glow_white', bev=0.008, seg=1),
+              box(f'tl{sgn}', (0.06, 0.34, 0.12), loc=(-L / 2, sgn * W * 0.33, z0 + H * 0.68), color='siren_red', bev=0.02),
+              box(f'rev{sgn}', (0.065, 0.1, 0.08), loc=(-L / 2, sgn * W * 0.2, z0 + H * 0.68), color='glow_white', bev=0.015, seg=1)]
+        for x in (L * 0.32, -L * 0.32):
+            p.append(torus(f'arch{sgn}{x}', r * 1.12, 0.07, loc=(x, sgn * (W / 2 - 0.02), r), color=body, seg=24, rseg=8, rot=(math.pi / 2, 0, 0)))
+            p += rim(f'rim{sgn}{x}', r, 0.34, x, sgn * (W / 2 - 0.34 * 0.35), r, sgn)
     for sx in (1, -1):
         p.append(box(f'plate{sx}', (0.03, 0.44, 0.14), loc=(sx * (L / 2 + 0.12), 0, z0 + 0.14), color='white', bev=0.01))
         p.append(box(f'platetxt{sx}', (0.035, 0.3, 0.04), loc=(sx * (L / 2 + 0.125), 0, z0 + 0.14), color='navy', bev=0, seg=1))
-    p.append(box('wiper', (0.03, W * 0.5, 0.02), loc=(L * (cabin_x + cabin / 2) + 0.02, 0, z0 + H + 0.06), color='ink', bev=0, seg=1, rot=(0, 0, 0.15)))
     return p + wheels(L, W, r, 0.34)
 
 

@@ -357,7 +357,7 @@ def export(root, name):
         o.select_set(True)
     bpy.context.view_layer.objects.active = root
     path = os.path.join(RAW, name + '.glb')
-    bpy.ops.export_scene.gltf(filepath=path, use_selection=True, export_extras=True,
+    bpy.ops.export_scene.gltf(filepath=path, use_selection=True, export_extras=True, export_attributes=True,
                               export_apply=True, export_animations=True, export_yup=True)
     return path
 
@@ -380,7 +380,7 @@ def focus(*names):
 def run(name, grid=(0, 0)):
     """Build blender/assets/<name>.py, export, park on the showroom grid."""
     sys.path.insert(0, os.path.join(ROOT, 'blender', 'assets'))
-    for dep in ('kit', 'peg'):
+    for dep in ('kit', 'peg', 'people'):
         if dep in sys.modules:
             importlib.reload(sys.modules[dep])
     mod = importlib.import_module(name)
@@ -413,4 +413,15 @@ def recolor(ob, mapping):
         key = min(src, key=lambda u: (u[0] - d.uv[0]) ** 2 + (u[1] - d.uv[1]) ** 2, default=None)
         if key and (key[0] - d.uv[0]) ** 2 + (key[1] - d.uv[1]) ** 2 < 1e-6:
             d.uv = uv_of(src[key])
+    return ob
+
+
+def swing(ob, kind, pivot):
+    """Tag every vertex of a limb part for the walk shader: kind +-1 = legs, +-2 = arms (sign = side);
+    pivot = hip/shoulder height. Stored as custom attributes, exported as _SWING/_PIVOT."""
+    me = ob.data
+    for name, val in (('_swing', float(kind)), ('_pivot', float(pivot))):
+        a = me.attributes.get(name) or me.attributes.new(name, 'FLOAT', 'POINT')
+        for d in a.data:
+            d.value = val
     return ob

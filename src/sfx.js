@@ -52,3 +52,19 @@ export function star() {
 export function seal() {
   tone('sawtooth', 300, 40, 1.2, 0.25);
 }
+
+let lastSiren = 0;
+/** Two-tone police siren, louder when closer; throttled so several cars don't stack. */
+export function siren(dist) {
+  if (!ctx || muted || ctx.currentTime - lastSiren < 1.6) return;
+  lastSiren = ctx.currentTime;
+  const v = Math.max(0.03, 0.14 - dist * 0.0025);
+  tone('square', 740, 740, 0.38, v);
+  tone('square', 560, 560, 0.38, v, 0.4);
+  tone('square', 740, 740, 0.38, v, 0.8);
+}
+
+export function thump() {
+  tone('sine', 120, 45, 0.25, 0.6);
+  tone('square', 300, 90, 0.12, 0.15);
+}

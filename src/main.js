@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { createRenderer, createScene, followSun, applyTime, TIMES } from './look.js';
-import { loadAll, toyMaterial } from './assets.js';
-import { City, rng, BUILDINGS } from './city.js';
+import { loadAll, toyMaterial, pedTime } from './assets.js';
+import { City, rng, BUILDINGS, PEOPLE } from './city.js';
 import { Hole, holeField } from './hole.js';
 import { Rivals } from './rivals.js';
 import { SKINS } from './skins.js';
@@ -44,7 +44,7 @@ function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false, card = 'non
   hole = new Hole(assets, field, 0, { r: 0.45 + level('headstart') * 0.07, skin: save.skin || 'void' });
   hole.pull = 1 + level('gravity') * 0.1;
   city = new City(assets, seed, field);
-  director = new Director(city, scene, { hurt, toll, spotted, warn: (t) => flash(t, false) }, card === 'hot' ? 2 : 0);
+  director = new Director(city, scene, { hurt, toll, spotted, ram, siren: sfx.siren, warn: (t) => flash(t, false) }, card === 'hot' ? 2 : 0);
   rivals = new Rivals(assets, field, city, scene, card === 'crowded' ? 3 : card === 'lonely' ? 0 : 2, save.skin || 'void');
   // Randomised start: time of day, and a calm open tile (never a downtown lot) at a random spot on it.
   const r = rng(seed ^ 0x5eed);
@@ -58,7 +58,7 @@ function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false, card = 'non
   // breadcrumbs: a few wandering snacks right around the start so the first seconds always have food
   for (let k = 0; k < 10; k++) {
     const b = r() * Math.PI * 2, d = 2.5 + r() * 6;
-    city.revive(r.pick(['peg_a', 'peg_b', 'peg_c', 'pigeon', 'peg_d']), hole.x + Math.cos(b) * d, hole.z + Math.sin(b) * d, hole.x, hole.z);
+    city.revive(r.pick([...PEOPLE, 'pigeon']), hole.x + Math.cos(b) * d, hole.z + Math.sin(b) * d, hole.x, hole.z);
   }
   $('where').textContent = `${city.mood.name} · ${city.N}×${city.N} blocks · ${time}`;
   scene.add(city.group, hole.group);
@@ -190,6 +190,13 @@ function combo(n) {
   el.classList.remove('show');
   void el.offsetWidth;
   el.classList.add('show');
+}
+/** A police car rammed us: knock the hole back and dent it a little. */
+function ram(dx, dz) {
+  if (!state.playing) return;
+  state.kick = { x: dx * 14, z: dz * 14 };
+  sfx.thump();
+  hurt(0.06, 'Rammed by police!');
 }
 function spotted() {
   flash('Spotted! ★+1', false);
@@ -346,8 +353,11 @@ function frame(dt) {
     const speed = (5 + hole.r * 1.6) * (state.slow > 0 ? 0.45 : 1) * (state.flooded ? 0.6 : 1);
     const lim = Math.max(2, city.half - hole.r * 0.95); // keep the whole hole disc inside town
     const px = hole.x, pz = hole.z;
-    hole.x = THREE.MathUtils.clamp(hole.x + sx * speed * dt, -lim, lim);
-    hole.z = THREE.MathUtils.clamp(hole.z + sz * speed * dt, -lim, lim);
+    const kick = state.kick || { x: 0, z: 0 };
+    hole.x = THREE.MathUtils.clamp(hole.x + (sx * speed + kick.x) * dt, -lim, lim);
+    hole.z = THREE.MathUtils.clamp(hole.z + (sz * speed + kick.z) * dt, -lim, lim);
+    kick.x *= Math.max(0, 1 - dt * 5);
+    kick.z *= Math.max(0, 1 - dt * 5);
     hole.vx = (hole.x - px) / dt;
     hole.vz = (hole.z - pz) / dt;
 
@@ -436,6 +446,7 @@ function frame(dt) {
   if (sc.right !== ext) { sc.left = sc.bottom = -ext; sc.right = sc.top = ext; sc.updateProjectionMatrix(); }
 
   sparks.update(dt);
+  pedTime.value += dt;
   for (const q of rivals.list) q.hole.update(dt, state.time, 0);
   if (state.playing) { hud(); rivals.labels(camera); }
   if (!window.__headless) {

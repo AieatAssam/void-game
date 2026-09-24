@@ -1,6 +1,6 @@
 // The city fights back (heat ★1-4) and feeds you (snack floor). See PLAN.md no-dead-end rules.
 import * as THREE from 'three';
-import { TILE, SNACK_NAMES, groundMaterial } from './city.js';
+import { TILE, SNACK_NAMES, groundMaterial, BUILDINGS } from './city.js';
 
 // Heat follows the hole's current size (with hysteresis), so a shrinking hole also cools the city down:
 // no death spiral where a tiny hole is stuck at high heat (PLAN.md no-dead-end rules).
@@ -164,10 +164,19 @@ export class Director {
     return Math.abs(near(x) - x) < Math.abs(near(z) - z) ? [near(x), z] : [x, near(z)];
   }
 
-  /** Move along the road grid toward (tx, tz); beeline once close. */
+  /** Is (x, z) inside a standing building? Vehicles never drive through houses. */
+  blocked(x, z) {
+    this.buildings ??= this.city.entities.filter((e) => BUILDINGS.has(e.name));
+    for (const b of this.buildings) {
+      if (b.alive && !b.falling && (b.x - x) ** 2 + (b.z - z) ** 2 < (b.meta.tier * 0.85 + 1.2) ** 2) return true;
+    }
+    return false;
+  }
+
+  /** Move along the road grid toward (tx, tz); beeline across open ground once close. */
   drive(u, dt, speed, tx, tz) {
     const dx = tx - u.x, dz = tz - u.z, d = Math.hypot(dx, dz);
-    if (d < 26) {
+    if (d < 26 && !this.blocked(u.x + (dx / d) * 2.5, u.z + (dz / d) * 2.5)) {
       u.x += (dx / d) * speed * dt;
       u.z += (dz / d) * speed * dt;
       u.rot = Math.atan2(-dz, dx);
@@ -197,10 +206,28 @@ export class Director {
   }
 
   police(u, dt, hole) {
+    u.t += dt;
+    this.lightbar(u);
     const d = Math.hypot(hole.x - u.x, hole.z - u.z);
-    if (d > hole.r + 7) this.drive(u, dt, 9, hole.x, hole.z);
-    if (d < 40 && this.cool.barricade <= 0 && this.barricades.length < 6) {
-      this.cool.barricade = 4.5;
+    u.back = Math.max(0, (u.back || 0) - dt);
+    u.ramCool = Math.max(0, (u.ramCool || 0) - dt);
+    if (d < 45) this.hooks.siren?.(d);
+    if (u.back > 0) { // reversing after a ram
+      u.x -= Math.cos(u.rot) * 6 * dt;
+      u.z += Math.sin(u.rot) * 6 * dt;
+      this.city.place(u);
+    } else {
+      // pursue: drive right at the hole; a car bigger than you rams and knocks you back
+      this.drive(u, dt, 10.5, hole.x, hole.z);
+      if (d < hole.r + 1.8 && hole.r < u.meta.tier * 0.95 && !u.ramCool) {
+        const k = 1 / (d || 1);
+        this.hooks.ram((hole.x - u.x) * k, (hole.z - u.z) * k);
+        u.back = 1.1;
+        u.ramCool = 3;
+      }
+    }
+    if (d < 30 && this.cool.barricade <= 0 && this.barricades.length < 4) {
+      this.cool.barricade = 7;
       const lead = 1.4, bx = hole.x + hole.vx * lead, bz = hole.z + hole.vz * lead;
       const moving = Math.hypot(hole.vx, hole.vz) > 0.5;
       const a = moving ? Math.atan2(-hole.vz, hole.vx) + Math.PI / 2 : Math.random() * Math.PI;
@@ -208,6 +235,19 @@ export class Director {
       const b = this.city.spawn('barricade', bx + Math.cos(a) * off, bz - Math.sin(a) * off, a, { life: 20 });
       this.barricades.push(b);
     }
+  }
+
+  /** Flashing red/blue glow over a police car's light bar (one additive sprite, colour flips). */
+  lightbar(u) {
+    if (!u.glow) {
+      u.glow = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0xff3b3b, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false }));
+      u.glow.scale.setScalar(2.6);
+      u.obj.add(u.glow);
+      u.glow.position.set(-0.6, 2.2, 0);
+    }
+    const on = Math.sin(u.t * 14) > 0;
+    u.glow.material.color.setHex(on ? 0xff3b3b : 0x3b8bff);
+    u.glow.material.opacity = 0.55 + 0.35 * Math.abs(Math.sin(u.t * 14));
   }
 
   cement(u, dt, hole) {

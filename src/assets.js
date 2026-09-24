@@ -48,3 +48,24 @@ export async function loadAll(onProgress) {
   }));
   return Object.fromEntries(entries);
 }
+
+// People walk: arms/legs carry _swing (+-1 legs, +-2 arms, sign = side) and _pivot (hip/shoulder height).
+// Each instance gets its own phase, so an instanced crowd still looks like individuals strolling.
+export const pedTime = { value: 0 };
+export const pedMaterial = toyMaterial.clone();
+pedMaterial.onBeforeCompile = (s) => {
+  s.uniforms.uPedTime = pedTime;
+  s.vertexShader = s.vertexShader
+    .replace('#include <common>', `#include <common>
+      attribute float _swing; attribute float _pivot; uniform float uPedTime;`)
+    .replace('#include <begin_vertex>', `#include <begin_vertex>
+      if (abs(_swing) > 0.5) {
+        float ph = uPedTime * 8.0 + float(gl_InstanceID) * 1.618;
+        float arm = step(1.5, abs(_swing));
+        float ang = sin(ph) * sign(_swing) * mix(0.5, -0.65, arm);
+        vec3 q = transformed - vec3(0.0, _pivot, 0.0);
+        float c = cos(ang), sn = sin(ang);
+        transformed = vec3(q.x * c - q.y * sn, q.x * sn + q.y * c, q.z) + vec3(0.0, _pivot, 0.0);
+      }`);
+};
+pedMaterial.customProgramCacheKey = () => 'ped-walk';

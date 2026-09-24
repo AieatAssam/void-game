@@ -7,7 +7,7 @@ importlib.reload(lib)
 
 ASSETS = [
     # street props (size ladder bottom)
-    'pigeon', 'peg_a', 'peg_b', 'peg_c', 'peg_d', 'cone', 'hydrant', 'mailbox', 'trashcan', 'lamp', 'newsbox', 'flower_pot', 'vending', 'dog', 'phone_booth',
+    'pigeon', 'ped_business', 'ped_jogger', 'ped_tourist', 'ped_granny', 'ped_student', 'ped_chef', 'ped_worker', 'ped_kid', 'cone', 'hydrant', 'mailbox', 'trashcan', 'lamp', 'newsbox', 'flower_pot', 'vending', 'dog', 'phone_booth',
     'planter', 'bench', 'scooter', 'bicycle', 'hotdog_cart', 'picnic_table', 'tree_small', 'kiosk', 'fountain', 'tree_big',
     # vehicles
     'car', 'car_b', 'car_c', 'taxi', 'icecream_van', 'bus',

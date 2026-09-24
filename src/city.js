@@ -3,7 +3,7 @@
 // movers are instanced per asset; animated landmarks are cloned with a mixer.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { toyMaterial } from './assets.js';
+import { toyMaterial, pedMaterial } from './assets.js';
 
 export const TILE = 40;
 const CHUNK = 40;
@@ -38,8 +38,9 @@ export function flatGeometry(asset, lod = 0) {
   src.traverse((o) => {
     if (!o.isMesh) return;
     const g = new THREE.BufferGeometry();
-    for (const n of ['position', 'normal', 'uv']) {
+    for (const n of ['position', 'normal', 'uv', '_swing', '_pivot']) {
       const a = o.geometry.attributes[n];
+      if (!a) continue;
       const arr = new Float32Array(a.count * a.itemSize);
       for (let i = 0; i < a.count; i++) {
         arr[i * a.itemSize] = a.getX(i);
@@ -83,10 +84,11 @@ const SIDEWALK = ['lamp', 'tree_small', 'bench', 'hydrant', 'trashcan', 'mailbox
   'planter', 'flower_pot', 'bicycle', 'scooter', 'cone', 'tree_small', 'bench'];
 const PARK = ['tree_small', 'tree_big', 'bench', 'picnic_table', 'flower_pot', 'dog', 'planter', 'hotdog_cart', 'tree_small', 'gnome'];
 const TRAFFIC = ['car', 'car_b', 'car_c', 'taxi', 'car', 'car_b', 'icecream_van', 'bus'];
-const PEDS = ['peg_a', 'peg_b', 'peg_c', 'peg_a', 'peg_b', 'peg_c', 'peg_d'];
+export const PEOPLE = ['ped_business', 'ped_jogger', 'ped_tourist', 'ped_granny', 'ped_student', 'ped_chef', 'ped_worker', 'ped_kid'];
+const PEDS = PEOPLE;
 const CLONED = new Set(['fountain', 'clock_tower', 'crane', 'swing', 'searchlight']);
 export const BUILDINGS = new Set(['house', 'shop', 'cafe', 'apartment', 'clock_tower', 'office', 'hotel', 'skyscraper', 'crane', 'arcade', 'karaoke']);
-const SNACKS = [['peg_a', 8], ['peg_b', 8], ['peg_c', 8], ['peg_d', 6], ['pigeon', 8], ['dog', 6], ['scooter', 6], ['bicycle', 6], ['hotdog_cart', 5],
+const SNACKS = [['ped_business', 4], ['ped_jogger', 4], ['ped_tourist', 4], ['ped_granny', 4], ['ped_student', 4], ['ped_chef', 3], ['ped_worker', 3], ['ped_kid', 4], ['pigeon', 8], ['dog', 6], ['scooter', 6], ['bicycle', 6], ['hotdog_cart', 5],
   ['car_b', 6], ['car', 6], ['car_c', 6], ['taxi', 6], ['icecream_van', 4], ['bus', 4]];
 export const SNACK_NAMES = SNACKS.map(([n]) => n);
 
@@ -361,7 +363,7 @@ export class City {
     const m = e.mover;
     Object.assign(e, { x, z, y: 0, s: 1, tilt: 0, alive: true, falling: false, vy: 0, eater: null });
     m.h = Math.atan2(-(tz - z), tx - x) + (this.r() - 0.5) * 1.2;
-    m.v = name.startsWith('peg') || name === 'pigeon' || name === 'dog' ? this.r.range(1, 1.8) : this.r.range(3, 5);
+    m.v = name.startsWith('ped') || name === 'pigeon' || name === 'dog' ? this.r.range(1, 1.8) : this.r.range(3, 5);
     m.t = this.r() * 10;
     this.place(e);
     return e;
@@ -474,7 +476,8 @@ export class City {
     for (const g of groups.values()) {
       const a = this.assets[g.name];
       const full = flatGeometry(a), lod = flatGeometry(a, 1), lod2 = flatGeometry(a, 2);
-      const mesh = new THREE.InstancedMesh(full, g.ground ? this.groundMat : toyMaterial, g.list.length);
+      const mat = g.ground ? this.groundMat : full.attributes._swing ? pedMaterial : toyMaterial;
+      const mesh = new THREE.InstancedMesh(full, mat, g.list.length);
       mesh.castShadow = !g.ground;
       mesh.receiveShadow = true;
       mesh.userData = { geos: [full, lod, lod2], full, tier: g.ground ? Infinity : a.meta.tier, ground: !!g.ground, roams: g.roams, list: g.reserve ? g.list : null };

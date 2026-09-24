@@ -3,6 +3,7 @@
 import { readFileSync } from 'node:fs';
 
 const MAX_STEP = 1.3;
+const START_EDIBLE = 0.45 * 0.95; // a new hole already eats everything below this, so gaps down there can't trap anyone
 const EDIBLE = new Set(['prop', 'poison', 'unit', 'hazard']);
 const m = JSON.parse(readFileSync('public/models/index.json', 'utf8'));
 const tiers = Object.entries(m).filter(([, a]) => EDIBLE.has(a.kind) && a.kind !== 'poison')
@@ -10,7 +11,7 @@ const tiers = Object.entries(m).filter(([, a]) => EDIBLE.has(a.kind) && a.kind !
 let ok = true;
 for (let i = 1; i < tiers.length; i++) {
   const r = tiers[i][1] / tiers[i - 1][1];
-  const bad = r > MAX_STEP;
+  const bad = r > MAX_STEP && tiers[i][1] > START_EDIBLE;
   ok &&= !bad;
   console.log(`${bad ? 'GAP ' : '    '}${tiers[i - 1][0].padEnd(14)} ${tiers[i - 1][1].toFixed(2).padStart(6)} -> ${tiers[i][0].padEnd(14)} ${tiers[i][1].toFixed(2).padStart(6)}  x${r.toFixed(2)}`);
 }
