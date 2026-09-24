@@ -53,7 +53,7 @@ const GROUND = [
   PAVE, [L.paving, 0.42, 0.15, 0.5], [L.sand, 0.3, 0.6, 1], [L.dirt, 0.35, 0.6, 1], [L.paving, 0.42, 0.3, 0.9], [L.paving, 0.5, 0.35, 0.9],
   [L.asphalt, 0.22, 0.7, 1], [L.asphalt, 0.22, 0.55, 1],
   GRASS, GRASS, GRASS, [W, 1, 0, 1], [W, 1, 0, 1], [L.sand, 0.3, 0.5, 1], [L.sand, 0.3, 0.5, 1], [L.paving, 0.42, 0.25, 0.9],
-  PCON, PCON, PCON, PCON, [L.concrete, 0.3, 0.45, 1], [L.concrete, 0.3, 0.3, 1], PCON, PCON,
+  PCON, PCON, PCON, PCON, [L.concrete, 0.3, 0.45, 1], [L.metal, 1.6, 0.6, 1], PCON, PCON, // steel on the ground = cast-iron covers
   NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE,
   MET, MET, MET, NONE, NONE, NONE, MET, P,
   [L.wood, 1.2, 0.5, 0.9], GRASS, GRASS, PAVE, [L.brick, 0.6, 0.7, 1], [L.dirt, 0.35, 0.7, 1], [W, 1, 0, 1], GRASS,
@@ -131,6 +131,7 @@ function buildToy(mat, { ground = false, holes = null } = {}) {
       c.mulAssign(mix(1, pow(tri.ao, 1.5), k));
       c.mulAssign(select(info.x.equal(L.grass), mix(1, 0.6, surfaceOn), float(1))); // soil in the shade of the blades
       c.assign(select(water, mix(vec3(0.015, 0.05, 0.055), pal.rgb, 0.12), c)); // deep, reads through its reflections
+      c.mulAssign(select(sw.equal(21), float(0.3), float(1))); // cast iron
     } else {
       c.mulAssign(mix(1, tri.ao, k.mul(0.7)));
       // grounding: a little darker where things meet the floor
@@ -144,7 +145,7 @@ function buildToy(mat, { ground = false, holes = null } = {}) {
   // ---- roughness / metalness: scan roughness on textured swatches, remapped around the swatch's finish
   const scanRough = clamp(tri.rough.mul(0.6).add(orm.g.mul(0.5)), 0.04, 1);
   mat.roughnessNode = select(water, float(0.04), mix(orm.g, scanRough, k.mul(select(paint, float(0.3), float(1)))));
-  mat.metalnessNode = orm.b;
+  mat.metalnessNode = ground ? select(sw.equal(21), float(0.6), orm.b) : orm.b;
   if (!ground) { // vehicles: glossy clearcoat over the body paint (flags.w)
     const body = paint.and(objectFlags.w.greaterThan(0.5));
     mat.clearcoatNode = select(body, float(1), float(0));

@@ -39,7 +39,7 @@ export class Post {
     // ---- ambient occlusion: contact darkening in corners, under cars, between buildings
     const aoPass = (this.aoPass = ao(depth, normal, camera));
     aoPass.resolutionScale = 0.5;
-    aoPass.radius.value = 1.1;
+    aoPass.radius.value = 1.6;
     aoPass.thickness.value = 1.5;
     aoPass.distanceExponent.value = 1.6;
     aoPass.scale.value = 1.15;
@@ -47,7 +47,7 @@ export class Post {
     const aoDenoised = denoise(aoPass.getTextureNode(), depth, normal, camera);
     aoDenoised.radius.value = 4;
     // AO mostly shapes ambient/sky light: keep lit highlights bright, crush only the shade
-    const lit = color.rgb.mul(mix(float(1), pow(aoDenoised.r, 1.2), this.aoAmt.mul(0.85)));
+    const lit = color.rgb.mul(mix(float(1), pow(aoDenoised.r, 1.6), this.aoAmt.mul(0.9)));
 
     // ---- bloom from HDR highlights (windows, lamps, sirens, sun glints)
     // (measured on exposed values so only genuinely hot pixels bloom at any time of day)

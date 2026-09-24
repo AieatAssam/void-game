@@ -4,8 +4,8 @@
 // (ground). Normals use Mikkelsen's surface-gradient framework: no tangents needed and exact under instancing.
 import * as THREE from 'three/webgpu';
 import {
-  texture, vec2, vec3, vec4, float, abs, pow, dot, cross, dFdx, dFdy, sign, max, normalize, positionView, normalViewGeometry,
-  uniformArray, int, mx_noise_float, mix, clamp, time, sin, cos,
+  texture, vec3, float, abs, pow, dot, cross, dFdx, dFdy, sign, max, positionView, normalViewGeometry, uniformArray,
+  mx_noise_float, time, cos,
 } from 'three/tsl';
 
 export const LAYERS = ['plaster', 'asphalt', 'concrete', 'grass', 'paving', 'sand', 'dirt', 'brick', 'wood', 'foliage', 'metal',
@@ -129,7 +129,6 @@ export const waterGrad = (pw) => {
 /** Low-frequency world-space variation to break up texture repetition (value ~0.5, soft). */
 export const macro = (pw, freq = 0.035) => mx_noise_float(vec3(pw.x.mul(freq), 0.37, pw.z.mul(freq))).mul(0.5).add(0.5);
 
-export { vec2, vec4, int, mix, clamp };
 
 /** View-space surface gradient for a tangent-space normal sample on real UVs (no tangents needed). */
 export const uvGrad = (nm, uvNode, strength = 1) => {
