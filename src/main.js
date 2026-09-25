@@ -13,6 +13,7 @@ import { Events } from './events.js';
 import { Chains } from './chains.js';
 import { Powerups, POWERS } from './powerups.js';
 import { Abilities, ABILITIES, owned, slots, buyAbility, equip } from './abilities.js';
+import { thisWeek, recordWeek, MUTATORS } from './mutators.js';
 import { newStats, scoreRun, renderPicker, unlocked, totalStars, LANDMARK } from './progress.js';
 import { installBot } from './bot.js';
 import { UPGRADES, ECON, save, persist, level, buy, todaySeed } from './meta.js';
@@ -131,12 +132,12 @@ async function ensurePacks(moodName, show = setLoad) {
   return true;
 }
 
-function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null) {
+function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null, mutator = null) {
   if (city) { powerups.dispose(); scene.remove(city.group, hole.group, grass.group); city.dispose(); hole.dispose(); director.dispose(); rivals.dispose(); grass.dispose(); events.dispose(); chains.dispose(); }
   const debugR = +new URLSearchParams(location.search).get('r') || 0; // screenshot/debug: start bigger
   hole = new Hole(assets, field, 0, { r: debugR || 0.45 + level('headstart') * 0.04, skin: save.skin || 'void' });
   hole.pull = 1 + level('gravity') * 0.06;
-  city = new City(assets, seed, field, { mood });
+  city = new City(assets, seed, field, { mood, mutator });
   director = new Director(city, scene, { hurt, toll, spotted, ram, drain, siren: sfx.siren, warn: (t) => flash(t, false), tide }, card === 'hot' ? 2 : 0);
   director.notorietyMult = 1 - level('quiet') * 0.1;
   chains = new Chains(city, scene, debris, sparks, {
@@ -157,7 +158,7 @@ function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null) 
   rivals = new Rivals(assets, field, city, scene, card === 'crowded' ? 3 : card === 'lonely' ? 0 : 2, save.skin || 'void');
   // Randomised start: time of day, and a calm open tile (never a downtown lot) at a random spot on it.
   const r = rng(seed ^ 0x5eed);
-  const time = new URLSearchParams(location.search).get('time') || (city.mood.night ? 'night' : r.pick(DAY_TIMES));
+  const time = new URLSearchParams(location.search).get('time') || (city.mood.night || mutator === 'night' ? 'night' : r.pick(DAY_TIMES));
   const preset = applyTime(look, renderer, time);
   look.grade = preset.grade;
   glow.value = preset.glow;
@@ -175,19 +176,20 @@ function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null) 
     const b = r() * Math.PI * 2, d = 2.5 + r() * 6;
     city.revive(r.pick([...PEOPLE, 'pigeon']), hole.x + Math.cos(b) * d, hole.z + Math.sin(b) * d, hole.x, hole.z);
   }
-  $('where').textContent = `${city.mood.name} · ${city.N}×${city.N} blocks · ${time}`;
+  $('where').textContent = `${city.mood.name} · ${city.N}×${city.N} blocks · ${time}${mutator ? ` · ${MUTATORS[mutator].icon} ${MUTATORS[mutator].name}` : ''}`;
   grass = new Grass(renderer, city.groundMeshes, city.half + 80, field, { density: +(new URLSearchParams(location.search).get('grass') ?? Q.grass), far: Q.grassFar });
   scene.add(city.group, hole.group, grass.group);
   state = { playing: false, seed, daily, card, time: 0, belly: 1, eaten: 0, score: 0, best: hole.r, stars: 0,
     reverse: 0, jam: 0, slow: 0, invuln: 0, shake: 0, sealing: 0, hits: [], left: city.buildingsLeft(), combo: 0, comboT: 0, bonus: 0,
-    rares: 0, rivalsEaten: 0, hitstop: 0, punch: 0, finale: 0, mi: MILESTONES.filter((m) => hole.r >= m.need).length,
+    rares: 0, rivalsEaten: 0, hitstop: 0, punch: 0, finale: 0, mi: MILESTONES.filter((m) => hole.r >= m.need * city.scaleK).length, mutator,
     crave: null, craveCool: 18, cravings: 0, wet: 0, mood: city.mood.name, stats: newStats() };
   for (const e of city.entities) if (e.alive && (e.name === 'scarecrow' || e.name === 'lifeguard_tower')) state.stats.initial[e.name] = (state.stats.initial[e.name] || 0) + 1;
 }
 const URL_SEED = new URLSearchParams(location.search).get('seed');
 const firstSeed = URL_SEED ? +URL_SEED : randomSeed();
 await ensurePacks(runMood(firstSeed, false), (label, p) => setLoad(label, 0.82 + p * 0.06));
-newRun(firstSeed, false, 'none', runMood(firstSeed, false));
+// ?mutator=<id> builds the menu city with this week's twist (testing / screenshots)
+newRun(firstSeed, false, 'none', runMood(firstSeed, false), MUTATORS[new URLSearchParams(location.search).get('mutator')] ? new URLSearchParams(location.search).get('mutator') : null);
 // compile every pipeline now, behind the loading screen, instead of stuttering through the first seconds of play
 setLoad('Warming up shaders…', 0.9);
 await nextPaint();
@@ -558,15 +560,15 @@ window.__econ = () => ({ ...runDust(state.left === 0), score: state.score, bonus
 // ---------- menus ----------
 let pickedCard = 'none';
 let starting = false, nextSeed = null;
-async function start(seed, daily) {
+async function start(seed, daily, mutator = null) {
   if (starting) return;
   sfx.unlock();
-  const card = daily ? dailyCard(rng(seed)) : pickedCard;
+  const card = daily ? dailyCard(rng(seed)) : mutator ? 'none' : pickedCard;
   // Play the city shown behind the menu; reroll for daily/replays or when the card changes the city.
   const fresh = state.over || state.time > 0 || false;
-  if (seed !== undefined || fresh || card !== 'none') {
+  if (seed !== undefined || fresh || card !== 'none' || mutator) {
     const s = seed ?? (fresh ? nextSeed ?? randomSeed() : state.seed);
-    const mood = runMood(s, daily);
+    const mood = runMood(s, daily || !!mutator); // daily + weekly: every mood, rolled by the seed
     // stays synchronous when the packs are already here (the bot and quick replays never wait a frame)
     if (packsFor(mood).some((p) => !packReady(assets, p))) {
       starting = true;
@@ -574,7 +576,7 @@ async function start(seed, daily) {
       $('load').hidden = false;
       try {
         await ensurePacks(mood);
-        newRun(s, daily, card, mood);
+        newRun(s, daily, card, mood, mutator);
         setLoad('Warming up shaders…', 1);
         await nextPaint();
         try { await renderer.compileAsync(scene, camera); } catch (e) { console.warn('precompile skipped', e); }
@@ -583,7 +585,7 @@ async function start(seed, daily) {
         $('load').hidden = true;
         $('menu').hidden = false;
       }
-    } else newRun(s, daily, card, mood);
+    } else newRun(s, daily, card, mood, mutator);
   }
   $('screen').hidden = true;
   $('hud').hidden = false;
@@ -591,6 +593,7 @@ async function start(seed, daily) {
 }
 $('play').onclick = () => start(undefined, false);
 $('daily').onclick = () => start(todaySeed(), true);
+$('weekly').onclick = () => { const w = thisWeek(); start(w.seed, false, w.id); };
 function panel(id) {
   for (const p of ['shop', 'book']) $(p).hidden = p !== id || !$(p).hidden;
   if (!$('shop').hidden) renderShop();
@@ -628,6 +631,9 @@ function renderShop() {
   $('dust').textContent = save.dust;
   $('bookBtn').querySelector('b').textContent = `${bookEntries(assets).filter((a) => save.book?.[a.name]).length}/${bookEntries(assets).length}`;
   const dailyBest = save.daily[todaySeed()];
+  const wk = thisWeek(), wb = save.weekly?.[wk.key];
+  $('weekly').textContent = `Weekly ${wk.icon}${wb ? ` · ${wb.clear ? clock(wb.clear) : `${wb.r.toFixed(1)} m`}` : ''}`;
+  $('weekly').title = `${wk.name}: ${wk.desc}`;
   $('daily').textContent = dailyBest ? `Daily city · best ${dailyBest.clear ? `cleared ${clock(dailyBest.clear)}` : `${dailyBest.r.toFixed(1)} m`}` : 'Daily city';
   $('shop').replaceChildren(closeBtn('shop'), ...Object.entries(UPGRADES).map(([id, u]) => {
     const lv = level(id), cost = u.costs[lv];
@@ -730,6 +736,7 @@ function endRun(won, why) {
   save.dust += dust;
   save.best = Math.max(save.best, state.best);
   if (won) save.fastest = Math.min(save.fastest || Infinity, state.time);
+  if (state.mutator) recordWeek(thisWeek().key, state.best, won && state.time);
   if (state.daily) {
     const d = { r: 0, ...save.daily[state.seed] };
     d.r = Math.max(d.r, state.best);
@@ -809,7 +816,7 @@ function frame(dt) {
     state.belly = Math.max(0, state.belly - BELLY_DRAIN * tide * ramp * Math.min(1, 0.3 + state.time / 25) * dt); // gentle first 20s
     cravings(dt);
     const [sx, sz] = window.__bot ? window.__bot(hole, city) : steer();
-    const surge = (powerups.active.boost ? 1.8 : 1) * abilities.update(dt, hole);
+    const surge = (powerups.active.boost ? 1.8 : 1) * abilities.update(dt, hole) * (state.mutator === 'lowgrav' ? 1.1 : 1);
     if (BOT && abilities.list.length) abilities.auto({ hole, city, director, state }, window.__botTarget);
     if (hole.dash > 0) dashFx();
     const speed = (6.5 + hole.r * 1.8) * (state.slow > 0 ? 0.45 : 1) * (state.flooded ? 0.6 : 1) * surge;
@@ -942,7 +949,7 @@ function frame(dt) {
   state.best = Math.max(state.best, hole.r);
   if (state.playing) {
     let top = null;
-    while (state.mi < MILESTONES.length && hole.r >= MILESTONES[state.mi].need) top = MILESTONES[state.mi++];
+    while (state.mi < MILESTONES.length && hole.r >= MILESTONES[state.mi].need * city.scaleK) top = MILESTONES[state.mi++];
     if (top) sizeUp(top); // several at once (ate a rival): announce only the biggest
   }
   // chimney + street-food smoke near the camera
@@ -962,7 +969,8 @@ function frame(dt) {
   state.finale = Math.max(0, state.finale - dt);
   state.punch = Math.max(0, state.punch - dt * 2.5);
   const lift = state.finale > 0 ? 2.2 : 1; // victory: pull up over the emptied city
-  camDist += ((14 + hole.r * 8) * portrait * LENS * lift - camDist) * Math.min(1, dt * (state.finale > 0 ? 0.8 : 2));
+  const mini = city.scaleK < 1 ? 0.7 : 1; // Miniature: the camera leans in
+  camDist += ((14 + hole.r * 8) * portrait * LENS * lift * mini - camDist) * Math.min(1, dt * (state.finale > 0 ? 0.8 : 2));
   camTarget.lerp(_v.set(hole.x, 0, hole.z), Math.min(1, dt * 6));
   const sh = state.shake * camDist * 0.02;
   // attract mode: slow orbit behind the menu; snaps back to north-up for play (steering is screen-relative)

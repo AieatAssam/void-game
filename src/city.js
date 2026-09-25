@@ -148,9 +148,12 @@ export function moodFor(seed) {
 }
 
 export class City {
-  /** opts.mood: a mood name (the city picker); otherwise the seed rolls one. */
+  /** opts.mood: a mood name (the city picker); otherwise the seed rolls one. opts.mutator: weekly twist (mutators.js). */
   constructor(assets, seed, holeField, opts = {}) {
     this.assets = assets;
+    this.mutator = opts.mutator || null;
+    this.scaleK = this.mutator === 'mini' ? 0.5 : 1; // Miniature: half-size props (and tiers), twice as many
+    this.metaCache = new Map();
     this.r = rng(seed);
     const N = (this.N = 5 + Math.floor(this.r() * 3));
     this.mood = this.r.pick(MOODS);
@@ -170,16 +173,38 @@ export class City {
   }
 
   // ---------- layout: a list of placements, no three.js objects yet ----------
+  /** Manifest meta, scaled for the Miniature mutator (one shared copy per model). */
+  metaOf(name) {
+    const m = this.assets[name].meta;
+    if (this.scaleK === 1) return m;
+    if (!this.metaCache.has(name)) this.metaCache.set(name, { ...m, tier: m.tier * this.scaleK, height: m.height * this.scaleK, mass: m.mass * this.scaleK ** 3 });
+    return this.metaCache.get(name);
+  }
+
   add(name, x, z, rot = 0, mover = null) {
-    const a = this.assets[name];
+    const a = this.assets[name], meta = this.metaOf(name);
     // static props never interpenetrate: a placement whose footprint overlaps one already standing is dropped
     if (!mover || mover.type === 'peck') {
-      const rr = a.meta.tier * 0.6;
+      const rr = meta.tier * 0.6;
       for (const o of this.solids) if ((o.x - x) ** 2 + (o.z - z) ** 2 < (o.r + rr) ** 2) return;
       this.solids.push({ x, z, r: rr });
     }
     if (mover) mover.t ??= 0;
-    this.entities.push({ name, meta: a.meta, x, z, y: 0, rot, tilt: 0, tiltDir: 0, s: 1, alive: true, falling: false, vy: 0, mover });
+    this.entities.push({ name, meta, x, z, y: 0, rot, tilt: 0, tiltDir: 0, s: 1, gs: this.scaleK, alive: true, falling: false, vy: 0, mover });
+    if (this.scaleK !== 1 && !this.twinning && !BUILDINGS.has(name)) this.twin(name, x, z, rot, mover);
+  }
+
+  /** Miniature: every non-building placement gets a sibling nearby (2x count; overlaps are still dropped). */
+  twin(name, x, z, rot, mover) {
+    const { r } = this;
+    this.twinning = true;
+    const a = r() * Math.PI * 2, d = r.range(1.2, 2.6);
+    if (!mover || mover.type === 'peck' || mover.type === 'wander' || mover.type === 'bob' || mover.type === 'scuttle') {
+      this.add(name, x + Math.cos(a) * d, z + Math.sin(a) * d, rot + r.range(-0.5, 0.5), mover && { ...mover, t: r() * 10, x0: mover.x0 !== undefined ? mover.x0 + Math.cos(a) * d : undefined });
+    } else if (mover.type === 'walk') this.add(name, x, z, rot, { ...mover, s: (mover.s + r.range(2, 6)) % (8 * mover.h), t: r() * 10 });
+    else if (mover.type === 'loop') this.add(name, x, z, rot, { ...mover, a: mover.a + r.range(0.3, 0.8), t: r() * 10 });
+    else if (mover.type === 'drive') this.add(name, mover.axis === 'x' ? x + 9 : x, mover.axis === 'x' ? z : z + 9, rot, { ...mover, t: r() * 10 });
+    this.twinning = false;
   }
 
   layout() {
@@ -215,6 +240,7 @@ export class City {
     }
     for (const t of this.tiles) {
       this.tile(t);
+      if (this.mutator === 'night' && t.type !== 'neon' && t.type !== 'runway' && (t.i + t.j) % 3 === 0) this.add('searchlight', t.cx + 11, t.cz - 11, 0);
       this.sidewalk(t);
     }
     this.traffic();
@@ -234,7 +260,7 @@ export class City {
       if (!pool.length) continue;
       const e = r.pick(pool);
       e.name = rare;
-      e.meta = this.assets[rare].meta;
+      e.meta = this.metaOf(rare);
     }
   }
 
@@ -704,12 +730,12 @@ export class City {
       for (const axis of ['x', 'z']) {
         if (this.beach && axis === 'x' && k === N) continue; // no coast road: it's sea
         for (const dir of [1, -1]) {
-          const n = 1 + Math.floor(r() * 2);
+          const n = (1 + Math.floor(r() * 2)) * (this.mutator === 'rush' ? 2 : 1); // Rush Hour: twice the cars
           for (let c = 0; c < n; c++) {
             const lane = line + dir * 2.2;
             const along = r.range(-this.half, this.half);
             const x = axis === 'x' ? along : lane, z = axis === 'x' ? lane : along;
-            this.add(r.pick(TRAFFIC), x, z, 0, { type: 'drive', axis, dir: axis === 'x' ? dir : -dir, v: r.range(5, 8) });
+            this.add(r.pick(TRAFFIC), x, z, 0, { type: 'drive', axis, dir: axis === 'x' ? dir : -dir, v: r.range(5, 8) * (this.mutator === 'rush' ? 1.5 : 1) });
           }
         }
       }
@@ -747,11 +773,16 @@ export class City {
       groups.get(k).list.push(e);
     }
     this.meshes = [];
+    const duckK = this.assets.rubber_duck?.meta.tier || 0.5;
     for (const g of groups.values()) {
       const a = this.assets[g.name];
+      // Everything Is Ducks: every non-building prop wears the duck, sized tier / 0.5 (meta and gameplay untouched)
+      const duck = this.mutator === 'ducks' && !g.ground && this.assets.rubber_duck && ['prop', 'poison', 'unit'].includes(a.meta.kind) && !SOLID.has(g.name);
+      const src = duck ? this.assets.rubber_duck : a;
+      if (duck) for (const e of g.list) e.gs = e.meta.tier / duckK;
       const variant = (this.groupCount = (this.groupCount || 0) + 1); // procedural trees differ chunk to chunk
-      const full = flatGeometry(a, 0, variant), lod = flatGeometry(a, 1, variant), lod2 = flatGeometry(a, 2, variant);
-      const mat = g.ground ? this.groundMat : a.material;
+      const full = flatGeometry(src, 0, variant), lod = flatGeometry(src, 1, variant), lod2 = flatGeometry(src, 2, variant);
+      const mat = g.ground ? this.groundMat : src.material;
       const mesh = new THREE.InstancedMesh(full, mat, g.list.length);
       mesh.castShadow = !g.ground;
       mesh.receiveShadow = true;
@@ -888,7 +919,7 @@ export class City {
       _q.premultiply(_qt.setFromAxisAngle(_ax, e.tilt));
     }
     _p.set(e.x, e.y, e.z);
-    _s.setScalar(e.s);
+    _s.setScalar(e.s * (e.gs || 1));
     if (e.obj) {
       e.obj.position.copy(_p);
       e.obj.quaternion.copy(_q);
@@ -1191,14 +1222,15 @@ export class City {
     const tier = e.meta.tier, h = Math.max(0.3, e.meta.height);
     const d = Math.hypot(e.x - hole.x, e.z - hole.z);
     e.fallT = (e.fallT || 0) + dt;
-    const inside = d + tier * 0.9 <= hole.r || e.fallT > 1.2; // (timeout: a shrinking hole still finishes the job)
-    const k = Math.min(1, dt * (inside ? 2.5 : 7));
+    const inside = d + tier * 0.9 <= hole.r || e.fallT > (this.mutator === 'lowgrav' ? 3 : 1.2); // (timeout: a shrinking hole still finishes the job)
+    const low = this.mutator === 'lowgrav'; // Low Gravity: falls take 2.5x longer, things float up as they tip in
+    const k = Math.min(1, dt * (inside ? 2.5 : 7) / (low ? 2.5 : 1));
     e.x += (hole.x - e.x) * k;
     e.z += (hole.z - e.z) * k;
     if (inside) {
-      e.vy += 30 * dt;
+      e.vy += (low ? 30 / 6.25 : 30) * dt;
       e.y -= e.vy * dt;
-    }
+    } else if (low) e.y = Math.min(e.y + dt * 0.8, 0.9);
     const room = Math.max(0.02, hole.r - tier * 0.95);
     e.tilt = Math.min(e.tilt + dt * 3, 1.2, Math.atan2(room, h * 0.6));
     this.place(e);
