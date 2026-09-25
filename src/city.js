@@ -8,6 +8,8 @@ import { groundMaterial, groundMaskMaterial } from './surface.js';
 import { Terrain } from './terrain.js';
 import { planEvent } from './events.js';
 import { MAX_HOLES } from './hole.js';
+import { Collider } from './collide.js';
+import { makeEntity } from './entity.js';
 
 export const TILE = 40;
 export const SHADOW_LAYER = 1; // shadow-only stand-in meshes: the sun's shadow camera sees this layer, the view camera doesn't
@@ -16,6 +18,7 @@ const LOD_DIST = [15, 60]; // metres from camera to chunk edge: beyond [0] draw 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion();
 const _frustum = new THREE.Frustum(), _sphere = new THREE.Sphere(), _pm = new THREE.Matrix4();
 const _p = new THREE.Vector3(), _s = new THREE.Vector3(), _ax = new THREE.Vector3(), _qt = new THREE.Quaternion();
+const _cm = new THREE.Matrix4(), _fv = new THREE.Frustum(), _fs = new THREE.Frustum(), _sph = new THREE.Sphere();
 const UP = new THREE.Vector3(0, 1, 0);
 const WALK_DIR = [[0, 1], [-1, 0], [0, -1], [1, 0]]; // travel direction per side of a walk loop (v > 0)
 
@@ -106,6 +109,8 @@ export const BUILDINGS = new Set(['house', 'shop', 'cafe', 'apartment', 'clock_t
   'gas_station', 'station', 'hangar', 'control_tower']);
 // wanderers and bumping traffic bounce off these (buildings plus the big fair rides)
 const SOLID = new Set([...BUILDINGS, 'ferris_wheel', 'carousel']);
+const ANIMALS = new Set(['pigeon', 'rainbow_pigeon', 'dog', 'crab', 'cow', 'sheep', 'pig', 'chicken', 'horse', 'goat', 'duck']);
+const isTree = (n) => n.startsWith('tree') || n.startsWith('palm') || n.startsWith('pine') || n === 'bush' || n === 'hedge';
 // movers that range across the whole town: never frustum-culled per chunk, mid LOD
 const ROAMERS = new Set(['drive', 'wander', 'taxi', 'apron', 'field', 'rail', 'parade', 'jog', 'still']);
 const RAIL_Y = 0.47; // top of the rails on tile_rail (manifest rail_top)
@@ -176,6 +181,7 @@ export class City {
     this.groundSolid = groundMaterial(null);
     this.layout();
     this.build();
+    this.collide = new Collider(this, (e) => this.footprint(e));
   }
 
   // ---------- layout: a list of placements, no three.js objects yet ----------
@@ -196,7 +202,7 @@ export class City {
       this.solids.push({ x, z, r: rr });
     }
     if (mover) mover.t ??= 0;
-    this.entities.push({ name, meta, x, z, y: 0, rot, tilt: 0, tiltDir: 0, s: 1, gs: this.scaleK, alive: true, falling: false, vy: 0, mover });
+    this.entities.push(makeEntity({ name, meta, x, z, y: 0, rot, tilt: 0, tiltDir: 0, s: 1, gs: this.scaleK, alive: true, falling: false, vy: 0, mover, grounded: true }));
     if (this.scaleK !== 1 && !this.twinning && !BUILDINGS.has(name)) this.twin(name, x, z, rot, mover);
   }
 
@@ -502,8 +508,8 @@ export class City {
         const name = k ? 'carriage' : 'locomotive';
         // origins are mid-vehicle: loco+tender 13.2 m, carriages 10.3 m buffer to buffer, 0.4 m couplings
         const off = k ? 13.2 / 2 + 0.4 + 10.3 / 2 + (k - 1) * (10.3 + 0.4) : 0;
-        const e = { name, meta: this.assets[name].meta, x: 0, z, y: RAIL_Y, rot: dir > 0 ? 0 : Math.PI, tilt: 0, tiltDir: 0, s: 1, alive: true, falling: false, vy: 0,
-          mover: { type: 'rail', train, off, t: 0 } };
+        const e = makeEntity({ name, meta: this.assets[name].meta, x: 0, z, y: RAIL_Y, rot: dir > 0 ? 0 : Math.PI, tilt: 0, tiltDir: 0, s: 1, alive: true, falling: false, vy: 0,
+          mover: { type: 'rail', train, off, t: 0 } });
         train.cars.push(e);
         this.entities.push(e);
       }
@@ -585,6 +591,35 @@ export class City {
   }
 
   /** Ground surface height at (x, z): blocks sit 18 cm above the road. */
+  /**
+   * Collision footprint of an entity's model (model space, metres at scale 1): { hx, hz, cx, cz, round }, cached per
+   * model. Trees collide at the trunk only (people walk under the canopy); people and animals are circles.
+   */
+  footprint(e) {
+    const ducks = this.mutator === 'ducks' && this.assets.rubber_duck && ['prop', 'poison', 'unit'].includes(e.meta.kind) && !SOLID.has(e.name) && !e.obj;
+    const name = ducks ? 'rubber_duck' : e.name;
+    this.feet ??= new Map();
+    if (!this.feet.has(name)) this.feet.set(name, this.makeFoot(name));
+    e.solid = SOLID.has(e.name) || isTree(e.name); // never gives way
+    return this.feet.get(name);
+  }
+
+  makeFoot(name) {
+    const a = this.assets[name];
+    if (!a) return null;
+    if (isTree(name)) return { hx: Math.min(0.35, a.meta.tier * 0.12), hz: Math.min(0.35, a.meta.tier * 0.12), cx: 0, cz: 0, round: true };
+    const g = flatGeometry(a, 2);
+    if (!g.boundingBox) g.computeBoundingBox();
+    const b = g.boundingBox;
+    let hx = (b.max.x - b.min.x) / 2, hz = (b.max.z - b.min.z) / 2;
+    const cx = (b.max.x + b.min.x) / 2, cz = (b.max.z + b.min.z) / 2;
+    if (PEDS.includes(name) || ANIMALS.has(name)) { const r = Math.max(0.12, Math.max(hx, hz) * 0.7); return { hx: r, hz: r, cx: 0, cz: 0, round: true }; }
+    hx *= 0.9; hz *= 0.9; // mirrors, awnings and bumpers overhang: the solid body is a little smaller
+    const round = Math.max(hx, hz) < 0.6 && Math.abs(hx - hz) < 0.25 * Math.max(hx, hz); // small, squat props: circles
+    if (round) hx = hz = (hx + hz) / 2;
+    return { hx, hz, cx, cz, round };
+  }
+
   groundY(x, z) {
     const lx = ((x + this.half) % TILE + TILE) % TILE - TILE / 2, lz = ((z + this.half) % TILE + TILE) % TILE - TILE / 2;
     return Math.abs(lx) < 15.3 && Math.abs(lz) < 15.3 ? 0.18 : 0.0;
@@ -668,7 +703,7 @@ export class City {
   /** Spawn a cloned, animated entity (units, barricades, plugs). */
   spawn(name, x, z, rot = 0, extra = {}) {
     const a = this.assets[name];
-    const e = { name, meta: a.meta, x, z, y: 0, rot, tilt: 0, tiltDir: 0, s: 1, alive: true, falling: false, vy: 0, mover: null, ...extra };
+    const e = makeEntity({ name, meta: a.meta, x, z, y: 0, rot, tilt: 0, tiltDir: 0, s: 1, alive: true, falling: false, vy: 0, mover: null, grounded: true, ...extra });
     e.obj = a.scene.clone();
     this.group.add(e.obj);
     e.actions = {};
@@ -858,7 +893,7 @@ export class City {
         for (const dir of [1, -1]) {
           const n = (1 + Math.floor(r() * 2)) * (this.mutator === 'rush' ? 2 : 1); // Rush Hour: twice the cars
           for (let c = 0; c < n; c++) {
-            const lane = line + dir * 2.2;
+            const lane = line + dir * 1.9; // clears the cars parked 4 m out (their bodies no longer brush)
             const along = r.range(-this.half, this.half);
             const x = axis === 'x' ? along : lane, z = axis === 'x' ? lane : along;
             this.add(r.pick(TRAFFIC), x, z, 0, { type: 'drive', axis, dir: axis === 'x' ? dir : -dir, v: r.range(5, 8) * (this.mutator === 'rush' ? 1.5 : 1) });
@@ -907,14 +942,36 @@ export class City {
       const src = duck ? this.assets.rubber_duck : a;
       if (duck) for (const e of g.list) e.gs = e.meta.tier / duckK;
       const variant = (this.groupCount = (this.groupCount || 0) + 1); // procedural trees differ chunk to chunk
-      const full = flatGeometry(src, 0, variant), lod = flatGeometry(src, 1, variant), lod2 = flatGeometry(src, 2, variant);
-      const mat = g.ground ? this.groundMat : src.material;
+      let full = flatGeometry(src, 0, variant), lod = flatGeometry(src, 1, variant), lod2 = flatGeometry(src, 2, variant);
+      let mat = g.ground ? this.groundMat : src.material;
+      // city-wide traffic can't be culled per group (it spans the whole map), so it's culled per instance: every frame
+      // only what the camera or the shadow map can see is packed to the front (cullTraffic). A stable seed attribute
+      // travels with each instance so its tint jitter and walk phase don't change as it's re-packed.
+      let cull = null;
+      if (g.roams && src.seeded && !g.ground) {
+        const n = g.list.length;
+        const seed = new THREE.InstancedBufferAttribute(new Float32Array(n), 1).setUsage(THREE.DynamicDrawUsage);
+        const wrap = (geo) => {
+          const c = new THREE.BufferGeometry();
+          for (const [k, v] of Object.entries(geo.attributes)) c.setAttribute(k, v); // shared buffers
+          c.setIndex(geo.index);
+          c.groups = geo.groups;
+          c.boundingSphere = geo.boundingSphere;
+          c.boundingBox = geo.boundingBox;
+          c.setAttribute('iseed', seed);
+          return c;
+        };
+        [full, lod, lod2] = [full, lod, lod2].map(wrap);
+        mat = src.seeded;
+        const reach = Math.max(a.meta.height || 1, a.meta.tier * 2) * 0.75 + 1.5; // generous: bounds + a frame of motion
+        cull = { src: new Float32Array(n * 16), seed, reach };
+      }
       const mesh = new THREE.InstancedMesh(full, mat, g.list.length);
       mesh.castShadow = !g.ground;
       mesh.receiveShadow = true;
       // list: groups whose members can all be asleep or gone (snack reserves, dormant event crowds, eaten props) are
       // skipped entirely - zero-scale instances still cost their triangles and a shadow pass
-      mesh.userData = { geos: [full, lod, lod2], full, tier: g.ground ? Infinity : a.meta.tier, ground: !!g.ground, roams: g.roams, list: g.ground ? null : g.list, toyFlags: a.flags };
+      mesh.userData = { geos: [full, lod, lod2], full, tier: g.ground ? Infinity : a.meta.tier, ground: !!g.ground, roams: g.roams, list: g.ground ? null : g.list, toyFlags: a.flags, cull };
       g.list.forEach((e, i) => { e.mesh = mesh; e.index = i; this.place(e); });
       mesh.instanceMatrix.setUsage(g.mover ? THREE.DynamicDrawUsage : THREE.StaticDrawUsage);
       if (g.roams) mesh.frustumCulled = false;
@@ -1050,6 +1107,42 @@ export class City {
   }
 
   /**
+   * Per-instance culling for city-wide traffic (after the shadow camera has moved this frame): each roaming group
+   * draws only the members inside the view frustum, or inside the shadow frustum while its shadow stand-in casts.
+   */
+  cullTraffic(camera) {
+    camera.updateMatrixWorld();
+    _cm.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    _fv.setFromProjectionMatrix(_cm, camera.coordinateSystem);
+    const sc = this.shadowCam;
+    if (sc) {
+      sc.updateMatrixWorld();
+      _cm.multiplyMatrices(sc.projectionMatrix, sc.matrixWorldInverse);
+      _fs.setFromProjectionMatrix(_cm, sc.coordinateSystem);
+    }
+    for (const m of this.meshes) {
+      const u = m.userData, c = u.cull;
+      if (!c || !m.visible) continue;
+      const casts = !!(sc && u.proxy?.visible);
+      const out = m.instanceMatrix.array, seeds = c.seed.array, list = u.list;
+      let k = 0;
+      for (let i = 0; i < list.length; i++) {
+        const e = list[i];
+        if (!e.alive || !e.s) continue;
+        _sph.center.set(e.x, e.y + 1, e.z);
+        _sph.radius = c.reach;
+        if (!_fv.intersectsSphere(_sph) && !(casts && _fs.intersectsSphere(_sph))) continue;
+        out.set(c.src.subarray(i * 16, i * 16 + 16), k * 16);
+        seeds[k++] = i;
+      }
+      m.count = k;
+      if (u.proxy) u.proxy.count = k;
+      m.instanceMatrix.needsUpdate = true;
+      c.seed.needsUpdate = true;
+    }
+  }
+
+  /**
    * Who casts, and from what: a mesh drawn at full detail (LOD0) casts through its shadow stand-in at LOD1 - same
    * silhouette at shadow-map resolution, a quarter of the triangles in the shadow pass. Farther LODs cast as drawn.
    */
@@ -1108,7 +1201,8 @@ export class City {
       _ax.set(-Math.sin(e.tiltDir), 0, Math.cos(e.tiltDir));
       _q.premultiply(_qt.setFromAxisAngle(_ax, e.tilt));
     }
-    _p.set(e.x, e.y, e.z);
+    // city entities stand on the local surface: blocks and sidewalks are 0.18 m above the road (e.y is relative to it)
+    _p.set(e.x, e.y + (e.grounded ? this.groundY(e.x, e.z) : 0), e.z);
     _s.setScalar(e.s * (e.gs || 1));
     if (e.obj) {
       e.obj.position.copy(_p);
@@ -1117,8 +1211,12 @@ export class City {
       if (e.ao !== undefined) this.placeAO(e);
       return;
     }
-    e.mesh.setMatrixAt(e.index, _m.compose(_p, _q, _s));
-    this.dirty.add(e.mesh);
+    const cull = e.mesh.userData.cull;
+    if (cull) _m.compose(_p, _q, _s).toArray(cull.src, e.index * 16); // packed into the mesh by cullTraffic
+    else {
+      e.mesh.setMatrixAt(e.index, _m.compose(_p, _q, _s));
+      this.dirty.add(e.mesh);
+    }
     if (e.ao !== undefined) this.placeAO(e);
   }
 
@@ -1161,6 +1259,7 @@ export class City {
           e.tiltDir = Math.atan2(-dz, -dx);
           if (m && (m.type === 'walk' || m.type === 'drive')) e.mover = { type: 'wander', h: e.rot, v: m.type === 'walk' ? 1.4 : 4, t: m.t }; // no snapping back to a path
           e.sucked = 0.3;
+          e.looseT = 3; // dragged: collides with what it's dragged into for a while after
           this.place(e);
         }
       }
@@ -1217,8 +1316,8 @@ export class City {
           m.s = (m.s + m.v * dt + 8 * m.h * 100) % (8 * m.h);
           const side = Math.floor(m.s / (2 * m.h)), u = (m.s % (2 * m.h)) - m.h;
           const P = [[m.h, u], [-u, m.h], [-m.h, -u], [u, -m.h]][side];
-          e.x = m.cx + P[0];
-          e.z = m.cz + P[1];
+          e.x = m.cx + P[0] + (e.ox || 0); // (+ a side-step when something is in the way: src/collide.js)
+          e.z = m.cz + P[1] + (e.oz || 0);
           const [dx, dz] = WALK_DIR[side], sg = Math.sign(m.v);
           e.rot = Math.atan2(-dz * sg, dx * sg);
           const w = m.t * 9 * Math.abs(m.v);
@@ -1226,10 +1325,20 @@ export class City {
           e.tilt = 0;
           e.rot += Math.sin(w) * 0.12;
         } else if (m.type === 'drive') {
-          m.cur = Math.max(0, Math.min(m.v, (m.cur ?? m.v) + (this.clearAhead(e) ? 4 : -14) * dt)); // ease off / brake
+          // stop for people, animals and loose things in the lane; after 3 s of waiting, creep on (they get nudged aside)
+          const fx = m.axis === 'x' ? m.dir : 0, fz = m.axis === 'x' ? 0 : -m.dir;
+          const someone = this.collide.obstacleAhead(e, fx, fz, e.meta.tier + 1.5 + (m.cur ?? m.v) * 0.35, e.shp ? e.shp.hz : e.meta.tier * 0.5);
+          m.wait = someone ? (m.wait || 0) + dt : 0;
+          const go = this.clearAhead(e) && !(someone && m.wait < 3);
+          m.cur = Math.max(0, Math.min(someone && m.wait >= 3 ? 1.5 : m.v, (m.cur ?? m.v) + (go ? 4 : -14) * dt)); // ease off / brake
           const d = m.cur * m.dir * dt;
           // the hole in the lane ahead: honk and swerve a little (eases back; stays inside clearAhead's lane width)
           m.lane ??= m.axis === 'x' ? e.z : e.x;
+          if (m.inset === undefined && e.shp) { // wide vehicles (buses, vans) ride nearer the centre line, clear of parked cars
+            m.inset = Math.max(0, e.shp.hz - 0.85);
+            const line = Math.round((m.lane + H) / TILE) * TILE - H;
+            m.lane = line + Math.sign(m.lane - line) * (1.9 - m.inset);
+          }
           const fwd = m.axis === 'x' ? (hole.x - e.x) * m.dir : (e.z - hole.z) * m.dir, lat = m.axis === 'x' ? hole.z - m.lane : hole.x - m.lane;
           const danger = !hole.hidden && fwd > 0 && fwd < 12 + hole.r && Math.abs(lat) < hole.r + 1.4;
           m.off = (m.off || 0) + ((danger ? -Math.sign(lat || 1) * 1.0 : 0) - (m.off || 0)) * Math.min(1, dt * 3);
@@ -1258,8 +1367,8 @@ export class City {
             m.v = (tang >= 0 ? 1 : -1) * Math.max(Math.abs(m.v), 2.6);
           } else if (Math.abs(m.v) > 1.6) m.v *= 1 - dt * 0.5;
           m.a += (m.v / m.R) * dt;
-          e.x = m.cx + Math.cos(m.a) * m.R;
-          e.z = m.cz - Math.sin(m.a) * m.R;
+          e.x = m.cx + Math.cos(m.a) * m.R + (e.ox || 0);
+          e.z = m.cz - Math.sin(m.a) * m.R + (e.oz || 0);
           e.rot = m.a + Math.sign(m.v) * Math.PI / 2;
           const w = m.t * 9 * Math.abs(m.v);
           e.y = Math.abs(Math.sin(w)) * 0.07;
@@ -1314,8 +1423,8 @@ export class City {
           } else if (Math.abs(m.v) > 3.8) m.v *= 1 - dt * 0.4;
           m.s += m.v * dt;
           const [x, z, dx, dz] = perimeter(m, m.s);
-          e.x = x + -dz * m.lat;
-          e.z = z + dx * m.lat;
+          e.x = x + -dz * m.lat + (e.ox || 0);
+          e.z = z + dx * m.lat + (e.oz || 0);
           e.rot = Math.atan2(-dz * Math.sign(m.v), dx * Math.sign(m.v));
           e.y = Math.abs(Math.sin(m.t * 11)) * 0.08;
         } else if (m.type === 'show') { // car show: ride the turntable's spinning plate
@@ -1336,7 +1445,7 @@ export class City {
           e.rot += m.spin * dt;
           m.spin *= Math.max(0, 1 - dt * 2);
           e.tilt = Math.min(0.5, Math.abs(m.spin) * 0.03);
-          if (m.t > 1.6 && e.y <= m.y0 + 1e-3 && Math.hypot(m.vx, m.vz) < 0.3) { e.mover = m.prev ?? null; e.tilt = 0; e.y = m.y0; }
+          if (m.t > 1.6 && e.y <= m.y0 + 1e-3 && Math.hypot(m.vx, m.vz) < 0.3) { e.mover = m.prev ?? null; e.tilt = 0; e.y = m.y0; e.looseT = 3; }
         } else if (m.type === 'domino') { // a neighbour fell: rock, and sometimes topple toward the hole and slide
           e.tiltDir = m.dir;
           if (!m.topple || m.t < 0.9) {
@@ -1380,6 +1489,7 @@ export class City {
           e.x += (rdx / rd) * step;
           e.z += (rdz / rd) * step;
           if (m && m.type !== 'wander' && m.type !== 'peck') e.mover = { type: 'wander', h: e.rot, v: 1.2, t: m.t };
+          e.looseT = 3;
           this.place(e);
         }
       }
@@ -1416,6 +1526,7 @@ export class City {
     }
     for (const mesh of this.dirty) mesh.instanceMatrix.needsUpdate = true;
     this.dirty.clear();
+    this.collide.step(dt, holes); // nothing overlaps: people step round cars, dragged things slide round obstacles
     return eaten;
   }
 

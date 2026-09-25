@@ -15,10 +15,12 @@ const PATCH = 12; // metres per patch
 const MASK_RES = 2048;
 const COVER_RES = 512; // CPU copy of the mask (about 1 m per texel): which patches have any grass at all
 
-/** A tapered blade: 4 levels, y 0..1 along the blade, x -0.5..0.5 across. */
-function bladeGeometry() {
+/**
+ * A tapered blade, y 0..1 along it, x -0.5..0.5 across. levels 3 = 5 triangles (near ring: the bend reads);
+ * levels 1 = a single triangle (far ring, beyond ~24 m, where a blade is a few pixels wide: same silhouette, 1/5 the work).
+ */
+function bladeGeometry(levels = 3) {
   const pos = [], uvs = [], idx = [];
-  const levels = 3;
   for (let i = 0; i < levels; i++) {
     const y = i / levels;
     pos.push(-0.5, y, 0, 0.5, y, 0);
@@ -64,6 +66,7 @@ export class Grass {
     this.fadeCentre = uniform(new THREE.Vector2());
     this.fadeFar = uniform(40);
     this.zoomFade = uniform(1);
+    this.widen = uniform(1); // zoomed out: fewer blades, each wider, same coverage (update)
     const holes = uniformArray(holeField.value, 'vec3');
     // near ring: 60 m square in 4 m cells, dense (fine cells so lawn corners don't pay for the pavement round them);
     // far ring: 11x11 patches of 12 m minus the middle, sparse and wider
@@ -71,7 +74,7 @@ export class Grass {
     for (let i = -6; i <= 8; i++) for (let j = -6; j <= 8; j++) near.push(new THREE.Vector2(i, j));
     for (let i = -5; i <= 5; i++) for (let j = -5; j <= 5; j++) if (Math.abs(i) > 2 || Math.abs(j) > 2) far.push(new THREE.Vector2(i, j));
     this.layers = density <= 0 ? [] : [this.layer(near, Math.round(4 * 4 * 85 * density), 1, holes, 4)];
-    if (density > 0 && withFar) this.layers.push(this.layer(far, Math.round(PATCH * PATCH * 16 * density), 2.3, holes, PATCH));
+    if (density > 0 && withFar) this.layers.push(this.layer(far, Math.round(PATCH * PATCH * 16 * density), 2.3, holes, PATCH, 1));
   }
 
   /**
@@ -137,7 +140,7 @@ export class Grass {
     }
   }
 
-  layer(offsets, perPatch, widthScale, holes, cellSize) {
+  layer(offsets, perPatch, widthScale, holes, cellSize, levels = 3) {
     const side = Math.ceil(Math.sqrt(perPatch));
     const spacing = cellSize / side;
     // the patches actually drawn this frame (the ones with grass) are packed at the front; active = how many
@@ -186,7 +189,7 @@ export class Grass {
       .add(facing.mul(h2.sub(0.5).mul(0.5)));
     const y = positionGeometry.y;
     const bend = y.mul(y);
-    const width = mix(0.05, 0.065, wild).mul(widthScale).mul(h1.mul(0.5).add(0.75));
+    const width = mix(0.05, 0.065, wild).mul(widthScale).mul(this.widen).mul(h1.mul(0.5).add(0.75));
     const across = vec2(facing.y.negate(), facing.x).mul(positionGeometry.x.mul(width).mul(float(1).sub(y.mul(0.85))));
     const off = lean.mul(bend).mul(bladeH);
     const topY = bladeH.mul(y).mul(float(1).sub(length(lean).mul(bend).mul(0.35)));
@@ -215,7 +218,7 @@ export class Grass {
     mat.emissiveNode = vec3(0.02, 0.035, 0.01).mul(uv().y);
     mat.aoNode = mix(0.35, 1, pow(uv().y, 0.7));
 
-    const mesh = new THREE.InstancedMesh(bladeGeometry(), mat, offsets.length * side * side);
+    const mesh = new THREE.InstancedMesh(bladeGeometry(levels), mat, offsets.length * side * side);
     mesh.userData = { full: mesh.count, perPatch: side * side, all, offs, active, cellSize };
     mesh.frustumCulled = false;
     mesh.castShadow = false;
@@ -266,9 +269,13 @@ export class Grass {
       u.activeN = k;
       u.active.value = Math.max(1, k);
     }
+    // density LOD: pulled back, a blade is a pixel or two wide, so draw fewer and widen them to keep the coverage
+    // (instances interleave across patches, so a lower count thins every patch evenly)
+    const k = THREE.MathUtils.clamp(1 - (camDist - 30) / 48, 0.3, 1);
+    this.widen.value = 1 / Math.sqrt(k);
     for (const l of this.layers) { // slow GPUs: half the blades
       const u = l.userData;
-      l.count = Math.round(u.activeN * u.perPatch * (lowSpec ? 0.5 : 1));
+      l.count = Math.round(u.activeN * u.perPatch * (lowSpec ? 0.5 : 1) * k);
       if (!u.activeN) l.count = 0;
     }
     this.group.visible = this.zoomFade.value > 0.01;

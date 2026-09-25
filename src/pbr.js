@@ -4,6 +4,7 @@
 // (ground). Normals use Mikkelsen's surface-gradient framework: no tangents needed and exact under instancing.
 import * as THREE from 'three/webgpu';
 import { Q } from './quality.js';
+import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import {
   texture, vec2, vec3, float, abs, pow, dot, cross, dFdx, dFdy, sign, max, positionView, normalViewGeometry, uniformArray,
   mx_noise_float, time, cos, sin, select, Fn, Loop, normalize, cameraPosition,
@@ -15,13 +16,52 @@ export const L = Object.fromEntries(LAYERS.map((n, i) => [n, i]));
 const SIZE = 512;
 const base = import.meta.env.BASE_URL;
 
+/**
+ * GPU-compressed layers (docs/PERFORMANCE.md): the scans ship as KTX2 (Basis Universal, tools/ktx2.mjs) and are
+ * transcoded to whatever block format the GPU samples natively (ASTC on Apple, BC7/BC1 on desktop, ETC2 on mobile):
+ * a quarter of the memory and bandwidth of RGBA8 at every sample, and the triplanar shaders take a lot of samples.
+ * Materials capture these texture objects when they're built (before the renderer exists), so the choice between
+ * compressed and plain arrays is made up front, by probing the backend the renderer will pick. No block format at
+ * all (rare), or ?jpgtex: the JPEG scans, decoded into plain RGBA arrays as before.
+ */
+async function probeCompression() {
+  if (typeof location === 'undefined' || /[?&]jpgtex\b/.test(location.search)) return null;
+  const f = { astcSupported: false, astcHDRSupported: false, etc1Supported: false, etc2Supported: false, dxtSupported: false, bptcSupported: false, pvrtcSupported: false };
+  try {
+    if (!location.search.includes('webgl') && navigator.gpu) {
+      const ad = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+      if (ad) { // three requests every feature the adapter has (and maps s3tc -> bc, etc1 -> etc2)
+        f.astcSupported = ad.features.has('texture-compression-astc');
+        f.etc1Supported = f.etc2Supported = ad.features.has('texture-compression-etc2');
+        f.dxtSupported = f.bptcSupported = ad.features.has('texture-compression-bc');
+        return f.astcSupported || f.etc2Supported || f.bptcSupported ? f : null;
+      }
+    }
+    const gl = document.createElement('canvas').getContext('webgl2'); // the WebGL2 fallback backend
+    if (!gl) return null;
+    const has = (e) => !!gl.getExtension(e);
+    f.astcSupported = has('WEBGL_compressed_texture_astc');
+    f.etc1Supported = has('WEBGL_compressed_texture_etc1');
+    f.etc2Supported = has('WEBGL_compressed_texture_etc');
+    f.dxtSupported = has('WEBGL_compressed_texture_s3tc');
+    f.bptcSupported = has('EXT_texture_compression_bptc');
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return f.astcSupported || f.etc2Supported || f.dxtSupported || f.bptcSupported ? f : null;
+  } catch {
+    return null;
+  }
+}
+const COMPRESSION = await probeCompression();
+
 function arrayTexture(srgb) {
-  const t = new THREE.DataArrayTexture(new Uint8Array(SIZE * SIZE * 4 * LAYERS.length).fill(128), SIZE, SIZE, LAYERS.length);
-  t.format = THREE.RGBAFormat;
+  const t = COMPRESSION
+    ? new THREE.CompressedArrayTexture([], SIZE, SIZE, LAYERS.length) // mip chain + format filled in by loadPBR
+    : new THREE.DataArrayTexture(new Uint8Array(SIZE * SIZE * 4 * LAYERS.length).fill(128), SIZE, SIZE, LAYERS.length);
+  if (!COMPRESSION) t.format = THREE.RGBAFormat;
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.minFilter = THREE.LinearMipmapLinearFilter;
   t.magFilter = THREE.LinearFilter;
-  t.generateMipmaps = true;
+  t.generateMipmaps = !COMPRESSION; // KTX2 carries its own mips
   t.anisotropy = 8;
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
   return t;
@@ -45,8 +85,42 @@ async function readImage(url) {
 
 const srgbToLinear = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 
-/** Fetch every layer and fill the arrays. Materials can be built before this resolves (arrays start flat grey). */
+/** KTX2 path: transcode each layer, then stack the layers' mip chains into the three array textures. */
+async function loadKTX2(onProgress) {
+  const loader = new KTX2Loader().setTranscoderPath(`${base}basis/`);
+  loader.workerConfig = COMPRESSION; // what detectSupport(renderer) would set, probed before the renderer existed
+  const means = fetch(`${base}tex/ktx2/means.json`).then((r) => r.json());
+  let done = 0;
+  try {
+    await Promise.all([['col', pbrCol], ['nrm', pbrNrm], ['rha', pbrRha]].map(async ([k, tex]) => {
+      const layers = await Promise.all(LAYERS.map(async (name) => {
+        const t = await loader.loadAsync(`${base}tex/ktx2/${name}_${k}.ktx2`);
+        if (++done % 3 === 0) onProgress?.(done / (3 * LAYERS.length));
+        return t;
+      }));
+      const first = layers[0];
+      if (!first.isCompressedTexture || first.format === THREE.RGBAFormat || layers.some((t) => t.format !== first.format || t.mipmaps.length !== first.mipmaps.length)) {
+        throw new Error(`KTX2 ${k}: transcoded to an unexpected format`);
+      }
+      tex.format = first.format;
+      tex.type = first.type;
+      tex.mipmaps = first.mipmaps.map((m, level) => {
+        const n = m.data.length, data = new m.data.constructor(n * LAYERS.length);
+        layers.forEach((t, i) => data.set(t.mipmaps[level].data, i * n));
+        return { data, width: m.width, height: m.height };
+      });
+      tex.needsUpdate = true;
+      for (const t of layers) t.dispose();
+    }));
+  } finally {
+    loader.dispose();
+  }
+  (await means).forEach(([r, g, b], i) => layerMean.array[i].set(r, g, b));
+}
+
+/** Fetch every layer and fill the arrays. Materials can be built before this resolves; nothing renders before it. */
 export async function loadPBR(onProgress) {
+  if (COMPRESSION) return loadKTX2(onProgress);
   let done = 0;
   await Promise.all(LAYERS.map(async (name, i) => {
     const [col, nrm, rha] = await Promise.all(['col', 'nrm', 'rha'].map((k) => readImage(`${base}tex/${name}_${k}.jpg`)));
@@ -205,3 +279,5 @@ export const pomOffset = (pw, layer, scale, steps, depth) => Fn(() => {
   const w = after.div(after.sub(before).min(-1e-4)).clamp(0, 1);
   return off.mix(prev, w);
 })();
+
+if (typeof window !== 'undefined') window.__pbr = () => ({ pbrCol, pbrNrm, pbrRha, layerMean, compression: COMPRESSION }); // tools/tests

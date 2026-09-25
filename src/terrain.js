@@ -191,11 +191,38 @@ export class Terrain {
     g.setAttribute('aExtra', new THREE.BufferAttribute(extra, 2));
     g.setIndex(new THREE.BufferAttribute(n * n > 65535 ? new Uint32Array(idx) : new Uint16Array(idx), 1));
     g.computeBoundingSphere();
-    this.mesh = new THREE.Mesh(g, terrainMaterial(this.water));
-    this.mesh.receiveShadow = true;
-    this.mesh.castShadow = true;
+    const mat = terrainMaterial(this.water);
+    // the whole countryside as one mesh: only the grass mask pass (a single top-down render at load) draws it
+    this.mesh = new THREE.Mesh(g, mat);
     this.mesh.userData.grassMask = terrainMaskMaterial(this.water);
-    this.group.add(this.mesh);
+    // what the game draws: the same vertices cut into sectors, each with its own index and bounds, so the camera and
+    // the shadow map (which only ever see a small part of the land) frustum-cull the rest. Detail is untouched.
+    this.sectors = [];
+    const S = 96, buckets = new Map();
+    for (let t = 0; t < idx.length; t += 6) {
+      const a0 = idx[t], d0 = idx[t + 5];
+      const mx = (pos[a0 * 3] + pos[d0 * 3]) / 2, mz = (pos[a0 * 3 + 2] + pos[d0 * 3 + 2]) / 2;
+      const k = `${Math.floor(mx / S)},${Math.floor(mz / S)}`;
+      let bk = buckets.get(k);
+      if (!bk) buckets.set(k, (bk = { idx: [], min: new THREE.Vector3(Infinity, Infinity, Infinity), max: new THREE.Vector3(-Infinity, -Infinity, -Infinity) }));
+      for (let q = 0; q < 6; q++) {
+        const vi = idx[t + q];
+        bk.idx.push(vi);
+        bk.min.min(v.set(pos[vi * 3], pos[vi * 3 + 1], pos[vi * 3 + 2]));
+        bk.max.max(v);
+      }
+    }
+    for (const bk of buckets.values()) {
+      const sg = new THREE.BufferGeometry();
+      for (const name of ['position', 'normal', 'aSplat', 'aExtra']) sg.setAttribute(name, g.getAttribute(name)); // shared buffers
+      sg.setIndex(new THREE.BufferAttribute(n * n > 65535 ? new Uint32Array(bk.idx) : new Uint16Array(bk.idx), 1));
+      sg.boundingBox = new THREE.Box3(bk.min.clone(), bk.max.clone());
+      sg.boundingSphere = sg.boundingBox.getBoundingSphere(new THREE.Sphere());
+      const m = new THREE.Mesh(sg, mat);
+      m.receiveShadow = m.castShadow = true;
+      this.sectors.push(m);
+      this.group.add(m);
+    }
     // water: one plane at the global level; the terrain decides where it shows
     const wg = new THREE.PlaneGeometry(3600, 3600, 1, 1).rotateX(-Math.PI / 2);
     this.waterMesh = new THREE.Mesh(wg, waterMaterial({ clipHalf: this.half }));
@@ -264,6 +291,7 @@ export class Terrain {
   }
 
   dispose() {
+    for (const m of this.sectors) m.geometry.dispose(); // (shared attributes: three skips ones already freed)
     this.mesh.geometry.dispose();
     this.mesh.material.dispose();
     this.waterMesh.geometry.dispose();

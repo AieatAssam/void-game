@@ -23,6 +23,8 @@ const LIGHTS = new Set(['ferris_wheel', 'carousel', 'tile_fair', 'tile_runway', 
 // One material for (almost) the whole game; per-object flags ride on mesh.userData.toyFlags.
 export const toyMaterial = makeToy();
 const walkMaterial = pedMaterial();
+// variants for city-wide traffic, which is culled per instance (a stable seed attribute replaces the instance index)
+const toySeeded = makeToy({ seeded: true }), walkSeeded = pedMaterial({ seeded: true });
 export { pedTime, glow };
 
 /** meshopt quantizes attributes (e.g. 3 x int16) - formats WebGPU can't fetch. Expand them to float32 once. */
@@ -59,7 +61,7 @@ async function loadModel(name, meta, tick) {
       o.userData.toyFlags = flags;
     });
   }
-  return [name, { name, scene: gltf.scene, lod: lod.scene, lod2: lod2.scene, clips: gltf.animations, meta, material, flags }];
+  return [name, { name, scene: gltf.scene, lod: lod.scene, lod2: lod2.scene, clips: gltf.animations, meta, material, flags, seeded: ped ? walkSeeded : toySeeded }];
 }
 
 let packManifest = null;
