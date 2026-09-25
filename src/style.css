@@ -195,3 +195,16 @@ button.ghost { background: #fff8ee22; color: var(--cream); box-shadow: none; fon
 .contracts i { font-style: normal; opacity: .9; }
 .contracts i.done { opacity: .55; text-decoration: line-through; }
 .contracts em { font-style: normal; color: var(--butter); }
+
+/* ---------- Phase 2: news ticker, settlement marker ---------- */
+#news { position: fixed; left: 50%; bottom: 14px; translate: -50% 0; width: min(94vw, 760px); display: flex; align-items: center; gap: 10px;
+  padding: 6px 10px; border-radius: 10px; background: #1a0f3add; color: var(--cream); font-size: 14px; overflow: hidden; pointer-events: none;
+  box-shadow: 0 2px 0 #0005; backdrop-filter: blur(6px); }
+#news[hidden] { display: none; }
+#news b { flex: 0 0 auto; padding: 2px 8px; border-radius: 6px; background: #e4473c; color: #fff; font-size: 12px; letter-spacing: .12em; }
+#news span { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#news span.run { animation: newsIn .5s ease-out; }
+#news i { flex: 0 0 auto; font-style: normal; font-size: 12px; color: var(--butter); font-variant-numeric: tabular-nums; }
+@keyframes newsIn { from { translate: 0 120%; opacity: 0; } }
+@media (max-width: 560px) { #news i { display: none; } }
+.edge-arrow i { white-space: nowrap; font-size: 14px; font-weight: 700; color: var(--c); text-shadow: 0 2px 0 #1a0f3a; }

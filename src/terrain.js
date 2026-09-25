@@ -7,7 +7,7 @@ import * as THREE from 'three/webgpu';
 import {
   Fn, vec3, vec4, float, int, attribute, positionWorld, normalWorldGeometry, normalViewGeometry, mix, smoothstep, max, pow,
   normalize, clamp, texture, sin, abs, length, uv, positionView, time, select, viewportDepthTexture, cameraNear, cameraFar,
-  perspectiveDepthToViewZ, screenUV,
+  perspectiveDepthToViewZ, screenUV, If, Discard, uniformArray,
 } from 'three/tsl';
 import { pbrCol, pbrNrm, pbrRha, L, triplanar, waterGrad, macro } from './pbr.js';
 import { positionGeometry, normalGeometry } from 'three/tsl';
@@ -40,8 +40,14 @@ function makeNoise(seed) {
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 export class Terrain {
-  constructor(seed, half, { beach = false, farm = false } = {}) {
+  /**
+   * region (Phase 2, docs/PHASE2.md): { bound, pads: [{ x, z, r }], roads: [[[x, z], ...], ...] } - a wider play area
+   * with gentle hills (mountains only past the bound), flattened settlement pads and road corridors.
+   */
+  constructor(seed, half, { beach = false, farm = false, region = null, holes = null, noMesh = false } = {}) {
     this.half = half;
+    this.region = region;
+    this.holes = holes;
     this.beach = beach;
     this.farm = farm; // County Fair: a denser patchwork of fields hugging the town
     this.nz = makeNoise(seed ^ 0x7e55a1);
@@ -50,12 +56,48 @@ export class Terrain {
     // river: meanders past one side of town (not on the coast side)
     this.river = beach ? null : { side: Math.floor(r() * 4), off: half + 70 + r() * 50, amp: 30 + r() * 30, freq: 1 / (110 + r() * 80), ph: r() * 6.28 };
     this.fields = this.layoutFields(r);
+    if (region) this.prepRegion();
     this.group = new THREE.Group();
-    this.build();
+    if (!noMesh) this.build(); // (noMesh: a height probe for planning)
   }
 
   /** Signed distance outside the town square (negative inside). */
   outside(x, z) { return Math.max(Math.abs(x), Math.abs(z)) - this.half; }
+
+  /** Region: pad heights (the land they sit on, above water) and road segments for the corridor test. */
+  prepRegion() {
+    const g = this.region;
+    for (const p of g.pads) p.h = Math.max(this.water + 1.2, this.rawHeight(p.x, p.z));
+    this.segs = [];
+    for (const road of g.roads) for (let i = 1; i < road.length; i++) this.segs.push([...road[i - 1], ...road[i]]);
+    // coarse bucket grid so the corridor test only visits nearby segments
+    this.segGrid = new Map();
+    const C = 120;
+    for (const sg of this.segs) {
+      const [x0, z0, x1, z1] = sg;
+      for (let gx = Math.floor((Math.min(x0, x1) - 40) / C); gx <= Math.floor((Math.max(x0, x1) + 40) / C); gx++) {
+        for (let gz = Math.floor((Math.min(z0, z1) - 40) / C); gz <= Math.floor((Math.max(z0, z1) + 40) / C); gz++) {
+          const k = gx * 4096 + gz;
+          if (!this.segGrid.has(k)) this.segGrid.set(k, []);
+          this.segGrid.get(k).push(sg);
+        }
+      }
+    }
+    this.segC = C;
+  }
+
+  /** Region: distance to the nearest road centre line (Infinity when none is near). */
+  roadDist(x, z) {
+    if (!this.segGrid) return Infinity;
+    const list = this.segGrid.get(Math.floor(x / this.segC) * 4096 + Math.floor(z / this.segC));
+    if (!list) return Infinity;
+    let best = Infinity;
+    for (const [x0, z0, x1, z1] of list) {
+      const dx = x1 - x0, dz = z1 - z0, t = Math.max(0, Math.min(1, ((x - x0) * dx + (z - z0) * dz) / (dx * dx + dz * dz || 1)));
+      best = Math.min(best, Math.hypot(x - x0 - dx * t, z - z0 - dz * t));
+    }
+    return best;
+  }
 
   riverDist(x, z) {
     const rv = this.river;
@@ -69,7 +111,7 @@ export class Terrain {
   /** Farm patchwork: rotated rectangles in a band around town. */
   layoutFields(r) {
     const out = [];
-    const [tries, want, spread] = this.farm ? [140, 44, 200] : [60, 26, 260];
+    const [tries, want, spread] = this.region ? [900, 170, this.region.bound - this.half - 120] : this.farm ? [140, 44, 200] : [60, 26, 260];
     for (let k = 0; k < tries && out.length < want; k++) {
       const a = r() * Math.PI * 2, d = this.half + 55 + r() * spread;
       const x = Math.cos(a) * d, z = Math.sin(a) * d;
@@ -77,6 +119,7 @@ export class Terrain {
       const f = { x, z, w: 30 + r() * 45, h: 25 + r() * 40, rot: Math.round(a / (Math.PI / 2)) * Math.PI / 2 + (r() - 0.5) * 0.35, crop: Math.floor(r() * 4) };
       if (out.some((o) => Math.hypot(o.x - x, o.z - z) < (o.w + f.w) * 0.55)) continue;
       if (this.riverDist(x, z) < Math.max(f.w, f.h) * 0.6 + 12) continue;
+      if (this.region && this.region.pads.some((p) => Math.hypot(p.x - x, p.z - z) < p.r + Math.max(f.w, f.h) * 0.6 + 10)) continue;
       if ([[0, 0], [f.w / 2, f.h / 2], [-f.w / 2, f.h / 2], [f.w / 2, -f.h / 2], [-f.w / 2, -f.h / 2]]
         .some(([u, v]) => this.nz.fbm((x + u) / 210 - 9.4, (z + v) / 210 + 2.2, 3) > 0.06)) continue; // no fields in lakes
       out.push(f);
@@ -103,10 +146,33 @@ export class Terrain {
   }
 
   heightAt(x, z) {
+    const h = this.rawHeight(x, z);
+    const g = this.region;
+    if (!g) return h;
+    // settlement pads: level ground with a soft shoulder
+    let out = h;
+    for (const p of g.pads) {
+      const d = Math.hypot(x - p.x, z - p.z);
+      if (d < p.r + 70) out = p.h + (out - p.h) * smooth(p.r, p.r + 70, d);
+    }
+    // roads: a levelled corridor; over water it becomes a causeway
+    const rd = this.roadDist(x, z);
+    if (rd < 30) {
+      const bed = Math.max(out, this.water + 0.9);
+      const k = 1 - smooth(9, 30, rd);
+      out = out + (bed - out) * k;
+    }
+    return out;
+  }
+
+  rawHeight(x, z) {
     const { nz } = this;
     const d = this.outside(x, z);
     const w = smooth(3, 45, d); // flat apron at the city limits
-    const grow = 0.85 + smooth(60, 900, d) * 2.4; // hills swell into mountains toward the horizon
+    // hills swell into mountains toward the horizon; in the region the play area stays rolling and the
+    // mountains rise only past its bound (the map edge)
+    const grow = this.region ? 0.8 + smooth(this.region.bound - 150, this.region.bound + 500, Math.max(Math.abs(x), Math.abs(z))) * 2.6
+      : 0.85 + smooth(60, 900, d) * 2.4;
     let h = nz.fbm(x / 240, z / 240, 5) * 30 * grow
       + nz.ridged(x / 170 + 3.7, z / 170 - 1.2, 4) * 14 * (grow - 0.55)
       + nz.fbm(x / 55 + 7.1, z / 55, 3) * 1.1
@@ -126,6 +192,22 @@ export class Terrain {
     return h * w - 0.08;
   }
 
+  /** Height from the built mesh grid (bilinear): cheap enough for every mover every frame, and matches what's drawn. */
+  sampleH(x, z) {
+    const cs = this.cs, n = cs.length;
+    const idx = (v) => { // last index with cs[i] <= v
+      let lo = 0, hi = n - 2;
+      if (v <= cs[0]) return 0;
+      if (v >= cs[n - 1]) return n - 2;
+      while (lo < hi) { const m = (lo + hi + 1) >> 1; if (cs[m] <= v) lo = m; else hi = m - 1; }
+      return lo;
+    };
+    const i = idx(x), j = idx(z);
+    const u = Math.min(1, Math.max(0, (x - cs[i]) / (cs[i + 1] - cs[i]))), v = Math.min(1, Math.max(0, (z - cs[j]) / (cs[j + 1] - cs[j])));
+    const H = this.H, a = H[j * n + i], b = H[j * n + i + 1], c = H[(j + 1) * n + i], d = H[(j + 1) * n + i + 1];
+    return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v;
+  }
+
   normalAt(x, z, out = new THREE.Vector3()) {
     const e = 0.8;
     return out.set(this.heightAt(x - e, z) - this.heightAt(x + e, z), 2 * e, this.heightAt(x, z - e) - this.heightAt(x, z + e)).normalize();
@@ -133,11 +215,13 @@ export class Terrain {
 
   // ---------- mesh ----------
   axisCoords() {
-    const st = Q.terrainStep, inner = this.half + 130, R = 1700, cs = [];
+    const g = this.region;
+    // region: a uniform grid over the whole play area (coarser: the camera is hundreds of metres up), then the falloff
+    const st = g ? Q.terrainStep * 3 : Q.terrainStep, inner = g ? g.bound : this.half + 130, R = g ? g.bound + 1600 : 1700, cs = [];
     for (let c = -inner; c <= inner + 1e-6; c += st) cs.push(c);
     let step = st, c = inner;
     const outer = [];
-    while (c < R) { step = Math.min(70, step * 1.09); c += step; outer.push(c); }
+    while (c < R) { step = Math.min(g ? 90 : 70, step * 1.09); c += step; outer.push(c); }
     return [...outer.map((v) => -v).reverse(), ...cs, ...outer];
   }
 
@@ -152,6 +236,8 @@ export class Terrain {
         H[j * n + i] = Math.abs(x) < under && Math.abs(z) < under ? -0.08 : this.heightAt(x, z);
       }
     }
+    this.cs = cs;
+    this.H = H;
     // pass 2: normals and moisture straight from the grid (no extra noise evaluations)
     const at = (i, j) => H[Math.min(n - 1, Math.max(0, j)) * n + Math.min(n - 1, Math.max(0, i))];
     const cx = (i) => cs[Math.min(n - 1, Math.max(0, i))];
@@ -192,13 +278,16 @@ export class Terrain {
     g.setIndex(new THREE.BufferAttribute(n * n > 65535 ? new Uint32Array(idx) : new Uint16Array(idx), 1));
     g.computeBoundingSphere();
     const mat = terrainMaterial(this.water);
+    // region: the hole goes everywhere, so the land needs the cut too (switched per sector like the town's ground)
+    this.cutMat = this.holes ? terrainMaterial(this.water, this.holes) : null;
+    this.solidMat = mat;
     // the whole countryside as one mesh: only the grass mask pass (a single top-down render at load) draws it
     this.mesh = new THREE.Mesh(g, mat);
     this.mesh.userData.grassMask = terrainMaskMaterial(this.water);
     // what the game draws: the same vertices cut into sectors, each with its own index and bounds, so the camera and
     // the shadow map (which only ever see a small part of the land) frustum-cull the rest. Detail is untouched.
     this.sectors = [];
-    const S = 96, buckets = new Map();
+    const S = this.region ? 192 : 96, buckets = new Map();
     for (let t = 0; t < idx.length; t += 6) {
       const a0 = idx[t], d0 = idx[t + 5];
       const mx = (pos[a0 * 3] + pos[d0 * 3]) / 2, mz = (pos[a0 * 3 + 2] + pos[d0 * 3 + 2]) / 2;
@@ -225,7 +314,8 @@ export class Terrain {
     }
     // water: one plane at the global level; the terrain decides where it shows
     const wg = new THREE.PlaneGeometry(3600, 3600, 1, 1).rotateX(-Math.PI / 2);
-    this.waterMesh = new THREE.Mesh(wg, waterMaterial({ clipHalf: this.half }));
+    if (this.region) wg.scale(3, 1, 3);
+    this.waterMesh = new THREE.Mesh(wg, waterMaterial({ clipHalf: this.half, holes: this.holes && uniformArray(this.holes.value, 'vec3') }));
     this.waterMesh.position.y = this.water;
     this.waterMesh.renderOrder = 2;
     this.group.add(this.waterMesh);
@@ -237,14 +327,17 @@ export class Terrain {
     const free = (x, z, rad) => !taken.some((t) => (t.x - x) ** 2 + (t.z - z) ** 2 < (t.r + rad) ** 2);
     const put = (name, x, z, s = 1, rot = r() * 6.28, sink = 0.15) => {
       const rad = (assets[name]?.meta.tier || 1) * 0.6 * s;
-      if (!free(x, z, rad)) return false;
+      if (!free(x, z, rad) || (g && !clear(x, z))) return false;
       const y = this.heightAt(x, z);
       if (y < this.water + 0.15 && !name.startsWith('rock')) return false;
       taken.push({ x, z, r: rad });
       out.push({ name, x, y: y - sink * s, z, rot, s });
       return true;
     };
-    const R = this.half + 420;
+    const g = this.region;
+    const R = g ? g.bound : this.half + 420;
+    const onPad = (x, z) => g && g.pads.some((p) => (p.x - x) ** 2 + (p.z - z) ** 2 < (p.r + 6) ** 2);
+    const clear = (x, z) => !onPad(x, z) && !(g && this.roadDist(x, z) < 11);
     // barns, windmills and cows on the farms; hedgerows around every field
     for (const f of this.fields) {
       const c = Math.cos(f.rot), s = Math.sin(f.rot);
@@ -265,14 +358,15 @@ export class Terrain {
       if (f.crop === 0) for (let k = 0; k < 4; k++) { const [x, z] = at((r() - 0.5) * f.w * 0.8, (r() - 0.5) * f.h * 0.8); put('cow', x, z, 1, r() * 6.28, 0); }
     }
     // forests, meadow trees, bushes and rocks
-    for (let k = 0; k < 16000 * Q.trees; k++) {
+    const tries = 16000 * Q.trees * (g ? ((2 * R) / (2 * (this.half + 420))) ** 2 * 0.5 : 1);
+    for (let k = 0; k < tries; k++) {
       const x = (r() * 2 - 1) * R, z = (r() * 2 - 1) * R;
       const d = this.outside(x, z);
-      if (d < 8) continue;
+      if (d < 8 || !clear(x, z)) continue;
       if (this.fieldAt(x, z)) continue;
       const fo = this.forest(x, z);
       const slope = 1 - this.normalAt(x, z).y;
-      const far = smooth(250, 420, d);
+      const far = g ? 0.4 : smooth(250, 420, d);
       if (r() < fo * 1.6 * (1 - far * 0.5)) {
         const pine = this.nz.noise(x / 90, z / 90) > -0.05;
         put(pine ? 'tree_pine' : r() < 0.6 ? 'tree_big' : 'tree_small', x, z, 0.8 + r() * 0.55);
@@ -283,7 +377,7 @@ export class Terrain {
       else if (d < 200 && r() < 0.012) put('rock', x, z, 0.4 + r() * 1.0, r() * 6.28, 0.3);
     }
     // river banks: reeds of bushes and stones
-    if (this.river) for (let k = 0; k < 700; k++) {
+    if (this.river) for (let k = 0; k < (g ? 3000 : 700); k++) {
       const x = (r() * 2 - 1) * R, z = (r() * 2 - 1) * R, rd = this.riverDist(x, z);
       if (rd > 7 && rd < 13 && this.outside(x, z) > 20) put(r() < 0.6 ? 'bush' : 'rock', x, z, 0.5 + r() * 0.8, r() * 6.28, 0.25);
     }
@@ -310,8 +404,9 @@ const planar = (pw, layer, scale) => {
   };
 };
 
-function terrainMaterial(waterLevel) {
+function terrainMaterial(waterLevel, holeField = null) {
   const m = new THREE.MeshStandardNodeMaterial();
+  const holes = holeField ? uniformArray(holeField.value, 'vec3') : null;
   const pw = positionWorld;
   const sp = attribute('aSplat', 'vec4');
   const nW = normalWorldGeometry;
@@ -341,6 +436,12 @@ function terrainMaterial(waterLevel) {
   const blend = (a, b, c, d, e) => a.mul(bG).add(b.mul(bF)).add(c.mul(bD)).add(d.mul(bS)).add(e.mul(bR)).div(sum);
 
   m.colorNode = Fn(() => {
+    if (holes) {
+      for (let i = 0; i < MAX_HOLES; i++) {
+        const hh = holes.element(i);
+        If(hh.z.greaterThan(0).and(length(positionWorld.xz.sub(hh.xy)).lessThan(hh.z)), () => { Discard(); });
+      }
+    }
     // grass: scanned lawn pushed toward a lush meadow green, far sample mixed in with distance
     // meadow: the scan's luminance detail on a living green that drifts between lush and sun-dried patches
     const gscan = mix(G.c, Gf.c, smoothstep(30, 140, dist).mul(0.6));

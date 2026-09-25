@@ -26,6 +26,8 @@ import { Q } from './quality.js';
 import { PERKS, DRAFT_AT, offerPerks, modsFor } from './perks.js';
 import { HEAT, heatMods, heatPay, heatMax, heatBest, recordHeat } from './heat.js';
 import { today as todaysContracts, streak, scoreContracts } from './contracts.js';
+import { Region } from './region.js';
+import { P2, News, residents, quietDirector, quietEvents, quietChains, quietPowerups, quietRivals } from './phase2.js';
 
 const $ = (id) => document.getElementById(id);
 const renderer = await createRenderer($('c'));
@@ -123,6 +125,10 @@ let city, hole, state, director, rivals, grass, events, chains, powerups, abilit
 const randomSeed = () => (Math.random() * 2 ** 31) | 0;
 // Normal runs play the city picked in the menu; daily/weekly (and the playtest bot) roll the seed's own mood.
 const BOT = location.search.includes('bot');
+// Phase 2 (docs/PHASE2.md): clearing the town breaks the hole out into the countryside. Bot balance runs keep the old
+// ending unless they ask (?region starts straight in Phase 2; ?nophase2 turns it off).
+const START_REGION = /[?&]region\b/.test(location.search);
+const PHASE2 = !/[?&]nophase2\b/.test(location.search) && (!BOT || START_REGION);
 let pickedCity = forcedMood()?.name || (save.city && unlocked(save.city) ? save.city : 'Old Town');
 const runMood = (seed, daily) => (daily || BOT || forcedMood() ? moodFor(seed).name : pickedCity);
 
@@ -199,7 +205,7 @@ function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null, 
     reverse: 0, jam: 0, slow: 0, invuln: 0, shake: 0, sealing: 0, hits: [], left: city.buildingsLeft(), combo: 0, comboT: 0, bonus: 0,
     rares: 0, rivalsEaten: 0, hitstop: 0, punch: 0, finale: 0, mi: MILESTONES.filter((m) => hole.r >= m.need * city.scaleK).length, mutator,
     crave: null, craveCool: 18, cravings: 0, wet: 0, mood: city.mood.name, stats: newStats(),
-    heat, hm, mode, perks: [], mods: modsFor([]), drafts: 0, draftsDue: 0, draft: null, happy: 0,
+    heat, hm, mode, perks: [], mods: modsFor([]), drafts: 0, draftsDue: 0, draft: null, happy: 0, phase: 1, pop: 0, slowmo: 1,
     // Happy Hour: about every other run, once, somewhere in the middle - a surprise 20 s feast (variable reward)
     happyAt: r() < 0.55 ? 60 + r() * 150 : Infinity };
   Object.assign(state.stats, { buildings: 0, chains: 0, capsules: 0, eventMeals: 0 });
@@ -461,6 +467,11 @@ function hud() {
   edgeArrow('pu', pu && [pu.e.x, pu.e.z], POWERS[pu?.kind]?.icon, POWERS[pu?.kind]?.color);
   powerChips();
   abilityHud();
+  if (state.phase === 2) {
+    const q = nextSettlement();
+    const ok = q && q.big <= hole.r * 0.95;
+    edgeArrow('town', q && Math.hypot(q.x - hole.x, q.z - hole.z) > q.r * 0.6 && [q.x, q.z], q ? `${q.name}${ok ? '' : ` · ${(q.big / 0.95).toFixed(0)} m`}` : '', ok ? '#9ed9bf' : '#ff8a3d');
+  } else edgeArrow('town', null);
   const ef = events.focus;
   edgeArrow('event', ef, { parade: '🎺', marathon: '🏃', carshow: '🏎️', ufo: '🛸' }[events.kind], '#ffd166');
   const st = [state.reverse > 0 && 'Controls reversed', state.jam > 0 && 'Jammed', state.wet > 0 ? 'Wet concrete! Get out' : state.slow > 0 && 'Slowed', state.flooded && 'Tide! Slow + hungry',
@@ -741,7 +752,9 @@ function runDust(won) {
     rares: state.rares * e.rare,
     rivals: state.rivalsEaten * e.rival,
     win: won ? e.winBonus : 0,
-    speed: won ? e.speedBonus * THREE.MathUtils.clamp((720 - state.time) / 420, 0, 1) : 0,
+    speed: won ? e.speedBonus * THREE.MathUtils.clamp((720 - (state.cityTime ?? state.time)) / 420, 0, 1) : 0,
+    // Phase 2: every settlement swallowed, and the capital
+    country: state.phase === 2 ? city.settlements.filter((q) => q.left === 0).length * e.settlement + (city.capital?.left === 0 ? e.capital : 0) : 0,
     daily: won && state.daily && !save.daily[state.seed]?.clear ? e.dailyFirstClear : 0,
   };
   const mult = +(CARDS[state.card].mult * heatPay(state.heat)).toFixed(2);
@@ -784,6 +797,11 @@ async function start(seed, daily, mutator = null, mode = 'city') {
   $('screen').hidden = true;
   $('hud').hidden = false;
   state.playing = true;
+  if (START_REGION && state.phase === 1) { // ?region: straight into Phase 2 at 10 m (or ?r=)
+    hole.area = Math.PI * (+new URLSearchParams(location.search).get('r') || 10) ** 2;
+    state.mi = MILESTONES.length; // (no size-up banners or drafts for the jump)
+    breakout(true);
+  }
 }
 $('play').onclick = () => start(undefined, false, null, pickedMode);
 $('blitz').onclick = () => start(undefined, false, null, 'blitz');
@@ -942,6 +960,73 @@ if (!location.search.includes('nothumbs')) {
   setTimeout(() => warmThumbs(assets, Object.values(LANDMARK).map(([n]) => n), () => state?.playing).then(renderCities), 1500);
 }
 
+// ---------- Phase 2: breakout (docs/PHASE2.md §2) ----------
+const news = new News();
+/**
+ * The last building fell: the ground gives way, the hole surges and the camera climbs while the region is built behind
+ * the slowed-down cinematic; then the world swaps and the countryside is the map. quick: ?region (no cinematic).
+ */
+async function breakout(quick = false) {
+  if (state.breaking || state.phase === 2) return;
+  state.breaking = true;
+  state.cityTime = state.time; // Phase 1 is banked as a clear (endRun)
+  if (!quick) {
+    state.slowmo = P2.slowmo;
+    state.finale = 6;
+    state.shake = 0.8;
+    hole.shockwave();
+    sfx.boom?.();
+    sfx.levelUp();
+    flash('The ground gives way!', false);
+    for (let k = 0; k < 3; k++) setTimeout(() => { if (state.breaking) { hole.shockwave(); state.shake = Math.max(state.shake, 0.5); sfx.boom?.(); } }, 700 + k * 900);
+  }
+  news.say(`Void hole escapes ${city.mood.name} — army mobilised`);
+  const t0 = performance.now();
+  await loadPacks(assets, ['region']);
+  const old = city;
+  const reg = await Region.create(assets, old, field, async () => { await nextPaint(); });
+  // swap under the dust: the new world goes in, the old systems go out
+  scene.remove(old.group, grass.group);
+  for (const o of [director, events, chains, powerups, rivals]) o.dispose();
+  old.dispose();
+  grass.dispose();
+  city = reg;
+  city.capital = city.settlements.find((q) => q.kind === 'capital');
+  director = quietDirector(); events = quietEvents(); chains = quietChains(); powerups = quietPowerups(); rivals = quietRivals();
+  grass = new Grass(renderer, city.groundMeshes, Math.min(city.bound, 700), field, { density: +(new URLSearchParams(location.search).get('grass') ?? Q.grass) * 0.6, far: Q.grassFar, lawns: [] });
+  scene.add(city.group, grass.group);
+  try { await renderer.compileAsync(city.group, camera, scene); } catch (e) { console.warn('region precompile skipped', e); }
+  console.info(`[phase2] region ready in ${((performance.now() - t0) / 1000).toFixed(1)}s: ${city.settlements.length} settlements, ${city.entities.length} entities, ${city.crumbs.length} crumbs`);
+  if (!quick) hole.area *= P2.surge ** 2;
+  state.phase = 2;
+  state.belly = 1;
+  state.left = city.buildingsLeft();
+  state.slowmo = 1;
+  state.breaking = false;
+  $('where').textContent = `${city.mood.name} countryside · ${city.settlements.length} settlements`;
+  news.say(`${city.capital?.name || 'The capital'} on alert as the hole heads for the countryside`);
+  if (!quick) {
+    levelEl.innerHTML = `<small>Breakout · ${hole.r.toFixed(1)} m</small><b>The whole country is on the menu</b>`;
+    levelEl.classList.remove('show');
+    void levelEl.offsetWidth;
+    levelEl.classList.add('show');
+    bannerUntil = performance.now() + 2600;
+  }
+}
+window.__breakout = () => breakout(true);
+
+/** The settlement to head for: the nearest one with buildings left, preferring ones you can already eat. */
+function nextSettlement() {
+  let best = null, bs = Infinity;
+  for (const q of city.settlements) {
+    if (!(q.left ?? q.total)) continue;
+    const d = Math.hypot(q.x - hole.x, q.z - hole.z) - q.r;
+    const s = Math.max(0, d) * (q.big > hole.r * 0.95 * 1.6 ? 2.5 : 1); // far too big for now: less attractive
+    if (s < bs) { bs = s; best = q; }
+  }
+  return best;
+}
+
 /** Ends a run. won = every building swallowed; why = how a lost run ended. */
 function endRun(won, why) {
   if (!state.playing) return;
@@ -960,25 +1045,28 @@ function endRun(won, why) {
   ensurePacks(runMood(nextSeed, false), () => {}).catch((e) => console.warn('pack preload failed', e));
   if (won) { sfx.star(); state.finale = 3.4; }
   else { state.sealing = 1.2; sfx.seal(); }
-  const pay = runDust(won), dust = pay.total, mult = pay.mult;
+  // Phase 2: the town was cleared at breakout (its clock stopped then); everything town-side counts as a clear
+  const region = state.phase === 2, cleared = won || region, clearT = state.cityTime ?? state.time;
+  const pay = runDust(cleared), dust = pay.total, mult = pay.mult;
   save.dust += dust;
   save.best = Math.max(save.best, state.best);
-  if (won) save.fastest = Math.min(save.fastest || Infinity, state.time);
-  if (state.mutator) recordWeek(thisWeek().key, state.best, won && state.time);
+  if (cleared) save.fastest = Math.min(save.fastest || Infinity, clearT);
+  if (state.mutator) recordWeek(thisWeek().key, state.best, cleared && clearT);
   if (state.daily) {
     const d = { r: 0, ...save.daily[state.seed] };
     d.r = Math.max(d.r, state.best);
-    if (won) d.clear = Math.min(d.clear || Infinity, state.time);
+    if (cleared) d.clear = Math.min(d.clear || Infinity, clearT);
     save.daily[state.seed] = d;
   }
   const skinsBefore = Object.values(SKINS).filter((k) => k.stars && totalStars() >= k.stars).length;
   state.stats.eventLive = events.live ? events.kind : null;
   const clearedBefore = !!save.cleared?.[state.mood];
-  const stars = scoreRun(state.mood, state.stats, won, state.time);
+  const stars = scoreRun(state.mood, state.stats, cleared, clearT);
   Object.assign(state.stats, { cravings: state.cravings, rivals: state.rivalsEaten, rares: state.rares, best: state.best });
-  const deals = BOT ? { completed: [], dust: 0 } : scoreContracts(state.stats, { won, time: state.time, heat: state.heat, mode: state.mode });
-  const heatUp = won && state.heat > 0 && recordHeat(state.mood, state.heat);
-  const heatOpen = won && !clearedBefore; // first clear: Heat unlocks for this city
+  const deals = BOT ? { completed: [], dust: 0 } : scoreContracts(state.stats, { won: cleared, time: clearT, heat: state.heat, mode: state.mode });
+  const heatUp = cleared && state.heat > 0 && recordHeat(state.mood, state.heat);
+  const heatOpen = cleared && !clearedBefore; // first clear: Heat unlocks for this city
+  const towns = region ? city.settlements.filter((q) => q.left === 0).length : 0;
   let blitzBest = false;
   if (state.mode === 'blitz') {
     save.blitz ??= {};
@@ -990,10 +1078,12 @@ function endRun(won, why) {
   setTimeout(() => {
     $('hud').hidden = true;
     $('screen').hidden = false;
-    $('title').innerHTML = state.mode === 'blitz' && !won ? `Blitz over<br><span>${state.best.toFixed(1)} m</span>` : won ? 'You swallowed<br><span>the city</span>' : why ? `${why.split(' — ')[0]}<br><span>${why.split(' — ')[1] || 'game over'}</span>` : 'The ground<br><span>sealed</span>';
+    $('title').innerHTML = state.mode === 'blitz' && !won ? `Blitz over<br><span>${state.best.toFixed(1)} m</span>` : won ? `You swallowed<br><span>the ${region ? 'country' : 'city'}</span>` : why ? `${why.split(' — ')[0]}<br><span>${why.split(' — ')[1] || 'game over'}</span>` : 'The ground<br><span>sealed</span>';
     $('result').hidden = false;
     $('result').innerHTML = (state.mode === 'blitz' && !won
       ? `Two minutes, <b>${state.eaten}</b> things swallowed, grew to <b>${state.best.toFixed(1)} m</b>. ${blitzBest ? '<b>New Blitz best!</b>' : `Blitz best <b>${(save.blitz[state.mood] || 0).toFixed(1)} m</b>`}`
+      : region
+      ? `${state.mood} gone in <b>${clock(clearT)}</b>, then <b>${towns}</b> of ${city.settlements.length} settlements${won ? `, ${city.capital?.name || 'the capital'} last` : ''}. Grew to <b>${state.best.toFixed(1)} m</b>, <b>${Math.round(state.pop).toLocaleString()}</b> people swallowed.`
       : won
       ? `Every building gone in <b>${clock(state.time)}</b>${state.daily ? ' — today\'s city' : ''}. Fastest ever <b>${clock(save.fastest)}</b>.`
       : `You swallowed <b>${state.eaten}</b> things and grew to <b>${state.best.toFixed(1)} m</b>${state.daily ? ' in today\'s city' : ''}. <b>${state.left}</b> buildings still stand.`)
@@ -1051,11 +1141,32 @@ renderer.setAnimationLoop(() => {
   frame(Math.min(timer.getDelta(), 1 / 20));
   if (fpsEl) { perf.cpu += performance.now() - t0; perfOverlay(); }
 });
-window.__tick = (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) frame(dt); };
+// (stepping outside the animation loop: advance three's frame counter too, or per-frame passes won't re-render)
+window.__tick = (dt = 1 / 60, n = 1) => {
+  for (let i = 0; i < n; i++) { const nf = renderer._nodes?.nodeFrame; if (nf) { nf.update(); renderer.info.frame = nf.frameId; } frame(dt); }
+};
+// dev: step, then save the frame to .shots/<name>.jpg (vite.config.js) - works with the window in the background
+if (import.meta.env.DEV) window.__snap = async (name = 'shot', n = 1) => {
+  window.__tick(1 / 60, n);
+  // render the graded frame into a target and read it back (a background window never presents its canvas)
+  const w = canvas.width, h = canvas.height, rt = new THREE.RenderTarget(w, h);
+  renderer.setRenderTarget(rt);
+  post.render(look.grade || [1, 1, 1]);
+  renderer.setRenderTarget(null);
+  const px = await renderer.readRenderTargetPixelsAsync(rt, 0, 0, w, h);
+  rt.dispose();
+  const c2 = Object.assign(document.createElement('canvas'), { width: w, height: h }), ctx = c2.getContext('2d');
+  const img = ctx.createImageData(w, h);
+  const stride = px.length === w * h * 4 ? w * 4 : Math.ceil((w * 4) / 256) * 256; // (WebGPU pads rows to 256 bytes)
+  for (let y = 0; y < h; y++) img.data.set(px.subarray(y * stride, y * stride + w * 4), y * w * 4);
+  ctx.putImageData(img, 0, 0);
+  return fetch(`/__shot?name=${name}`, { method: 'POST', body: c2.toDataURL('image/jpeg', 0.85) }).then((r) => r.text());
+};
 
 function frame(dt) {
   if (state.hitstop > 0) { state.hitstop -= dt; dt *= 0.1; } // hit-stop: the world freezes for a beat on a big bite
   if (state.draft) dt *= 0.04; // perk draft: the world all but stops while you choose
+  dt *= state.slowmo; // Phase 2 breakout cinematic
   const w = innerWidth, h = innerHeight;
   if (canvas.width !== Math.floor(w * renderer.getPixelRatio())) {
     renderer.setSize(w, h, false);
@@ -1072,18 +1183,20 @@ function frame(dt) {
     const tide = state.flooded ? 2 : 1;
     state.wet = Math.max(0, state.wet - dt);
     const ramp = 1 + state.time / HUNGER_RAMP; // the void gets hungrier the longer the run goes on
-    state.belly = Math.max(0, state.belly - BELLY_DRAIN * state.mods.hunger * state.hm.hunger * tide * ramp * Math.min(1, 0.3 + state.time / 25) * dt); // gentle first 20s
+    const drain = state.phase === 2 ? P2.bellyDrain : BELLY_DRAIN * ramp * Math.min(1, 0.3 + state.time / 25); // (gentle first 20 s)
+    state.belly = Math.max(0, state.belly - drain * state.mods.hunger * state.hm.hunger * tide * dt);
     cravings(dt);
     const [sx, sz] = window.__bot ? window.__bot(hole, city) : steer();
     const surge = (powerups.active.boost ? 1.8 : 1) * abilities.update(dt, hole) * (state.mutator === 'lowgrav' ? 1.1 : 1);
     if (BOT && abilities.list.length) abilities.auto({ hole, city, director, state }, window.__botTarget);
     if (hole.dash > 0) dashFx();
-    const speed = (6.5 + hole.r * 1.8) * state.mods.speed * (state.slow > 0 ? 0.45 : 1) * (state.flooded ? 0.6 : 1) * surge;
-    // a little weight (~0.1s to turn / reach speed), not a boat
-    const kv = 1 - Math.exp(-dt * 11);
+    const base = state.phase === 2 ? P2.speed(hole.r) * (city.surfaceSpeed?.(hole.x, hole.z) ?? 1) : 6.5 + hole.r * 1.8;
+    const speed = base * state.mods.speed * (state.slow > 0 ? 0.45 : 1) * (state.flooded ? 0.6 : 1) * surge;
+    // a little weight (~0.1s to turn / reach speed), not a boat; in Phase 2 it gets heavier as it grows
+    const kv = 1 - Math.exp(-dt / (state.phase === 2 ? P2.turn(hole.r) : 1 / 11));
     hole.sx = (hole.sx || 0) + (sx - (hole.sx || 0)) * kv;
     hole.sz = (hole.sz || 0) + (sz - (hole.sz || 0)) * kv;
-    const lim = Math.max(2, city.half - hole.r * 0.95); // keep the whole hole disc inside town
+    const lim = Math.max(2, (state.phase === 2 ? city.bound : city.half) - hole.r * 0.95); // keep the whole hole disc on the map
     const px = hole.x, pz = hole.z;
     const kick = state.kick || { x: 0, z: 0 };
     hole.x = THREE.MathUtils.clamp(hole.x + (hole.sx * speed + kick.x) * dt, -lim, lim);
@@ -1095,8 +1208,8 @@ function frame(dt) {
     hole.vz = (hole.z - pz) / dt;
 
     const slower = (1 - level('appetite') * 0.06) * (state.card === 'lonely' ? 1.3 : 1);
-    const fed = DECAY_FED / (1 + hole.r * 0.1); // big holes need proportionally bigger meals already
-    hole.area *= 1 - (state.belly > 0 ? fed : DECAY_STARVING) * slower * dt;
+    const fed = state.phase === 2 ? P2.decayFed : DECAY_FED / (1 + hole.r * 0.1); // big holes need proportionally bigger meals already
+    hole.area *= 1 - (state.belly > 0 ? fed : state.phase === 2 ? P2.decayStarving : DECAY_STARVING) * slower * dt;
     director.update(dt, hole, state);
     events.update(dt, hole, state);
     city.alarm = director.stars; // at high heat the city evacuates: people hide indoors
@@ -1126,8 +1239,9 @@ function frame(dt) {
       sparks.burst(hole.x, hole.z, hole.r, 6);
     }
     if (!state.playing) { /* eaten above */ }
-    else if (hole.r < DEAD_R) endRun(false);
-    else if (state.left === 0) endRun(true);
+    else if (hole.r < (state.phase === 2 ? P2.dead : DEAD_R)) endRun(false);
+    else if (state.phase === 2 && city.capital?.left === 0) endRun(true, 'capital');
+    else if (state.left === 0 && state.phase === 1) { if (PHASE2 && state.mode === 'city') breakout(); else endRun(true); }
     else if (state.card === 'rush' && state.time > 300) endRun(false, 'Too slow — Rush Hour over');
     else if (state.hm.limit && state.time > state.hm.limit) endRun(false, 'Too slow — Against the Clock');
     else if (state.mode === 'blitz' && state.time >= BLITZ) endRun(false, 'Time! — Blitz over');
@@ -1139,6 +1253,15 @@ function frame(dt) {
       flash('🍹 Happy Hour! Everything grows you 50% more', false);
     }
     state.happy = Math.max(0, state.happy - dt);
+    if (state.phase === 2) for (const q of city.settlements) { // a settlement falls
+      if (q.left === 0 && !q.gone) {
+        q.gone = true;
+        hole.shockwave();
+        sfx.levelUp();
+        flash(`${q.name} is gone`, false);
+        news.say(`${q.name} swallowed whole${q.kind === 'capital' ? ' — the capital has fallen' : ''}`);
+      }
+    }
   } else if (state.sealing > 0) {
     state.sealing = Math.max(0, state.sealing - dt);
     hole.area *= Math.max(0, 1 - dt * 6);
@@ -1186,6 +1309,18 @@ function frame(dt) {
       continue;
     }
     if (!state.playing) continue;
+    if (state.phase === 2) {
+      state.pop += residents(e.name, e.meta.tier);
+      if (e.mover?.crumb || e.meta.tier < hole.r * 0.12) { // crumbs (trees, hedges, cars at this size): no fanfare each
+        const before = hole.area;
+        hole.grow(e.meta.tier, growthShare(e.meta.tier, hole.r));
+        state.belly = Math.min(1, state.belly + (hole.area - before) / (before * P2.meal));
+        state.eaten++;
+        state.score += Math.PI * e.meta.tier ** 2;
+        if ((state.crumbT = (state.crumbT || 0) - 1) <= 0) { state.crumbT = 6; sfx.gulp(e.meta.tier); sparks.burst(hole.x, hole.z, hole.r, 0.5); }
+        continue;
+      }
+    }
     sfx.gulp(e.meta.tier);
     hole.vac = Math.min(1, (hole.vac || 0) + 0.35); // whirlpool: a short burst of suction after each bite
     if (record(e.name)) flash(`New in the book: ${title(e.name)}`, false);
@@ -1207,8 +1342,8 @@ function frame(dt) {
     if (e.meta.event) st.eventMeals++;
     hole.grow(e.meta.tier, mult * growthShare(e.meta.tier, hole.r));
     // a full meal is MEAL of the hole's area, capped at a 6 m hole's worth so late game stays feedable
-    const meal = MEAL * (1 + level('appetite') * 0.04);
-    state.belly = Math.min(1, state.belly + (hole.area - before) / (Math.min(before, Math.PI * 36) * meal));
+    const meal = (state.phase === 2 ? P2.meal : MEAL) * (1 + level('appetite') * 0.04);
+    state.belly = Math.min(1, state.belly + (hole.area - before) / ((state.phase === 2 ? before : Math.min(before, Math.PI * 36)) * meal));
     state.eaten++;
     state.score += Math.PI * e.meta.tier ** 2;
     hole.bump = Math.min(0.25, (hole.bump || 0) + e.meta.tier / hole.r * 0.3);
@@ -1259,6 +1394,9 @@ function frame(dt) {
   camera.position.set(camTarget.x + Math.sin(camYaw) * horiz + (Math.random() - 0.5) * sh, Math.sin(pitch) * camD,
     camTarget.z + Math.cos(camYaw) * horiz + (Math.random() - 0.5) * sh);
   camera.lookAt(camTarget);
+  // Phase 2: the view reaches kilometres; the near plane follows so depth precision holds for paving and roads
+  const far = Math.max(1600, camDist * 4), near = Math.max(0.5, camDist * 0.02);
+  if (Math.abs(camera.far - far) > far * 0.1 || Math.abs(camera.near - near) > near * 0.2) { camera.far = far; camera.near = near; camera.updateProjectionMatrix(); }
   const low = post.lowSpec || LOW_FX;
   surfaceOn.value = 1; // low tiers use the lite (single-projection) shader instead of losing detail
   city.budget(camera, hole.r, low);
@@ -1289,6 +1427,7 @@ function frame(dt) {
   const tw = powerups.twin;
   if (tw) tw.update(dt, state.time, 0, city.groundSpan(tw.x, tw.z, tw.r));
   if (state.playing) { hud(); rivals.labels(camera); }
+  news.update(dt, state.pop, state.playing && state.phase === 2);
   if (!window.__headless) {
     if (state.playing && document.visibilityState === 'visible') post.watch(dt);
     const ts = fpsEl && performance.now();

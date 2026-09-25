@@ -5,7 +5,7 @@
 // exactly as when the field was missing.
 export function makeEntity(p) {
   const e = {
-    name: undefined, meta: undefined, x: 0, z: 0, y: 0, rot: 0, tilt: 0, tiltDir: 0, s: 1, gs: undefined,
+    name: undefined, meta: undefined, x: 0, z: 0, y: 0, gy: 0, rot: 0, tilt: 0, tiltDir: 0, s: 1, gs: undefined,
     alive: true, falling: false, vy: 0, mover: null, grounded: false,
     // rendering
     obj: undefined, mesh: undefined, index: undefined, ao: undefined, batched: undefined, mixer: undefined, actions: undefined,
