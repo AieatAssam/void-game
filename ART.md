@@ -58,7 +58,7 @@ Poison props = hazard yellow + toxic green glow.
 | Hero unit | 5–15k | clip animated, cloned |
 | Building | 4–20k | instanced, LOD1 decimated copy |
 | On screen | ≲2M tris incl. shadow pass, ≲210 draw calls | measured (M5): start 1.9M/184, 4m hole 1.3M/157, 12m hole 0.9M/203 |
-| Stage 11 (high, grass off, `tools/perf.mjs`) | same budget | start of a run over 4 seeds: base build 1.7–2.5M / 132–149, Stage 11 1.7–2.7M (mean 2.08M vs 2.10M) / 133–179; Fun Fair worst seed 2.7M / 212 (was 3.0M / 246 before batching); Railway Town 1.7–2.4M / 152–198; low tier Fun Fair 1.9M / 244 → batched |
+| Stage 11 (high, grass off, `tools/perf.mjs`) | same budget | start of a run over 4 seeds: base build 1.7–2.5M / 132–149, Stage 11 1.7–2.7M (mean 2.08M vs 2.10M) / 133–179; Fun Fair worst seed 2.7M / 212 (was 3.0M / 246 before batching); Railway Town 1.7–2.4M / 152–198; low tier Fun Fair (same seed) 1.9M / 244 → 1.9M / 212 after batching |
 
 LOD0 is built with a detail multiplier (`Q` in blender/lib.py, 1.6). Every model ships LOD1 (~25%) and
 LOD2 (~8%) via meshoptimizer. The city is instanced per (asset, 40m tile chunk): chunks within 15m of
