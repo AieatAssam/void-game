@@ -47,6 +47,7 @@ const LOW_FX = /[?&]low\b/.test(location.search); // ?low: skip extra particles 
 // debug framing for screenshots: ?view=x,z,dist[,yaw,pitch]
 const VIEW = new URLSearchParams(location.search).get('view')?.split(',').map(Number);
 const smokeCol = new THREE.Color();
+const dustCol = new THREE.Color(0xb3a28c);
 
 // ---------- starvation tuning (PLAN.md: keep moving or the ground seals) ----------
 const BELLY_DRAIN = 1 / 8; // a full belly lasts 8s (at the start: the void gets hungrier as the run goes on)
@@ -1000,7 +1001,7 @@ async function breakout(quick = false) {
   const old = city;
   // normally prebuilt in the background during the town (prebuildRegion); if not, finish it now in bigger slices
   if (!state.regionJob) prebuildRegion();
-  state.slice.budget = 40;
+  state.slice.budget = quick ? 1000 : 40; // (?region: nothing to show meanwhile, just build it)
   const [reg] = await Promise.all([state.regionJob, new Promise((r) => setTimeout(r, hold))]);
   if (!reg) { state.breaking = false; state.slowmo = 1; endRun(true); return; }
   reg.finish();
@@ -1309,6 +1310,8 @@ function frame(dt) {
       const e = ev.e, t = e.meta.tier, mine = e.eater === hole && state.playing;
       if (t >= 2.5) {
         debris.collapse(e, e.eater || hole, LOW_FX || post.lowSpec);
+        // big buildings: a dust front rolls out across the streets, sized to the building (scale reads in the dust)
+        if (t >= 5 && !ev.crumb) debris.dustRing(e.x, e.gy || 0, e.z, t * 0.7, t * 0.45, LOW_FX || post.lowSpec ? 8 : 16, t * 0.8, 3.2 + t * 0.03, dustCol);
         if (mine) state.shake = Math.max(state.shake, Math.min(0.5, t * 0.04));
       }
       if (mine && t >= 0.5 && t > hole.r * 0.6 && state.time > (state.stopCool || 0)) {

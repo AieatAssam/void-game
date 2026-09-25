@@ -4,17 +4,16 @@
 // swallowing and falling; what's new is the layout, the ground (terrain everywhere, with the hole cut), road traffic,
 // and "crumbs" - the thousands of trees, hedges, rocks and cows the hole mows through, kept out of the per-entity loop.
 import * as THREE from 'three/webgpu';
-import { City, TILE, rng, BUILDINGS, groundMaterial } from './city.js';
+import { City, TILE, rng, BUILDINGS, REGION_BUILDINGS, groundMaterial } from './city.js';
+
+export { REGION_BUILDINGS };
 import { Terrain } from './terrain.js';
 import { makeEntity } from './entity.js';
 import { Collider } from './collide.js';
 
 export const REGION_BOUND = 1500; // metres from the hometown centre to the map edge (mountains beyond)
 
-/** Buildings that count toward clearing a settlement (plus the town's BUILDINGS). */
-export const REGION_BUILDINGS = new Set(['cottage', 'farmhouse', 'grain_silo', 'village_church', 'village_inn', 'castle_wall', 'castle_tower',
-  'castle_gate', 'castle_keep', 'townhouse_row', 'townhouse_row_b', 'market_hall', 'town_hall', 'cathedral', 'factory', 'chimney_stack', 'gasholder',
-  'fuel_tank', 'cooling_tower', 'city_block', 'city_block_b', 'glass_tower', 'supertall', 'tv_tower', 'stadium', 'parliament', 'barn', 'windmill']);
+
 const COUNTS = (n) => BUILDINGS.has(n) || REGION_BUILDINGS.has(n);
 
 const NAMES = ['Ashby', 'Little Puddle', 'Mudford', 'Nettlecombe', 'Bramblewick', 'Oakhollow', 'Thistledown', 'Pebbleton', 'Wickham Green',

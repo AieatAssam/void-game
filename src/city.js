@@ -4,7 +4,7 @@
 import * as THREE from 'three/webgpu';
 import { Fn, uniformArray, uv, vec4, length, smoothstep, pow, If, Discard, positionWorld } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { groundMaterial, groundMaskMaterial } from './surface.js';
+import { groundMaterial, groundMaskMaterial, crumbleMaterial } from './surface.js';
 import { Terrain } from './terrain.js';
 import { planEvent } from './events.js';
 import { MAX_HOLES } from './hole.js';
@@ -109,6 +109,35 @@ export const BUILDINGS = new Set(['house', 'shop', 'cafe', 'apartment', 'clock_t
   'gas_station', 'station', 'hangar', 'control_tower']);
 // wanderers and bumping traffic bounce off these (buildings plus the big fair rides)
 const SOLID = new Set([...BUILDINGS, 'ferris_wheel', 'carousel']);
+/** Phase 2 region buildings (region.js counts these toward clearing a settlement). */
+export const REGION_BUILDINGS = new Set(['cottage', 'farmhouse', 'grain_silo', 'village_church', 'village_inn', 'castle_wall', 'castle_tower',
+  'castle_gate', 'castle_keep', 'townhouse_row', 'townhouse_row_b', 'market_hall', 'town_hall', 'cathedral', 'factory', 'chimney_stack', 'gasholder',
+  'fuel_tank', 'cooling_tower', 'city_block', 'city_block_b', 'glass_tower', 'supertall', 'tv_tower', 'stadium', 'parliament', 'barn', 'windmill']);
+/** What crumbles into the hole part by part instead of dropping whole (surface.js crumbleMaterial). */
+const CRUMBLES = new Set([...BUILDINGS, ...REGION_BUILDINGS, 'gas_station', 'station', 'hangar', 'water_tower', 'control_tower', 'pier']);
+let crumbleMat = null;
+
+/** Per-vertex centre of the connected piece (modelled part) it belongs to, for the crumble. Cached per geometry. */
+function partCentres(geo) {
+  if (geo.userData.aPart) return geo.userData.aPart;
+  const pos = geo.attributes.position, n = pos.count, idx = geo.index.array;
+  const parent = new Int32Array(n).map((_, i) => i);
+  const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  for (let t = 0; t < idx.length; t += 3) {
+    const a = find(idx[t]), b = find(idx[t + 1]), c = find(idx[t + 2]);
+    parent[b] = a; parent[find(c)] = a;
+  }
+  const sum = new Map();
+  for (let i = 0; i < n; i++) {
+    const r = find(i);
+    let q = sum.get(r);
+    if (!q) sum.set(r, (q = [0, 0, 0, 0]));
+    q[0] += pos.getX(i); q[1] += pos.getY(i); q[2] += pos.getZ(i); q[3]++;
+  }
+  const out = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { const q = sum.get(find(i)); out[i * 3] = q[0] / q[3]; out[i * 3 + 1] = q[1] / q[3]; out[i * 3 + 2] = q[2] / q[3]; }
+  return (geo.userData.aPart = new THREE.BufferAttribute(out, 3));
+}
 const ANIMALS = new Set(['pigeon', 'rainbow_pigeon', 'dog', 'crab', 'cow', 'sheep', 'pig', 'chicken', 'horse', 'goat', 'duck']);
 const isTree = (n) => n.startsWith('tree') || n.startsWith('palm') || n.startsWith('pine') || n === 'bush' || n === 'hedge';
 // movers that range across the whole town: never frustum-culled per chunk, mid LOD
@@ -975,12 +1004,30 @@ export class City {
         cull = { src: new Float32Array(n * 16), seed, reach };
         }
       }
+      // buildings crumble: their own copy of the geometries carries part centres and a per-instance crumble slot
+      let crumble = null;
+      if (!g.roams && !g.ground && !duck && CRUMBLES.has(g.name) && !a.clips.length) {
+        crumble = new THREE.InstancedBufferAttribute(new Float32Array(g.list.length * 4), 4).setUsage(THREE.DynamicDrawUsage);
+        const wrap = (geo) => {
+          const c = new THREE.BufferGeometry();
+          for (const [k, v] of Object.entries(geo.attributes)) c.setAttribute(k, v);
+          c.setAttribute('aPart', partCentres(geo));
+          c.setAttribute('aCrumble', crumble);
+          c.setIndex(geo.index);
+          c.groups = geo.groups;
+          c.boundingSphere = geo.boundingSphere;
+          c.boundingBox = geo.boundingBox;
+          return c;
+        };
+        [full, lod, lod2] = [full, lod, lod2].map(wrap);
+        mat = crumbleMat ??= crumbleMaterial();
+      }
       const mesh = new THREE.InstancedMesh(full, mat, g.list.length);
       mesh.castShadow = !g.ground;
       mesh.receiveShadow = true;
       // list: groups whose members can all be asleep or gone (snack reserves, dormant event crowds, eaten props) are
       // skipped entirely - zero-scale instances still cost their triangles and a shadow pass
-      mesh.userData = { geos: [full, lod, lod2], full, tier: g.ground ? Infinity : a.meta.tier, ground: !!g.ground, roams: g.roams, list: g.ground ? null : g.list, toyFlags: a.flags, cull, crumb: g.crumb };
+      mesh.userData = { geos: [full, lod, lod2], full, tier: g.ground ? Infinity : a.meta.tier, ground: !!g.ground, roams: g.roams, list: g.ground ? null : g.list, toyFlags: a.flags, cull, crumb: g.crumb, crumble };
       g.list.forEach((e, i) => { e.mesh = mesh; e.index = i; this.place(e); });
       mesh.instanceMatrix.setUsage(g.mover ? THREE.DynamicDrawUsage : THREE.StaticDrawUsage);
       if (g.roams) mesh.frustumCulled = false;
@@ -1531,6 +1578,7 @@ export class City {
           if (e.mover?.type === 'rail') this.decouple(e);
           e.vy = 0;
           e.tiltDir = Math.atan2(dz, dx);
+          if (e.mesh?.userData.crumble) this.startCrumble(e, q);
           break;
         }
       }
@@ -1546,7 +1594,30 @@ export class City {
     return eaten;
   }
 
+  /** A building starts to crumble: tell its instance where the hole is (object space) and start the clock. */
+  startCrumble(e, q) {
+    const c = Math.cos(e.rot), s = Math.sin(e.rot), k = e.s * (e.gs || 1), dx = q.x - e.x, dz = q.z - e.z;
+    e.crumble = { t: 0.001, dur: 1.1 + e.meta.tier * 0.05 }; // (big things take longer to come down: scale)
+    const a = e.mesh.userData.crumble;
+    a.setXYZW(e.index, 0.001, (dx * c - dz * s) / k, (dx * s + dz * c) / k, e.meta.height / k);
+    a.needsUpdate = true;
+  }
+
   fall(e, dt, hole, eaten) {
+    if (e.crumble) { // parts break away in the shader (surface.js crumbleMaterial); swallowed when the last one is down
+      const cr = e.crumble, a = e.mesh.userData.crumble;
+      cr.t += (dt / cr.dur) * 1.45;
+      a.setX(e.index, cr.t);
+      a.needsUpdate = true;
+      if (cr.t < 1.45) return;
+      a.setX(e.index, 0);
+      e.crumble = null;
+      e.s = 0;
+      this.place(e);
+      eaten.push(e);
+      e.alive = false;
+      return;
+    }
     // Slide fully over the opening before sinking, and only tip as far as keeps the object inside the
     // well - nothing ever pokes through the ground outside the hole.
     const tier = e.meta.tier, h = Math.max(0.3, e.meta.height);

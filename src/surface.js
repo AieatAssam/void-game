@@ -282,6 +282,39 @@ export function toyMaterial({ seeded = false } = {}) {
   return buildToy(m, { seed: seedOf(seeded) });
 }
 
+/**
+ * Buildings crumble instead of dropping whole (docs/PHASE2.md §9). Every vertex knows the centre of the modelled part it
+ * belongs to (aPart: each box, roof, column is its own connected piece), so parts break away rigidly - no stretched
+ * triangles. aCrumble per instance: x progress (0 = standing), y/z the hole centre in object space, w model height.
+ * Parts tremble, then let go in a staggered pancake - the side over the hole and the lower storeys first - tumbling,
+ * shrinking into rubble and sliding toward the hole as they sink below the rim.
+ */
+export function crumbleMaterial() {
+  const m = new ToyNodeMaterial();
+  const pg = positionGeometry, c = attribute('aCrumble', 'vec4'), part = attribute('aPart', 'vec3');
+  m.preInstanceNode = Fn(() => {
+    const p = pg.toVar();
+    If(c.x.greaterThan(0), () => {
+      const h = max(c.w, 1);
+      const rnd = hash(part.x.mul(13.13).add(part.y.mul(7.71)).add(part.z.mul(3.37)));
+      const toHole = c.yz.sub(part.xz), dh = length(toHole);
+      const delay = clamp(part.y.div(h), 0, 1).mul(0.3).add(rnd.mul(0.22)).add(clamp(dh.div(h.add(10)), 0, 1).mul(0.3));
+      const q = clamp(c.x.sub(delay).div(0.55), 0, 1);
+      const shake = smoothstep(0, 0.08, c.x).mul(float(1).sub(q)).mul(0.05).mul(h.mul(0.02).add(1));
+      // tumble: the part's offset from its centre turns about y and x as it goes, and crumbles smaller
+      const off = p.sub(part), a1 = q.mul(rnd.sub(0.5)).mul(5), a2 = q.mul(rnd.mul(3.1).fract().sub(0.5)).mul(4);
+      const c1 = cos(a1), s1 = sin(a1), c2 = cos(a2), s2 = sin(a2);
+      const r1 = vec3(off.x.mul(c1).sub(off.z.mul(s1)), off.y, off.x.mul(s1).add(off.z.mul(c1)));
+      const r2 = vec3(r1.x, r1.y.mul(c2).sub(r1.z.mul(s2)), r1.y.mul(s2).add(r1.z.mul(c2))).mul(float(1).sub(q.mul(0.45)));
+      const slide = smoothstep(0.05, 1, q).mul(0.9), fall = q.mul(q).mul(part.y.add(h.mul(0.7)).add(8));
+      const jit = vec3(sin(time.mul(47).add(rnd.mul(20))), sin(time.mul(39).add(rnd.mul(9))).mul(0.4), cos(time.mul(43).add(rnd.mul(13)))).mul(shake);
+      p.assign(part.add(r2).add(vec3(toHole.x.mul(slide), fall.negate(), toHole.y.mul(slide))).add(jit));
+    });
+    return p;
+  })();
+  return buildToy(m, { seed: seedOf(false) });
+}
+
 /** People walk: arms/legs carry _swing (+-1 legs, +-2 arms, sign = side) and _pivot (hip/shoulder height). */
 export function pedMaterial({ seeded = false } = {}) {
   const m = new ToyNodeMaterial();
