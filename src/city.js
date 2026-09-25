@@ -8,6 +8,7 @@ import { groundMaterial, groundMaskMaterial } from './surface.js';
 import { Terrain } from './terrain.js';
 import { planEvent } from './events.js';
 import { MAX_HOLES } from './hole.js';
+import { Collider } from './collide.js';
 
 export const TILE = 40;
 export const SHADOW_LAYER = 1; // shadow-only stand-in meshes: the sun's shadow camera sees this layer, the view camera doesn't
@@ -107,6 +108,8 @@ export const BUILDINGS = new Set(['house', 'shop', 'cafe', 'apartment', 'clock_t
   'gas_station', 'station', 'hangar', 'control_tower']);
 // wanderers and bumping traffic bounce off these (buildings plus the big fair rides)
 const SOLID = new Set([...BUILDINGS, 'ferris_wheel', 'carousel']);
+const ANIMALS = new Set(['pigeon', 'rainbow_pigeon', 'dog', 'crab', 'cow', 'sheep', 'pig', 'chicken', 'horse', 'goat', 'duck']);
+const isTree = (n) => n.startsWith('tree') || n.startsWith('palm') || n.startsWith('pine') || n === 'bush' || n === 'hedge';
 // movers that range across the whole town: never frustum-culled per chunk, mid LOD
 const ROAMERS = new Set(['drive', 'wander', 'taxi', 'apron', 'field', 'rail', 'parade', 'jog', 'still']);
 const RAIL_Y = 0.47; // top of the rails on tile_rail (manifest rail_top)
@@ -177,6 +180,7 @@ export class City {
     this.groundSolid = groundMaterial(null);
     this.layout();
     this.build();
+    this.collide = new Collider(this, (e) => this.footprint(e));
   }
 
   // ---------- layout: a list of placements, no three.js objects yet ----------
@@ -586,6 +590,35 @@ export class City {
   }
 
   /** Ground surface height at (x, z): blocks sit 18 cm above the road. */
+  /**
+   * Collision footprint of an entity's model (model space, metres at scale 1): { hx, hz, cx, cz, round }, cached per
+   * model. Trees collide at the trunk only (people walk under the canopy); people and animals are circles.
+   */
+  footprint(e) {
+    const ducks = this.mutator === 'ducks' && this.assets.rubber_duck && ['prop', 'poison', 'unit'].includes(e.meta.kind) && !SOLID.has(e.name) && !e.obj;
+    const name = ducks ? 'rubber_duck' : e.name;
+    this.feet ??= new Map();
+    if (!this.feet.has(name)) this.feet.set(name, this.makeFoot(name));
+    e.solid = SOLID.has(e.name) || isTree(e.name); // never gives way
+    return this.feet.get(name);
+  }
+
+  makeFoot(name) {
+    const a = this.assets[name];
+    if (!a) return null;
+    if (isTree(name)) return { hx: Math.min(0.35, a.meta.tier * 0.12), hz: Math.min(0.35, a.meta.tier * 0.12), cx: 0, cz: 0, round: true };
+    const g = flatGeometry(a, 2);
+    if (!g.boundingBox) g.computeBoundingBox();
+    const b = g.boundingBox;
+    let hx = (b.max.x - b.min.x) / 2, hz = (b.max.z - b.min.z) / 2;
+    const cx = (b.max.x + b.min.x) / 2, cz = (b.max.z + b.min.z) / 2;
+    if (PEDS.includes(name) || ANIMALS.has(name)) { const r = Math.max(0.12, Math.max(hx, hz) * 0.7); return { hx: r, hz: r, cx: 0, cz: 0, round: true }; }
+    hx *= 0.9; hz *= 0.9; // mirrors, awnings and bumpers overhang: the solid body is a little smaller
+    const round = Math.max(hx, hz) < 0.6 && Math.abs(hx - hz) < 0.25 * Math.max(hx, hz); // small, squat props: circles
+    if (round) hx = hz = (hx + hz) / 2;
+    return { hx, hz, cx, cz, round };
+  }
+
   groundY(x, z) {
     const lx = ((x + this.half) % TILE + TILE) % TILE - TILE / 2, lz = ((z + this.half) % TILE + TILE) % TILE - TILE / 2;
     return Math.abs(lx) < 15.3 && Math.abs(lz) < 15.3 ? 0.18 : 0.0;
@@ -859,7 +892,7 @@ export class City {
         for (const dir of [1, -1]) {
           const n = (1 + Math.floor(r() * 2)) * (this.mutator === 'rush' ? 2 : 1); // Rush Hour: twice the cars
           for (let c = 0; c < n; c++) {
-            const lane = line + dir * 2.2;
+            const lane = line + dir * 1.9; // clears the cars parked 4 m out (their bodies no longer brush)
             const along = r.range(-this.half, this.half);
             const x = axis === 'x' ? along : lane, z = axis === 'x' ? lane : along;
             this.add(r.pick(TRAFFIC), x, z, 0, { type: 'drive', axis, dir: axis === 'x' ? dir : -dir, v: r.range(5, 8) * (this.mutator === 'rush' ? 1.5 : 1) });
@@ -1225,6 +1258,7 @@ export class City {
           e.tiltDir = Math.atan2(-dz, -dx);
           if (m && (m.type === 'walk' || m.type === 'drive')) e.mover = { type: 'wander', h: e.rot, v: m.type === 'walk' ? 1.4 : 4, t: m.t }; // no snapping back to a path
           e.sucked = 0.3;
+          e.looseT = 3; // dragged: collides with what it's dragged into for a while after
           this.place(e);
         }
       }
@@ -1281,8 +1315,8 @@ export class City {
           m.s = (m.s + m.v * dt + 8 * m.h * 100) % (8 * m.h);
           const side = Math.floor(m.s / (2 * m.h)), u = (m.s % (2 * m.h)) - m.h;
           const P = [[m.h, u], [-u, m.h], [-m.h, -u], [u, -m.h]][side];
-          e.x = m.cx + P[0];
-          e.z = m.cz + P[1];
+          e.x = m.cx + P[0] + (e.ox || 0); // (+ a side-step when something is in the way: src/collide.js)
+          e.z = m.cz + P[1] + (e.oz || 0);
           const [dx, dz] = WALK_DIR[side], sg = Math.sign(m.v);
           e.rot = Math.atan2(-dz * sg, dx * sg);
           const w = m.t * 9 * Math.abs(m.v);
@@ -1290,10 +1324,20 @@ export class City {
           e.tilt = 0;
           e.rot += Math.sin(w) * 0.12;
         } else if (m.type === 'drive') {
-          m.cur = Math.max(0, Math.min(m.v, (m.cur ?? m.v) + (this.clearAhead(e) ? 4 : -14) * dt)); // ease off / brake
+          // stop for people, animals and loose things in the lane; after 3 s of waiting, creep on (they get nudged aside)
+          const fx = m.axis === 'x' ? m.dir : 0, fz = m.axis === 'x' ? 0 : -m.dir;
+          const someone = this.collide.obstacleAhead(e, fx, fz, e.meta.tier + 1.5 + (m.cur ?? m.v) * 0.35, e.shp ? e.shp.hz : e.meta.tier * 0.5);
+          m.wait = someone ? (m.wait || 0) + dt : 0;
+          const go = this.clearAhead(e) && !(someone && m.wait < 3);
+          m.cur = Math.max(0, Math.min(someone && m.wait >= 3 ? 1.5 : m.v, (m.cur ?? m.v) + (go ? 4 : -14) * dt)); // ease off / brake
           const d = m.cur * m.dir * dt;
           // the hole in the lane ahead: honk and swerve a little (eases back; stays inside clearAhead's lane width)
           m.lane ??= m.axis === 'x' ? e.z : e.x;
+          if (m.inset === undefined && e.shp) { // wide vehicles (buses, vans) ride nearer the centre line, clear of parked cars
+            m.inset = Math.max(0, e.shp.hz - 0.85);
+            const line = Math.round((m.lane + H) / TILE) * TILE - H;
+            m.lane = line + Math.sign(m.lane - line) * (1.9 - m.inset);
+          }
           const fwd = m.axis === 'x' ? (hole.x - e.x) * m.dir : (e.z - hole.z) * m.dir, lat = m.axis === 'x' ? hole.z - m.lane : hole.x - m.lane;
           const danger = !hole.hidden && fwd > 0 && fwd < 12 + hole.r && Math.abs(lat) < hole.r + 1.4;
           m.off = (m.off || 0) + ((danger ? -Math.sign(lat || 1) * 1.0 : 0) - (m.off || 0)) * Math.min(1, dt * 3);
@@ -1322,8 +1366,8 @@ export class City {
             m.v = (tang >= 0 ? 1 : -1) * Math.max(Math.abs(m.v), 2.6);
           } else if (Math.abs(m.v) > 1.6) m.v *= 1 - dt * 0.5;
           m.a += (m.v / m.R) * dt;
-          e.x = m.cx + Math.cos(m.a) * m.R;
-          e.z = m.cz - Math.sin(m.a) * m.R;
+          e.x = m.cx + Math.cos(m.a) * m.R + (e.ox || 0);
+          e.z = m.cz - Math.sin(m.a) * m.R + (e.oz || 0);
           e.rot = m.a + Math.sign(m.v) * Math.PI / 2;
           const w = m.t * 9 * Math.abs(m.v);
           e.y = Math.abs(Math.sin(w)) * 0.07;
@@ -1378,8 +1422,8 @@ export class City {
           } else if (Math.abs(m.v) > 3.8) m.v *= 1 - dt * 0.4;
           m.s += m.v * dt;
           const [x, z, dx, dz] = perimeter(m, m.s);
-          e.x = x + -dz * m.lat;
-          e.z = z + dx * m.lat;
+          e.x = x + -dz * m.lat + (e.ox || 0);
+          e.z = z + dx * m.lat + (e.oz || 0);
           e.rot = Math.atan2(-dz * Math.sign(m.v), dx * Math.sign(m.v));
           e.y = Math.abs(Math.sin(m.t * 11)) * 0.08;
         } else if (m.type === 'show') { // car show: ride the turntable's spinning plate
@@ -1400,7 +1444,7 @@ export class City {
           e.rot += m.spin * dt;
           m.spin *= Math.max(0, 1 - dt * 2);
           e.tilt = Math.min(0.5, Math.abs(m.spin) * 0.03);
-          if (m.t > 1.6 && e.y <= m.y0 + 1e-3 && Math.hypot(m.vx, m.vz) < 0.3) { e.mover = m.prev ?? null; e.tilt = 0; e.y = m.y0; }
+          if (m.t > 1.6 && e.y <= m.y0 + 1e-3 && Math.hypot(m.vx, m.vz) < 0.3) { e.mover = m.prev ?? null; e.tilt = 0; e.y = m.y0; e.looseT = 3; }
         } else if (m.type === 'domino') { // a neighbour fell: rock, and sometimes topple toward the hole and slide
           e.tiltDir = m.dir;
           if (!m.topple || m.t < 0.9) {
@@ -1444,6 +1488,7 @@ export class City {
           e.x += (rdx / rd) * step;
           e.z += (rdz / rd) * step;
           if (m && m.type !== 'wander' && m.type !== 'peck') e.mover = { type: 'wander', h: e.rot, v: 1.2, t: m.t };
+          e.looseT = 3;
           this.place(e);
         }
       }
@@ -1480,6 +1525,7 @@ export class City {
     }
     for (const mesh of this.dirty) mesh.instanceMatrix.needsUpdate = true;
     this.dirty.clear();
+    this.collide.step(dt, holes); // nothing overlaps: people step round cars, dragged things slide round obstacles
     return eaten;
   }
 
