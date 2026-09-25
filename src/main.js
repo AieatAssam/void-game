@@ -315,7 +315,7 @@ function steer() {
     _ray.setFromCamera(_ndc, camera);
     if (_ray.ray.intersectPlane(_ground, _hit)) {
       let tx = _hit.x, tz = _hit.z;
-      const snap = aimTarget(tx, tz, Math.max(1.2, hole.r * 0.9));
+      const snap = stickyLock(tx, tz, Math.max(1.2, hole.r * 0.9));
       if (snap) { tx = snap.x; tz = snap.z; }
       const dx = tx - hole.x, dz = tz - hole.z, d = Math.hypot(dx, dz);
       // a locked target (often running away) is chased at full speed right onto it; bare ground eases in and parks
@@ -325,6 +325,7 @@ function steer() {
       showAim(tx, tz, snap);
     }
   } else {
+    lock = null;
     const v = input.drag ? { x: input.drag.dx, y: input.drag.dy } : null;
     if (!x && !z && v) {
       const full = Math.min(innerWidth, innerHeight) * 0.22, len = Math.hypot(v.x, v.y);
@@ -341,9 +342,41 @@ function steer() {
       }
     }
   }
+  [x, z] = rimMagnet(x, z);
   const len = Math.hypot(x, z);
   if (len > 1) { x /= len; z /= len; }
   return state.reverse > 0 ? [-x, -z] : [x, z];
+}
+
+const NOMAGNET = /[?&]nomagnet\b/.test(location.search); // A/B testing the assist
+/** Aim lock with a little stickiness: keep the locked target until the cursor wanders well away from it (no flicker). */
+let lock = null;
+function stickyLock(px, pz, R) {
+  if (lock && edibleNow(lock) && (lock.x - px) ** 2 + (lock.z - pz) ** 2 < (R * 1.6 + lock.meta.tier * 0.8) ** 2) return lock;
+  return (lock = aimTarget(px, pz, R));
+}
+
+/**
+ * Rim magnet: something edible just outside the rim, ahead or beside the way you're going, gently bends the course
+ * onto it (up to ~20°, stronger the closer it is). Speed is kept, and nothing happens while you stand still.
+ */
+function rimMagnet(x, z) {
+  const len = Math.hypot(x, z);
+  if (len < 0.15 || NOMAGNET) return [x, z];
+  const ux = x / len, uz = z / len, band = Math.max(0.8, hole.r * 0.5), reach = hole.r + band + 1;
+  let best = null, bw = 0;
+  for (const e of city.entities) {
+    const dx = e.x - hole.x, dz = e.z - hole.z;
+    if (dx > reach || dx < -reach || dz > reach || dz < -reach) continue;
+    const d = Math.hypot(dx, dz), gap = d - hole.r * (hole.pull || 1) + e.meta.tier * 0.25; // distance still to close
+    if (gap <= 0 || gap > band || (dx * ux + dz * uz) / (d || 1) < -0.1 || !edibleNow(e)) continue;
+    const w = Math.sqrt(1 - gap / band) * (0.6 + Math.min(0.4, e.meta.tier / hole.r)); // closer and meatier pulls harder
+    if (w > bw) { bw = w; best = e; }
+  }
+  if (!best) return [x, z];
+  const bx = best.x - hole.x, bz = best.z - hole.z, bl = Math.hypot(bx, bz) || 1, k = 0.35 * bw;
+  const nx = ux * (1 - k) + (bx / bl) * k, nz = uz * (1 - k) + (bz / bl) * k, nl = Math.hypot(nx, nz) || 1;
+  return [(nx / nl) * len, (nz / nl) * len];
 }
 
 /** Can the player's hole swallow this right now (fits, not poison, not airborne, not a capsule)? */
