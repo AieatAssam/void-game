@@ -16,6 +16,7 @@ const LOD_DIST = [15, 60]; // metres from camera to chunk edge: beyond [0] draw 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion();
 const _frustum = new THREE.Frustum(), _sphere = new THREE.Sphere(), _pm = new THREE.Matrix4();
 const _p = new THREE.Vector3(), _s = new THREE.Vector3(), _ax = new THREE.Vector3(), _qt = new THREE.Quaternion();
+const _cm = new THREE.Matrix4(), _fv = new THREE.Frustum(), _fs = new THREE.Frustum(), _sph = new THREE.Sphere();
 const UP = new THREE.Vector3(0, 1, 0);
 const WALK_DIR = [[0, 1], [-1, 0], [0, -1], [1, 0]]; // travel direction per side of a walk loop (v > 0)
 
@@ -907,14 +908,36 @@ export class City {
       const src = duck ? this.assets.rubber_duck : a;
       if (duck) for (const e of g.list) e.gs = e.meta.tier / duckK;
       const variant = (this.groupCount = (this.groupCount || 0) + 1); // procedural trees differ chunk to chunk
-      const full = flatGeometry(src, 0, variant), lod = flatGeometry(src, 1, variant), lod2 = flatGeometry(src, 2, variant);
-      const mat = g.ground ? this.groundMat : src.material;
+      let full = flatGeometry(src, 0, variant), lod = flatGeometry(src, 1, variant), lod2 = flatGeometry(src, 2, variant);
+      let mat = g.ground ? this.groundMat : src.material;
+      // city-wide traffic can't be culled per group (it spans the whole map), so it's culled per instance: every frame
+      // only what the camera or the shadow map can see is packed to the front (cullTraffic). A stable seed attribute
+      // travels with each instance so its tint jitter and walk phase don't change as it's re-packed.
+      let cull = null;
+      if (g.roams && src.seeded && !g.ground) {
+        const n = g.list.length;
+        const seed = new THREE.InstancedBufferAttribute(new Float32Array(n), 1).setUsage(THREE.DynamicDrawUsage);
+        const wrap = (geo) => {
+          const c = new THREE.BufferGeometry();
+          for (const [k, v] of Object.entries(geo.attributes)) c.setAttribute(k, v); // shared buffers
+          c.setIndex(geo.index);
+          c.groups = geo.groups;
+          c.boundingSphere = geo.boundingSphere;
+          c.boundingBox = geo.boundingBox;
+          c.setAttribute('iseed', seed);
+          return c;
+        };
+        [full, lod, lod2] = [full, lod, lod2].map(wrap);
+        mat = src.seeded;
+        const reach = Math.max(a.meta.height || 1, a.meta.tier * 2) * 0.75 + 1.5; // generous: bounds + a frame of motion
+        cull = { src: new Float32Array(n * 16), seed, reach };
+      }
       const mesh = new THREE.InstancedMesh(full, mat, g.list.length);
       mesh.castShadow = !g.ground;
       mesh.receiveShadow = true;
       // list: groups whose members can all be asleep or gone (snack reserves, dormant event crowds, eaten props) are
       // skipped entirely - zero-scale instances still cost their triangles and a shadow pass
-      mesh.userData = { geos: [full, lod, lod2], full, tier: g.ground ? Infinity : a.meta.tier, ground: !!g.ground, roams: g.roams, list: g.ground ? null : g.list, toyFlags: a.flags };
+      mesh.userData = { geos: [full, lod, lod2], full, tier: g.ground ? Infinity : a.meta.tier, ground: !!g.ground, roams: g.roams, list: g.ground ? null : g.list, toyFlags: a.flags, cull };
       g.list.forEach((e, i) => { e.mesh = mesh; e.index = i; this.place(e); });
       mesh.instanceMatrix.setUsage(g.mover ? THREE.DynamicDrawUsage : THREE.StaticDrawUsage);
       if (g.roams) mesh.frustumCulled = false;
@@ -1050,6 +1073,42 @@ export class City {
   }
 
   /**
+   * Per-instance culling for city-wide traffic (after the shadow camera has moved this frame): each roaming group
+   * draws only the members inside the view frustum, or inside the shadow frustum while its shadow stand-in casts.
+   */
+  cullTraffic(camera) {
+    camera.updateMatrixWorld();
+    _cm.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    _fv.setFromProjectionMatrix(_cm, camera.coordinateSystem);
+    const sc = this.shadowCam;
+    if (sc) {
+      sc.updateMatrixWorld();
+      _cm.multiplyMatrices(sc.projectionMatrix, sc.matrixWorldInverse);
+      _fs.setFromProjectionMatrix(_cm, sc.coordinateSystem);
+    }
+    for (const m of this.meshes) {
+      const u = m.userData, c = u.cull;
+      if (!c || !m.visible) continue;
+      const casts = !!(sc && u.proxy?.visible);
+      const out = m.instanceMatrix.array, seeds = c.seed.array, list = u.list;
+      let k = 0;
+      for (let i = 0; i < list.length; i++) {
+        const e = list[i];
+        if (!e.alive || !e.s) continue;
+        _sph.center.set(e.x, e.y + 1, e.z);
+        _sph.radius = c.reach;
+        if (!_fv.intersectsSphere(_sph) && !(casts && _fs.intersectsSphere(_sph))) continue;
+        out.set(c.src.subarray(i * 16, i * 16 + 16), k * 16);
+        seeds[k++] = i;
+      }
+      m.count = k;
+      if (u.proxy) u.proxy.count = k;
+      m.instanceMatrix.needsUpdate = true;
+      c.seed.needsUpdate = true;
+    }
+  }
+
+  /**
    * Who casts, and from what: a mesh drawn at full detail (LOD0) casts through its shadow stand-in at LOD1 - same
    * silhouette at shadow-map resolution, a quarter of the triangles in the shadow pass. Farther LODs cast as drawn.
    */
@@ -1117,8 +1176,12 @@ export class City {
       if (e.ao !== undefined) this.placeAO(e);
       return;
     }
-    e.mesh.setMatrixAt(e.index, _m.compose(_p, _q, _s));
-    this.dirty.add(e.mesh);
+    const cull = e.mesh.userData.cull;
+    if (cull) _m.compose(_p, _q, _s).toArray(cull.src, e.index * 16); // packed into the mesh by cullTraffic
+    else {
+      e.mesh.setMatrixAt(e.index, _m.compose(_p, _q, _s));
+      this.dirty.add(e.mesh);
+    }
     if (e.ao !== undefined) this.placeAO(e);
   }
 

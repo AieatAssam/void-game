@@ -273,7 +273,7 @@ setLoad('Opening the ground…', 0.98);
 await nextPaint();
 $('load').hidden = true;
 $('menu').hidden = false;
-window.__game = () => ({ hole, city, state, renderer, director, rivals, events, chains, powerups, camera, scene, grass });
+window.__game = () => ({ hole, city, state, renderer, director, rivals, events, chains, powerups, camera, scene, grass, THREE });
 window.__abil = () => abilities;
 window.__info = () => { const r = renderer.info.render; return { calls: r.drawCalls, tris: r.triangles, frameCalls: r.frameCalls }; };
 if (location.search.includes('bot')) installBot();
@@ -1021,23 +1021,36 @@ let camDist = 14 * LENS, camYaw = 0;
 // ?fps: live performance overlay (frame rate, frame time, draw calls, triangles, tier and any quality steps taken)
 const fpsEl = new URLSearchParams(location.search).has('fps') ? Object.assign(document.createElement('div'), { id: 'fps' }) : null;
 if (fpsEl) document.body.append(fpsEl);
-const perf = { t0: performance.now(), n: 0, worst: 0, last: performance.now() };
+const perf = { t0: performance.now(), n: 0, worst: 0, last: performance.now(), cpu: 0, sub: 0, gpu: null, gpuN: 0, gpuBusy: false };
 function perfOverlay() {
   const now = performance.now();
   perf.worst = Math.max(perf.worst, now - perf.last);
   perf.last = now;
   perf.n++;
+  // GPU time per frame (WebGPU timestamp queries; resolved every frame, so the total covers about one frame)
+  perf.gpuN++;
+  if (renderer.backend.trackTimestamp && !perf.gpuBusy) {
+    perf.gpuBusy = true;
+    const frames = perf.gpuN;
+    perf.gpuN = 0;
+    renderer.resolveTimestampsAsync('render').then((ms) => { if (ms > 0) perf.gpu = ms / Math.max(1, frames); }).catch(() => {}).finally(() => { perf.gpuBusy = false; });
+  }
   if (now - perf.t0 < 500) return;
   const fps = (perf.n * 1000) / (now - perf.t0), r = renderer.info.render, o = post.opts || {};
   const tris = r.triangles > 1e6 ? `${(r.triangles / 1e6).toFixed(2)}M` : `${Math.round(r.triangles / 1e3)}k`;
   fpsEl.textContent = `${fps.toFixed(0)} fps · ${(1000 / fps).toFixed(1)} ms (worst ${perf.worst.toFixed(0)})\n`
+    + `CPU ${(perf.cpu / perf.n).toFixed(1)} ms (game ${((perf.cpu - perf.sub) / perf.n).toFixed(1)} · render submit ${(perf.sub / perf.n).toFixed(1)}) · GPU ${renderer.backend.trackTimestamp ? (perf.gpu == null ? '…' : `${perf.gpu.toFixed(1)} ms`) : 'n/a'}\n`
     + `${r.drawCalls} draws · ${tris} tris\n`
     + `${Q.tier} · ${renderer.backend.isWebGPUBackend ? 'WebGPU' : 'WebGL2'} · ${renderer.getPixelRatio()}x · ${renderer.domElement.width}×${renderer.domElement.height}\n`
     + `AO ${o.ao ? `${o.aoRes}x` : 'off'} · bloom ${o.bloom ? 'on' : 'off'} · grass ${grass.layers.length ? (post.lowSpec ? 'half' : 'on') : 'off'}`
     + (post.steps ? `\nfallback: ${post.steps.join(' → ')}` : '');
-  Object.assign(perf, { t0: now, n: 0, worst: 0 });
+  Object.assign(perf, { t0: now, n: 0, worst: 0, cpu: 0, sub: 0 });
 }
-renderer.setAnimationLoop(() => { frame(Math.min(timer.getDelta(), 1 / 20)); if (fpsEl) perfOverlay(); });
+renderer.setAnimationLoop(() => {
+  const t0 = fpsEl && performance.now();
+  frame(Math.min(timer.getDelta(), 1 / 20));
+  if (fpsEl) { perf.cpu += performance.now() - t0; perfOverlay(); }
+});
 window.__tick = (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) frame(dt); };
 
 function frame(dt) {
@@ -1251,6 +1264,7 @@ function frame(dt) {
   city.budget(camera, hole.r, low);
   followSun(sun, camTarget);
   city.shadowCam = sun.shadow.camera; // the batched landmarks pack only what the shadow map can see
+  city.cullTraffic(camera); // city-wide traffic: only what the camera or the shadow map sees
   grass.update(camTarget, camDist / LENS, low, camera);
   setFogRange(camDist);
   const sc = sun.shadow.camera, ext = Math.max(25, (camDist / LENS) * 0.9);
@@ -1277,7 +1291,9 @@ function frame(dt) {
   if (state.playing) { hud(); rivals.labels(camera); }
   if (!window.__headless) {
     if (state.playing && document.visibilityState === 'visible') post.watch(dt);
+    const ts = fpsEl && performance.now();
     post.render(look.grade || [1, 1, 1]);
+    if (fpsEl) perf.sub += performance.now() - ts;
     if (state.snapAt && state.time >= state.snapAt) { state.snapAt = 0; state.bite = snapshot(); }
   }
 }

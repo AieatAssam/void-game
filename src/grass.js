@@ -15,10 +15,12 @@ const PATCH = 12; // metres per patch
 const MASK_RES = 2048;
 const COVER_RES = 512; // CPU copy of the mask (about 1 m per texel): which patches have any grass at all
 
-/** A tapered blade: 4 levels, y 0..1 along the blade, x -0.5..0.5 across. */
-function bladeGeometry() {
+/**
+ * A tapered blade, y 0..1 along it, x -0.5..0.5 across. levels 3 = 5 triangles (near ring: the bend reads);
+ * levels 1 = a single triangle (far ring, beyond ~24 m, where a blade is a few pixels wide: same silhouette, 1/5 the work).
+ */
+function bladeGeometry(levels = 3) {
   const pos = [], uvs = [], idx = [];
-  const levels = 3;
   for (let i = 0; i < levels; i++) {
     const y = i / levels;
     pos.push(-0.5, y, 0, 0.5, y, 0);
@@ -71,7 +73,7 @@ export class Grass {
     for (let i = -6; i <= 8; i++) for (let j = -6; j <= 8; j++) near.push(new THREE.Vector2(i, j));
     for (let i = -5; i <= 5; i++) for (let j = -5; j <= 5; j++) if (Math.abs(i) > 2 || Math.abs(j) > 2) far.push(new THREE.Vector2(i, j));
     this.layers = density <= 0 ? [] : [this.layer(near, Math.round(4 * 4 * 85 * density), 1, holes, 4)];
-    if (density > 0 && withFar) this.layers.push(this.layer(far, Math.round(PATCH * PATCH * 16 * density), 2.3, holes, PATCH));
+    if (density > 0 && withFar) this.layers.push(this.layer(far, Math.round(PATCH * PATCH * 16 * density), 2.3, holes, PATCH, 1));
   }
 
   /**
@@ -137,7 +139,7 @@ export class Grass {
     }
   }
 
-  layer(offsets, perPatch, widthScale, holes, cellSize) {
+  layer(offsets, perPatch, widthScale, holes, cellSize, levels = 3) {
     const side = Math.ceil(Math.sqrt(perPatch));
     const spacing = cellSize / side;
     // the patches actually drawn this frame (the ones with grass) are packed at the front; active = how many
@@ -215,7 +217,7 @@ export class Grass {
     mat.emissiveNode = vec3(0.02, 0.035, 0.01).mul(uv().y);
     mat.aoNode = mix(0.35, 1, pow(uv().y, 0.7));
 
-    const mesh = new THREE.InstancedMesh(bladeGeometry(), mat, offsets.length * side * side);
+    const mesh = new THREE.InstancedMesh(bladeGeometry(levels), mat, offsets.length * side * side);
     mesh.userData = { full: mesh.count, perPatch: side * side, all, offs, active, cellSize };
     mesh.frustumCulled = false;
     mesh.castShadow = false;

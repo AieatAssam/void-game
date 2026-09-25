@@ -32,7 +32,9 @@ if (typeof location !== 'undefined' && location.search.includes('trace')) THREE.
 
 export async function createRenderer(canvas) {
   const forceGL = typeof location !== 'undefined' && location.search.includes('webgl');
-  const renderer = new THREE.WebGPURenderer({ canvas, antialias: false, powerPreference: 'high-performance', forceWebGL: forceGL });
+  // ?fps: time the GPU work too (WebGPU timestamp queries, where the browser offers them) for the overlay
+  const renderer = new THREE.WebGPURenderer({ canvas, antialias: false, powerPreference: 'high-performance', forceWebGL: forceGL,
+    trackTimestamp: /[?&]fps\b/.test(location.search) });
   // start a notch under the tier's ceiling: post.js's dynamic resolution climbs back up if frames hold 60
   renderer.setPixelRatio(Math.min(devicePixelRatio, Q.dpr, 1.5));
   // Unreal-style filmic curve: rich toe, soft highlight shoulder. AgX was evaluated per time of day (?tone=agx):

@@ -107,7 +107,7 @@ const swatchIndex = () => {
  * Build the TSL graph for a palette material.
  * ground: world-space ground table + wear; holes: uniformArray of vec3(x, z, r) cut out of the ground.
  */
-function buildToy(mat, { ground = false, holes = null } = {}) {
+function buildToy(mat, { ground = false, holes = null, seed = float(instanceIndex) } = {}) {
   const sw = swatchIndex();
   const info = (ground ? GND_TABLE : OBJ_TABLE).element(sw);
   const pal = texture(palTex, uv());
@@ -174,7 +174,7 @@ function buildToy(mat, { ground = false, holes = null } = {}) {
       c.mulAssign(mix(0.82, 1.0, smoothstep(0.0, 0.7, positionGeometry.y)));
       c.assign(select(water, mix(vec3(0.02, 0.06, 0.07), pal.rgb, 0.2), c));
       // repeated props aren't clones: a small per-instance warm/cool + value jitter (never on buildings)
-      const j1 = hash(float(instanceIndex).mul(1.37).add(objectFlags.z.mul(17.1))), j2 = hash(float(instanceIndex).mul(3.11).add(5.3));
+      const j1 = hash(seed.mul(1.37).add(objectFlags.z.mul(17.1))), j2 = hash(seed.mul(3.11).add(5.3));
       const jit = vec3(float(1).add(j1.sub(0.5).mul(0.07)), 1, float(1).sub(j1.sub(0.5).mul(0.07))).mul(j2.sub(0.5).mul(0.09).add(1));
       if (!OFF.has('jit')) c.mulAssign(select(isBuilding, vec3(1), jit));
       if (high && !OFF.has('cav')) {
@@ -265,29 +265,36 @@ function buildToy(mat, { ground = false, holes = null } = {}) {
 }
 
 
-/** The shared prop material (one pipeline for every static/moving prop). */
-export function toyMaterial() {
+/**
+ * Per-instance identity for jitter and walk phase. Static groups use their instance index; city-wide traffic is
+ * re-packed every frame (only what's in view gets drawn), so it carries a stable seed attribute instead.
+ */
+const seedOf = (seeded) => (seeded ? attribute('iseed', 'float') : float(instanceIndex));
+
+/** The shared prop material (one pipeline for every static/moving prop). seeded: the variant for culled traffic. */
+export function toyMaterial({ seeded = false } = {}) {
   const m = new ToyNodeMaterial();
   // fabric flutters: awnings, bunting and flags ripple above ~2 m, riding the shared wind clock
   const pg = positionGeometry, isFabric = objectFlags.w.greaterThan(1.5).and(objectFlags.w.lessThan(2.5));
   const amp = select(isFabric, smoothstep(2.0, 4.5, pg.y).mul(0.035), float(0));
   const ph = time.mul(6.5).add(pg.x.mul(2.3)).add(pg.z.mul(1.9));
   m.preInstanceNode = pg.add(vec3(sin(ph), sin(ph.mul(1.3)).mul(0.3), cos(ph.mul(0.8))).mul(amp));
-  return buildToy(m);
+  return buildToy(m, { seed: seedOf(seeded) });
 }
 
 /** People walk: arms/legs carry _swing (+-1 legs, +-2 arms, sign = side) and _pivot (hip/shoulder height). */
-export function pedMaterial() {
+export function pedMaterial({ seeded = false } = {}) {
   const m = new ToyNodeMaterial();
   const swing = attribute('_swing', 'float'), pivot = attribute('_pivot', 'float');
-  const ph = pedTime.mul(8).add(float(instanceIndex).mul(1.618));
+  const seed = seedOf(seeded);
+  const ph = pedTime.mul(8).add(seed.mul(1.618));
   const arm = step(1.5, abs(swing));
   const moving = step(0.5, abs(swing));
   const ang = sin(ph).mul(sign(swing)).mul(mix(0.5, -0.65, arm)).mul(moving);
   const q = positionGeometry.sub(vec3(0, pivot, 0));
   const c = cos(ang), s = sin(ang);
   m.preInstanceNode = vec3(q.x.mul(c).sub(q.y.mul(s)), q.x.mul(s).add(q.y.mul(c)), q.z).add(vec3(0, pivot, 0));
-  return buildToy(m);
+  return buildToy(m, { seed });
 }
 
 /** Ground tiles: world-space detail and a cut-out wherever a hole is open. */
