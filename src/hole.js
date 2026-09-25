@@ -1,11 +1,11 @@
 // A hole: the one cold thing in a warm toy world. Void well + starfield + rim (Blender model), styled by a skin.
 // Up to MAX_HOLES holes share one ground-cut uniform (player + rivals).
 import * as THREE from 'three/webgpu';
-import { Fn, uniform, positionGeometry, clamp, atan, mix, smoothstep, sin, exp, pow, vec2, vec3, vec4, hash, floor, step, length, fract, mx_noise_float, log } from 'three/tsl';
+import { Fn, uniform, float, positionGeometry, normalView, positionView, normalize, dot, abs, time, clamp, atan, mix, smoothstep, sin, exp, pow, vec2, vec3, vec4, hash, floor, step, length, fract, mx_noise_float, log } from 'three/tsl';
 import { SKINS } from './skins.js';
 
 export const GROWTH = 0.17;
-export const MAX_HOLES = 4;
+export const MAX_HOLES = 5; // player, up to three rivals, the split twin
 
 /** Shared uniform: vec3(x, z, r) per hole; r = 0 means the slot is empty. */
 export function holeField() {
@@ -62,13 +62,21 @@ export class Hole {
     const floor = new THREE.Mesh(new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2).translate(0, -1, 0),
       new THREE.MeshBasicMaterial({ color: new THREE.Color(this.skin.deep).multiplyScalar(0.3), fog: false }));
     this.well = new THREE.Group().add(well, floor);
-    this.rimMat = new THREE.MeshStandardMaterial({ color: this.skin.rim, emissive: this.skin.rim, emissiveIntensity: 0.55, roughness: 0.3, metalness: 0.2 });
+    // rim: glowing toy plastic; while the Ghost power-up runs, a fresnel shimmer ripples over it
+    this.ghostU = uniform(0);
+    this.rimMat = new THREE.MeshStandardNodeMaterial({ color: this.skin.rim, roughness: 0.3, metalness: 0.2 });
+    const rimCol = uniform(new THREE.Color(this.skin.rim));
+    const fres = pow(clamp(float(1).sub(abs(dot(normalize(normalView), normalize(positionView.negate())))), 0, 1), 2.5);
+    const shimmer = sin(time.mul(12).add(positionGeometry.x.mul(9)).add(positionGeometry.z.mul(7))).mul(0.5).add(0.5);
+    this.rimMat.emissiveNode = rimCol.mul(float(0.55).add(this.ghostU.mul(fres.mul(2.4).add(shimmer.mul(0.6)))));
+    this.rimMat.opacityNode = float(1).sub(this.ghostU.mul(0.35).mul(shimmer));
+    this.rimMat.transparent = true;
     this.rim = assets.hole_rim.scene.clone();
     this.rim.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.material = this.rimMat; } });
     // Ghost ring drawn over everything so buildings never hide where the hole is.
-    this.ghost = new THREE.Mesh(new THREE.RingGeometry(0.97, 1.03, 96).rotateX(-Math.PI / 2),
+    this.ghost_ = new THREE.Mesh(new THREE.RingGeometry(0.97, 1.03, 96).rotateX(-Math.PI / 2),
       new THREE.MeshBasicMaterial({ color: this.skin.rim, transparent: true, opacity: 0.55, depthTest: false, depthWrite: false }));
-    this.ghost.renderOrder = 10;
+    this.ghost_.renderOrder = 10;
     // whirlpool: log-spiral arms streaming into the rim while the vacuum is on
     const su = { uTime: uniform(0), uVac: uniform(0), uReach: uniform(2), uCol: uniform(new THREE.Color(this.skin.rim)) };
     this.swirlMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
@@ -88,12 +96,12 @@ export class Hole {
       new THREE.MeshBasicMaterial({ color: this.skin.rim, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
     this.wave.visible = false;
     this.waveT = 0;
-    this.group.add(this.well, this.rim, this.ghost, this.swirl, this.wave);
+    this.group.add(this.well, this.rim, this.ghost_, this.swirl, this.wave);
     this.pulse = 0;
   }
 
   dispose() {
-    for (const m of [...this.well.children, this.ghost, this.swirl, this.wave]) { m.geometry.dispose(); m.material.dispose(); }
+    for (const m of [...this.well.children, this.ghost_, this.swirl, this.wave]) { m.geometry.dispose(); m.material.dispose(); }
     this.rimMat.dispose();
     this.field.value[this.slot].set(0, 0, 0);
   }
@@ -124,8 +132,8 @@ export class Hole {
     const p = 1 + Math.sin(this.pulse) * (0.015 + hunger * 0.05) + this.bump;
     this.rim.position.set(this.x, this.gt + 0.01, this.z);
     this.rim.scale.set(r * p || 1e-3, Math.max(1, r * 0.35), r * p || 1e-3);
-    this.ghost.position.set(this.x, this.gt + 0.02, this.z);
-    this.ghost.scale.setScalar(r * p || 1e-3);
+    this.ghost_.position.set(this.x, this.gt + 0.02, this.z);
+    this.ghost_.scale.setScalar(r * p || 1e-3);
     this.voidMat.userData.u.uTime.value = time;
     this.voidMat.userData.u.uDepth.value = depth;
     const vac = this.vac || 0;
@@ -133,7 +141,9 @@ export class Hole {
     this.swirl.position.set(this.x, this.gt + 0.03, this.z);
     this.swirl.scale.setScalar(r || 1e-3);
     this.swirlMat.userData.u.uVac.value = vac * 1.4;
-    this.swirlMat.userData.u.uReach.value = 1.4 + vac * 0.5 + 1.2 / Math.max(r, 0.1); // same reach as city.js pulls
+    this.swirlMat.userData.u.uReach.value = (1.4 + vac * 0.5 + 1.2 / Math.max(r, 0.1)) * (this.reach || 1); // same reach as city.js pulls
+    this.ghostU.value += ((this.ghost > 0 ? 1 : 0) - this.ghostU.value) * Math.min(1, dt * 6);
+    this.ghost_.material.opacity = 0.55 * (1 - this.ghostU.value * 0.6);
     this.swirlMat.userData.u.uTime.value = time;
     if (this.waveT > 0) {
       this.waveT = Math.max(0, this.waveT - dt);

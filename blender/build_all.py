@@ -29,10 +29,28 @@ ASSETS = [
     # countryside scenery ring
     'land_meadow', 'land_farm', 'land_lake', 'windmill', 'barn', 'cow',
 ]
+# Variety pack (HANDOVER.md): tagged with a `pack` extra, exported to public/models/packs.json, loaded on demand.
+PACKS = [
+    # city events
+    'drummer', 'marathon_runner', 'alien', 'parade_float', 'balloon_float', 'finish_arch', 'supercar', 'classic_car', 'show_turntable', 'ufo',
+    # fairground
+    'tile_fair', 'ferris_wheel', 'carousel', 'ticket_booth', 'balloon_stand', 'bumper_car', 'hoopla_stall',
+    # airport
+    'tile_runway', 'airliner', 'control_tower', 'baggage_tug', 'hangar',
+    # farm fair
+    'prize_pumpkin', 'hay_bale', 'tractor', 'scarecrow',
+    # rail
+    'tile_rail', 'locomotive', 'carriage', 'station',
+    # chain reactions
+    'gas_station', 'fireworks_stand', 'water_tower',
+    # power-ups + mutators
+    'pu_magnet', 'pu_ghost', 'pu_split', 'pu_boost', 'rubber_duck',
+]
+ALL = ASSETS + PACKS
 ONLY = globals().get('ONLY') or ASSETS
 for n in ONLY:
-    i = ASSETS.index(n)
     try:
+        i = ALL.index(n)
         with contextlib.redirect_stdout(io.StringIO()):
             r = lib.run(n, (i % 8, i // 8))
         print(r)

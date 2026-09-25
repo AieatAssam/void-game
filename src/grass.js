@@ -8,6 +8,7 @@ import {
   smoothstep, max, length, normalize, pow, cameraViewMatrix, varying, positionWorld, Discard, If, uv, time,
 } from 'three/tsl';
 import { world } from './surface.js';
+import { MAX_HOLES } from './hole.js';
 import { gust, wind } from './vegetation.js';
 
 const PATCH = 12; // metres per patch
@@ -129,7 +130,7 @@ export class Grass {
     const hd = length(toHole);
     const suck = smoothstep(hole.z.mul(2.2).add(2), hole.z, hd).mul(hole.z.greaterThan(0).select(1, 0)).mul(hole.w.mul(0.8).add(0.35));
     let inHole = float(0);
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < MAX_HOLES; i++) {
       const q = holes.element(i);
       inHole = max(inHole, q.z.greaterThan(0).and(length(wxz.sub(q.xy)).lessThan(q.z.add(0.05))).select(1, 0));
     }
@@ -151,7 +152,7 @@ export class Grass {
     const nW = varying(normalize(mix(bladeN, vec3(0, 1, 0), mix(0.62, 0.78, wild)).add(vec3(lean.x, 0, lean.y).mul(0.3))), 'vGrassN');
     mat.normalNode = normalize(cameraViewMatrix.mul(vec4(nW, 0)).xyz);
     mat.colorNode = Fn(() => {
-      for (let i = 0; i < 4; i++) { // never draw grass over an open hole
+      for (let i = 0; i < MAX_HOLES; i++) { // never draw grass over an open hole
         const q = holes.element(i);
         If(q.z.greaterThan(0).and(length(positionWorld.xz.sub(q.xy)).lessThan(q.z)), () => { Discard(); });
       }

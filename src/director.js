@@ -82,7 +82,8 @@ export class Director {
     if (s < 4 && hole.r >= HEAT_R[s]) this.baseStars++;
     else if (s > 0 && hole.r < HEAT_R[s - 1] * 0.75) this.baseStars--;
     this.bonusT = Math.max(0, this.bonusT - dt);
-    if ((this.quietT += dt) > NOTO_COOL.delay) this.noto = Math.max(0, this.noto - NOTO_COOL.rate * dt);
+    this.ghost = hole.ghost > 0; // Ghost power-up: notoriety frozen, units lose you, searchlights look through you
+    if (!this.ghost && (this.quietT += dt) > NOTO_COOL.delay) this.noto = Math.max(0, this.noto - NOTO_COOL.rate * dt);
     const notoStars = NOTO_STARS.filter((v) => this.noto >= v).length;
     this.stars = Math.min(4, Math.max(this.minStars, Math.max(this.baseStars, notoStars) + (this.bonusT > 0 ? 1 : 0)));
     this.searchlights(dt, hole);
@@ -94,8 +95,17 @@ export class Director {
     this.spawnUnits(hole, view);
     for (const u of this.units) {
       if (!u.alive || u.falling) continue;
+      u.slowT = Math.max(0, (u.slowT || 0) - dt); // flooded streets (chains.js)
+      if (u.stunT > 0) { // quaked (abilities.js): reels on the spot
+        u.stunT -= dt;
+        u.tilt = Math.abs(Math.sin(u.stunT * 12)) * 0.12;
+        u.tiltDir = (u.t || 0) * 3;
+        if (u.stunT <= 0) u.tilt = 0;
+        this.city.place(u);
+        continue;
+      }
       if (u.leaving) this.leave(u, dt, hole, view);
-      else this[u.unit](u, dt, hole, run);
+      else this[u.unit](u, dt, this.ghost ? this.decoy(u, hole) : hole, run);
     }
     this.units = this.units.filter((u) => u.alive);
     this.updateBarricades(dt, hole);
@@ -104,6 +114,7 @@ export class Director {
 
   /** A notable meal: notoriety rises (small snacks barely register). */
   notice(amount) {
+    if (this.ghost) return;
     if (amount >= 1) this.quietT = 0;
     this.noto = Math.min(100, this.noto + amount * this.notorietyMult);
   }
@@ -120,7 +131,7 @@ export class Director {
       sp.m.scale.setScalar(R);
       const head = e.obj?.getObjectByName('head');
       if (head) head.rotation.y = a - e.rot;
-      if (hole.r < 8 && Math.hypot(hole.x - x, hole.z - z) < R + hole.r * 0.3) {
+      if (!this.ghost && hole.r < 8 && Math.hypot(hole.x - x, hole.z - z) < R + hole.r * 0.3) {
         if (this.bonusT < 10) this.hooks.spotted?.();
         this.bonusT = 12;
       }
@@ -133,6 +144,10 @@ export class Director {
     if (!this.flood) return;
     const t = (this.tideT = (this.tideT + dt) % TIDE.period);
     if (t >= TIDE.warn && t - dt < TIDE.warn) this.hooks.warn?.('🌊 Tide incoming!');
+    if (t >= TIDE.flood && t - dt < TIDE.flood) this.hooks.tide?.('in');
+    const out = TIDE.end % TIDE.period; // the flood runs past the wrap
+    if (t >= out && t - dt < out && this.tideSeen) this.hooks.tide?.('out');
+    if (t >= TIDE.flood && t - dt < TIDE.flood) this.tideSeen = true;
     const up = FORCE_TIDE ? 1 : t < TIDE.flood ? 0 : t < TIDE.flood + 1.5 ? (t - TIDE.flood) / 1.5 : t < TIDE.end - 1.5 ? 1 : Math.max(0, (TIDE.end - t) / 1.5);
     this.flood.position.y = -0.5 + up * 0.82;
     this.floodFade.value = Math.min(1, up * 1.6);
@@ -148,7 +163,7 @@ export class Director {
     let food = 0;
     for (const e of this.city.entities) {
       // only count food that is worth eating at this size, or tiny crumbs mask a famine
-      if (!e.alive || e.meta.tier >= r * 0.95 || e.meta.tier < r * 0.3 || e.meta.kind === 'poison') continue;
+      if (!e.alive || e.noSwallow || e.meta.tier >= r * 0.95 || e.meta.tier < r * 0.3 || e.meta.kind === 'poison') continue;
       if ((e.x - hole.x) ** 2 + (e.z - hole.z) ** 2 < R2) food += Math.PI * e.meta.tier ** 2 * 0.25;
     }
     if (food > hole.area * 0.6) return;
@@ -189,6 +204,17 @@ export class Director {
     }
   }
 
+  /** While the player is a ghost, each unit patrols a point of its own (never the player). */
+  decoy(u, hole) {
+    if (!u.patrol || (u.patrolT = (u.patrolT || 0) - 1 / 60) <= 0 || Math.hypot(u.patrol.x - u.x, u.patrol.z - u.z) < 4) {
+      const lim = this.city.half - 6;
+      u.patrol = { x: THREE.MathUtils.clamp(u.x + (Math.random() - 0.5) * 80, -lim, lim), z: THREE.MathUtils.clamp(u.z + (Math.random() - 0.5) * 80, -lim, lim),
+        r: hole.r, vx: 0, vz: 0, decoy: true };
+      u.patrolT = 6;
+    }
+    return u.patrol;
+  }
+
   snap(x, z) {
     const near = (v) => this.lines.reduce((b, l) => (Math.abs(l - v) < Math.abs(b - v) ? l : b));
     return Math.abs(near(x) - x) < Math.abs(near(z) - z) ? [near(x), z] : [x, near(z)];
@@ -199,6 +225,7 @@ export class Director {
 
   /** Move along the road grid toward (tx, tz); beeline across open ground once close. */
   drive(u, dt, speed, tx, tz) {
+    if (u.slowT > 0) speed *= 0.5;
     const dx = tx - u.x, dz = tz - u.z, d = Math.hypot(dx, dz);
     if (d < 26 && !this.blocked(u.x + (dx / d) * 2.5, u.z + (dz / d) * 2.5)) {
       u.x += (dx / d) * speed * dt;
@@ -243,14 +270,14 @@ export class Director {
     } else {
       // pursue: drive right at the hole; a car bigger than you rams and knocks you back
       this.drive(u, dt, 10.5, hole.x, hole.z);
-      if (d < hole.r + 1.8 && hole.r < u.meta.tier * 0.95 && !u.ramCool) {
+      if (!hole.decoy && d < hole.r + 1.8 && hole.r < u.meta.tier * 0.95 && !u.ramCool) {
         const k = 1 / (d || 1);
         this.hooks.ram((hole.x - u.x) * k, (hole.z - u.z) * k);
         u.back = 1.1;
         u.ramCool = 4.5;
       }
     }
-    if (d < 30 && this.cool.barricade <= 0 && this.barricades.length < 4) {
+    if (!hole.decoy && d < 30 && this.cool.barricade <= 0 && this.barricades.length < 4) {
       this.cool.barricade = 7;
       const lead = 1.4, bx = hole.x + hole.vx * lead, bz = hole.z + hole.vz * lead;
       const moving = Math.hypot(hole.vx, hole.vz) > 0.5;
@@ -284,7 +311,7 @@ export class Director {
       return;
     }
     this.drive(u, dt, 7, hole.x, hole.z);
-    if (d < hole.r + 2 && hole.r < u.meta.tier * 0.95) {
+    if (!hole.decoy && d < hole.r + 2 && hole.r < u.meta.tier * 0.95) {
       this.hooks.hurt(0.12, 'Concrete pour!');
       this.plug(hole.x, hole.z, hole.r * 1.05, 0.01);
       u.back = 3;
@@ -304,7 +331,7 @@ export class Director {
     u.tilt = 0;
     this.city.place(u);
     u.cool = (u.cool ?? 3) - dt;
-    if (!vortex && u.cool <= 0) {
+    if (!vortex && u.cool <= 0 && !hole.decoy) {
       u.cool = 5;
       this.plug(hole.x + hole.vx * 1.2, hole.z + hole.vz * 1.2, Math.max(1.6, hole.r * 0.9), 1.3, u.y);
     }
@@ -318,7 +345,7 @@ export class Director {
     const aim = Math.atan2(-(hole.z - u.z), hole.x - u.x);
     if (turret) turret.rotation.y = aim - u.rot;
     u.cool = (u.cool ?? 2) - dt;
-    if (d < range + 10 && u.cool <= 0) {
+    if (d < range + 10 && u.cool <= 0 && !hole.decoy) {
       u.cool = 3.2;
       const act = u.actions.fire;
       if (act) { act.reset().setLoop(THREE.LoopOnce, 1).play(); }
@@ -336,7 +363,7 @@ export class Director {
       if (b.life < 1) { b.y = (b.life - 1) * 1.5; this.city.place(b); }
       if (b.life <= 0) { this.city.remove(b); continue; }
       const d = Math.hypot(hole.x - b.x, hole.z - b.z);
-      if (!b.tolled && !this.tollCool && hole.r < b.meta.tier * 0.95 && d < hole.r + 0.9) {
+      if (!b.tolled && !this.tollCool && !(hole.dash > 0) && hole.r < b.meta.tier * 0.95 && d < hole.r + 0.9) { // free mid-dash
         b.tolled = true;
         this.tollCool = 3;
         this.hooks.toll();

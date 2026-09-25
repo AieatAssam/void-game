@@ -77,6 +77,7 @@ export class Sparks {
 const CHUNKS = 260, PUFFS = 360;
 const _m4 = new THREE.Matrix4(), _q4 = new THREE.Quaternion(), _e4 = new THREE.Euler(), _p4 = new THREE.Vector3(), _s4 = new THREE.Vector3();
 const COLLAPSE = [0xf3e6cf, 0xd9d2c4, 0xc86b4f, 0x9fb7c9, 0xe8d5b0, 0x8a8f99].map((c) => new THREE.Color(c));
+const BALLOONS = [0xff4f6d, 0xffd166, 0x5ec8ff, 0x9dff7a, 0xc38bff, 0xff9f43].map((c) => new THREE.Color(c).multiplyScalar(1.6));
 const CONFETTI = [0xb58cff, 0xffd166, 0xff8fab, 0x7ee0c3, 0xffffff, 0x8fc7ff].map((c) => new THREE.Color(c));
 
 export class Debris {
@@ -140,6 +141,15 @@ export class Debris {
     }
   }
 
+  /** A swallowed balloon stand lets go: bright balloons drift up and away on the breeze. */
+  balloons(x, y, z, n = 12) {
+    for (let k = 0; k < n; k++) {
+      const c = BALLOONS[k % BALLOONS.length];
+      this.puff(x + (Math.random() - 0.5) * 1.5, y + Math.random() * 1.5, z + (Math.random() - 0.5) * 1.5,
+        0.4 + Math.random() * 0.6, 1.4 + Math.random() * 1.2, 0.2 + Math.random() * 0.5, 0.45 + Math.random() * 0.15, 0, 6 + Math.random() * 2, c, 1);
+    }
+  }
+
   /** Confetti crumbs pop from the rim and get swept back in by the whirlpool. */
   crumbs(hole, tier) {
     const n = Math.min(6, 2 + Math.round(tier * 3));
@@ -187,4 +197,6 @@ export class Debris {
 }
 
 // chimney / cooking-pot smoke sources in model space (three.js: x, up, z)
-export const SMOKE = { house: [-1.0, 5.9, -1.6, 0xd8d8d8], noodle_stall: [-0.4, 1.4, 0, 0xffffff], hotdog_cart: [0, 1.25, 0, 0xffffff] };
+// optional 5th value: puff scale (the loco's steam is heavier and lingers)
+export const SMOKE = { house: [-1.0, 5.9, -1.6, 0xd8d8d8], noodle_stall: [-0.4, 1.4, 0, 0xffffff], hotdog_cart: [0, 1.25, 0, 0xffffff],
+  locomotive: [5.3, 4.2, 0, 0xe9e6e0, 2.4] };

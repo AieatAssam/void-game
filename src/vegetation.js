@@ -173,6 +173,22 @@ export function growTree(seed, kind, height, crownR, detail = 0) {
       if (keep > 0.3 || !pine) tube(B, bp, br, bf, Math.max(3, sides - 2), rng());
       branchEnds.push(...bp.slice(2));
     }
+    // roots: below the ground, so the ground-cut shader only shows them inside a hole ("roots too wide")
+    if (detail === 0) { // only the full-detail model: roots matter right under the hole, never in the distance
+      const nr = 5;
+      for (let k = 0; k < nr; k++) {
+        const a = (k / nr) * Math.PI * 2 + rng() * 0.8;
+        const reach = crownR * (0.75 + rng() * 0.45) * (pine ? 0.8 : 1);
+        const rp = [], rr = [], rf = [];
+        for (let i = 0; i <= 4; i++) {
+          const f = i / 4;
+          rp.push(new THREE.Vector3(Math.cos(a) * reach * f, 0.05 - (0.25 + reach * 0.3) * Math.sin(f * 2.2) - f * 0.15, Math.sin(a) * reach * f));
+          rr.push(trunkR * 0.7 * (1 - f * 0.85));
+          rf.push(0);
+        }
+        tube(B, rp, rr, rf, Math.max(3, sides - 3), rng());
+      }
+    }
     B.groups.push([start, B.idx.length - start, 0]);
   }
 

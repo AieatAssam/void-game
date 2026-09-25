@@ -1,0 +1,618 @@
+{
+ "airliner": {
+  "tier": 14.125,
+  "mass": 900,
+  "kind": "prop",
+  "height": 10.248,
+  "pack": "airport",
+  "landmark": true,
+  "lod": [
+   0.3,
+   0.1
+  ],
+  "tris": 44960,
+  "lodTris": 13488,
+  "lod2Tris": 4496,
+  "bytes": 283392,
+  "clips": []
+ },
+ "alien": {
+  "tier": 0.278,
+  "mass": 0.08,
+  "kind": "prop",
+  "height": 1.33,
+  "pack": "events",
+  "event": "ufo",
+  "tris": 13108,
+  "lodTris": 3276,
+  "lod2Tris": 1048,
+  "bytes": 94468,
+  "clips": []
+ },
+ "baggage_tug": {
+  "tier": 3.32,
+  "mass": 3,
+  "kind": "prop",
+  "height": 2.14,
+  "pack": "airport",
+  "mover": "apron",
+  "tris": 31056,
+  "lodTris": 7764,
+  "lod2Tris": 3364,
+  "bytes": 231212,
+  "clips": []
+ },
+ "balloon_float": {
+  "tier": 2.9,
+  "mass": 6,
+  "kind": "prop",
+  "height": 9.65,
+  "pack": "events",
+  "event": "parade",
+  "flying": true,
+  "mover": "parade",
+  "lod": [
+   0.3,
+   0.1
+  ],
+  "tris": 34698,
+  "lodTris": 10408,
+  "lod2Tris": 3468,
+  "bytes": 230324,
+  "clips": []
+ },
+ "balloon_stand": {
+  "tier": 0.746,
+  "mass": 0.3,
+  "kind": "prop",
+  "height": 3.153,
+  "pack": "fair",
+  "tris": 12380,
+  "lodTris": 3094,
+  "lod2Tris": 990,
+  "bytes": 82852,
+  "clips": []
+ },
+ "bumper_car": {
+  "tier": 0.81,
+  "mass": 0.5,
+  "kind": "prop",
+  "height": 2.7,
+  "pack": "fair",
+  "tris": 6046,
+  "lodTris": 1510,
+  "lod2Tris": 482,
+  "bytes": 45836,
+  "clips": []
+ },
+ "carousel": {
+  "tier": 4.44,
+  "mass": 40,
+  "kind": "prop",
+  "height": 6.4,
+  "pack": "fair",
+  "clone": true,
+  "lod": [
+   0.4,
+   0.14
+  ],
+  "tris": 54032,
+  "lodTris": 21612,
+  "lod2Tris": 7560,
+  "bytes": 427312,
+  "clips": [
+   "spin"
+  ]
+ },
+ "carriage": {
+  "tier": 5.35,
+  "mass": 40,
+  "kind": "prop",
+  "height": 3.94,
+  "pack": "rail",
+  "mover": "rail",
+  "clone": true,
+  "rail_top": 0.47,
+  "lod": [
+   0.3,
+   0.1
+  ],
+  "tris": 27304,
+  "lodTris": 8334,
+  "lod2Tris": 3108,
+  "bytes": 189812,
+  "clips": [
+   "w_cw3.4-0.8-1",
+   "w_cw3.4-0.81",
+   "w_cw3.40.8-1",
+   "w_cw3.40.81",
+   "w_cw-3.4-0.8-1",
+   "w_cw-3.4-0.81",
+   "w_cw-3.40.8-1",
+   "w_cw-3.40.81"
+  ]
+ },
+ "classic_car": {
+  "tier": 2.788,
+  "mass": 9,
+  "kind": "prop",
+  "height": 1.844,
+  "pack": "events",
+  "event": "carshow",
+  "rare": true,
+  "tris": 33884,
+  "lodTris": 8470,
+  "lod2Tris": 5728,
+  "bytes": 270548,
+  "clips": []
+ },
+ "control_tower": {
+  "tier": 3.774,
+  "mass": 90,
+  "kind": "prop",
+  "height": 20.62,
+  "pack": "airport",
+  "clone": true,
+  "lod": [
+   0.35,
+   0.12
+  ],
+  "tris": 14242,
+  "lodTris": 4984,
+  "lod2Tris": 1706,
+  "bytes": 103176,
+  "clips": [
+   "radar"
+  ]
+ },
+ "drummer": {
+  "tier": 0.352,
+  "mass": 0.08,
+  "kind": "prop",
+  "height": 1.899,
+  "pack": "events",
+  "event": "parade",
+  "tris": 19028,
+  "lodTris": 4756,
+  "lod2Tris": 1786,
+  "bytes": 141308,
+  "clips": []
+ },
+ "ferris_wheel": {
+  "tier": 7.38,
+  "mass": 160,
+  "kind": "prop",
+  "height": 14.917,
+  "pack": "fair",
+  "clone": true,
+  "landmark": true,
+  "lod": [
+   0.5,
+   0.2
+  ],
+  "tris": 31944,
+  "lodTris": 17596,
+  "lod2Tris": 11684,
+  "bytes": 213500,
+  "clips": [
+   "wheel",
+   "gond0",
+   "gond1",
+   "gond2",
+   "gond3",
+   "gond4",
+   "gond5",
+   "gond6",
+   "gond7",
+   "gond8",
+   "gond9",
+   "gond10",
+   "gond11"
+  ]
+ },
+ "finish_arch": {
+  "tier": 4.568,
+  "mass": 5,
+  "kind": "prop",
+  "height": 5,
+  "pack": "events",
+  "event": "marathon",
+  "lod": [
+   0.35,
+   0.12
+  ],
+  "tris": 11188,
+  "lodTris": 3914,
+  "lod2Tris": 2992,
+  "bytes": 97048,
+  "clips": []
+ },
+ "fireworks_stand": {
+  "tier": 1.355,
+  "mass": 0.6,
+  "kind": "prop",
+  "height": 2.611,
+  "pack": "chain",
+  "effect": "fireworks",
+  "tris": 9692,
+  "lodTris": 2422,
+  "lod2Tris": 1930,
+  "bytes": 85512,
+  "clips": []
+ },
+ "gas_station": {
+  "tier": 7.16,
+  "mass": 110,
+  "kind": "prop",
+  "height": 7.298,
+  "pack": "chain",
+  "effect": "blast",
+  "lod": [
+   0.35,
+   0.12
+  ],
+  "tris": 32616,
+  "lodTris": 11414,
+  "lod2Tris": 3912,
+  "bytes": 223652,
+  "clips": []
+ },
+ "hangar": {
+  "tier": 10.95,
+  "mass": 260,
+  "kind": "prop",
+  "height": 10.12,
+  "pack": "airport",
+  "lod": [
+   0.35,
+   0.12
+  ],
+  "tris": 18300,
+  "lodTris": 6405,
+  "lod2Tris": 2196,
+  "bytes": 152580,
+  "clips": []
+ },
+ "hay_bale": {
+  "tier": 0.852,
+  "mass": 0.5,
+  "kind": "prop",
+  "height": 1.561,
+  "pack": "farmfair",
+  "tris": 8312,
+  "lodTris": 2078,
+  "lod2Tris": 1526,
+  "bytes": 80076,
+  "clips": []
+ },
+ "hoopla_stall": {
+  "tier": 1.61,
+  "mass": 2,
+  "kind": "prop",
+  "height": 3.088,
+  "pack": "fair",
+  "tris": 23988,
+  "lodTris": 5996,
+  "lod2Tris": 2232,
+  "bytes": 178376,
+  "clips": []
+ },
+ "locomotive": {
+  "tier": 6.591,
+  "mass": 70,
+  "kind": "prop",
+  "height": 4.2,
+  "pack": "rail",
+  "mover": "rail",
+  "clone": true,
+  "rail_top": 0.47,
+  "lod": [
+   0.3,
+   0.1
+  ],
+  "tris": 43654,
+  "lodTris": 13612,
+  "lod2Tris": 6838,
+  "bytes": 254584,
+  "clips": [
+   "w_drv10",
+   "w_drv11",
+   "w_drv12",
+   "w_drv-10",
+   "w_drv-11",
+   "w_drv-12",
+   "w_pony1",
+   "w_pony-1",
+   "w_trail1",
+   "w_trail-1",
+   "w_tw10",
+   "w_tw11",
+   "w_tw12",
+   "w_tw-10",
+   "w_tw-11",
+   "w_tw-12"
+  ]
+ },
+ "marathon_runner": {
+  "tier": 0.355,
+  "mass": 0.08,
+  "kind": "prop",
+  "height": 1.378,
+  "pack": "events",
+  "event": "marathon",
+  "tris": 12758,
+  "lodTris": 3188,
+  "lod2Tris": 1020,
+  "bytes": 93904,
+  "clips": []
+ },
+ "parade_float": {
+  "tier": 3.542,
+  "mass": 10,
+  "kind": "prop",
+  "height": 3.189,
+  "pack": "events",
+  "event": "parade",
+  "mover": "parade",
+  "lod": [
+   0.35,
+   0.12
+  ],
+  "tris": 41558,
+  "lodTris": 14544,
+  "lod2Tris": 4986,
+  "bytes": 316128,
+  "clips": []
+ },
+ "prize_pumpkin": {
+  "tier": 1.461,
+  "mass": 1.6,
+  "kind": "prop",
+  "height": 2.304,
+  "pack": "farmfair",
+  "tris": 9260,
+  "lodTris": 2314,
+  "lod2Tris": 934,
+  "bytes": 72592,
+  "clips": []
+ },
+ "pu_boost": {
+  "tier": 0.5,
+  "mass": 0,
+  "kind": "pickup",
+  "height": 1.412,
+  "pack": "powerups",
+  "effect": "boost",
+  "clone": true,
+  "tris": 4460,
+  "lodTris": 1114,
+  "lod2Tris": 644,
+  "bytes": 45424,
+  "clips": [
+   "float"
+  ]
+ },
+ "pu_ghost": {
+  "tier": 0.5,
+  "mass": 0,
+  "kind": "pickup",
+  "height": 1.39,
+  "pack": "powerups",
+  "effect": "ghost",
+  "clone": true,
+  "tris": 6062,
+  "lodTris": 1514,
+  "lod2Tris": 632,
+  "bytes": 56476,
+  "clips": [
+   "float"
+  ]
+ },
+ "pu_magnet": {
+  "tier": 0.5,
+  "mass": 0,
+  "kind": "pickup",
+  "height": 1.628,
+  "pack": "powerups",
+  "effect": "magnet",
+  "clone": true,
+  "tris": 6028,
+  "lodTris": 1506,
+  "lod2Tris": 652,
+  "bytes": 54936,
+  "clips": [
+   "float"
+  ]
+ },
+ "pu_split": {
+  "tier": 0.5,
+  "mass": 0,
+  "kind": "pickup",
+  "height": 1.362,
+  "pack": "powerups",
+  "effect": "split",
+  "clone": true,
+  "tris": 6658,
+  "lodTris": 1662,
+  "lod2Tris": 658,
+  "bytes": 60348,
+  "clips": [
+   "float"
+  ]
+ },
+ "rubber_duck": {
+  "tier": 0.5,
+  "mass": 0.1,
+  "kind": "prop",
+  "height": 1.18,
+  "pack": "mutators",
+  "mutator": "ducks",
+  "unit_scale": true,
+  "tris": 9212,
+  "lodTris": 2302,
+  "lod2Tris": 736,
+  "bytes": 62308,
+  "clips": []
+ },
+ "scarecrow": {
+  "tier": 1.015,
+  "mass": 0.12,
+  "kind": "prop",
+  "height": 2.3,
+  "pack": "farmfair",
+  "tris": 6660,
+  "lodTris": 1664,
+  "lod2Tris": 822,
+  "bytes": 56952,
+  "clips": []
+ },
+ "show_turntable": {
+  "tier": 4.947,
+  "mass": 4,
+  "kind": "prop",
+  "height": 3.506,
+  "pack": "events",
+  "event": "carshow",
+  "clone": true,
+  "lod": [
+   0.35,
+   0.12
+  ],
+  "tris": 27016,
+  "lodTris": 9454,
+  "lod2Tris": 3240,
+  "bytes": 189156,
+  "clips": [
+   "turn"
+  ]
+ },
+ "station": {
+  "tier": 8.523,
+  "mass": 120,
+  "kind": "prop",
+  "height": 6.2,
+  "pack": "rail",
+  "rail_offset": 4.2,
+  "tris": 28764,
+  "lodTris": 7190,
+  "lod2Tris": 2736,
+  "bytes": 201252,
+  "clips": []
+ },
+ "supercar": {
+  "tier": 2.483,
+  "mass": 8,
+  "kind": "prop",
+  "height": 1.47,
+  "pack": "events",
+  "event": "carshow",
+  "rare": true,
+  "tris": 37204,
+  "lodTris": 9300,
+  "lod2Tris": 7468,
+  "bytes": 304352,
+  "clips": []
+ },
+ "ticket_booth": {
+  "tier": 0.909,
+  "mass": 0.7,
+  "kind": "prop",
+  "height": 3.72,
+  "pack": "fair",
+  "tris": 5988,
+  "lodTris": 1696,
+  "lod2Tris": 1612,
+  "bytes": 55628,
+  "clips": []
+ },
+ "tile_fair": {
+  "tier": 20,
+  "mass": 0,
+  "kind": "tile",
+  "height": 6.97,
+  "pack": "fair",
+  "tris": 20864,
+  "lodTris": 5792,
+  "lod2Tris": 5688,
+  "bytes": 169592,
+  "clips": []
+ },
+ "tile_rail": {
+  "tier": 20,
+  "mass": 0,
+  "kind": "tile",
+  "height": 4.775,
+  "pack": "rail",
+  "rot180": true,
+  "rail_top": 0.47,
+  "tris": 27668,
+  "lodTris": 6916,
+  "lod2Tris": 4852,
+  "bytes": 204220,
+  "clips": []
+ },
+ "tile_runway": {
+  "tier": 20,
+  "mass": 0,
+  "kind": "tile",
+  "height": 4.431,
+  "pack": "airport",
+  "rot180": true,
+  "tris": 11302,
+  "lodTris": 2824,
+  "lod2Tris": 904,
+  "bytes": 80872,
+  "clips": []
+ },
+ "tractor": {
+  "tier": 1.615,
+  "mass": 2.5,
+  "kind": "prop",
+  "height": 2.552,
+  "pack": "farmfair",
+  "mover": "field",
+  "tris": 19968,
+  "lodTris": 5414,
+  "lod2Tris": 5142,
+  "bytes": 186948,
+  "clips": []
+ },
+ "ufo": {
+  "tier": 3.096,
+  "mass": 12,
+  "kind": "prop",
+  "height": 2.9,
+  "pack": "events",
+  "event": "ufo",
+  "clone": true,
+  "rare": true,
+  "lod": [
+   0.3,
+   0.1
+  ],
+  "tris": 18612,
+  "lodTris": 5582,
+  "lod2Tris": 1854,
+  "bytes": 137772,
+  "clips": [
+   "lights"
+  ]
+ },
+ "water_tower": {
+  "tier": 3.099,
+  "mass": 30,
+  "kind": "prop",
+  "height": 12.14,
+  "pack": "chain",
+  "effect": "flood",
+  "lod": [
+   0.4,
+   0.14
+  ],
+  "tris": 12100,
+  "lodTris": 4840,
+  "lod2Tris": 1846,
+  "bytes": 97396,
+  "clips": []
+ }
+}

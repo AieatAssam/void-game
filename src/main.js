@@ -1,19 +1,26 @@
 import * as THREE from 'three/webgpu';
 import { createRenderer, createScene, followSun, applyTime, setFogRange, TIMES } from './look.js';
-import { loadAll, pedTime, glow } from './assets.js';
-import { City, rng, BUILDINGS, PEOPLE } from './city.js';
+import { loadAll, loadPacks, packReady, pedTime, glow } from './assets.js';
+import { City, rng, BUILDINGS, PEOPLE, moodFor, forcedMood, SHADOW_LAYER } from './city.js';
+import { packsFor, PACK_LABEL, MOOD_PACKS } from './packs.js';
 import { Hole, holeField } from './hole.js';
 import { Rivals } from './rivals.js';
 import { SKINS } from './skins.js';
 import { CARDS, VEHICLES, offer, dailyCard } from './cards.js';
 import { record, renderBook, title, bookEntries, thumb, warmThumbs } from './book.js';
 import { Director } from './director.js';
+import { Events } from './events.js';
+import { Chains } from './chains.js';
+import { Powerups, POWERS } from './powerups.js';
+import { Abilities, ABILITIES, owned, slots, buyAbility, equip } from './abilities.js';
+import { thisWeek, recordWeek, MUTATORS } from './mutators.js';
+import { newStats, scoreRun, renderPicker, unlocked, totalStars, LANDMARK } from './progress.js';
 import { installBot } from './bot.js';
 import { UPGRADES, ECON, save, persist, level, buy, todaySeed } from './meta.js';
 import * as sfx from './sfx.js';
 import { Post } from './post.js';
 import { Sparks, Debris, SMOKE } from './fx.js';
-import { surfaceTime, surfaceOn, world } from './surface.js';
+import { surfaceTime, surfaceOn, world, lightsTime, lightsPulse } from './surface.js';
 import { Grass } from './grass.js';
 import { Q } from './quality.js';
 
@@ -21,6 +28,7 @@ const $ = (id) => document.getElementById(id);
 const renderer = await createRenderer($('c'));
 const look = createScene();
 const { scene, sun } = look;
+sun.shadow.camera.layers.enable(SHADOW_LAYER); // shadow-only stand-ins (city.js shadowProxies)
 // Longer lens: less perspective distortion on tall props and a truer miniature/tilt-shift read.
 const FOV = 26, LENS = Math.tan(THREE.MathUtils.degToRad(19)) / Math.tan(THREE.MathUtils.degToRad(FOV / 2));
 const camera = new THREE.PerspectiveCamera(FOV, 1, 0.5, 1600);
@@ -108,26 +116,58 @@ function snapshot() {
 
 const field = holeField();
 const DAY_TIMES = Object.keys(TIMES).filter((k) => !TIMES[k].night);
-let city, hole, state, director, rivals, grass;
-function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false, card = 'none') {
-  if (city) { scene.remove(city.group, hole.group, grass.group); city.dispose(); hole.dispose(); director.dispose(); rivals.dispose(); grass.dispose(); }
+let city, hole, state, director, rivals, grass, events, chains, powerups, abilities;
+const randomSeed = () => (Math.random() * 2 ** 31) | 0;
+// Normal runs play the city picked in the menu; daily/weekly (and the playtest bot) roll the seed's own mood.
+const BOT = location.search.includes('bot');
+let pickedCity = forcedMood()?.name || (save.city && unlocked(save.city) ? save.city : 'Old Town');
+const runMood = (seed, daily) => (daily || BOT || forcedMood() ? moodFor(seed).name : pickedCity);
+
+/** Download (once) every pack a mood needs, with the staged loading line. Resolves true if anything was fetched. */
+async function ensurePacks(moodName, show = setLoad) {
+  const need = packsFor(moodName).filter((p) => !packReady(assets, p));
+  if (!need.length) return false;
+  const label = PACK_LABEL[need.find((p) => Object.values(MOOD_PACKS).flat().includes(p)) || need[0]];
+  await loadPacks(assets, need, (p) => show(label, p));
+  if (!location.search.includes('nothumbs')) warmThumbs(assets, [], () => state?.playing); // book pages for the new models
+  return true;
+}
+
+function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null, mutator = null) {
+  if (city) { powerups.dispose(); scene.remove(city.group, hole.group, grass.group); city.dispose(); hole.dispose(); director.dispose(); rivals.dispose(); grass.dispose(); events.dispose(); chains.dispose(); }
   const debugR = +new URLSearchParams(location.search).get('r') || 0; // screenshot/debug: start bigger
   hole = new Hole(assets, field, 0, { r: debugR || 0.45 + level('headstart') * 0.04, skin: save.skin || 'void' });
   hole.pull = 1 + level('gravity') * 0.06;
-  city = new City(assets, seed, field);
-  director = new Director(city, scene, { hurt, toll, spotted, ram, drain, siren: sfx.siren, warn: (t) => flash(t, false) }, card === 'hot' ? 2 : 0);
+  city = new City(assets, seed, field, { mood, mutator });
+  director = new Director(city, scene, { hurt, toll, spotted, ram, drain, siren: sfx.siren, warn: (t) => flash(t, false), tide }, card === 'hot' ? 2 : 0);
   director.notorietyMult = 1 - level('quiet') * 0.1;
+  chains = new Chains(city, scene, debris, sparks, {
+    shake: (k) => { state.shake = Math.max(state.shake, k); }, boom: sfx.boom, crackle: sfx.crackle,
+    notice: (n) => director.notice(n), flash: (t) => flash(t, false),
+  });
+  powerups = new Powerups(assets, city, field, seed, save.skin || 'void', {
+    flash: (t) => flash(t, false), star: () => { sfx.star(); sfx.whoosh(); }, slotTaken: (i) => i <= rivals.list.length,
+  });
+  // ?abil=quake,dash: the playtest bot equips these (and fires them greedily) regardless of the save
+  const botAbil = new URLSearchParams(location.search).get('abil')?.split(',').filter((a) => ABILITIES[a]);
+  abilities = new Abilities(botAbil || slots(totalStars()), {
+    shake: (k) => { state.shake = Math.max(state.shake, k); state.punch = 1; }, boom: sfx.boom, whoosh: sfx.whoosh,
+    ripple: () => hole.shockwave(),
+  });
+  renderAbilityButtons();
+  events = new Events(city, scene, { warn: (t) => { flash(t, false); sfx.drums(); }, boom: sfx.boom });
   rivals = new Rivals(assets, field, city, scene, card === 'crowded' ? 3 : card === 'lonely' ? 0 : 2, save.skin || 'void');
   // Randomised start: time of day, and a calm open tile (never a downtown lot) at a random spot on it.
   const r = rng(seed ^ 0x5eed);
-  const time = new URLSearchParams(location.search).get('time') || (city.mood.night ? 'night' : r.pick(DAY_TIMES));
+  const time = new URLSearchParams(location.search).get('time') || (city.mood.night || mutator === 'night' ? 'night' : r.pick(DAY_TIMES));
   const preset = applyTime(look, renderer, time);
   look.grade = preset.grade;
+  post.setPreset(preset);
   glow.value = preset.glow;
   world.night.value = TIMES[time]?.night ? 1 : 0;
   world.edCol.value.set(SKINS[save.skin || 'void'].rim);
   const want = new URLSearchParams(location.search).get('start'); // screenshot/debug: start on a given tile type
-  let open = city.tiles.filter((t) => ['plaza', 'park', 'residential', 'canal', 'parking', 'beach', 'neon'].includes(t.type));
+  let open = city.tiles.filter((t) => ['plaza', 'park', 'residential', 'canal', 'parking', 'beach', 'neon', 'fair', 'rail'].includes(t.type));
   if (want && open.some((t) => t.type === want)) open = open.filter((t) => t.type === want);
   const t = r.pick(open);
   const a = r() * Math.PI * 2;
@@ -138,16 +178,20 @@ function newRun(seed = (Math.random() * 2 ** 31) | 0, daily = false, card = 'non
     const b = r() * Math.PI * 2, d = 2.5 + r() * 6;
     city.revive(r.pick([...PEOPLE, 'pigeon']), hole.x + Math.cos(b) * d, hole.z + Math.sin(b) * d, hole.x, hole.z);
   }
-  $('where').textContent = `${city.mood.name} · ${city.N}×${city.N} blocks · ${time}`;
+  $('where').textContent = `${city.mood.name} · ${city.N}×${city.N} blocks · ${time}${mutator ? ` · ${MUTATORS[mutator].icon} ${MUTATORS[mutator].name}` : ''}`;
   grass = new Grass(renderer, city.groundMeshes, city.half + 80, field, { density: +(new URLSearchParams(location.search).get('grass') ?? Q.grass), far: Q.grassFar });
   scene.add(city.group, hole.group, grass.group);
   state = { playing: false, seed, daily, card, time: 0, belly: 1, eaten: 0, score: 0, best: hole.r, stars: 0,
     reverse: 0, jam: 0, slow: 0, invuln: 0, shake: 0, sealing: 0, hits: [], left: city.buildingsLeft(), combo: 0, comboT: 0, bonus: 0,
-    rares: 0, rivalsEaten: 0, hitstop: 0, punch: 0, finale: 0, mi: MILESTONES.filter((m) => hole.r >= m.need).length,
-    crave: null, craveCool: 18, cravings: 0, wet: 0 };
+    rares: 0, rivalsEaten: 0, hitstop: 0, punch: 0, finale: 0, mi: MILESTONES.filter((m) => hole.r >= m.need * city.scaleK).length, mutator,
+    crave: null, craveCool: 18, cravings: 0, wet: 0, mood: city.mood.name, stats: newStats() };
+  for (const e of city.entities) if (e.alive && (e.name === 'scarecrow' || e.name === 'lifeguard_tower')) state.stats.initial[e.name] = (state.stats.initial[e.name] || 0) + 1;
 }
 const URL_SEED = new URLSearchParams(location.search).get('seed');
-newRun(URL_SEED ? +URL_SEED : undefined);
+const firstSeed = URL_SEED ? +URL_SEED : randomSeed();
+await ensurePacks(runMood(firstSeed, false), (label, p) => setLoad(label, 0.82 + p * 0.06));
+// ?mutator=<id> builds the menu city with this week's twist (testing / screenshots)
+newRun(firstSeed, false, 'none', runMood(firstSeed, false), MUTATORS[new URLSearchParams(location.search).get('mutator')] ? new URLSearchParams(location.search).get('mutator') : null);
 // compile every pipeline now, behind the loading screen, instead of stuttering through the first seconds of play
 setLoad('Warming up shaders…', 0.9);
 await nextPaint();
@@ -156,7 +200,8 @@ setLoad('Opening the ground…', 0.98);
 await nextPaint();
 $('load').hidden = true;
 $('menu').hidden = false;
-window.__game = () => ({ hole, city, state, renderer, director, rivals });
+window.__game = () => ({ hole, city, state, renderer, director, rivals, events, chains, powerups, camera, scene });
+window.__abil = () => abilities;
 window.__info = () => { const r = renderer.info.render; return { calls: r.drawCalls, tris: r.triangles, frameCalls: r.frameCalls }; };
 if (location.search.includes('bot')) installBot();
 
@@ -227,12 +272,102 @@ function hud() {
       arrow.style.transform = `translate(${Math.cos(a) * rad}px, ${Math.sin(a) * rad}px) rotate(${a}rad)`;
     }
   }
+  const pu = powerups.items[0];
+  edgeArrow('pu', pu && [pu.e.x, pu.e.z], POWERS[pu?.kind]?.icon, POWERS[pu?.kind]?.color);
+  powerChips();
+  abilityHud();
+  const ef = events.focus;
+  edgeArrow('event', ef, { parade: '🎺', marathon: '🏃', carshow: '🏎️', ufo: '🛸' }[events.kind], '#ffd166');
   const st = [state.reverse > 0 && 'Controls reversed', state.jam > 0 && 'Jammed', state.wet > 0 ? 'Wet concrete! Get out' : state.slow > 0 && 'Slowed', state.flooded && 'Tide! Slow + hungry',
     director.bonusT > 0 && 'Spotted'].filter(Boolean);
   const c = CARDS[state.card];
   $('card').hidden = state.card === 'none';
   $('card').textContent = state.card === 'rush' ? `${c.name} · ${clock(Math.max(0, 300 - state.time))}` : `${c.name} ×${c.mult}`;
   $('status').textContent = st.join(' · ');
+}
+
+/** Edge-of-screen compass arrows (the event, a power-up capsule): point from the screen centre at a world spot. */
+const edgeArrows = {};
+function edgeArrow(id, target, glyph, color) {
+  let el = edgeArrows[id];
+  if (!el) {
+    el = edgeArrows[id] = Object.assign(document.createElement('div'), { className: 'edge-arrow', hidden: true });
+    el.innerHTML = `<b>➜</b><i></i>`;
+    document.body.append(el);
+  }
+  el.hidden = !target || !state.playing;
+  if (el.hidden) return;
+  const a = Math.atan2(target[1] - hole.z, target[0] - hole.x), rad = Math.min(innerWidth, innerHeight) * 0.4;
+  el.style.transform = `translate(${Math.cos(a) * rad}px, ${Math.sin(a) * rad}px)`;
+  el.firstChild.style.transform = `rotate(${a}rad)`;
+  el.lastChild.textContent = glyph;
+  el.style.setProperty('--c', color);
+}
+
+/** Active power-ups: an icon with a draining radial timer each. */
+const chipsEl = Object.assign(document.createElement('div'), { id: 'powers' });
+document.body.append(chipsEl);
+function powerChips() {
+  const list = powerups.chips();
+  const key = list.map((c) => c.kind).join();
+  if (chipsEl.dataset.key !== key) {
+    chipsEl.dataset.key = key;
+    chipsEl.replaceChildren(...list.map((c) => Object.assign(document.createElement('span'), { className: 'chip', innerHTML: `<i></i><b>${c.icon}</b>`, title: c.name })));
+  }
+  list.forEach((c, i) => { const el = chipsEl.children[i]; el.style.setProperty('--p', c.left / c.T); el.style.setProperty('--c', c.color); });
+  chipsEl.hidden = !list.length || !state.playing;
+}
+
+// ---------- abilities: Space / right-click / E, or the on-screen buttons (touch) ----------
+// (created on first use: newRun builds the buttons before this part of the module has run)
+function abilBox() { return $('abil') || document.body.appendChild(Object.assign(document.createElement('div'), { id: 'abil' })); }
+function useAbility(i) {
+  if (abilities?.use(i, { hole, city, director, state })) sfx.whoosh();
+}
+function renderAbilityButtons() {
+  abilBox().replaceChildren(...abilities.list.map((a, i) => {
+    const b = document.createElement('button');
+    b.className = 'abil';
+    b.innerHTML = `<i></i><b>${a.icon}</b><small>${i ? 'E' : 'Space'}</small>`;
+    b.title = `${a.name} — ${a.desc}`;
+    b.onpointerdown = (e) => { e.stopPropagation(); e.preventDefault(); useAbility(i); };
+    return b;
+  }));
+}
+function abilityHud() {
+  const box = abilBox();
+  box.hidden = !state.playing || !abilities.list.length;
+  abilities.list.forEach((a, i) => {
+    const el = box.children[i];
+    if (!el) return;
+    el.style.setProperty('--p', 1 - a.left / a.cd);
+    el.classList.toggle('ready', a.left <= 0);
+  });
+}
+addEventListener('keydown', (e) => {
+  if (!state?.playing || e.repeat) return;
+  if (e.key === ' ') { e.preventDefault(); useAbility(0); }
+  if (e.key.toLowerCase() === 'e') useAbility(1);
+});
+addEventListener('contextmenu', (e) => { if (state?.playing) { e.preventDefault(); useAbility(abilities.list.length > 1 ? 1 : 0); } });
+
+/** Dash afterimages: rim-coloured ghosts of the hole left along the path. */
+function dashFx() {
+  if ((state.dashFxT = (state.dashFxT || 0) - 1 / 60) > 0) return;
+  state.dashFxT = 0.03;
+  debris.puff(hole.x, 0.35, hole.z, 0, 0.2, 0, hole.r * 1.6, -hole.r * 1.2, 0.35, smokeCol.set(SKINS[save.skin || 'void'].rim), 0.45);
+}
+
+/** Surge: a comet trail behind the hole, and the crowd ahead scatters the way you're heading. */
+function surgeFx(dt) {
+  if ((state.trailT = (state.trailT || 0) - dt) > 0) return;
+  state.trailT = 0.04;
+  const v = Math.hypot(hole.vx, hole.vz) || 1;
+  sparks.burst(hole.x - (hole.vx / v) * hole.r, hole.z - (hole.vz / v) * hole.r, hole.r * 0.4, 0.2);
+  for (const e of city.walkers ??= city.entities.filter((q) => q.mover?.type === 'walk' || q.mover?.type === 'loop')) {
+    const dx = e.x - hole.x, dz = e.z - hole.z;
+    if (e.alive && dx * hole.vx + dz * hole.vz > 0 && dx * dx + dz * dz < 625) e.panic = 1.5;
+  }
 }
 
 // ---------- first-run hints (once per browser) ----------
@@ -261,6 +396,7 @@ function hurt(frac, why) {
   const glass = state.card === 'glass' ? 2 : 1;
   hole.area *= 1 - Math.min(frac * glass * (1 - level('hardhat') * 0.1), MAX_HIT * glass);
   state.hits.push(why);
+  if (why.startsWith('Concrete')) state.stats.concrete++;
   state.invuln = 1.2;
   state.shake = 0.5;
   sfx.hurt();
@@ -308,13 +444,23 @@ function ram(dx, dz) {
   if (!state.playing) return;
   state.kick = { x: dx * 14, z: dz * 14 };
   sfx.thump();
+  state.stats.rams++;
   hurt(0.04, 'Rammed by police!');
 }
 function spotted() {
+  state.stats.spotted++;
   flash('Spotted! ★+1', false);
   sfx.star();
 }
+/** Seaside tides: did the hole come out of the flood smaller than it went in? (star challenge) */
+function tide(phase) {
+  if (!state.playing) return;
+  const st = state.stats;
+  if (phase === 'in') st.tideR0 = hole.r;
+  else if (st.tideR0) { st.tides++; if (hole.r < st.tideR0 - 0.02) st.tideLoss++; }
+}
 function poison(effect) {
+  state.stats.poison++;
   if (state.card === 'clean') { endRun(false, 'Poisoned — Clean Diet broken'); return; }
   if (effect === 'shrink') hurt(0.12, 'Gas can! Shrunk');
   if (effect === 'reverse') { state.reverse = 3; flash('Toxic! Controls reversed'); }
@@ -330,6 +476,9 @@ function growthShare(tier, r) {
 
 /** How much the city notices a meal (heat builds from aggression, not just size). */
 function notoriety(e) {
+  return notorietyBase(e) * (e.meta.event === 'parade' ? 1.5 : 1); // spoiling the parade gets noticed
+}
+function notorietyBase(e) {
   const n = e.name, k = e.meta.kind;
   if (k === 'unit' || n === 'police_car') return 12;
   if (BUILDINGS.has(n)) return 5 + e.meta.tier;
@@ -412,18 +561,41 @@ window.__econ = () => ({ ...runDust(state.left === 0), score: state.score, bonus
 
 // ---------- menus ----------
 let pickedCard = 'none';
-function start(seed, daily) {
+let starting = false, nextSeed = null;
+async function start(seed, daily, mutator = null) {
+  if (starting) return;
   sfx.unlock();
-  const card = daily ? dailyCard(rng(seed)) : pickedCard;
+  const card = daily ? dailyCard(rng(seed)) : mutator ? 'none' : pickedCard;
   // Play the city shown behind the menu; reroll for daily/replays or when the card changes the city.
   const fresh = state.over || state.time > 0 || false;
-  if (seed !== undefined || fresh || card !== 'none') newRun(seed ?? (fresh ? undefined : state.seed), daily, card);
+  if (seed !== undefined || fresh || card !== 'none' || mutator) {
+    const s = seed ?? (fresh ? nextSeed ?? randomSeed() : state.seed);
+    const mood = runMood(s, daily || !!mutator); // daily + weekly: every mood, rolled by the seed
+    // stays synchronous when the packs are already here (the bot and quick replays never wait a frame)
+    if (packsFor(mood).some((p) => !packReady(assets, p))) {
+      starting = true;
+      $('menu').hidden = true;
+      $('load').hidden = false;
+      try {
+        await ensurePacks(mood);
+        newRun(s, daily, card, mood, mutator);
+        setLoad('Warming up shaders…', 1);
+        await nextPaint();
+        try { await renderer.compileAsync(scene, camera); } catch (e) { console.warn('precompile skipped', e); }
+      } finally {
+        starting = false;
+        $('load').hidden = true;
+        $('menu').hidden = false;
+      }
+    } else newRun(s, daily, card, mood, mutator);
+  }
   $('screen').hidden = true;
   $('hud').hidden = false;
   state.playing = true;
 }
 $('play').onclick = () => start(undefined, false);
 $('daily').onclick = () => start(todaySeed(), true);
+$('weekly').onclick = () => { const w = thisWeek(); start(w.seed, false, w.id); };
 function panel(id) {
   for (const p of ['shop', 'book']) $(p).hidden = p !== id || !$(p).hidden;
   if (!$('shop').hidden) renderShop();
@@ -461,6 +633,9 @@ function renderShop() {
   $('dust').textContent = save.dust;
   $('bookBtn').querySelector('b').textContent = `${bookEntries(assets).filter((a) => save.book?.[a.name]).length}/${bookEntries(assets).length}`;
   const dailyBest = save.daily[todaySeed()];
+  const wk = thisWeek(), wb = save.weekly?.[wk.key];
+  $('weekly').textContent = `Weekly ${wk.icon}${wb ? ` · ${wb.clear ? clock(wb.clear) : `${wb.r.toFixed(1)} m`}` : ''}`;
+  $('weekly').title = `${wk.name}: ${wk.desc}`;
   $('daily').textContent = dailyBest ? `Daily city · best ${dailyBest.clear ? `cleared ${clock(dailyBest.clear)}` : `${dailyBest.r.toFixed(1)} m`}` : 'Daily city';
   $('shop').replaceChildren(closeBtn('shop'), ...Object.entries(UPGRADES).map(([id, u]) => {
     const lv = level(id), cost = u.costs[lv];
@@ -470,54 +645,110 @@ function renderShop() {
     b.innerHTML = `<b>${u.name}</b><small>${u.desc}</small><span>${'●'.repeat(lv)}${'○'.repeat(u.costs.length - lv)}</span><em>${cost === undefined ? 'max' : cost + ' dust'}</em>`;
     b.onclick = () => { if (buy(id)) renderShop(); };
     return b;
-  }), ...skinCards());
+  }), ...abilityCards(), ...skinCards());
+}
+
+function abilityCards() {
+  const stars = totalStars(), eq = slots(stars);
+  const head = document.createElement('p');
+  head.className = 'shop-head';
+  head.textContent = `Abilities · ${eq.length}/${stars >= 10 ? 2 : 1} equipped${stars >= 10 ? '' : ' · 2nd slot at ★10'}`;
+  return [head, ...Object.entries(ABILITIES).map(([id, a]) => {
+    const has = owned(id), on = eq.includes(id);
+    const b = document.createElement('button');
+    b.className = 'card' + (on ? ' on-abil' : '');
+    b.disabled = !has && save.dust < a.cost;
+    b.innerHTML = `<b>${a.icon} ${a.name}</b><small>${a.desc} Cooldown ${a.cd} s.</small><em>${on ? 'equipped' : has ? 'equip' : a.cost + ' dust'}</em>`;
+    b.onclick = () => {
+      if (!has && !buyAbility(id)) return;
+      equip(id, stars);
+      renderShop();
+      if (!state.playing) { abilities = new Abilities(slots(stars), abilities.hooks); renderAbilityButtons(); }
+    };
+    return b;
+  })];
 }
 
 function skinCards() {
   const head = document.createElement('p');
   head.className = 'shop-head';
   head.textContent = 'Hole skins';
+  const stars = totalStars();
   return [head, ...Object.entries(SKINS).map(([id, sk]) => {
-    const owned = id === 'void' || save.skins?.includes(id), on = (save.skin || 'void') === id;
+    const owned = id === 'void' || save.skins?.includes(id) || (sk.stars && stars >= sk.stars), on = (save.skin || 'void') === id;
     const b = document.createElement('button');
     b.className = 'card skin' + (on ? ' on' : '');
     b.style.setProperty('--rim', '#' + new THREE.Color(sk.rim).getHexString());
     b.style.setProperty('--deep', '#' + new THREE.Color(sk.top || sk.deep).getHexString());
-    b.disabled = !owned && save.dust < sk.cost;
-    b.innerHTML = `<i class="swatch"></i><b>${sk.name}</b><em>${on ? 'equipped' : owned ? 'equip' : sk.cost + ' dust'}</em>`;
+    b.disabled = !owned && (sk.stars || save.dust < sk.cost);
+    b.innerHTML = `<i class="swatch"></i><b>${sk.name}</b><em>${on ? 'equipped' : owned ? 'equip' : sk.stars ? `★ ${stars}/${sk.stars}` : sk.cost + ' dust'}</em>`;
     b.onclick = () => {
-      if (!owned) { if (save.dust < sk.cost) return; save.dust -= sk.cost; (save.skins ??= []).push(id); }
+      if (!owned) { if (sk.stars || save.dust < sk.cost) return; save.dust -= sk.cost; (save.skins ??= []).push(id); }
       save.skin = id;
       persist();
       renderShop();
-      if (!state.playing) newRun(state.seed, state.daily, state.card); // preview the new skin behind the menu
+      if (!state.playing) newRun(state.seed, state.daily, state.card, state.mood); // preview the new skin behind the menu
     };
     return b;
   })];
 }
 renderShop();
 
+// ---------- city picker (progression): pick an unlocked city; the menu rebuilds it behind the buttons ----------
+function renderCities() {
+  renderPicker($('cities'), pickedCity, pickCity, (n) => (assets[n] ? thumb(assets[n]) : ''));
+  $('play').textContent = state?.over ? 'Dig again' : `Open the ground · ${pickedCity}`;
+}
+async function pickCity(mood) {
+  if (starting || mood === pickedCity && !state.over) return;
+  pickedCity = save.city = mood;
+  persist();
+  renderCities();
+  starting = true;
+  try {
+    await ensurePacks(mood, (label, p) => { $('where').textContent = `${label} ${Math.round(p * 100)}%`; });
+    const s = randomSeed();
+    newRun(s, false, pickedCard, mood);
+    nextSeed = null;
+    renderCities();
+  } finally { starting = false; }
+}
+renderCities();
+// landmark thumbnails for the picker render first, then the book
+if (!location.search.includes('nothumbs')) {
+  setTimeout(() => warmThumbs(assets, Object.values(LANDMARK).map(([n]) => n), () => state?.playing).then(renderCities), 1500);
+}
+
 /** Ends a run. won = every building swallowed; why = how a lost run ended. */
 function endRun(won, why) {
   if (!state.playing) return;
   state.playing = false;
   rivals.hideLabels();
+  for (const el of Object.values(edgeArrows)) el.hidden = true;
   offered = offer(rng((Math.random() * 2 ** 31) | 0));
   pickedCard = 'none';
   renderCards();
   state.over = true;
+  // the next city rolls now so its district pack can download while the results screen is up
+  nextSeed = randomSeed();
+  ensurePacks(runMood(nextSeed, false), () => {}).catch((e) => console.warn('pack preload failed', e));
   if (won) { sfx.star(); state.finale = 3.4; }
   else { state.sealing = 1.2; sfx.seal(); }
   const pay = runDust(won), dust = pay.total, mult = pay.mult;
   save.dust += dust;
   save.best = Math.max(save.best, state.best);
   if (won) save.fastest = Math.min(save.fastest || Infinity, state.time);
+  if (state.mutator) recordWeek(thisWeek().key, state.best, won && state.time);
   if (state.daily) {
     const d = { r: 0, ...save.daily[state.seed] };
     d.r = Math.max(d.r, state.best);
     if (won) d.clear = Math.min(d.clear || Infinity, state.time);
     save.daily[state.seed] = d;
   }
+  const skinsBefore = Object.values(SKINS).filter((k) => k.stars && totalStars() >= k.stars).length;
+  state.stats.eventLive = events.live ? events.kind : null;
+  const stars = scoreRun(state.mood, state.stats, won, state.time);
+  const newSkins = Object.values(SKINS).filter((k) => k.stars && totalStars() >= k.stars).slice(skinsBefore).map((k) => k.name);
   persist();
   setTimeout(() => {
     $('hud').hidden = true;
@@ -529,9 +760,12 @@ function endRun(won, why) {
       : `You swallowed <b>${state.eaten}</b> things and grew to <b>${state.best.toFixed(1)} m</b>${state.daily ? ' in today\'s city' : ''}. <b>${state.left}</b> buildings still stand.`)
       + (state.bite ? `<span class="bite"><img alt="" src="${state.bite}"><small>Biggest bite · ${title(state.biteName)}</small></span>` : '<br>')
       + `+<b>${dust}</b> void dust${mult > 1 ? ` (×${mult} ${CARDS[state.card].name})` : ''} · best ever <b>${save.best.toFixed(1)} m</b>`
-      + `<small class="pay">${Object.entries(pay.parts).filter(([, v]) => v >= 0.5).map(([k, v]) => `${k} ${Math.round(v)}`).join(' · ')}</small>`;
-    $('play').textContent = 'Dig again';
+      + `<small class="pay">${Object.entries(pay.parts).filter(([, v]) => v >= 0.5).map(([k, v]) => `${k} ${Math.round(v)}`).join(' · ')}</small>`
+      + `<span class="goals"><small>${state.mood} stars</small>${stars.list.map((c, i) => `<i class="${c.done ? 'done' : ''}${c.fresh ? ' fresh' : ''}" style="--d:${i * 0.25}s">${c.done ? '★' : '☆'} ${c.text}</i>`).join('')}</span>`
+      + stars.opened.map((m) => `<span class="unlock">🔓 New city: <b>${m}</b></span>`).join('')
+      + newSkins.map((n) => `<span class="unlock">✨ New skin: <b>${n}</b></span>`).join('');
     renderShop();
+    renderCities();
   }, won ? 3600 : 1300);
 }
 
@@ -584,7 +818,10 @@ function frame(dt) {
     state.belly = Math.max(0, state.belly - BELLY_DRAIN * tide * ramp * Math.min(1, 0.3 + state.time / 25) * dt); // gentle first 20s
     cravings(dt);
     const [sx, sz] = window.__bot ? window.__bot(hole, city) : steer();
-    const speed = (6.5 + hole.r * 1.8) * (state.slow > 0 ? 0.45 : 1) * (state.flooded ? 0.6 : 1);
+    const surge = (powerups.active.boost ? 1.8 : 1) * abilities.update(dt, hole) * (state.mutator === 'lowgrav' ? 1.1 : 1);
+    if (BOT && abilities.list.length) abilities.auto({ hole, city, director, state }, window.__botTarget);
+    if (hole.dash > 0) dashFx();
+    const speed = (6.5 + hole.r * 1.8) * (state.slow > 0 ? 0.45 : 1) * (state.flooded ? 0.6 : 1) * surge;
     // a little weight (~0.1s to turn / reach speed), not a boat
     const kv = 1 - Math.exp(-dt * 11);
     hole.sx = (hole.sx || 0) + (sx - (hole.sx || 0)) * kv;
@@ -604,7 +841,15 @@ function frame(dt) {
     const fed = DECAY_FED / (1 + hole.r * 0.1); // big holes need proportionally bigger meals already
     hole.area *= 1 - (state.belly > 0 ? fed : DECAY_STARVING) * slower * dt;
     director.update(dt, hole, state);
+    events.update(dt, hole, state);
     city.alarm = director.stars; // at high heat the city evacuates: people hide indoors
+    if (state.belly <= 0) state.stats.starved = true;
+    for (let k = 1; k <= director.stars; k++) state.stats.starAt[k] = Math.min(state.stats.starAt[k], state.time);
+    for (const rv of rivals.list) { // near misses and fights with rivals (star challenge)
+      if (rv.dead || Math.hypot(rv.hole.x - hole.x, rv.hole.z - hole.z) > rv.hole.r + hole.r + 4 || rv.meetT > state.time) continue;
+      rv.meetT = state.time + 15;
+      state.stats.rivalMeets++;
+    }
     if (director.stars > state.stars) {
       sfx.star();
       flash('★'.repeat(director.stars) + ' The city fights back', false);
@@ -612,7 +857,7 @@ function frame(dt) {
     }
     state.stars = director.stars;
     if ((state.leftTimer = (state.leftTimer || 0) - dt) <= 0) { state.leftTimer = 0.5; state.left = city.buildingsLeft(); }
-    const rv = rivals.update(dt, hole, true, state.time);
+    const rv = rivals.update(dt, hole, true, state.time, powerups);
     if (rv === 'eaten') endRun(false, `Eaten — by ${rivals.list.find((q) => !q.dead && q.hole.r > hole.r)?.name || 'a rival'}`);
     else for (const q of rv) {
       hole.area += q.hole.area * 0.6;
@@ -633,7 +878,10 @@ function frame(dt) {
   }
 
   if (!state.playing) rivals.update(dt, hole, false);
-  const eaten = city.update(dt, [hole, ...rivals.holes], state.jam > 0 || !state.playing);
+  const twins = state.playing ? powerups.update(dt, hole, rivals, scene, true) : [];
+  abilities.hold(hole);
+  if (powerups.active.boost && state.playing) surgeFx(dt);
+  const eaten = city.update(dt, [hole, ...rivals.holes, ...twins], state.jam > 0 || !state.playing);
   for (const ev of city.events) {
     if (ev.type === 'fall') {
       const e = ev.e, t = e.meta.tier, mine = e.eater === hole && state.playing;
@@ -647,6 +895,9 @@ function frame(dt) {
         state.punch = 1;
         sfx.bigGulp(t);
       }
+      if (e.name === 'balloon_stand') debris.balloons(e.x, 2.5, e.z, 10 + Math.floor(Math.random() * 5));
+      if (state.playing) chains.onFall(e, e.eater || hole, hole);
+      if (mine && e.mover?.type === 'rail' && e.mover.train.v > 0.5) state.stats.movingTrain++;
       if (mine && t >= 0.5 && t > (state.biteTier || 0)) { state.biteTier = t; state.biteName = e.name; state.snapAt = state.time + 0.25; }
     }
     if (ev.type === 'scream' && state.playing) { shout(ev.e); sfx.eek(); }
@@ -659,7 +910,7 @@ function frame(dt) {
     }
   }
   for (const e of eaten) {
-    if (e.eater && e.eater !== hole) { // a rival's meal
+    if (e.eater && e.eater !== hole && e.eater !== powerups.twin) { // a rival's meal (the split twin eats for you)
       const before = e.eater.area;
       // rubber band: rivals keep pace with you but never run away with the city
       const ahead = e.eater.r > hole.r * 1.4 + 1;
@@ -671,11 +922,15 @@ function frame(dt) {
     sfx.gulp(e.meta.tier);
     hole.vac = Math.min(1, (hole.vac || 0) + 0.35); // whirlpool: a short burst of suction after each bite
     if (record(e.name)) flash(`New in the book: ${title(e.name)}`, false);
+    const st = state.stats;
+    st.ate[e.name] = (st.ate[e.name] || 0) + 1;
+    (st.times[e.name] ??= []).push(state.time);
     if (e.meta.rare) { state.rares++; sparks.burst(hole.x, hole.z, hole.r, 4); sfx.star(); }
     director.notice(notoriety(e));
     craveEat(e);
     if (e.meta.kind === 'poison') { poison(e.meta.effect); continue; }
     if (e.meta.effect === 'combo') { state.combo += 3; state.comboT = 1.2; }
+    if (e.name === 'drummer') { state.combo += 1; state.comboT = Math.max(state.comboT, 1); } // each drummer is +1 combo
     const before = hole.area;
     const mult = state.card === 'vehicles' ? (VEHICLES.has(e.name) ? 1.5 : 0.25) : state.card === 'glass' ? 1.5 : 1;
     hole.grow(e.meta.tier, mult * growthShare(e.meta.tier, hole.r));
@@ -691,11 +946,12 @@ function frame(dt) {
     state.comboT = 0.9;
     state.bonus += Math.min(state.combo - 1, 8); // long chains are fun, not a money printer
     if (state.combo >= 3) combo(state.combo);
+    st.maxCombo = Math.max(st.maxCombo, state.combo);
   }
   state.best = Math.max(state.best, hole.r);
   if (state.playing) {
     let top = null;
-    while (state.mi < MILESTONES.length && hole.r >= MILESTONES[state.mi].need) top = MILESTONES[state.mi++];
+    while (state.mi < MILESTONES.length && hole.r >= MILESTONES[state.mi].need * city.scaleK) top = MILESTONES[state.mi++];
     if (top) sizeUp(top); // several at once (ate a rival): announce only the biggest
   }
   // chimney + street-food smoke near the camera
@@ -703,11 +959,12 @@ function frame(dt) {
     if (!e.alive || e.falling || (e.smokeT = (e.smokeT ?? Math.random()) - dt) > 0) continue;
     e.smokeT = 0.35 + Math.random() * 0.3;
     if (Math.abs(e.x - camTarget.x) > camDist * 0.8 || Math.abs(e.z - camTarget.z) > camDist * 0.8) continue;
-    const [lx, ly, lz, c] = SMOKE[e.name], cs = Math.cos(e.rot), sn = Math.sin(e.rot);
+    const [lx, ly, lz, c, k = 1] = SMOKE[e.name], cs = Math.cos(e.rot), sn = Math.sin(e.rot);
     debris.puff(e.x + lx * cs + lz * sn, ly + e.y, e.z - lx * sn + lz * cs, 0.25 + Math.random() * 0.2, 0.8 + Math.random() * 0.4,
-      (Math.random() - 0.5) * 0.2, 0.3, 0.7, 2.6, smokeCol.set(c), 0.4);
+      (Math.random() - 0.5) * 0.2, 0.3 * k, 0.7 * k, 2.6 * Math.sqrt(k), smokeCol.set(c), 0.4 + 0.1 * (k - 1));
   }
   city.mixers.forEach((m) => m.update(dt));
+  city.syncBatches();
   hole.update(dt, state.time, Math.max(0, 0.5 - state.belly) * 2, city.groundSpan(hole.x, hole.z, hole.r));
 
   // camera: pull back as the hole grows
@@ -715,7 +972,8 @@ function frame(dt) {
   state.finale = Math.max(0, state.finale - dt);
   state.punch = Math.max(0, state.punch - dt * 2.5);
   const lift = state.finale > 0 ? 2.2 : 1; // victory: pull up over the emptied city
-  camDist += ((14 + hole.r * 8) * portrait * LENS * lift - camDist) * Math.min(1, dt * (state.finale > 0 ? 0.8 : 2));
+  const mini = city.scaleK < 1 ? 0.7 : 1; // Miniature: the camera leans in
+  camDist += ((14 + hole.r * 8) * portrait * LENS * lift * mini - camDist) * Math.min(1, dt * (state.finale > 0 ? 0.8 : 2));
   camTarget.lerp(_v.set(hole.x, 0, hole.z), Math.min(1, dt * 6));
   const sh = state.shake * camDist * 0.02;
   // attract mode: slow orbit behind the menu; snaps back to north-up for play (steering is screen-relative)
@@ -731,6 +989,7 @@ function frame(dt) {
   surfaceOn.value = 1; // low tiers use the lite (single-projection) shader instead of losing detail
   city.budget(camera, hole.r, low);
   followSun(sun, camTarget);
+  city.shadowCam = sun.shadow.camera; // the batched landmarks pack only what the shadow map can see
   grass.update(camTarget, camDist / LENS, low);
   setFogRange(camDist);
   const sc = sun.shadow.camera, ext = Math.max(25, (camDist / LENS) * 0.9);
@@ -738,6 +997,7 @@ function frame(dt) {
 
   sparks.update(dt);
   debris.update(dt);
+  chains.update(dt, hole, director);
   for (const s of bubbles) {
     if (s.t <= 0) continue;
     s.t -= dt;
@@ -747,8 +1007,12 @@ function frame(dt) {
   }
   world.hole.value.set(hole.x, hole.z, hole.hidden || !state.playing ? 0 : hole.r, hole.vac || 0);
   pedTime.value += dt;
+  lightsTime.value += dt;
+  lightsPulse.value = 0.85 + 0.15 * Math.sin(lightsTime.value * 2.2);
   surfaceTime.value += dt;
   for (const q of rivals.list) q.hole.update(dt, state.time, 0, city.groundSpan(q.hole.x, q.hole.z, q.hole.r));
+  const tw = powerups.twin;
+  if (tw) tw.update(dt, state.time, 0, city.groundSpan(tw.x, tw.z, tw.r));
   if (state.playing) { hud(); rivals.labels(camera); }
   if (!window.__headless) {
     if (state.playing && document.visibilityState === 'visible') post.watch(dt);

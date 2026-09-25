@@ -50,7 +50,7 @@ export class Rivals {
   }
 
   /** Steer, grow, starve. Returns 'eaten' if a rival swallowed the player, or a list of rivals the player ate. */
-  update(dt, player, playing, time = 99) {
+  update(dt, player, playing, time = 99, pickups = null) {
     const ate = [];
     for (const rv of this.list) {
       const h = rv.hole;
@@ -63,7 +63,10 @@ export class Rivals {
       let tx = 0, tz = 0;
       if (h.r > player.r * 1.3 && pd < 40) { tx = pdx / pd; tz = pdz / pd; }
       else if (player.r > h.r * 1.12 && pd < player.r + 18) { tx = -pdx / pd; tz = -pdz / pd; }
-      else {
+      else if (pickups?.nearest(h.x, h.z, 20)) { // a power-up capsule close by: grab it first
+        const c = pickups.nearest(h.x, h.z, 20), dx = c.x - h.x, dz = c.z - h.z, d = Math.hypot(dx, dz) || 1;
+        tx = dx / d; tz = dz / d;
+      } else {
         let best = null, score = 0;
         for (const e of this.city.entities) {
           if (!e.alive || e.falling || e.flying || e.noSwallow || e.meta.kind === 'poison' || e.meta.tier >= h.r * 0.9) continue;
@@ -75,7 +78,8 @@ export class Rivals {
         if (best) { const dx = best.x - h.x, dz = best.z - h.z, d = Math.hypot(dx, dz) || 1; tx = dx / d; tz = dz / d; }
         else { tx = -h.x / (Math.hypot(h.x, h.z) || 1); tz = -h.z / (Math.hypot(h.x, h.z) || 1); }
       }
-      const sp = (5 + h.r * 1.6) * 0.82, lim = Math.max(2, this.city.half - h.r * 0.95);
+      if (rv.power && (rv.power.t -= dt) <= 0) rv.power = null;
+      const sp = (5 + h.r * 1.6) * 0.82 * (rv.power ? 1.35 : 1), lim = Math.max(2, this.city.half - h.r * 0.95);
       h.x = THREE.MathUtils.clamp(h.x + tx * sp * dt, -lim, lim);
       h.z = THREE.MathUtils.clamp(h.z + tz * sp * dt, -lim, lim);
       // hunger, same rules as the player

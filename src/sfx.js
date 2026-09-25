@@ -102,3 +102,29 @@ export function levelUp() {
   [392, 523, 659, 784, 1046].forEach((f, i) => tone('triangle', f, f, 0.2, 0.22, i * 0.07));
   tone('sine', 1046, 1568, 0.5, 0.12, 0.35);
 }
+
+/** Bass boom for blasts and big events (k: 0..1 size). */
+export function boom(k = 1) {
+  tone('sine', 70 + 30 * (1 - k), 28, 0.9 + k * 0.6, 0.5 + k * 0.4);
+  tone('sawtooth', 180, 40, 0.5, 0.1 * k);
+}
+
+/** Pops and crackles of a fireworks volley. */
+export function crackle(n = 10) {
+  for (let i = 0; i < n; i++) {
+    const d = 1.1 + i * 0.13 + Math.random() * 0.2, f = 200 + Math.random() * 300;
+    tone('square', f, f * 0.3, 0.08, 0.06, d);
+    tone('sine', 90, 40, 0.3, 0.12, d);
+  }
+}
+
+/** A short rising whoosh (abilities, power-ups). */
+export function whoosh() {
+  tone('sawtooth', 200, 900, 0.25, 0.06);
+  tone('sine', 300, 1200, 0.3, 0.1);
+}
+
+/** A little parade drum roll. */
+export function drums() {
+  for (let i = 0; i < 8; i++) tone('triangle', 180, 120, 0.06, 0.12, i * 0.09);
+}
