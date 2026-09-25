@@ -26,7 +26,7 @@ import { Q } from './quality.js';
 import { PERKS, DRAFT_AT, offerPerks, modsFor } from './perks.js';
 import { HEAT, heatMods, heatPay, heatMax, heatBest, recordHeat } from './heat.js';
 import { today as todaysContracts, streak, scoreContracts } from './contracts.js';
-import { Region } from './region.js';
+import { Region, slicer } from './region.js';
 import { P2, News, residents, quietDirector, quietEvents, quietChains, quietPowerups, quietRivals } from './phase2.js';
 
 const $ = (id) => document.getElementById(id);
@@ -149,6 +149,10 @@ let pickedHeat = URL_HEAT;
 const pickedMode = new URLSearchParams(location.search).get('mode') === 'blitz' ? 'blitz' : 'city';
 function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null, mutator = null, heat = 0, mode = 'city') {
   const hm = heatMods(heat);
+  if (state?.slice) { // a region was being prebuilt for the last run: drop it
+    state.slice.cancelled = true;
+    state.regionJob?.then((r) => { if (r && !r.finished) r.terrain.dispose(); });
+  }
   if (city) { powerups.dispose(); scene.remove(city.group, hole.group, grass.group); city.dispose(); hole.dispose(); director.dispose(); rivals.dispose(); grass.dispose(); events.dispose(); chains.dispose(); }
   const debugR = +new URLSearchParams(location.search).get('r') || 0; // screenshot/debug: start bigger
   hole = new Hole(assets, field, 0, { r: debugR || 0.45 + level('headstart') * 0.04, skin: save.skin || 'void' });
@@ -970,21 +974,36 @@ async function breakout(quick = false) {
   if (state.breaking || state.phase === 2) return;
   state.breaking = true;
   state.cityTime = state.time; // Phase 1 is banked as a clear (endRun)
+  const hold = quick ? 0 : 1300; // the swap waits for the dust to cover the town
   if (!quick) {
     state.slowmo = P2.slowmo;
-    state.finale = 6;
+    state.finale = 7;
     state.shake = 0.8;
     hole.shockwave();
     sfx.boom?.();
     sfx.levelUp();
     flash('The ground gives way!', false);
-    for (let k = 0; k < 3; k++) setTimeout(() => { if (state.breaking) { hole.shockwave(); state.shake = Math.max(state.shake, 0.5); sfx.boom?.(); } }, 700 + k * 900);
+    // the town's ground breaks up: rings of dust roll out from the hole to the city limits and beyond
+    const dust = new THREE.Color(0xb8a58a), dark = new THREE.Color(0x8c7a64), hx = hole.x, hz = hole.z, H = city.half;
+    const rings = [[0, hole.r, 25, 40, 10, 3.5, dust], [350, hole.r * 2, 45, 48, 18, 4, dark], [800, H * 0.5, 70, 56, 30, 5, dust], [1150, H * 0.9, 90, 64, 42, 6, dark]];
+    for (const [ms, r0, v, n, size, life, col] of rings) setTimeout(() => {
+      if (!state.breaking) return;
+      debris.dustRing(hx, 1, hz, r0, v, LOW_FX ? n / 2 : n, size, life, col);
+      hole.shockwave();
+      state.shake = Math.max(state.shake, 0.6);
+      sfx.boom?.();
+    }, ms);
   }
   news.say(`Void hole escapes ${city.mood.name} — army mobilised`);
   const t0 = performance.now();
   await loadPacks(assets, ['region']);
   const old = city;
-  const reg = await Region.create(assets, old, field, async () => { await nextPaint(); });
+  // normally prebuilt in the background during the town (prebuildRegion); if not, finish it now in bigger slices
+  if (!state.regionJob) prebuildRegion();
+  state.slice.budget = 40;
+  const [reg] = await Promise.all([state.regionJob, new Promise((r) => setTimeout(r, hold))]);
+  if (!reg) { state.breaking = false; state.slowmo = 1; endRun(true); return; }
+  reg.finish();
   // swap under the dust: the new world goes in, the old systems go out
   scene.remove(old.group, grass.group);
   for (const o of [director, events, chains, powerups, rivals]) o.dispose();
@@ -996,13 +1015,14 @@ async function breakout(quick = false) {
   grass = new Grass(renderer, city.groundMeshes, Math.min(city.bound, 700), field, { density: +(new URLSearchParams(location.search).get('grass') ?? Q.grass) * 0.6, far: Q.grassFar, lawns: [] });
   scene.add(city.group, grass.group);
   try { await renderer.compileAsync(city.group, camera, scene); } catch (e) { console.warn('region precompile skipped', e); }
-  console.info(`[phase2] region ready in ${((performance.now() - t0) / 1000).toFixed(1)}s: ${city.settlements.length} settlements, ${city.entities.length} entities, ${city.crumbs.length} crumbs`);
-  if (!quick) hole.area *= P2.surge ** 2;
+  console.info(`[phase2] region ready in ${((performance.now() - t0) / 1000).toFixed(1)}s: ${city.settlements.length} settlements, ${city.entities.length} entities, ${city.crumbs.length} crumbs`, city.times);
+  if (!quick) state.surgeTo = hole.area * P2.surge ** 2; // grows over the next second or so (frame)
   state.phase = 2;
   state.belly = 1;
   state.left = city.buildingsLeft();
-  state.slowmo = 1;
   state.breaking = false;
+  if (quick) state.slowmo = 1;
+  else setTimeout(() => { state.slowmo = 1; }, 1600); // the slow climb continues over the new world
   $('where').textContent = `${city.mood.name} countryside · ${city.settlements.length} settlements`;
   news.say(`${city.capital?.name || 'The capital'} on alert as the hole heads for the countryside`);
   if (!quick) {
@@ -1014,6 +1034,13 @@ async function breakout(quick = false) {
   }
 }
 window.__breakout = () => breakout(true);
+
+/** Start building the region between frames while the town is still being eaten (3 ms a slice). */
+function prebuildRegion() {
+  state.slice = slicer(3);
+  state.regionJob = loadPacks(assets, ['region']).then(() => Region.create(assets, city, field, state.slice, false))
+    .catch((e) => { if (!state.slice?.cancelled) console.warn('region prebuild failed', e); return null; });
+}
 
 /** The settlement to head for: the nearest one with buildings left, preferring ones you can already eat. */
 function nextSettlement() {
@@ -1202,6 +1229,10 @@ function frame(dt) {
     hole.x = THREE.MathUtils.clamp(hole.x + (hole.sx * speed + kick.x) * dt, -lim, lim);
     hole.z = THREE.MathUtils.clamp(hole.z + (hole.sz * speed + kick.z) * dt, -lim, lim);
     hole.vac = Math.max(0, (hole.vac || 0) - dt * state.mods.vacDecay);
+    if (state.surgeTo) { // breakout surge
+      hole.area += (state.surgeTo - hole.area) * Math.min(1, dt * 1.5);
+      if (hole.area > state.surgeTo * 0.99) state.surgeTo = 0;
+    }
     kick.x *= Math.max(0, 1 - dt * 5);
     kick.z *= Math.max(0, 1 - dt * 5);
     hole.vx = (hole.x - px) / dt;
@@ -1242,6 +1273,7 @@ function frame(dt) {
     else if (hole.r < (state.phase === 2 ? P2.dead : DEAD_R)) endRun(false);
     else if (state.phase === 2 && city.capital?.left === 0) endRun(true, 'capital');
     else if (state.left === 0 && state.phase === 1) { if (PHASE2 && state.mode === 'city') breakout(); else endRun(true); }
+    if (PHASE2 && state.mode === 'city' && state.phase === 1 && !state.regionJob && state.time > 6) prebuildRegion();
     else if (state.card === 'rush' && state.time > 300) endRun(false, 'Too slow — Rush Hour over');
     else if (state.hm.limit && state.time > state.hm.limit) endRun(false, 'Too slow — Against the Clock');
     else if (state.mode === 'blitz' && state.time >= BLITZ) endRun(false, 'Time! — Blitz over');

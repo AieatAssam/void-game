@@ -74,7 +74,7 @@ export class Sparks {
 }
 
 // ---------- debris: collapse chunks + swallow confetti (one instanced draw), dust/smoke puffs (one points draw) ----------
-const CHUNKS = 260, PUFFS = 360;
+const CHUNKS = 260, PUFFS = 520;
 const _m4 = new THREE.Matrix4(), _q4 = new THREE.Quaternion(), _e4 = new THREE.Euler(), _p4 = new THREE.Vector3(), _s4 = new THREE.Vector3();
 const COLLAPSE = [0xf3e6cf, 0xd9d2c4, 0xc86b4f, 0x9fb7c9, 0xe8d5b0, 0x8a8f99].map((c) => new THREE.Color(c));
 const BALLOONS = [0xff4f6d, 0xffd166, 0x5ec8ff, 0x9dff7a, 0xc38bff, 0xff9f43].map((c) => new THREE.Color(c).multiplyScalar(1.6));
@@ -138,6 +138,16 @@ export class Debris {
       const a = (k / 18) * Math.PI * 2 + Math.random() * 0.3, r = t * (0.7 + Math.random() * 0.4);
       this.puff(e.x + Math.cos(a) * r, 0.4, e.z + Math.sin(a) * r, Math.cos(a) * (1 + t * 0.4), 0.6 + Math.random(), Math.sin(a) * (1 + t * 0.4),
         t * 0.9, t * 1.1, 1.8 + Math.random(), dust, 0.7);
+    }
+  }
+
+  /** A ring of dust rolling outward from (x, z): the ground giving way (Phase 2 breakout, collapses at scale). */
+  dustRing(x, y, z, r0, speed, n, size, life, color, alpha = 0.75) {
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2 + Math.random() * 0.2, v = speed * (0.8 + Math.random() * 0.4);
+      // (centred well above the ground: a big soft sprite cutting into the pavement shows a hard edge)
+      this.puff(x + Math.cos(a) * r0, y + size * (0.55 + Math.random() * 0.2), z + Math.sin(a) * r0, Math.cos(a) * v, size * 0.05 + Math.random() * 0.5, Math.sin(a) * v,
+        size * (0.7 + Math.random() * 0.5), size * 0.35, life * (0.8 + Math.random() * 0.4), color, alpha);
     }
   }
 

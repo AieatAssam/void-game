@@ -38,6 +38,29 @@ const KINDS = {
 };
 const PLAN = ['capital', 'industry', 'town', 'castle', 'village', 'village', 'farm', 'farm', 'farm', 'farm'];
 
+/** Drive a generator, awaiting slice() at each yield (slice decides when to hand the frame back). */
+async function run(gen, slice) {
+  let step;
+  while (!(step = gen.next()).done) await slice();
+  return step.value;
+}
+
+/**
+ * A time slicer for building in the background: work runs until `budget` ms have passed, then waits for the next
+ * frame. Set `.budget` higher when the result is needed now; set `.cancelled` to abandon the build.
+ */
+export function slicer(budget = 3) {
+  let t0 = performance.now();
+  const s = async () => {
+    if (s.cancelled) throw new Error('region build cancelled');
+    if (performance.now() - t0 < s.budget) return;
+    await new Promise((r) => setTimeout(r, 0));
+    t0 = performance.now();
+  };
+  s.budget = budget;
+  return s;
+}
+
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 export class Region extends City {
@@ -45,7 +68,10 @@ export class Region extends City {
    * Build the region grown from `from` (the Phase 1 city, emptied) in stages; `step(label)` is awaited between stages so
    * the breakout cinematic keeps rendering. The hometown's ground tiles stay where they were.
    */
-  static async create(assets, from, holeField, step = async () => {}) {
+  static async create(assets, from, holeField, slice = async () => {}, finish = true) {
+    const step = slice;
+    const times = {}, t = (k, t0) => { times[k] = Math.round(performance.now() - t0); };
+    let t0 = performance.now();
     const g = new Region(assets, from.terrainSeed ^ 0x2e61, holeField, { defer: true, mood: from.mood.name, mutator: from.mutator });
     Object.assign(g, { N: from.N, half: from.half, mood: from.mood, beach: from.beach, runwayRow: -1, railRow: -1, tiles: from.tiles });
     g.bound = REGION_BOUND;
@@ -54,17 +80,35 @@ export class Region extends City {
     g.sceneryList = [];
     g.terrainSeed = from.terrainSeed;
     g.plan();
+    t('plan', t0);
     await step('Surveying the country…');
-    g.terrain = new Terrain(from.terrainSeed, g.half, { beach: g.beach, farm: !!g.mood.county, region: { bound: g.bound, pads: g.pads, roads: g.roads.map((r) => r.pts) }, holes: holeField });
+    t0 = performance.now();
+    g.terrain = new Terrain(from.terrainSeed, g.half, { beach: g.beach, farm: !!g.mood.county, region: { bound: g.bound, pads: g.pads, roads: g.roads.map((r) => r.pts) }, holes: holeField, defer: true });
+    await run(g.terrain.buildGen(), slice);
+    t('terrain', t0);
     await step('Raising the villages…');
+    t0 = performance.now();
     for (const s of g.settlements) g.settle(s);
     g.windFarm();
     g.pylonLine();
     g.traffic();
+    t('settle', t0);
     await step('Planting the forests…');
-    g.plantCrumbs();
-    await step('Building the country…');
+    t0 = performance.now();
+    await g.plantCrumbs(slice);
+    t('crumbs', t0);
+    g.times = times;
+    if (finish) g.finish();
+    return g;
+  }
+
+  /** The part that can't be sliced (instanced meshes, the road ribbon, bookkeeping): run at the breakout. */
+  finish() {
+    const g = this, times = this.times, t = (k, t0) => { times[k] = Math.round(performance.now() - t0); };
+    let t0 = performance.now();
     g.build();
+    t('build', t0);
+    t0 = performance.now();
     g.roadMesh();
     // crumbs leave the per-entity loop: they're only tested near a hole (update)
     g.crumbs = g.entities.filter((e) => e.mover?.crumb);
@@ -79,6 +123,8 @@ export class Region extends City {
     g.collide = new Collider(g, (e) => g.footprint(e));
     for (const s of g.settlements) s.list = g.entities.filter((e) => e.home === s && COUNTS(e.name));
     for (const s of g.settlements) s.total = s.list.length;
+    t('roads', t0);
+    g.finished = true;
     return g;
   }
 
@@ -453,7 +499,7 @@ export class Region extends City {
 
   // ---------- crumbs ----------
   /** Terrain scatter (forests, hedges, rocks, cows, barns, windmills) as edible entities. */
-  plantCrumbs() {
+  async plantCrumbs(slice) {
     const cache = new Map();
     const metaS = (name, s) => {
       const k = name + '|' + s.toFixed(2);
@@ -461,7 +507,7 @@ export class Region extends City {
       return cache.get(k);
     };
     let n = 0;
-    for (const it of this.terrain.scatter(this.assets)) {
+    for (const it of await run(this.terrain.scatterGen(this.assets), slice)) {
       if (Math.max(Math.abs(it.x), Math.abs(it.z)) < this.half + 4) continue; // not on the hometown's tiles
       if (it.name === 'barn' || it.name === 'windmill') { this.add(it.name, it.x, it.z, it.rot); continue; } // real buildings
       const s = Math.round(it.s * 20) / 20;

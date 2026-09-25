@@ -44,7 +44,7 @@ export class Terrain {
    * region (Phase 2, docs/PHASE2.md): { bound, pads: [{ x, z, r }], roads: [[[x, z], ...], ...] } - a wider play area
    * with gentle hills (mountains only past the bound), flattened settlement pads and road corridors.
    */
-  constructor(seed, half, { beach = false, farm = false, region = null, holes = null, noMesh = false } = {}) {
+  constructor(seed, half, { beach = false, farm = false, region = null, holes = null, noMesh = false, defer = false } = {}) {
     this.half = half;
     this.region = region;
     this.holes = holes;
@@ -58,7 +58,7 @@ export class Terrain {
     this.fields = this.layoutFields(r);
     if (region) this.prepRegion();
     this.group = new THREE.Group();
-    if (!noMesh) this.build(); // (noMesh: a height probe for planning)
+    if (!noMesh && !defer) this.build(); // (noMesh: a height probe for planning; defer: the caller runs buildGen in slices)
   }
 
   /** Signed distance outside the town square (negative inside). */
@@ -225,7 +225,10 @@ export class Terrain {
     return [...outer.map((v) => -v).reverse(), ...cs, ...outer];
   }
 
-  build() {
+  build() { for (const _ of this.buildGen()); } // eslint-disable-line no-unused-vars
+
+  /** The mesh build as a generator: it yields every few rows so Phase 2 can build the region between frames. */
+  *buildGen() {
     const cs = this.axisCoords(), n = cs.length;
     const pos = new Float32Array(n * n * 3), nrm = new Float32Array(n * n * 3), splat = new Float32Array(n * n * 4), extra = new Float32Array(n * n * 2);
     // pass 1: heights (vertices buried under the town skip the noise entirely)
@@ -235,6 +238,7 @@ export class Terrain {
         const x = cs[i], z = cs[j];
         H[j * n + i] = Math.abs(x) < under && Math.abs(z) < under ? -0.08 : this.heightAt(x, z);
       }
+      if (j % 8 === 7) yield;
     }
     this.cs = cs;
     this.H = H;
@@ -259,6 +263,7 @@ export class Terrain {
         extra.set([Math.max(-1, Math.min(1, (avg - y) * 0.6)), Math.max(0, this.nz.fbm(x / 25 + 40, z / 25 - 17, 3) - 0.12) * 4], k * 2);
         splat.set([this.forest(x, z), fa ? (fa.f.crop + 1) / 4 : 0, Math.min(1, dirt), 1 - smooth(0.1, 0.75, y - this.water)], k * 4);
       }
+      if (j % 8 === 7) yield;
     }
     const idx = [];
     const h = this.half - 0.5;
@@ -323,8 +328,27 @@ export class Terrain {
 
   /** Scenery placements for the city to instance: [{ name, x, y, z, rot, s }]. */
   scatter(assets) {
-    const out = [], r = this.nz.rnd, taken = [];
-    const free = (x, z, rad) => !taken.some((t) => (t.x - x) ** 2 + (t.z - z) ** 2 < (t.r + rad) ** 2);
+    const it = this.scatterGen(assets);
+    let step;
+    while (!(step = it.next()).done);
+    return step.value;
+  }
+
+  /** scatter() as a generator (yields every few hundred placements); returns the list. */
+  *scatterGen(assets) {
+    const out = [], r = this.nz.rnd;
+    // placed footprints in an 8 m hash grid: the overlap test only looks at neighbouring cells (was a scan of all)
+    const C = 8, grid = new Map(), key = (i, j) => i * 65536 + j;
+    let maxR = 0;
+    const free = (x, z, rad) => {
+      const reach = Math.ceil((rad + maxR) / C), ci = Math.floor(x / C), cj = Math.floor(z / C);
+      for (let i = ci - reach; i <= ci + reach; i++) for (let j = cj - reach; j <= cj + reach; j++) {
+        const list = grid.get(key(i, j));
+        if (list) for (const t of list) if ((t.x - x) ** 2 + (t.z - z) ** 2 < (t.r + rad) ** 2) return false;
+      }
+      return true;
+    };
+    const taken = { push(t) { const k = key(Math.floor(t.x / C), Math.floor(t.z / C)); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(t); maxR = Math.max(maxR, t.r); } };
     const put = (name, x, z, s = 1, rot = r() * 6.28, sink = 0.15) => {
       const rad = (assets[name]?.meta.tier || 1) * 0.6 * s;
       if (!free(x, z, rad) || (g && !clear(x, z))) return false;
@@ -340,6 +364,7 @@ export class Terrain {
     const clear = (x, z) => !onPad(x, z) && !(g && this.roadDist(x, z) < 11);
     // barns, windmills and cows on the farms; hedgerows around every field
     for (const f of this.fields) {
+      yield;
       const c = Math.cos(f.rot), s = Math.sin(f.rot);
       const at = (u, v) => [f.x + u * c - v * s, f.z + u * s + v * c];
       if (r() < 0.45) { const [x, z] = at(f.w / 2 + 12, 0); put('barn', x, z, 1, -f.rot + Math.PI / 2, 0.3); }
@@ -360,6 +385,7 @@ export class Terrain {
     // forests, meadow trees, bushes and rocks
     const tries = 16000 * Q.trees * (g ? ((2 * R) / (2 * (this.half + 420))) ** 2 * 0.5 : 1);
     for (let k = 0; k < tries; k++) {
+      if (k % 400 === 399) yield;
       const x = (r() * 2 - 1) * R, z = (r() * 2 - 1) * R;
       const d = this.outside(x, z);
       if (d < 8 || !clear(x, z)) continue;
