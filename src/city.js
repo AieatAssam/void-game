@@ -44,6 +44,7 @@ export function rng(seed) {
 
 /** Bake a glTF scene (with quantized attributes + child nodes) into one float geometry. */
 const flatCache = new Map();
+const PART_CACHE = new Map(); // cloned model -> merged draw parts per animated node (City.cloneParts), shared by every run
 export function flatGeometry(asset, lod = 0, variant = 0) {
   if (asset.flatVariants) return asset.flatVariants[variant % asset.flatVariants.length][lod]; // procedural vegetation
   const key = asset.name + '|' + lod;
@@ -436,9 +437,10 @@ export class City {
       const a = (k / cars) * Math.PI * 2;
       this.add('bumper_car', rx + Math.cos(a) * 2.2, rz + Math.sin(a) * 2.2, r() * 6.28, { type: 'rink', cx: rx, cz: rz, R: 3.8, h: r() * 6.28, v: r.range(1.8, 2.6), t: r() * 10 });
     }
-    // the crowd: dense walkers on the promenade circle
+    // the crowd: dense walkers on the promenade circle (three kinds of people per fair keeps it to three draw calls)
+    const crowd = [r.pick(PEDS), r.pick(PEDS), r.pick(PEDS)];
     for (let k = 0; k < 12; k++) {
-      this.add(r.pick(PEDS), t.cx, t.cz, 0, { type: 'loop', cx: t.cx, cz: t.cz, R: r.range(8.6, 10.4), a: r() * 6.28, v: r.range(0.9, 1.5) * (r() < 0.5 ? 1 : -1), t: r() * 10 });
+      this.add(crowd[k % 3], t.cx, t.cz, 0, { type: 'loop', cx: t.cx, cz: t.cz, R: r.range(8.6, 10.4), a: r() * 6.28, v: r.range(0.9, 1.5) * (r() < 0.5 ? 1 : -1), t: r() * 10 });
     }
     for (let k = 0; k < 5; k++) {
       const a = r() * 6.28, d = r.range(3, 7);
@@ -680,6 +682,87 @@ export class City {
     return e;
   }
 
+  /**
+   * Draw-call budget for animated landmarks: a ferris wheel clone is 26 meshes (wheel, gondolas, cabins) and each
+   * would draw twice (colour + shadow). The clone graph stays for its AnimationMixer, but its meshes are hidden and
+   * rendered through one InstancedMesh per unique geometry per model, fed from the animated world matrices.
+   */
+  batchClones() {
+    const byKey = new Map();
+    for (const e of this.entities) {
+      if (!e.obj || e.unit || (e.mover && e.mover.type !== 'rail')) continue; // landmarks + trains (units etc. spawn later)
+      e.batched = [];
+      e.obj.updateMatrixWorld(true);
+      const parts = this.cloneParts(e.name), objs = [];
+      e.obj.traverse((o) => { objs.push(o); if (o.isMesh) o.visible = false; });
+      // one batch per part per 40 m chunk (so batches still frustum-cull); a train is one group
+      const where = e.mover ? 'train' : `${Math.floor(e.x / CHUNK)},${Math.floor(e.z / CHUNK)}`;
+      for (const part of parts) {
+        const key = `${e.name}|${part.key}|${where}`;
+        if (!byKey.has(key)) byKey.set(key, { part, items: [] });
+        byKey.get(key).items.push({ node: objs[part.node], e });
+      }
+    }
+    this.batches = [];
+    for (const { part, items } of byKey.values()) {
+      const mesh = new THREE.InstancedMesh(part.geos[0], part.mat, items.length);
+      mesh.castShadow = mesh.receiveShadow = true;
+      mesh.userData = { toyFlags: part.flags };
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      items.forEach((it, i) => { it.e.batched.push({ mesh, i, o: it.node }); mesh.setMatrixAt(i, it.node.matrixWorld); });
+      mesh.computeBoundingSphere();
+      this.group.add(mesh);
+      this.batches.push({ mesh, geos: part.geos });
+    }
+  }
+
+  /**
+   * A cloned model split into draw parts: every mesh hanging off the same node (a gondola, the wheel, the static
+   * frame) is merged into one geometry in that node's space, per LOD. Cached per model.
+   */
+  cloneParts(name) {
+    if (PART_CACHE.has(name)) return PART_CACHE.get(name);
+    const a = this.assets[name];
+    const scan = (root) => {
+      root.updateMatrixWorld(true);
+      const objs = [];
+      root.traverse((o) => objs.push(o));
+      const groups = new Map();
+      for (const o of objs) {
+        if (!o.isMesh) continue;
+        const k = `${objs.indexOf(o.parent)}|${o.material.uuid}`;
+        if (!groups.has(k)) groups.set(k, { node: objs.indexOf(o.parent), mat: o.material, flags: o.userData.toyFlags, meshes: [] });
+        groups.get(k).meshes.push(o);
+      }
+      return groups;
+    };
+    const merge = (meshes) => mergeGeometries(meshes.map((o) => {
+      const g = new THREE.BufferGeometry();
+      for (const n of ['position', 'normal', 'uv']) if (o.geometry.attributes[n]) g.setAttribute(n, o.geometry.attributes[n].clone());
+      g.setIndex(o.geometry.index ? Array.from(o.geometry.index.array) : null);
+      return g.applyMatrix4(o.matrix);
+    }));
+    const L = [a.scene, a.lod, a.lod2].map(scan);
+    const same = L.every((m) => m.size === L[0].size && [...m.keys()].every((k) => L[0].has(k)));
+    const parts = [...L[0].entries()].map(([key, g]) => ({
+      key, node: g.node, mat: g.mat, flags: g.flags,
+      geos: same ? L.map((m) => merge(m.get(key).meshes)) : [0, 1, 2].map(() => merge(g.meshes)),
+    }));
+    PART_CACHE.set(name, parts);
+    return parts;
+  }
+
+  /** Copy animated clone matrices into their batches (after the mixers have run). */
+  syncBatches() {
+    if (!this.batches) return;
+    for (const e of this.batchOwners ??= this.entities.filter((q) => q.batched?.length)) {
+      if (!e.batched.length) continue;
+      if (!e.alive || !e.obj) { for (const b of e.batched) { b.mesh.setMatrixAt(b.i, _m.makeScale(0, 0, 0)); b.mesh.instanceMatrix.needsUpdate = true; } e.batched = []; continue; }
+      e.obj.updateMatrixWorld(true);
+      for (const b of e.batched) { b.mesh.setMatrixAt(b.i, b.o.matrixWorld); b.mesh.instanceMatrix.needsUpdate = true; }
+    }
+  }
+
   remove(e) {
     e.alive = false;
     if (e.ao !== undefined && this.ao) { this.aoHide(e.ao); if (e.obj) this.aoFree.push(e.ao); e.ao = undefined; }
@@ -786,7 +869,9 @@ export class City {
       const mesh = new THREE.InstancedMesh(full, mat, g.list.length);
       mesh.castShadow = !g.ground;
       mesh.receiveShadow = true;
-      mesh.userData = { geos: [full, lod, lod2], full, tier: g.ground ? Infinity : a.meta.tier, ground: !!g.ground, roams: g.roams, list: g.reserve ? g.list : null, toyFlags: a.flags };
+      // list: groups whose members can all be asleep or gone (snack reserves, dormant event crowds, eaten props) are
+      // skipped entirely - zero-scale instances still cost their triangles and a shadow pass
+      mesh.userData = { geos: [full, lod, lod2], full, tier: g.ground ? Infinity : a.meta.tier, ground: !!g.ground, roams: g.roams, list: g.ground ? null : g.list, toyFlags: a.flags };
       g.list.forEach((e, i) => { e.mesh = mesh; e.index = i; this.place(e); });
       mesh.instanceMatrix.setUsage(g.mover ? THREE.DynamicDrawUsage : THREE.StaticDrawUsage);
       if (g.roams) mesh.frustumCulled = false;
@@ -797,6 +882,7 @@ export class City {
       this.meshes.push(mesh);
       this.group.add(mesh);
     }
+    this.batchClones();
     this.buildScenery();
     // what the grass mask pass rasterises (src/grass.js)
     const lawnMask = groundMaskMaterial(0, 1);
@@ -881,6 +967,15 @@ export class City {
   /** Per-frame render budget: LOD by distance, drop shadows and hide what is too small to see. */
   budget(camera, holeR, lowSpec = false) {
     const near = lowSpec ? -1 : LOD_DIST[0]; // low-spec devices never draw LOD0
+    // batched landmarks: LOD and shadows by distance like the chunks; bounds refit now and then (they spin, trains move)
+    const refit = (this.batchT = (this.batchT || 0) + 1) % 15 === 1;
+    for (const b of this.batches || []) {
+      const m = b.mesh;
+      if (refit) m.computeBoundingSphere();
+      const d = camera.position.distanceTo(m.boundingSphere.center) - m.boundingSphere.radius;
+      m.geometry = b.geos[d > LOD_DIST[1] ? 2 : d > near ? 1 : 0];
+      m.castShadow = d < 35;
+    }
     for (const m of this.meshes) {
       const u = m.userData;
       if (u.ground) { m.geometry = u.full; continue; }
@@ -890,7 +985,7 @@ export class City {
         m.castShadow = d < 35;
         continue;
       }
-      m.visible = u.tier >= holeR * 0.03 && (!u.list || u.list.some((e) => e.alive)); // idle reserve pools cost nothing
+      m.visible = u.tier >= holeR * 0.03 && (!u.list || u.list.some((e) => e.alive)); // idle pools and eaten groups cost nothing
       m.castShadow = u.tier >= holeR * 0.12;
       // roaming traffic spans the whole city, so it can't be distance-LOD'd per instance: mid detail, low when zoomed out
       const d = u.roams ? (holeR > 4 ? 999 : 30) : camera.position.distanceTo(m.boundingSphere.center) - m.boundingSphere.radius;
@@ -902,6 +997,7 @@ export class City {
 
   dispose() {
     for (const m of this.meshes) m.dispose();
+    for (const b of this.batches || []) b.mesh.dispose();
     this.clouds.dispose();
     this.ao.dispose();
     this.ao.material.dispose();

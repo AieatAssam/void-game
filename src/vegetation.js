@@ -174,8 +174,8 @@ export function growTree(seed, kind, height, crownR, detail = 0) {
       branchEnds.push(...bp.slice(2));
     }
     // roots: below the ground, so the ground-cut shader only shows them inside a hole ("roots too wide")
-    if (detail < 2) {
-      const nr = detail ? 4 : 6;
+    if (detail === 0) { // only the full-detail model: roots matter right under the hole, never in the distance
+      const nr = 5;
       for (let k = 0; k < nr; k++) {
         const a = (k / nr) * Math.PI * 2 + rng() * 0.8;
         const reach = crownR * (0.75 + rng() * 0.45) * (pine ? 0.8 : 1);

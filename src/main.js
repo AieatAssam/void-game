@@ -199,7 +199,7 @@ setLoad('Opening the ground…', 0.98);
 await nextPaint();
 $('load').hidden = true;
 $('menu').hidden = false;
-window.__game = () => ({ hole, city, state, renderer, director, rivals, events, chains, powerups });
+window.__game = () => ({ hole, city, state, renderer, director, rivals, events, chains, powerups, camera, scene });
 window.__abil = () => abilities;
 window.__info = () => { const r = renderer.info.render; return { calls: r.drawCalls, tris: r.triangles, frameCalls: r.frameCalls }; };
 if (location.search.includes('bot')) installBot();
@@ -963,6 +963,7 @@ function frame(dt) {
       (Math.random() - 0.5) * 0.2, 0.3 * k, 0.7 * k, 2.6 * Math.sqrt(k), smokeCol.set(c), 0.4 + 0.1 * (k - 1));
   }
   city.mixers.forEach((m) => m.update(dt));
+  city.syncBatches();
   hole.update(dt, state.time, Math.max(0, 0.5 - state.belly) * 2, city.groundSpan(hole.x, hole.z, hole.r));
 
   // camera: pull back as the hole grows

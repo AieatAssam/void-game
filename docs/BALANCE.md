@@ -60,3 +60,12 @@ seed roll), so this compares distributions, not seeds.
 
 Clears get a little faster (capsules, drummer/runner conveyors, chain reactions knocking food loose) and a greedy
 hole that over-heats dies a bit more often (fireworks notoriety, capsule detours). Nothing clears under 2:45.
+
+## M7 — abilities used greedily (`&abil=quake,dash`, both slots; commit 30a5467, Quake cooldown 25 s)
+
+| seeds | clears | clear times | open at 7:00 |
+|---|---|---|---|
+| 777, 11, 23, 42, 99, 2024, 5, 8, 13, 31, 64, 101 | 8/12 | 2:41–4:18 (median ≈ 3:19) | 4 |
+
+Abilities shave ~20 s off a typical clear. Seed 99 (a Railway Town that already clears at 2:42–2:47 without abilities)
+dipped to 2:41, so Quake's cooldown went 25 → 30 s. Every other clear is 3:00 or slower.

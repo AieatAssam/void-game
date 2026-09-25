@@ -72,7 +72,19 @@ Measured before: greedy bot cleared a city in 96 s and a win paid ~38,000 dust (
 - **Adversity:** notoriety heat, evacuation at ★2+, rising hunger over the run, wet concrete patches, cravings with a missed-craving penalty.
 - **Result:** greedy bot clears in ~3.5-4 min on most seeds and can die; careless bot dies.
 
-## Stage 11 — Variety pack (in progress on `feature/variety-pack`)
-Models first (done, 38 in `public/models/packs.json`), then systems + AAA pass — see [HANDOVER.md](HANDOVER.md).
-City events, fairground / airport / railway / county-fair districts, chain reactions, power-ups, star challenges,
-city progression, hole abilities, weekly mutators.
+## Stage 11 — Variety pack ✅
+38 new models in `public/models/packs.json` (Blender scripts + LODs), integrated per [HANDOVER.md](HANDOVER.md):
+- **Pack loading:** `loadPack()` per city behind the staged loader, shaders precompiled, next city preloaded on the results screen.
+- **Districts + moods:** Fun Fair, Airport City, Railway Town, County Fair (train with station stops and level crossings,
+  taxiing airliner, baggage trains, bumper cars, tractors, tree roots under the ground).
+- **City events:** parade, marathon, car show, UFO — one per run, warned 5 s ahead with an edge arrow.
+- **Chain reactions:** gas-station blast, fireworks (GPU particles), water-tower flood, building dominoes, burst water mains.
+- **Power-ups:** magnet, ghost, split, surge; rivals chase capsules too.
+- **Progression:** ten cities unlocked in order, 30 star challenges, star skins, a second ability slot at 10 stars.
+- **Abilities:** Quake, Vortex Burst, Dash (shop, cooldown HUD, touch buttons).
+- **Weekly mutators:** low gravity, everything is ducks, miniature, night shift, rush hour.
+- **AAA pass:** polished metals, glass interiors, ground POM, fabric sheen/flutter/translucency, light chases, per-preset LUTs,
+  light shafts, cavity term, per-instance jitter.
+- **Balance:** docs/BALANCE.md (baseline, per-mood, A/B, abilities). No-dead-end rules hold: blasts, floods and events never hurt
+  or wall off the player, capsules never block, parade floats pass through traffic and are edible.
+Model notes and design deviations: [HANDOVER-FEEDBACK.md](HANDOVER-FEEDBACK.md).
