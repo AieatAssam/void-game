@@ -197,7 +197,7 @@ export class City {
       this.solids.push({ x, z, r: rr });
     }
     if (mover) mover.t ??= 0;
-    this.entities.push({ name, meta, x, z, y: 0, rot, tilt: 0, tiltDir: 0, s: 1, gs: this.scaleK, alive: true, falling: false, vy: 0, mover });
+    this.entities.push({ name, meta, x, z, y: 0, rot, tilt: 0, tiltDir: 0, s: 1, gs: this.scaleK, alive: true, falling: false, vy: 0, mover, grounded: true });
     if (this.scaleK !== 1 && !this.twinning && !BUILDINGS.has(name)) this.twin(name, x, z, rot, mover);
   }
 
@@ -669,7 +669,7 @@ export class City {
   /** Spawn a cloned, animated entity (units, barricades, plugs). */
   spawn(name, x, z, rot = 0, extra = {}) {
     const a = this.assets[name];
-    const e = { name, meta: a.meta, x, z, y: 0, rot, tilt: 0, tiltDir: 0, s: 1, alive: true, falling: false, vy: 0, mover: null, ...extra };
+    const e = { name, meta: a.meta, x, z, y: 0, rot, tilt: 0, tiltDir: 0, s: 1, alive: true, falling: false, vy: 0, mover: null, grounded: true, ...extra };
     e.obj = a.scene.clone();
     this.group.add(e.obj);
     e.actions = {};
@@ -1167,7 +1167,8 @@ export class City {
       _ax.set(-Math.sin(e.tiltDir), 0, Math.cos(e.tiltDir));
       _q.premultiply(_qt.setFromAxisAngle(_ax, e.tilt));
     }
-    _p.set(e.x, e.y, e.z);
+    // city entities stand on the local surface: blocks and sidewalks are 0.18 m above the road (e.y is relative to it)
+    _p.set(e.x, e.y + (e.grounded ? this.groundY(e.x, e.z) : 0), e.z);
     _s.setScalar(e.s * (e.gs || 1));
     if (e.obj) {
       e.obj.position.copy(_p);
