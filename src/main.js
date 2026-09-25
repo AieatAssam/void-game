@@ -221,6 +221,13 @@ canvas.addEventListener('pointermove', (e) => {
 addEventListener('pointerup', () => { input.drag = null; });
 canvas.addEventListener('pointerleave', () => { input.mouse = null; });
 
+/**
+ * Steering. Mouse = "go here": the hole arrives at the ground point under the cursor and settles there (speed eases
+ * off inside a few metres, stops inside its own rim), and if something it can swallow is near that point the aim
+ * snaps onto it. Distances are in world metres, so it feels the same at every zoom. Keys and touch-drag are a
+ * joystick with a gentle bend toward edible things just ahead.
+ */
+const _ray = new THREE.Raycaster(), _ndc = new THREE.Vector2(), _ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), _hit = new THREE.Vector3();
 function steer() {
   let x = 0, z = 0;
   const k = input.keys;
@@ -228,18 +235,90 @@ function steer() {
   if (k.has('d') || k.has('arrowright')) x += 1;
   if (k.has('w') || k.has('arrowup')) z -= 1;
   if (k.has('s') || k.has('arrowdown')) z += 1;
-  let v = input.drag ? { x: input.drag.dx, y: input.drag.dy } : input.mouse;
-  if (v && !input.drag) { // mouse: steer from where the hole is drawn, not the screen centre (the camera trails a little)
-    _v.set(hole.x, 0, hole.z).project(camera);
-    v = { x: v.x - _v.x * innerWidth / 2, y: v.y + _v.y * innerHeight / 2 };
-  }
-  if (!x && !z && v) {
-    const full = Math.min(innerWidth, innerHeight) * 0.16, len = Math.hypot(v.x, v.y);
-    if (len > 8) { const m = Math.min(1, len / full) / len; x = v.x * m; z = v.y * m; }
+  aim.visible = false;
+  if (!x && !z && input.mouse && !input.drag) {
+    // where on the ground the cursor points
+    _ndc.set(input.mouse.x / (innerWidth / 2), -input.mouse.y / (innerHeight / 2));
+    _ray.setFromCamera(_ndc, camera);
+    if (_ray.ray.intersectPlane(_ground, _hit)) {
+      let tx = _hit.x, tz = _hit.z;
+      const snap = aimTarget(tx, tz, Math.max(1.2, hole.r * 0.9));
+      if (snap) { tx = snap.x; tz = snap.z; }
+      const dx = tx - hole.x, dz = tz - hole.z, d = Math.hypot(dx, dz);
+      // a locked target (often running away) is chased at full speed right onto it; bare ground eases in and parks
+      const dead = snap ? 0 : hole.r * 0.35, ease = snap ? 0.4 : Math.max(2.5, hole.r * 2.2);
+      const f = THREE.MathUtils.clamp((d - dead) / ease, 0, 1);
+      if (d > 1e-3) { x = (dx / d) * f; z = (dz / d) * f; }
+      showAim(tx, tz, snap);
+    }
+  } else {
+    const v = input.drag ? { x: input.drag.dx, y: input.drag.dy } : null;
+    if (!x && !z && v) {
+      const full = Math.min(innerWidth, innerHeight) * 0.22, len = Math.hypot(v.x, v.y);
+      if (len > 10) { const m = Math.min(1, (len - 10) / full) / len; x = v.x * m; z = v.y * m; }
+    }
+    // joystick assist: bend a little toward the best edible thing just ahead
+    const len0 = Math.hypot(x, z);
+    if (len0 > 0.2) {
+      const best = aimAhead(x / len0, z / len0);
+      if (best) {
+        const bx = best.x - hole.x, bz = best.z - hole.z, bl = Math.hypot(bx, bz) || 1;
+        x = x * 0.65 + (bx / bl) * len0 * 0.35;
+        z = z * 0.65 + (bz / bl) * len0 * 0.35;
+      }
+    }
   }
   const len = Math.hypot(x, z);
   if (len > 1) { x /= len; z /= len; }
   return state.reverse > 0 ? [-x, -z] : [x, z];
+}
+
+/** Can the player's hole swallow this right now (fits, not poison, not airborne, not a capsule)? */
+const edibleNow = (e) => e.alive && !e.falling && !e.flying && !e.noSwallow && e.meta.kind !== 'poison' && e.meta.kind !== 'tile'
+  && e.meta.tier < hole.r * 0.95 && e.meta.tier > hole.r * 0.04;
+
+/** The biggest edible thing within `R` of a ground point (bigger meals win ties of distance). */
+function aimTarget(px, pz, R) {
+  let best = null, score = 0;
+  for (const e of city.entities) {
+    const dx = e.x - px, dz = e.z - pz;
+    if (dx > R + 3 || dx < -R - 3 || dz > R + 3 || dz < -R - 3) continue;
+    const reach = R + e.meta.tier * 0.8, d2 = dx * dx + dz * dz;
+    if (d2 > reach * reach || !edibleNow(e)) continue;
+    const s = (e.meta.tier + 0.2) / (Math.sqrt(d2) + 0.5);
+    if (s > score) { score = s; best = e; }
+  }
+  return best;
+}
+
+/** Joystick assist: the best edible thing inside a 35 degree cone ahead, within a few radii. */
+function aimAhead(ux, uz) {
+  let best = null, score = 0;
+  const R = hole.r * 3 + 3;
+  for (const e of city.entities) {
+    const dx = e.x - hole.x, dz = e.z - hole.z;
+    if (dx > R || dx < -R || dz > R || dz < -R) continue;
+    const d = Math.hypot(dx, dz);
+    if (d > R || d < 0.1 || (dx * ux + dz * uz) / d < 0.82 || !edibleNow(e)) continue;
+    const s = (e.meta.tier + 0.2) / (d + 1);
+    if (s > score) { score = s; best = e; }
+  }
+  return best;
+}
+
+// a soft ring on the ground where the mouse is steering (brighter when it has locked onto something edible)
+const aim = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 48).rotateX(-Math.PI / 2),
+  new THREE.MeshBasicMaterial({ color: 0xb58cff, transparent: true, opacity: 0.5, depthWrite: false, depthTest: false }));
+aim.renderOrder = 9;
+aim.visible = false;
+scene.add(aim);
+function showAim(x, z, snap) {
+  if (!state.playing) return;
+  aim.visible = true;
+  aim.position.set(x, 0.3, z);
+  aim.scale.setScalar(snap ? Math.max(0.5, snap.meta.tier * 1.1) : Math.max(0.35, hole.r * 0.3));
+  aim.material.opacity = snap ? 0.75 : 0.3;
+  aim.material.color.set(snap ? 0xffd166 : 0xb58cff);
 }
 
 // ---------- HUD ----------

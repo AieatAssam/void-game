@@ -1359,6 +1359,18 @@ export class City {
         this.place(e);
       }
       if (e.noSwallow) continue;
+      // forgiving rim: something the player can swallow that overlaps the rim is drawn in toward the middle
+      // (never poison, never things too big; static props and strollers only, traffic still has to be caught)
+      if (!jammed && !hole.hidden && !e.flying && e.meta.kind !== 'poison' && tier0 < hole.r * 0.95 && (!m || m.type === 'walk' || m.type === 'wander' || m.type === 'peck' || m.type === 'loop')) {
+        const rdx = hole.x - e.x, rdz = hole.z - e.z, rd = Math.hypot(rdx, rdz), edge = hole.r * (hole.pull || 1) + tier0 * 0.7;
+        if (rd < edge && rd > 1e-3) {
+          const step = Math.min(rd, (1.5 + hole.r * 1.6) * dt);
+          e.x += (rdx / rd) * step;
+          e.z += (rdz / rd) * step;
+          if (m && m.type !== 'wander' && m.type !== 'peck') e.mover = { type: 'wander', h: e.rot, v: 1.2, t: m.t };
+          this.place(e);
+        }
+      }
       // clog: a vehicle a bit too big rolls over the middle of the hole and wedges in
       if (!jammed && (m?.type === 'drive' || m?.type === 'wander') && !e.clogCool && e.meta.tier >= hole.r * 0.95 && e.meta.tier < hole.r * 1.4
         && (e.x - hole.x) ** 2 + (e.z - hole.z) ** 2 < (hole.r * 0.5) ** 2) {
@@ -1373,7 +1385,8 @@ export class City {
         const q = holes[h];
         if (q.hidden || (h === 0 && jammed) || (e.flying && q.r < tier * 1.6)) continue;
         const dx = e.x - q.x, dz = e.z - q.z;
-        if (tier < q.r * 0.95 && dx * dx + dz * dz < (q.r * (q.pull || 1) - tier * 0.5) ** 2) {
+        // fits, and its centre is well inside the rim (a quarter of its footprint may still overhang)
+        if (tier < q.r * 0.95 && dx * dx + dz * dz < (q.r * (q.pull || 1) - tier * 0.25) ** 2) {
           e.falling = true;
           e.eater = q;
           this.events.push({ type: 'fall', e });
