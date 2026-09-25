@@ -301,7 +301,14 @@ export function treeMaterials(kind, height) {
     const b = barkMaterial(), l = leafMaterial(...LEAVES[kind]);
     applyWind(b, height);
     applyWind(l, height);
-    matCache.set(key, [b, l]);
+    // Shadow caster: one material for bark and leaves (leaf cards are the vertices with aWind.y > 0). three.js keys a
+    // shadow render object by object, not by group, so a two-material mesh recompiles its shadow shader every frame.
+    const s = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide, alphaTest: 0.45 });
+    s.colorNode = vec4(1, 1, 1, attribute('aWind', 'vec3').y.greaterThan(0).select(texture(tex(`${LEAVES[kind][0]}_col.png`, true), uv()).a, 1));
+    applyWind(s, height);
+    const pair = [b, l];
+    pair.shadow = s;
+    matCache.set(key, pair);
   }
   return matCache.get(key);
 }

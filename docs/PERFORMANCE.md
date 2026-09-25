@@ -24,11 +24,28 @@ where the browser supports them), so you can see whether a frame is CPU- or GPU-
 | **Static shadow caching** (render the shadow map only when something moves). | Open, and hard here: the sun's shadow box follows the camera and traffic moves every frame. A split static/dynamic shadow map is possible but not in three.js out of the box. |
 | **Impostors for distant models.** | Not needed: the far LOD is already ~8% of the triangles, and the camera never sees far across the map. |
 
+## Real-device pass (Apple Silicon Mac, WebGPU, Chrome)
+
+Measured in a real browser on Apple GPU (same tile-based family as the iPad) with `?bot&fps&nowatch&seed=4242`,
+steady state after 12 s of play, dev and production builds. Two fixes, one open item:
+
+| Finding | Fix | Result |
+|---|---|---|
+| **Shadow shaders recompiled every frame (CPU).** three.js keys a shadow-pass render object by *object*, not by geometry group. The tree meshes draw two groups (bark, leaves) with different wind `positionNode`/alpha/side, so the one shared shadow override material flip-flopped between them and its node shader was rebuilt twice per tree per frame: ~6 `NodeBuilder.build` a frame, a third of all main-thread time. | Trees cast through a shadow stand-in (the existing `shadowProxies`) with **one** material for bark and leaves (`vegetation.js`, leaf cards are `aWind.y > 0`), at the LOD they are drawn at. Rule: never let a multi-material mesh cast shadows directly. | render submit 9–17 ms → ~4 ms per frame |
+| **Denoised AO evaluated three times at full res (GPU).** `denoise()` is not a pass: it is inlined (16 depth-aware taps) wherever its result is read, and `lit` fed bloom's input, the light-shaft source and the composite. The shafts also ran a 24-tap radial blur per full-res pixel. | `lit` is baked to a texture once (`convertToTexture`); shaft source and blur run at half res (`post.js`). No visible change (same-frame A/B). | high tier 48 → 58 fps; frames over 20 ms 30% → 3.5% |
+| **First-sight shader builds (open).** three.js puts `object.uuid` in the shader cache key of every `InstancedMesh` (its instancing nodes bind per-object buffers), so each chunk mesh builds its own ~10–30 ms shader the first time it's drawn. Growth reveals new chunks, so the first minute stutters (20–30 frames of 50–130 ms per 25 s at a 1 m hole); steady state has none. | Tried and rejected: warming every mesh at load (~40 s), a wide-frustum `compileAsync` lookahead and nearest-first async prewarm (both *more* long frames: the async compiler still runs on the main thread and warms meshes that are never seen). The real fix is fewer `InstancedMesh` objects: bigger chunks per model, or `BatchedMesh` per material. | — |
+
+Other readings: low tier holds 60 fps (vsync) on this Mac; late game (hole ≈ 9 m) holds 60 with a handful of
+slow frames; grass costs little. The "Multiple instances of Three.js" warning is dev-server only (Vite pre-bundling);
+the production build loads one copy. The overlay's GPU ms is not trustworthy on this setup (it reads 30–90 ms while
+holding 60 fps): judge GPU headroom by fps with features toggled (`?noao`, `?noshafts`, `?grass=0`, `?q=`).
+
 ## Measuring on the target machine
 
 - `?fps`: frame rate, CPU split (game logic / render submission), GPU time, draws, triangles, tier, dynamic-resolution steps.
 - `?nowatch`: turns off the automatic quality fallback, so the numbers you see are for the tier you picked.
 - `?q=high|medium|low`: pick the tier.
+- `?noao`, `?noshafts`, `?nopost`, `?grass=0`, `?off=pom,cav,...`: switch single features off to find the cost.
 
 If the overlay's GPU time is close to the frame time, the GPU is the limit: try `?grass=0` and `?off=pom` to see
 which feature costs most. If CPU time is close, it's the game logic or draw submission: compare the two CPU numbers.

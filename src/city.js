@@ -1151,18 +1151,20 @@ export class City {
     if (!p) { m.castShadow = cast; return; }
     m.castShadow = false;
     p.visible = cast;
-    if (cast) p.geometry = geos[Math.max(1, lod)];
+    if (cast) p.geometry = geos[p.userData.sameLod ? lod : Math.max(1, lod)];
   }
 
   /**
    * Shadow-only stand-ins: an InstancedMesh per group on SHADOW_LAYER that shares the group's instance matrices (one
-   * buffer, no copies) so the shadow pass can use a coarser LOD than the view. Trees and bushes keep casting from
-   * their own geometry (leaf-card shadows would thin out).
+   * buffer, no copies) so the shadow pass can use a coarser LOD than the view. Trees and bushes cast from the LOD
+   * they are drawn at (leaf-card shadows would thin out), through their single shadow material (vegetation.js).
    */
   shadowProxies() {
     const make = (m, geos) => {
-      if (Array.isArray(m.material) || !geos || geos[0] === geos[1]) return;
-      const p = new THREE.InstancedMesh(geos[1], m.material, m.count);
+      const tree = Array.isArray(m.material);
+      if ((tree && !m.material.shadow) || !geos || geos[0] === geos[1]) return;
+      const p = new THREE.InstancedMesh(geos[1], tree ? m.material.shadow : m.material, m.count);
+      p.userData.sameLod = tree;
       p.instanceMatrix = m.instanceMatrix;
       p.count = m.count;
       p.layers.set(SHADOW_LAYER);
@@ -1171,7 +1173,7 @@ export class City {
       p.frustumCulled = m.frustumCulled;
       if (!m.boundingSphere) m.computeBoundingSphere();
       p.boundingSphere = m.boundingSphere;
-      p.userData = { toyFlags: m.userData.toyFlags };
+      p.userData.toyFlags = m.userData.toyFlags;
       p.visible = false;
       m.userData.proxy = p;
       this.group.add(p);

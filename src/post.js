@@ -73,6 +73,8 @@ export class Post {
     this.aoPass?.dispose?.();
     this.bloomPass?.dispose?.();
     this.aoPass = this.bloomPass = null;
+    for (const t of this.rtts || []) t.dispose();
+    this.rtts = [];
     const color = scenePass.getTextureNode('output');
     let lit = color.rgb;
     if (opts.ao) {
@@ -88,6 +90,11 @@ export class Post {
       const aoDenoised = denoise(aoPass.getTextureNode(), depth, null, camera);
       aoDenoised.radius.value = 4;
       lit = lit.mul(mix(float(1), pow(aoDenoised.r, 1.6), 0.9));
+      // the denoise is inline (16 depth-aware taps per pixel), and bloom, shafts and the composite each evaluate
+      // `lit` at full res: bake it once so they all read a texture
+      const litTex = convertToTexture(vec4(lit, 1));
+      this.rtts.push(litTex);
+      lit = litTex.rgb;
     }
     let hdr = lit;
     if (opts.bloom) {
@@ -101,7 +108,11 @@ export class Post {
       const depth = scenePass.getTextureNode('depth');
       const hot = smoothstep(0.9, 2.2, luminance(lit.mul(toneMappingExposure))).add(step(0.99995, depth.r));
       const src = vec4(lit.mul(hot).min(vec3(4)), 1);
-      const rays = radialBlur(src, { center: this.sunUV, weight: 0.85, decay: 0.955, count: 24, exposure: 1.6 });
+      // source and 24-tap blur both at half res: the rays are soft, and at full res this was a GPU hotspot
+      const half = { resolutionScale: 0.5 };
+      const raySrc = convertToTexture(src, null, null, half);
+      const rays = convertToTexture(radialBlur(raySrc, { center: this.sunUV, weight: 0.85, decay: 0.955, count: 24, exposure: 1.6 }), null, null, half);
+      this.rtts.push(raySrc, rays);
       hdr = hdr.add(rays.rgb.mul(sunCol).mul(this.shaftK));
     }
     // grade in scene-linear: per-time white balance, a touch more saturation (ACES desaturates brights)
