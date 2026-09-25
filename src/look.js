@@ -33,7 +33,8 @@ if (typeof location !== 'undefined' && location.search.includes('trace')) THREE.
 export async function createRenderer(canvas) {
   const forceGL = typeof location !== 'undefined' && location.search.includes('webgl');
   const renderer = new THREE.WebGPURenderer({ canvas, antialias: false, powerPreference: 'high-performance', forceWebGL: forceGL });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, Q.dpr));
+  // start a notch under the tier's ceiling: post.js's dynamic resolution climbs back up if frames hold 60
+  renderer.setPixelRatio(Math.min(devicePixelRatio, Q.dpr, 1.5));
   // Unreal-style filmic curve: rich toe, soft highlight shoulder. AgX was evaluated per time of day (?tone=agx):
   // it greys out the saturated toy paint in the brights, so ACES stays for every preset (the LUTs do the rest).
   const agx = typeof location !== 'undefined' && location.search.includes('tone=agx');

@@ -38,6 +38,7 @@ import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import { Q } from './quality.js';
 
 const _sp = new THREE.Vector3();
+const NOWATCH = typeof location !== 'undefined' && location.search.includes('nowatch'); // profiling: hold the tier as set
 
 export class Post {
   constructor(renderer, scene, camera) {
@@ -135,27 +136,47 @@ export class Post {
    * Watch the frame rate while playing and shed the least visible cost first, one notch per slow stretch:
    * resolution -> AO resolution -> grass density / LOD0 -> AO -> bloom. Stops once it holds 45+ fps.
    */
-  watch(dt) {
-    if (!this.enabled || this.settled) return;
+  watch() {
+    if (!this.enabled || NOWATCH) return;
+    // real frame time (the game's dt is clamped and slowed by hit-stop, so it can't be trusted for this)
+    const now = performance.now(), ft = this.lastT ? now - this.lastT : 16.7;
+    this.lastT = now;
+    if (ft > 250) return; // a hitch (tab switch, pack download): not a verdict on the GPU
     this.frames++;
-    this.time += dt;
-    if (this.time < 4) return;
+    this.time += ft / 1000;
+    if (this.time < 1) return;
     const fps = this.frames / this.time;
     this.frames = this.time = 0;
     this.fps = fps;
-    if (fps >= 45) { if (++this.good >= 3) this.settled = true; return; }
-    this.good = 0;
-    const r = this.renderer, o = this.opts;
-    let step;
-    if (r.getPixelRatio() > 1) { r.setPixelRatio(Math.max(1, r.getPixelRatio() - 0.5)); step = `resolution ${r.getPixelRatio()}x`; }
-    else if (o.ao && o.aoRes > 0.3) { o.aoRes = 0.3; o.aoSamples = 6; step = 'AO 0.3x'; }
-    else if (!this.lowSpec) { this.lowSpec = true; step = 'half grass, no LOD0'; }
-    else if (o.ao) { o.ao = false; step = 'AO off'; }
-    else if (o.bloom) { o.bloom = false; step = 'bloom off'; }
-    else { this.settled = true; return; }
-    this.steps = [...(this.steps || []), step];
-    console.info(`low fps (${fps.toFixed(0)}): ${step}`);
-    if (step.startsWith('AO') || step.startsWith('bloom')) this.build();
+    const r = this.renderer, o = this.opts, pr = r.getPixelRatio();
+    // Dynamic resolution first: trim the render scale in small steps until frames hold ~60, and give it back when
+    // there is headroom. Only below the resolution floor do whole features go, least visible first.
+    const maxPR = Math.min(devicePixelRatio, Q.dpr), minPR = Math.min(maxPR, Math.max(0.75, maxPR * 0.5));
+    if (fps < 52) {
+      this.good = 0;
+      if (pr > minPR + 0.01) {
+        r.setPixelRatio(Math.max(minPR, pr * (fps < 35 ? 0.8 : 0.9)));
+        this.scaled = true;
+        return;
+      }
+      if ((this.cool = (this.cool || 0) - 1) > 0) return; // one feature step per 3 s at most
+      this.cool = 3;
+      let step;
+      if (o.shafts) { o.shafts = false; step = 'shafts off'; }
+      else if (o.ao && o.aoRes > 0.3) { o.aoRes = 0.3; o.aoSamples = 6; step = 'AO 0.3x'; }
+      else if (!this.lowSpec) { this.lowSpec = true; step = 'half grass, no LOD0'; }
+      else if (o.ao) { o.ao = false; step = 'AO off'; }
+      else if (o.bloom) { o.bloom = false; step = 'bloom off'; }
+      else return;
+      this.steps = [...(this.steps || []), step];
+      console.info(`low fps (${fps.toFixed(0)}): ${step}`);
+      if (step !== 'half grass, no LOD0') this.build();
+      return;
+    }
+    if (fps >= 57 && pr < maxPR - 0.01 && ++this.good >= 3) { // steady: take some sharpness back
+      this.good = 0;
+      r.setPixelRatio(Math.min(maxPR, pr + 0.1));
+    }
   }
 
   /** New time of day: bake its LUT and set its shaft strength. */

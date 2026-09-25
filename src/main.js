@@ -179,7 +179,8 @@ function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null, 
     city.revive(r.pick([...PEOPLE, 'pigeon']), hole.x + Math.cos(b) * d, hole.z + Math.sin(b) * d, hole.x, hole.z);
   }
   $('where').textContent = `${city.mood.name} · ${city.N}×${city.N} blocks · ${time}${mutator ? ` · ${MUTATORS[mutator].icon} ${MUTATORS[mutator].name}` : ''}`;
-  grass = new Grass(renderer, city.groundMeshes, city.half + 80, field, { density: +(new URLSearchParams(location.search).get('grass') ?? Q.grass), far: Q.grassFar });
+  grass = new Grass(renderer, city.groundMeshes, city.half + 80, field, { density: +(new URLSearchParams(location.search).get('grass') ?? Q.grass), far: Q.grassFar,
+    lawns: city.tiles.filter((t) => t.type === 'park').map((t) => [t.cx, t.cz]) });
   scene.add(city.group, hole.group, grass.group);
   state = { playing: false, seed, daily, card, time: 0, belly: 1, eaten: 0, score: 0, best: hole.r, stars: 0,
     reverse: 0, jam: 0, slow: 0, invuln: 0, shake: 0, sealing: 0, hits: [], left: city.buildingsLeft(), combo: 0, comboT: 0, bonus: 0,
@@ -200,7 +201,7 @@ setLoad('Opening the ground…', 0.98);
 await nextPaint();
 $('load').hidden = true;
 $('menu').hidden = false;
-window.__game = () => ({ hole, city, state, renderer, director, rivals, events, chains, powerups, camera, scene });
+window.__game = () => ({ hole, city, state, renderer, director, rivals, events, chains, powerups, camera, scene, grass });
 window.__abil = () => abilities;
 window.__info = () => { const r = renderer.info.render; return { calls: r.drawCalls, tris: r.triangles, frameCalls: r.frameCalls }; };
 if (location.search.includes('bot')) installBot();
@@ -1069,7 +1070,7 @@ function frame(dt) {
   city.budget(camera, hole.r, low);
   followSun(sun, camTarget);
   city.shadowCam = sun.shadow.camera; // the batched landmarks pack only what the shadow map can see
-  grass.update(camTarget, camDist / LENS, low);
+  grass.update(camTarget, camDist / LENS, low, camera);
   setFogRange(camDist);
   const sc = sun.shadow.camera, ext = Math.max(25, (camDist / LENS) * 0.9);
   if (sc.right !== ext) { sc.left = sc.bottom = -ext; sc.right = sc.top = ext; sc.updateProjectionMatrix(); }

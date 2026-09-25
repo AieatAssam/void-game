@@ -134,7 +134,7 @@ function buildToy(mat, { ground = false, holes = null } = {}) {
   const has = info.x.greaterThanEqual(0).and(info.x.lessThan(15.5)).and(plateOK);
   const metal = orm.b.greaterThan(0.5).or(sw.equal(SW.steel).and(plateOK.not()));
   let p = ground ? positionWorld : positionGeometry;
-  if (ground && high) {
+  if (ground && high && !OFF.has('pom')) {
     // parallax occlusion on flat ground (asphalt, paving, brick, dirt, verges): 10 steps on high, faded with distance
     const flat = n.y.greaterThan(0.7).and(has).and(water.not());
     const off = pomOffset(positionWorld, layer, scale, 10, strength.mul(0.035).mul(fade));
@@ -292,7 +292,7 @@ export function pedMaterial() {
 
 /** Ground tiles: world-space detail and a cut-out wherever a hole is open. */
 export function groundMaterial(holeField) {
-  const holes = uniformArray(holeField.value, 'vec3');
+  const holes = holeField ? uniformArray(holeField.value, 'vec3') : null;
   return buildToy(new ToyNodeMaterial(), { ground: true, holes });
 }
 

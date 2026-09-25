@@ -170,7 +170,10 @@ export class City {
     this.mixers = [];
     this.dirty = new Set();
     this.holeField = holeField;
-    this.groundMat = groundMaterial(holeField);
+    this.groundMat = groundMaterial(holeField); // cuts the holes out (fragment discard)
+    // ...and the same ground without the cut, for every chunk no hole touches: a shader that can discard switches off
+    // hidden-surface removal on tile-based GPUs (Apple), and the ground covers most of the screen
+    this.groundSolid = groundMaterial(null);
     this.layout();
     this.build();
   }
@@ -1022,7 +1025,15 @@ export class City {
 
     for (const m of this.meshes) {
       const u = m.userData;
-      if (u.ground) { m.geometry = u.full; continue; }
+      if (u.ground) {
+        m.geometry = u.full;
+        // pick the cutting material only where an open hole overlaps this chunk (with a margin for its growth)
+        let cut = false;
+        const c = m.boundingSphere.center, R = m.boundingSphere.radius;
+        for (const h of this.holeField.value) if (h.z > 0 && (h.x - c.x) ** 2 + (h.y - c.z) ** 2 < (R + h.z + 2) ** 2) { cut = true; break; }
+        m.material = cut ? this.groundMat : this.groundSolid;
+        continue;
+      }
       if (u.scenery) {
         const d = camera.position.distanceTo(m.boundingSphere.center) - m.boundingSphere.radius;
         m.geometry = u.geos[lodOf(d)];
@@ -1086,6 +1097,7 @@ export class City {
     this.terrain.dispose();
     for (const mx of this.mixers) mx.stopAllAction();
     this.groundMat.dispose();
+    this.groundSolid.dispose();
   }
 
   /** Write an entity's transform to its instance slot or cloned object. */
