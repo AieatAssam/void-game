@@ -80,6 +80,8 @@ function tumble(e, vx, vz, vy, spin, city) {
 export class Chains {
   /** hooks: { shake(k), boom(), notice(n), flash(text) } */
   constructor(city, scene, debris, sparks, hooks) {
+    this.reach = 1; // perk "Chain Master": blast radius
+    this.fireNoto = 1; // ... and how much fireworks get noticed
     this.city = city;
     this.scene = scene;
     this.debris = debris;
@@ -121,6 +123,7 @@ export class Chains {
   /** A thing went down a hole (any hole). `hole` is its eater; `player` the player's hole. */
   onFall(e, hole, player) {
     const fx = e.meta.effect;
+    if (hole === player && (fx === 'blast' || fx === 'fireworks' || fx === 'flood' || e.name === 'hydrant' || e.name === 'gold_hydrant')) this.hooks.chain?.();
     if (fx === 'blast') this.blast(e, player);
     else if (fx === 'fireworks') this.fire(e);
     else if (fx === 'flood') this.floodFrom(e, player);
@@ -132,7 +135,7 @@ export class Chains {
   blast(e, player) {
     if (this.active.blast > 0) return;
     this.active.blast = 2.5;
-    const R = 12, city = this.city;
+    const R = 12 * this.reach, city = this.city;
     for (const q of city.entities) {
       if (q === e || !q.alive || q.falling) continue;
       const dx = q.x - e.x, dz = q.z - e.z, d = Math.hypot(dx, dz);
@@ -176,7 +179,7 @@ export class Chains {
       if (q.name === 'pigeon' || q.name === 'rainbow_pigeon') { if (d2 < 400) q.panic = 3; continue; }
       if (d2 < 64 && !q.mover && q.meta.tier < 3) tumble(q, 0, 0, 3.1, 0, this.city); // a 0.5 m hop
     }
-    this.hooks.notice?.(10);
+    this.hooks.notice?.(10 * this.fireNoto);
     this.hooks.flash?.('🎆 Fireworks!');
     this.hooks.crackle?.(16);
   }

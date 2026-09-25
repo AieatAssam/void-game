@@ -24,6 +24,7 @@ export class Powerups {
     this.r = rng(seed ^ 0xb005);
     this.nextT = this.r.range(45, 70);
     this.t = 0;
+    this.gapK = 1; // perks / Heat: gap between capsules
     this.items = []; // capsules on the ground
     this.active = {}; // power -> seconds left (player)
     this.twin = null;
@@ -77,7 +78,7 @@ export class Powerups {
   update(dt, player, rivals, scene, playing) {
     this.t += dt;
     if (playing && this.t >= this.nextT) {
-      this.nextT = this.t + this.r.range(45, 70);
+      this.nextT = this.t + this.r.range(45, 70) * this.gapK;
       this.spawn(player.x, player.z);
     }
     for (const p of this.items) {
@@ -110,6 +111,7 @@ export class Powerups {
 
   give(kind, player, scene) {
     this.active[kind] = POWERS[kind].T;
+    this.hooks.took?.();
     this.hooks.star?.();
     this.hooks.flash?.(`${POWERS[kind].icon} ${POWERS[kind].name}!`);
     if (kind === 'split' && !this.twin) {

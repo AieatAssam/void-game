@@ -13,6 +13,30 @@ playing. What's thin is the reason to play **the 20th run** of a city you've alr
 The recommendations below target those four gaps, ranked by *replay value per unit of work*. Each one says where it
 plugs into the existing code, so it can be scoped as a milestone.
 
+## Implemented on `feature/replayability`
+
+Research first (sources below), then the patterns that fit a 3–6 minute arcade run:
+
+| Pattern (research) | In the game | Code |
+|---|---|---|
+| **Meaningful in-run choices / agency:** a roguelite run stays fresh when the player makes build decisions *during* it, choosing from a small, seeded set (Hades boons, Slay the Spire card rewards) | **Perk drafts.** At three size-ups (benches ≈ 0.95 m, houses ≈ 4.4 m, apartments ≈ 8.6 m) the world slows to a crawl and the void offers **3 of 14 perks, pick 1** (click, or keys 1–3). Perks stack into builds: vehicle glutton, combo king, chain master, rival bane… Draws come from the run seed, so the daily/weekly city offers everyone the same choices. Taken perks show as chips on the left and on the results screen. | `src/perks.js`, `openDraft()` / `takePerk()` / `applyMods()` in `main.js` |
+| **Self-chosen, stacking difficulty for mastery** (Hades' Pact of Punishment / Heat, Slay the Spire's Ascension): experts set their own challenge and get paid for it | **Heat 1–10** per city, unlocked by clearing it. Each level adds one modifier (Hungry, Alert, Bold Rivals, Short Fuse, Lean Start, Hard Knocks, Scarce Capsules, Crowded, Wanted, Against the Clock) and +15% dust. The best Heat cleared is kept per city; each clear opens the next level. New players never see it. | `src/heat.js`, `renderHeat()` in `main.js` |
+| **Daily goals and streaks, "without shame":** short daily goals bring players back; streak multipliers reward consistency, and a freeze stops one missed day from wiping out weeks of play | **Daily contracts.** Three goals a day, the same for everyone (seeded by date), playable in any city and adding up across runs: "Swallow 20 cars", "Set off 3 chain reactions", "Clear any city in under 4:30"… Finishing one extends the **streak**, which raises contract pay by up to +70%. One freeze a week covers a missed day. | `src/contracts.js`, `renderContracts()` in `main.js` |
+| **Short sessions / "one more go"** (Hole.io's 2-minute rounds) | **Blitz 2:00.** Grow as big as you can in two minutes; best size is kept per city. | `BLITZ` in `main.js` |
+| **Variable rewards / surprise** | **Happy Hour.** In about half of runs, once, somewhere between 1:00 and 3:30: 20 s where everything grows you 50% more and combos last longer. | `happyAt` in `main.js` |
+
+Balance (bot sweep, `tools/balance.mjs`) is in docs/BALANCE.md. Test flags: `?heat=N`, `?mode=blitz`; the bot takes the
+first perk it is offered.
+
+### Sources
+
+- [What makes or breaks agency in roguelikes](https://thom.ee/blog/what-makes-or-breaks-agency-in-roguelikes/): meaningful choices from small, readable offers
+- [On roguelikes and progression systems](https://indiecator.org/2022/03/30/on-roguelikes-and-progression-systems/): in-run builds vs meta progression
+- [Pact of Punishment (Hades wiki)](https://hades.fandom.com/wiki/Pact_of_Punishment) and [Hades Heat modifiers and rewards](https://www.rpgsite.net/feature/10287-hades-pact-of-punishment-heat-modifiers-and-how-to-maximize-your-rewards): opt-in stacking difficulty with rewards
+- [Master the art of streak design](https://yukaichou.com/gamification-study/master-the-art-of-streak-design-for-short-term-engagement-and-long-term-success/), [The psychology of hot-streak game design](https://uxmag.medium.com/the-psychology-of-hot-streak-game-design-how-to-keep-players-coming-back-every-day-without-shame-3dde153f239c) and [Streaks for gamification in mobile apps](https://www.plotline.so/blog/streaks-for-gamification-in-mobile-apps): streak multipliers, freezes, no-shame resets
+- [Hole.io](https://grokipedia.com/page/Hole.io): 2-minute rounds as the genre's replay hook
+- [22 tips to increase player retention](https://www.game-developers.org/22-tips-to-increase-player-retention-in-games-the-definitive-guide): daily goals, variable rewards
+
 ## Top five (do these first)
 
 ### 1. In-run perk drafts (roguelite choices at every size-up) — highest impact

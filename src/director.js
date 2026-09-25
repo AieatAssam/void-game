@@ -68,6 +68,7 @@ export class Director {
     this.noto = 0;
     this.quietT = 0;
     this.notorietyMult = 1;
+    this.sizeK = 1; // Heat "Short Fuse": size-based stars come at a smaller size
     this.lines = Array.from({ length: city.N + 1 }, (_, k) => -city.half + k * TILE);
   }
 
@@ -79,8 +80,8 @@ export class Director {
 
   update(dt, hole, run) {
     const s = this.baseStars;
-    if (s < 4 && hole.r >= HEAT_R[s]) this.baseStars++;
-    else if (s > 0 && hole.r < HEAT_R[s - 1] * 0.75) this.baseStars--;
+    if (s < 4 && hole.r >= HEAT_R[s] * this.sizeK) this.baseStars++;
+    else if (s > 0 && hole.r < HEAT_R[s - 1] * 0.75 * this.sizeK) this.baseStars--;
     this.bonusT = Math.max(0, this.bonusT - dt);
     this.ghost = hole.ghost > 0; // Ghost power-up: notoriety frozen, units lose you, searchlights look through you
     if (!this.ghost && (this.quietT += dt) > NOTO_COOL.delay) this.noto = Math.max(0, this.noto - NOTO_COOL.rate * dt);

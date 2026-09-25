@@ -169,3 +169,29 @@ button.ghost { background: #fff8ee22; color: var(--cream); box-shadow: none; fon
 #abil .abil.ready { box-shadow: 0 3px 0 #0004, 0 0 16px var(--lilac); }
 #abil .abil.ready b { opacity: 1; }
 #shop .card.on-abil { box-shadow: 0 0 0 3px var(--lilac); }
+
+/* ---------- replayability: perk drafts, Heat, contracts, timers ---------- */
+#draft { position: fixed; inset: auto 0 12%; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; padding: 0 16px; z-index: 5; }
+#draft[hidden] { display: none; }
+#draft p { flex-basis: 100%; margin: 0; text-align: center; color: var(--butter); font-size: clamp(18px, 4vw, 26px); text-shadow: 0 2px 0 #6d4fc0, 0 0 12px #000a; }
+#draft p small { font-size: 13px; color: var(--cream); opacity: .8; }
+#draft .perk { width: min(210px, 30vw); min-width: 150px; background: #1a0f3acc; border-color: var(--lilac); cursor: pointer; animation: perkIn .35s cubic-bezier(.2, 1.4, .4, 1) both; }
+#draft .perk:nth-of-type(2) { animation-delay: .06s; }
+#draft .perk:nth-of-type(3) { animation-delay: .12s; }
+#draft .perk b { font-size: 16px; }
+#draft .perk:hover, #draft .perk:focus-visible { background: var(--cream); color: var(--ink); border-color: var(--butter); }
+@keyframes perkIn { from { opacity: 0; transform: translateY(30px) scale(.9); } }
+#perks { position: fixed; left: 12px; top: 84px; display: flex; flex-direction: column; gap: 6px; font-size: 18px; pointer-events: auto; }
+#perks span { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: #1a0f3acc; box-shadow: 0 0 0 2px var(--lilac); }
+#perks[hidden], #hud[hidden] ~ #perks { display: none; }
+#status.good { color: var(--butter); text-shadow: 0 1px 2px #000a; }
+.heat { display: grid; grid-template-columns: auto minmax(0, 360px) auto; gap: 8px; align-items: center; color: var(--cream); }
+.heat[hidden] { display: none; }
+.heat > div { display: grid; gap: 2px; font-size: 14px; }
+.heat small { font-size: 12px; opacity: .8; }
+.heat button { width: 40px; height: 40px; padding: 0; font-size: 20px; }
+.contracts { display: grid; gap: 3px; justify-items: center; font-size: 13px; color: var(--cream); text-shadow: 0 1px 2px #000a; max-width: min(92vw, 520px); }
+.contracts > small { color: var(--butter); letter-spacing: .08em; text-transform: uppercase; font-size: 11px; }
+.contracts i { font-style: normal; opacity: .9; }
+.contracts i.done { opacity: .55; text-decoration: line-through; }
+.contracts em { font-style: normal; color: var(--butter); }

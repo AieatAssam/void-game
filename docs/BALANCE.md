@@ -69,3 +69,30 @@ hole that over-heats dies a bit more often (fireworks notoriety, capsule detours
 
 Abilities shave ~20 s off a typical clear. Seed 99 (a Railway Town that already clears at 2:42–2:47 without abilities)
 dipped to 2:41, so Quake's cooldown went 25 → 30 s. Every other clear is 3:00 or slower.
+
+## Replayability pass: forgiving controls, perk drafts, Heat, Happy Hour (branch `feature/replayability`)
+
+A/B on the default 6 seeds. "Before" is f0810c4: forgiving mouse aim and rim assist are already in, no perks.
+"After" adds perk drafts at 0.95 / 4.4 / 8.6 m (the bot takes the first offer) and Happy Hour. One sloppy run that
+crashed in the parallel batch was rerun on its own.
+
+| seed | before greedy | before sloppy | after greedy | after sloppy |
+|---|---|---|---|---|
+| 777 | clear 4:11 | clear 4:41 | clear 4:05 | clear 3:41 |
+| 11 | open (r 3.3) | open (r 1.2) | clear 4:15 | died 5:55 |
+| 23 | clear 3:10 | open (r 8.6) | clear 3:04 | clear 3:34 |
+| 42 | clear 3:25 | clear 6:02 | open (r 1.4, early stall) | clear 5:04 |
+| 99 | clear 2:32 | clear 3:07 | clear 2:24 | clear 3:25 |
+| 2024 | clear 3:38 | clear 6:13 | clear 3:48 | clear 5:43 |
+
+Greedy: 5/6 before, 5/6 after, same spread. Sloppy: 4/6 → 5/6, and the sloppy clears come 30–60 s sooner. That
+is the intended direction: the brief was a more forgiving game. Seed 99 (Railway Town) was already under the 2:45
+floor before this pass (2:32), from the rim assist.
+
+**Heat 5** (Hungry + Alert + Bold Rivals + Short Fuse + Lean Start), greedy: 777 clear 3:55 · 23 clear 3:21 ·
+42 clear 6:23 · 99 clear 3:00. The bot barely notices the lower Heat levels: it doesn't plan around hunger or
+notoriety. Heat 1–5 add pressure for a human player; 6–10 (Hard Knocks, Scarce Capsules, Crowded, Wanted, Against the
+Clock) are the real gate. Dust: ×1.75 at Heat 5 (a 299-dust clear paid 521).
+
+**Blitz** (seed 11, 2:00): r 3.6, 13 dust. Blitz is for the size record and the "Grow past 6 m in a Blitz"
+contract, not for farming dust.
