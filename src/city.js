@@ -9,6 +9,7 @@ import { Terrain } from './terrain.js';
 import { planEvent } from './events.js';
 import { MAX_HOLES } from './hole.js';
 import { Collider } from './collide.js';
+import { makeEntity } from './entity.js';
 
 export const TILE = 40;
 export const SHADOW_LAYER = 1; // shadow-only stand-in meshes: the sun's shadow camera sees this layer, the view camera doesn't
@@ -201,7 +202,7 @@ export class City {
       this.solids.push({ x, z, r: rr });
     }
     if (mover) mover.t ??= 0;
-    this.entities.push({ name, meta, x, z, y: 0, rot, tilt: 0, tiltDir: 0, s: 1, gs: this.scaleK, alive: true, falling: false, vy: 0, mover, grounded: true });
+    this.entities.push(makeEntity({ name, meta, x, z, y: 0, rot, tilt: 0, tiltDir: 0, s: 1, gs: this.scaleK, alive: true, falling: false, vy: 0, mover, grounded: true }));
     if (this.scaleK !== 1 && !this.twinning && !BUILDINGS.has(name)) this.twin(name, x, z, rot, mover);
   }
 
@@ -507,8 +508,8 @@ export class City {
         const name = k ? 'carriage' : 'locomotive';
         // origins are mid-vehicle: loco+tender 13.2 m, carriages 10.3 m buffer to buffer, 0.4 m couplings
         const off = k ? 13.2 / 2 + 0.4 + 10.3 / 2 + (k - 1) * (10.3 + 0.4) : 0;
-        const e = { name, meta: this.assets[name].meta, x: 0, z, y: RAIL_Y, rot: dir > 0 ? 0 : Math.PI, tilt: 0, tiltDir: 0, s: 1, alive: true, falling: false, vy: 0,
-          mover: { type: 'rail', train, off, t: 0 } };
+        const e = makeEntity({ name, meta: this.assets[name].meta, x: 0, z, y: RAIL_Y, rot: dir > 0 ? 0 : Math.PI, tilt: 0, tiltDir: 0, s: 1, alive: true, falling: false, vy: 0,
+          mover: { type: 'rail', train, off, t: 0 } });
         train.cars.push(e);
         this.entities.push(e);
       }
@@ -702,7 +703,7 @@ export class City {
   /** Spawn a cloned, animated entity (units, barricades, plugs). */
   spawn(name, x, z, rot = 0, extra = {}) {
     const a = this.assets[name];
-    const e = { name, meta: a.meta, x, z, y: 0, rot, tilt: 0, tiltDir: 0, s: 1, alive: true, falling: false, vy: 0, mover: null, grounded: true, ...extra };
+    const e = makeEntity({ name, meta: a.meta, x, z, y: 0, rot, tilt: 0, tiltDir: 0, s: 1, alive: true, falling: false, vy: 0, mover: null, grounded: true, ...extra });
     e.obj = a.scene.clone();
     this.group.add(e.obj);
     e.actions = {};

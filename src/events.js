@@ -2,6 +2,7 @@
 // planEvent() runs during city layout (seeded) and parks the event's crowd as dormant instanced entities;
 // the Events class wakes them at 60-150 s after a 5 s warning, runs the event for 45-60 s, then sends
 // whatever is still standing away. Nothing here can hurt the player or wall off a road (PLAN.md rule 1).
+import { makeEntity } from './entity.js';
 import * as THREE from 'three/webgpu';
 import { Fn, uv, vec3, vec4, sin, smoothstep, time, mx_noise_float, uniform } from 'three/tsl';
 
@@ -59,8 +60,8 @@ function options(city) {
 /** Park an entity that the event wakes later (instanced with its kind; costs nothing while asleep). */
 function dormant(city, name, mover) {
   const a = city.assets[name];
-  const e = { name, meta: a.meta, x: 0, z: 0, y: 0, rot: 0, tilt: 0, tiltDir: 0, s: 0, alive: false, falling: false, vy: 0,
-    mover: { ...mover, t: 0, dormant: true } };
+  const e = makeEntity({ name, meta: a.meta, x: 0, z: 0, y: 0, rot: 0, tilt: 0, tiltDir: 0, s: 0, alive: false, falling: false, vy: 0,
+    mover: { ...mover, t: 0, dormant: true }, grounded: true });
   city.entities.push(e);
   return e;
 }

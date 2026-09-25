@@ -108,7 +108,10 @@ export class Hole {
 
   shockwave() { this.waveT = 0.9; }
 
-  get r() { return Math.sqrt(this.area / Math.PI); }
+  // the radius is read thousands of times a frame (every entity tests every hole): keep it cached with the area
+  get area() { return this._area; }
+  set area(v) { this._area = v; this._r = Math.sqrt(v / Math.PI); }
+  get r() { return this._r; }
 
   /** Swallowing adds a share of the object's footprint, so every tier feels the same relative bite. */
   grow(tier, mult = 1) {
