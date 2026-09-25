@@ -20,5 +20,5 @@ export function packsFor(mood) {
 /** Loading-screen line while a district's pack downloads. */
 export const PACK_LABEL = {
   fair: 'Setting up the fair…', airport: 'Clearing the runway…', rail: 'Laying the tracks…', farmfair: 'Judging the pumpkins…',
-  events: 'Planning a surprise…', chain: 'Filling the gas pumps…', powerups: 'Charging capsules…', mutators: 'Inflating ducks…',
+  events: 'Planning a surprise…', region: 'Mobilising the army…', chain: 'Filling the gas pumps…', powerups: 'Charging capsules…', mutators: 'Inflating ducks…',
 };

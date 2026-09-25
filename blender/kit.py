@@ -353,3 +353,17 @@ def tag(ob, pack, **extra):
     for k, v in extra.items():
         ob[k] = v
     return ob
+
+
+def hip_roof(name, d, w, h, loc=(0, 0, 0), color='roof_tile', bev=0.08):
+    """Hipped roof over a d (x) by w (y) footprint: four slopes up to a ridge along the longer side."""
+    if w >= d:
+        r = (w - d) / 2
+        v = [(-d / 2, -w / 2, 0), (d / 2, -w / 2, 0), (d / 2, w / 2, 0), (-d / 2, w / 2, 0), (0, -r, h), (0, r, h)]
+        f = [(0, 1, 4), (2, 3, 5), (1, 2, 5, 4), (3, 0, 4, 5), (3, 2, 1, 0)]
+    else:
+        r = (d - w) / 2
+        v = [(-d / 2, -w / 2, 0), (d / 2, -w / 2, 0), (d / 2, w / 2, 0), (-d / 2, w / 2, 0), (-r, 0, h), (r, 0, h)]
+        f = [(1, 2, 5), (3, 0, 4), (0, 1, 5, 4), (2, 3, 4, 5), (3, 2, 1, 0)]
+    ob = mesh(name, v, f, color, loc)
+    return bevel(ob, bev, 2) if bev else ob
