@@ -66,6 +66,7 @@ export class Grass {
     this.fadeCentre = uniform(new THREE.Vector2());
     this.fadeFar = uniform(40);
     this.zoomFade = uniform(1);
+    this.widen = uniform(1); // zoomed out: fewer blades, each wider, same coverage (update)
     const holes = uniformArray(holeField.value, 'vec3');
     // near ring: 60 m square in 4 m cells, dense (fine cells so lawn corners don't pay for the pavement round them);
     // far ring: 11x11 patches of 12 m minus the middle, sparse and wider
@@ -188,7 +189,7 @@ export class Grass {
       .add(facing.mul(h2.sub(0.5).mul(0.5)));
     const y = positionGeometry.y;
     const bend = y.mul(y);
-    const width = mix(0.05, 0.065, wild).mul(widthScale).mul(h1.mul(0.5).add(0.75));
+    const width = mix(0.05, 0.065, wild).mul(widthScale).mul(this.widen).mul(h1.mul(0.5).add(0.75));
     const across = vec2(facing.y.negate(), facing.x).mul(positionGeometry.x.mul(width).mul(float(1).sub(y.mul(0.85))));
     const off = lean.mul(bend).mul(bladeH);
     const topY = bladeH.mul(y).mul(float(1).sub(length(lean).mul(bend).mul(0.35)));
@@ -268,9 +269,13 @@ export class Grass {
       u.activeN = k;
       u.active.value = Math.max(1, k);
     }
+    // density LOD: pulled back, a blade is a pixel or two wide, so draw fewer and widen them to keep the coverage
+    // (instances interleave across patches, so a lower count thins every patch evenly)
+    const k = THREE.MathUtils.clamp(1 - (camDist - 30) / 48, 0.3, 1);
+    this.widen.value = 1 / Math.sqrt(k);
     for (const l of this.layers) { // slow GPUs: half the blades
       const u = l.userData;
-      l.count = Math.round(u.activeN * u.perPatch * (lowSpec ? 0.5 : 1));
+      l.count = Math.round(u.activeN * u.perPatch * (lowSpec ? 0.5 : 1) * k);
       if (!u.activeN) l.count = 0;
     }
     this.group.visible = this.zoomFade.value > 0.01;
