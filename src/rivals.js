@@ -8,6 +8,8 @@ const _v = new THREE.Vector3();
 
 export class Rivals {
   constructor(assets, field, city, scene, count, playerSkin) {
+    this.sizeK = 1; // Heat "Bold Rivals": spawn size vs the player
+    this.hungerK = 1; // perk "Rival Bane": how fast they starve
     this.city = city;
     this.scene = scene;
     this.list = [];
@@ -38,7 +40,7 @@ export class Rivals {
     const tiles = city.tiles.filter((t) => Math.hypot(t.cx - player.x, t.cz - player.z) > 60);
     const t = tiles.length ? tiles[Math.floor(Math.random() * tiles.length)] : city.tiles[0];
     const a = Math.random() * Math.PI * 2;
-    Object.assign(rv.hole, { x: t.cx + Math.cos(a) * 13.5, z: t.cz + Math.sin(a) * 13.5, area: Math.PI * Math.max(0.35, player.r * 0.7) ** 2, hidden: false }); // always start smaller than you
+    Object.assign(rv.hole, { x: t.cx + Math.cos(a) * 13.5, z: t.cz + Math.sin(a) * 13.5, area: Math.PI * Math.max(0.35, player.r * 0.7 * this.sizeK) ** 2, hidden: false }); // always start smaller than you
     rv.dead = false;
     rv.belly = 1;
   }
@@ -83,7 +85,7 @@ export class Rivals {
       h.x = THREE.MathUtils.clamp(h.x + tx * sp * dt, -lim, lim);
       h.z = THREE.MathUtils.clamp(h.z + tz * sp * dt, -lim, lim);
       // hunger, same rules as the player
-      rv.belly = Math.max(0, rv.belly - dt / 7);
+      rv.belly = Math.max(0, rv.belly - dt / 7 * this.hungerK);
       h.area *= 1 - (rv.belly > 0 ? 0.02 / (1 + h.r * 0.15) : 0.1) * dt;
       if (h.r < 0.26) { this.kill(rv); continue; }
       // contact with the player

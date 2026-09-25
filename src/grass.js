@@ -13,6 +13,7 @@ import { gust, wind } from './vegetation.js';
 
 const PATCH = 12; // metres per patch
 const MASK_RES = 2048;
+const COVER_RES = 512; // CPU copy of the mask (about 1 m per texel): which patches have any grass at all
 
 /** A tapered blade: 4 levels, y 0..1 along the blade, x -0.5..0.5 across. */
 function bladeGeometry() {
@@ -38,33 +39,75 @@ function bladeGeometry() {
   return g;
 }
 
+const _frustum = new THREE.Frustum(), _box = new THREE.Box3(), _m = new THREE.Matrix4();
+
 export class Grass {
   /**
    * renderer: used once for the mask pass. groundMeshes: meshes to rasterise, each with userData.grassMask
    * (a NodeMaterial writing vec4(density, height, wild, 1)). extent: half-size of the masked square (m).
    */
-  constructor(renderer, groundMeshes, extent, holeField, { density = 1, far: withFar = true } = {}) {
+  constructor(renderer, groundMeshes, extent, holeField, { density = 1, far: withFar = true, lawns = [] } = {}) {
+    this.lawns = lawns; // tile centres that are mostly lawn (parks): used to tell which way up the readback came
     this.extent = extent;
     this.group = new THREE.Group();
     if (density > 0) { // no blades: no mask target, no mask pass
       this.mask = new THREE.RenderTarget(MASK_RES, MASK_RES, { type: THREE.HalfFloatType, depthBuffer: true });
       this.mask.texture.minFilter = this.mask.texture.magFilter = THREE.LinearFilter;
-      this.renderMask(renderer, groundMeshes);
+      this.renderMask(renderer, groundMeshes, this.mask);
+      // Blades used to be spawned on every patch round the camera and scaled to nothing over roads, roofs and plazas
+      // (in town most of them). A small readback tells which 12 m patches hold any grass, so only those get blades.
+      const cover = new THREE.RenderTarget(COVER_RES, COVER_RES, { type: THREE.UnsignedByteType, depthBuffer: true });
+      this.renderMask(renderer, groundMeshes, cover);
+      renderer.readRenderTargetPixelsAsync(cover, 0, 0, COVER_RES, COVER_RES).then((px) => this.buildCoverage(px)).catch(() => {}).finally(() => cover.dispose());
     }
     this.origin = uniform(new THREE.Vector2());
     this.fadeCentre = uniform(new THREE.Vector2());
     this.fadeFar = uniform(40);
     this.zoomFade = uniform(1);
     const holes = uniformArray(holeField.value, 'vec3');
-    // near ring: 5x5 patches, dense; far ring: 11x11 minus the middle, sparse and wider
+    // near ring: 60 m square in 4 m cells, dense (fine cells so lawn corners don't pay for the pavement round them);
+    // far ring: 11x11 patches of 12 m minus the middle, sparse and wider
     const near = [], far = [];
-    for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) near.push(new THREE.Vector2(i, j));
+    for (let i = -6; i <= 8; i++) for (let j = -6; j <= 8; j++) near.push(new THREE.Vector2(i, j));
     for (let i = -5; i <= 5; i++) for (let j = -5; j <= 5; j++) if (Math.abs(i) > 2 || Math.abs(j) > 2) far.push(new THREE.Vector2(i, j));
-    this.layers = density <= 0 ? [] : [this.layer(near, Math.round(PATCH * PATCH * 85 * density), 1, holes)];
-    if (density > 0 && withFar) this.layers.push(this.layer(far, Math.round(PATCH * PATCH * 16 * density), 2.3, holes));
+    this.layers = density <= 0 ? [] : [this.layer(near, Math.round(4 * 4 * 85 * density), 1, holes, 4)];
+    if (density > 0 && withFar) this.layers.push(this.layer(far, Math.round(PATCH * PATCH * 16 * density), 2.3, holes, PATCH));
   }
 
-  renderMask(renderer, meshes) {
+  /**
+   * CPU coverage map from the readback: one byte per texel (about 1 m), 1 where grass grows. The backends return rows
+   * in opposite orders (GL bottom-up, WebGPU top-down); the known lawn tiles decide which way up it is.
+   */
+  buildCoverage(px) {
+    const N = COVER_RES, grid = new Uint8Array(N * N);
+    for (let i = 0; i < N * N; i++) grid[i] = px[i * 4] > 8 ? 1 : 0;
+    const per = N / (2 * this.extent);
+    const at = (x, z, flip) => {
+      const tx = Math.floor((x + this.extent) * per), tz = Math.floor((z + this.extent) * per);
+      if (tx < 0 || tz < 0 || tx >= N || tz >= N) return 0;
+      return grid[(flip ? N - 1 - tz : tz) * N + tx];
+    };
+    let a = 0, b = 0;
+    for (const [x, z] of this.lawns) for (let k = 0; k < 9; k++) { a += at(x - 6 + (k % 3) * 6, z - 6 + Math.floor(k / 3) * 6, false); b += at(x - 6 + (k % 3) * 6, z - 6 + Math.floor(k / 3) * 6, true); }
+    this.coverage = { grid, N, per, flip: b > a };
+    this.lastOrigin = null; // re-pick cells next frame
+  }
+
+  /** Any grass in the square [x, x + size) x [z, z + size) (plus a 1 m margin for jitter and lean)? */
+  hasGrass(x, z, size) {
+    const c = this.coverage;
+    if (!c) return true; // until the map arrives, draw everything (the old behaviour)
+    const { grid, N, per, flip } = c;
+    const x0 = Math.max(0, Math.floor((x - 1 + this.extent) * per)), x1 = Math.min(N - 1, Math.floor((x + size + 1 + this.extent) * per));
+    const z0 = Math.max(0, Math.floor((z - 1 + this.extent) * per)), z1 = Math.min(N - 1, Math.floor((z + size + 1 + this.extent) * per));
+    for (let tz = z0; tz <= z1; tz++) {
+      const row = (flip ? N - 1 - tz : tz) * N;
+      for (let tx = x0; tx <= x1; tx++) if (grid[row + tx]) return true;
+    }
+    return false;
+  }
+
+  renderMask(renderer, meshes, target) {
     const e = this.extent;
     const cam = new THREE.OrthographicCamera(-e, e, e, -e, -200, 400);
     cam.position.set(0, 300, 0);
@@ -81,7 +124,7 @@ export class Grass {
     }
     const prevTarget = renderer.getRenderTarget();
     const prevClear = renderer.getClearColor(new THREE.Color()), prevAlpha = renderer.getClearAlpha();
-    renderer.setRenderTarget(this.mask);
+    renderer.setRenderTarget(target);
     renderer.setClearColor(0x000000, 0);
     renderer.clear();
     renderer.render(scene, cam);
@@ -94,11 +137,15 @@ export class Grass {
     }
   }
 
-  layer(offsets, perPatch, widthScale, holes) {
+  layer(offsets, perPatch, widthScale, holes, cellSize) {
     const side = Math.ceil(Math.sqrt(perPatch));
-    const spacing = PATCH / side;
-    const offs = uniformArray(offsets, 'vec2');
-    const mat = new THREE.MeshPhysicalNodeMaterial({ side: THREE.DoubleSide, roughness: 0.9, specularIntensity: 0.12 });
+    const spacing = cellSize / side;
+    // the patches actually drawn this frame (the ones with grass) are packed at the front; active = how many
+    const all = offsets.map((o) => o.clone());
+    const offs = uniformArray(offsets.map((o) => o.clone()), 'vec2');
+    const active = uniform(offsets.length);
+    // standard BRDF (grass never needed clearcoat/sheen); physical cost more per blade fragment
+    const mat = new THREE.MeshStandardNodeMaterial({ side: THREE.DoubleSide, roughness: 0.9 });
     const e = this.extent;
     const maskTex = this.mask.texture;
     const origin = this.origin, fadeCentre = this.fadeCentre, fadeFar = this.fadeFar, zoomFade = this.zoomFade;
@@ -106,13 +153,13 @@ export class Grass {
     // ---- per-blade values (vertex stage)
     const id = float(instanceIndex);
     // interleaved: consecutive instances cycle through the patches, so lowering mesh.count thins every patch evenly
-    const np = int(offsets.length);
+    const np = int(active);
     const patch = int(instanceIndex).mod(np);
     const j = int(instanceIndex).div(np);
     const gx = float(j.mod(int(side))), gz = float(j.div(int(side)));
     const h1 = hash(id.mul(8).add(1)), h2 = hash(id.mul(8).add(2)), h3 = hash(id.mul(8).add(3));
     const h4 = hash(id.mul(8).add(4)), h5 = hash(id.mul(8).add(5));
-    const cell = offs.element(patch).mul(PATCH).add(origin);
+    const cell = offs.element(patch).mul(cellSize).add(origin);
     const wxz = cell.add(vec2(gx.add(h1), gz.add(h2)).mul(spacing));
     const m = texture(maskTex, wxz.add(e).div(2 * e)).level(0);
     // clumps: blades bunch up and share height, so lawns don't look like carpet
@@ -151,11 +198,9 @@ export class Grass {
     const bladeN = vec3(facing.x, 0.0, facing.y);
     const nW = varying(normalize(mix(bladeN, vec3(0, 1, 0), mix(0.62, 0.78, wild)).add(vec3(lean.x, 0, lean.y).mul(0.3))), 'vGrassN');
     mat.normalNode = normalize(cameraViewMatrix.mul(vec4(nW, 0)).xyz);
+    // (no fragment discard: blades rooted in a hole are already sunk 20 m in the vertex stage, and a discard would
+    // switch off hidden-surface removal for every grass fragment on tile-based GPUs like Apple's)
     mat.colorNode = Fn(() => {
-      for (let i = 0; i < MAX_HOLES; i++) { // never draw grass over an open hole
-        const q = holes.element(i);
-        If(q.z.greaterThan(0).and(length(positionWorld.xz.sub(q.xy)).lessThan(q.z)), () => { Discard(); });
-      }
       const t = uv().y;
       const lawnBase = vec3(0.02, 0.05, 0.01), lawnTip = mix(vec3(0.11, 0.26, 0.03), vec3(0.2, 0.3, 0.06), pow(vTint.y, 3));
       // meadow blades follow the ground's moisture: lush in hollows, straw on dry crests
@@ -171,7 +216,7 @@ export class Grass {
     mat.aoNode = mix(0.35, 1, pow(uv().y, 0.7));
 
     const mesh = new THREE.InstancedMesh(bladeGeometry(), mat, offsets.length * side * side);
-    mesh.userData.full = mesh.count;
+    mesh.userData = { full: mesh.count, perPatch: side * side, all, offs, active, cellSize };
     mesh.frustumCulled = false;
     mesh.castShadow = false;
     mesh.receiveShadow = true;
@@ -180,7 +225,7 @@ export class Grass {
   }
 
   /** Follow the camera target; patches snap to the patch grid so blades never swim. Zoomed-out = fewer blades. */
-  update(target, camDist, lowSpec) {
+  update(target, camDist, lowSpec, camera) {
     this.origin.value.set(Math.floor(target.x / PATCH) * PATCH, Math.floor(target.z / PATCH) * PATCH);
     this.fadeCentre.value.set(target.x, target.z);
     this.fadeFar.value = Math.min(66, 26 + camDist * 0.55);
@@ -188,7 +233,44 @@ export class Grass {
     this.zoomFade.value = 1 - THREE.MathUtils.smoothstep(camDist, 42, 75);
     // the far ring (beyond +-30 m) only matters once blades are drawn that far out
     if (this.layers[1]) this.layers[1].visible = !lowSpec && camDist < 60 && this.fadeFar.value > 34;
-    for (const l of this.layers) l.count = Math.round(l.userData.full * (lowSpec ? 0.5 : 1)); // slow GPUs: half the blades
+    // only patches with grass get blades (the grass test re-runs when the patch grid moves or the coverage map arrives)
+    const key = `${this.origin.value.x},${this.origin.value.y},${!!this.coverage}`;
+    if (key !== this.lastOrigin) {
+      this.lastOrigin = key;
+      for (const l of this.layers) {
+        const u = l.userData;
+        u.grassy = u.all.filter((o) => this.hasGrass(this.origin.value.x + o.x * u.cellSize, this.origin.value.y + o.y * u.cellSize, u.cellSize));
+      }
+    }
+    // ...and of those, only the ones in view and inside the fade radius (every frame: a few hundred box tests)
+    if (camera) {
+      camera.updateMatrixWorld();
+      _m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+      _frustum.setFromProjectionMatrix(_m, camera.coordinateSystem);
+    }
+    const fx = this.fadeCentre.value.x, fz = this.fadeCentre.value.y, far2 = (this.fadeFar.value + 1) ** 2;
+    for (const l of this.layers) {
+      const u = l.userData, list = u.offs.array, cs = u.cellSize;
+      let k = 0;
+      for (const o of u.grassy) {
+        const x = this.origin.value.x + o.x * cs, z = this.origin.value.y + o.y * cs;
+        const dx = Math.max(x - fx, 0, fx - x - cs), dz = Math.max(z - fz, 0, fz - z - cs);
+        if (dx * dx + dz * dz > far2) continue; // blades out here are faded to nothing
+        if (camera) {
+          _box.min.set(x - 1, -20, z - 1);
+          _box.max.set(x + cs + 1, 40, z + cs + 1);
+          if (!_frustum.intersectsBox(_box)) continue;
+        }
+        list[k++].copy(o);
+      }
+      u.activeN = k;
+      u.active.value = Math.max(1, k);
+    }
+    for (const l of this.layers) { // slow GPUs: half the blades
+      const u = l.userData;
+      l.count = Math.round(u.activeN * u.perPatch * (lowSpec ? 0.5 : 1));
+      if (!u.activeN) l.count = 0;
+    }
     this.group.visible = this.zoomFade.value > 0.01;
   }
 

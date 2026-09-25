@@ -10,7 +10,7 @@ const out = await p.evaluate(([s, sl]) => {
   window.__sloppy = sl === '1';
   const log = window.__runBot(+s);
   const { state } = window.__game();
-  return { log, econ: window.__econ?.() ?? { score: state.score, bonus: state.bonus, time: state.time } };
+  return { log, econ: { ...(window.__econ?.() ?? { score: state.score, bonus: state.bonus, time: state.time }), perks: state.perks, heat: state.heat, mode: state.mode } };
 }, [seconds, sloppy]);
 console.log(out.log.join('\n'));
 console.log('econ', JSON.stringify(out.econ));
