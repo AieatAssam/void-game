@@ -58,7 +58,8 @@ Poison props = hazard yellow + toxic green glow.
 | Hero unit | 5–15k | clip animated, cloned |
 | Building | 4–20k | instanced, LOD1 decimated copy |
 | On screen | ≲2M tris incl. shadow pass, ≲210 draw calls | measured (M5): start 1.9M/184, 4m hole 1.3M/157, 12m hole 0.9M/203 |
-| Stage 11 (high, grass off, `tools/perf.mjs`) | same budget | start of a run over 4 seeds: base build 1.7–2.5M / 132–149, Stage 11 1.7–2.7M (mean 2.08M vs 2.10M) / 133–179; Fun Fair worst seed 2.7M / 212 (was 3.0M / 246 before batching); Railway Town 1.7–2.4M / 152–198; low tier Fun Fair (same seed) 1.9M / 244 → 1.9M / 212 after batching |
+| Stage 11 after batching (high, grass off, `tools/perf.mjs`) | same budget | start of a run over 4 seeds: base build 1.7–2.5M / 132–149, Stage 11 1.7–2.7M (mean 2.08M vs 2.10M) / 133–179; Fun Fair worst seed 2.7M / 212 (was 3.0M / 246 before batching); Railway Town 1.7–2.4M / 152–198; low tier Fun Fair (same seed) 1.9M / 244 → 1.9M / 212 after batching |
+| Stage 11 after the shadow-pass work (same seeds) | same budget | Old Town 4-seed mean 2.08M → 1.83M tris (worst 2.66M → 2.14M), draws unchanged; Fun Fair worst 212 / 2.70M → 198 / 2.30M on high, 212 → 197 draws on low; Railway 2.45M → 2.12M; the visible pass is identical (88 draws / 1.11M on the Fun Fair frame) |
 
 LOD0 is built with a detail multiplier (`Q` in blender/lib.py, 1.6). Every model ships LOD1 (~25%) and
 LOD2 (~8%) via meshoptimizer. The city is instanced per (asset, 40m tile chunk): chunks within 15m of
@@ -68,6 +69,12 @@ and LOD0 is never used.
 Animated landmarks (rides, cranes, towers, trains) keep their clone for the AnimationMixer but render through batches:
 every mesh under the same animated node is merged into one part per LOD (a ferris wheel is 8 draws, not 26), and each part
 is one InstancedMesh per model per 40 m chunk, with the same distance LOD and shadow rules as the chunks.
+**Shadow pass** (it cost more than the visible frame): the toy material keeps its colour graph out of `colorNode`, so shadow
+shaders are depth-only instead of evaluating the scan textures for an alpha that is always 1. Every instanced group casts
+through a shadow-only stand-in on `SHADOW_LAYER` (the sun's shadow camera sees it, the view camera doesn't) that shares the
+group's instance matrices; things drawn at LOD0 cast from LOD1 (same silhouette at shadow-map resolution), trees and bushes
+keep their own geometry. Animated landmarks cast through one city-wide shadow batch per part, packed each frame with only the
+owners inside the sun's shadow box and the usual 35 m cast distance, so N ferris wheels cost 8 shadow draws, not 8 × N.
 
 ## Surface detail (scanned PBR, TSL)
 The palette atlas still decides *what* a face is; the look of *what it is made of* comes from real scans. `tools/textures.py`
