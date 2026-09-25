@@ -10,9 +10,11 @@ import { planEvent } from './events.js';
 import { MAX_HOLES } from './hole.js';
 
 export const TILE = 40;
+export const SHADOW_LAYER = 1; // shadow-only stand-in meshes: the sun's shadow camera sees this layer, the view camera doesn't
 const CHUNK = 40;
 const LOD_DIST = [15, 60]; // metres from camera to chunk edge: beyond [0] draw LOD1, beyond [1] LOD2
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion();
+const _frustum = new THREE.Frustum(), _sphere = new THREE.Sphere(), _pm = new THREE.Matrix4();
 const _p = new THREE.Vector3(), _s = new THREE.Vector3(), _ax = new THREE.Vector3(), _qt = new THREE.Quaternion();
 const UP = new THREE.Vector3(0, 1, 0);
 const WALK_DIR = [[0, 1], [-1, 0], [0, -1], [1, 0]]; // travel direction per side of a walk loop (v > 0)
@@ -703,6 +705,27 @@ export class City {
         byKey.get(key).items.push({ node: objs[part.node], e });
       }
     }
+    // shadow side: one city-wide shadow-only batch per model part (LOD1, SHADOW_LAYER), so every ferris wheel in the
+    // shadow map costs 8 draws in total instead of 8 each; owners too far away to reach the view are zeroed per frame
+    const shadowKey = new Map();
+    for (const { part, items } of byKey.values()) {
+      const k = `${items[0].e.name}|${part.key}`;
+      if (!shadowKey.has(k)) shadowKey.set(k, { part, items: [] });
+      shadowKey.get(k).items.push(...items);
+    }
+    this.shadowBatches = [];
+    for (const { part, items } of shadowKey.values()) {
+      const mesh = new THREE.InstancedMesh(part.geos[1], part.mat, items.length);
+      mesh.layers.set(SHADOW_LAYER);
+      mesh.castShadow = true;
+      mesh.receiveShadow = false;
+      mesh.frustumCulled = false;
+      mesh.userData = { toyFlags: part.flags };
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      items.forEach((it, i) => { (it.e.shadowed ??= []).push({ mesh, i, o: it.node }); mesh.setMatrixAt(i, it.node.matrixWorld); });
+      this.group.add(mesh);
+      this.shadowBatches.push(mesh);
+    }
     this.batches = [];
     for (const { part, items } of byKey.values()) {
       const mesh = new THREE.InstancedMesh(part.geos[0], part.mat, items.length);
@@ -755,12 +778,29 @@ export class City {
   /** Copy animated clone matrices into their batches (after the mixers have run). */
   syncBatches() {
     if (!this.batches) return;
+    const zero = _m.makeScale(0, 0, 0), sc = this.shadowCam;
+    if (sc) _frustum.setFromProjectionMatrix(_pm.multiplyMatrices(sc.projectionMatrix, sc.matrixWorldInverse));
+    // shadow batches are packed afresh every frame with just the owners whose (long, low-sun) shadow can reach the
+    // view; the draw count shrinks to match, so far rides cost nothing in the shadow pass
+    for (const m of this.shadowBatches) { m.count = 0; m.instanceMatrix.needsUpdate = true; }
     for (const e of this.batchOwners ??= this.entities.filter((q) => q.batched?.length)) {
       if (!e.batched.length) continue;
-      if (!e.alive || !e.obj) { for (const b of e.batched) { b.mesh.setMatrixAt(b.i, _m.makeScale(0, 0, 0)); b.mesh.instanceMatrix.needsUpdate = true; } e.batched = []; continue; }
+      if (!e.alive || !e.obj) {
+        for (const b of e.batched) { b.mesh.setMatrixAt(b.i, zero); b.mesh.instanceMatrix.needsUpdate = true; }
+        e.batched = e.shadowed = [];
+        continue;
+      }
       e.obj.updateMatrixWorld(true);
       for (const b of e.batched) { b.mesh.setMatrixAt(b.i, b.o.matrixWorld); b.mesh.instanceMatrix.needsUpdate = true; }
+      // casts only where it always did (within 35 m of the camera, like the chunks) and only if the sun's shadow box
+      // can see it at all
+      const R = Math.max(e.meta.tier, e.meta.height * 0.6);
+      _p.set(e.x, e.meta.height * 0.5, e.z);
+      if (this.camPos && this.camPos.distanceTo(_p) - R > 35) continue;
+      if (sc && !_frustum.intersectsSphere(_sphere.set(_p, R))) continue;
+      for (const b of e.shadowed) b.mesh.setMatrixAt(b.mesh.count++, b.o.matrixWorld);
     }
+    for (const m of this.shadowBatches) m.visible = m.count > 0;
   }
 
   remove(e) {
@@ -884,6 +924,7 @@ export class City {
     }
     this.batchClones();
     this.buildScenery();
+    this.shadowProxies();
     // what the grass mask pass rasterises (src/grass.js)
     const lawnMask = groundMaskMaterial(0, 1);
     this.groundMeshes = this.meshes.filter((m) => m.userData.ground);
@@ -969,35 +1010,76 @@ export class City {
     const near = lowSpec ? -1 : LOD_DIST[0]; // low-spec devices never draw LOD0
     // batched landmarks: LOD and shadows by distance like the chunks; bounds refit now and then (they spin, trains move)
     const refit = (this.batchT = (this.batchT || 0) + 1) % 15 === 1;
+    const lodOf = (d) => (d > LOD_DIST[1] ? 2 : d > near ? 1 : 0);
     for (const b of this.batches || []) {
       const m = b.mesh;
       if (refit) m.computeBoundingSphere();
       const d = camera.position.distanceTo(m.boundingSphere.center) - m.boundingSphere.radius;
-      m.geometry = b.geos[d > LOD_DIST[1] ? 2 : d > near ? 1 : 0];
-      m.castShadow = d < 35;
+      m.geometry = b.geos[lodOf(d)];
+      m.castShadow = false; // cast through the city-wide shadow batches (batchClones)
     }
+    this.camPos = camera.position;
+
     for (const m of this.meshes) {
       const u = m.userData;
       if (u.ground) { m.geometry = u.full; continue; }
       if (u.scenery) {
         const d = camera.position.distanceTo(m.boundingSphere.center) - m.boundingSphere.radius;
-        m.geometry = u.geos[d > LOD_DIST[1] ? 2 : d > near ? 1 : 0];
-        m.castShadow = d < 35;
+        m.geometry = u.geos[lodOf(d)];
+        this.caster(m, u.geos, lodOf(d), d < 35);
         continue;
       }
       m.visible = u.tier >= holeR * 0.03 && (!u.list || u.list.some((e) => e.alive)); // idle pools and eaten groups cost nothing
-      m.castShadow = u.tier >= holeR * 0.12;
       // roaming traffic spans the whole city, so it can't be distance-LOD'd per instance: mid detail, low when zoomed out
       const d = u.roams ? (holeR > 4 ? 999 : 30) : camera.position.distanceTo(m.boundingSphere.center) - m.boundingSphere.radius;
-      m.geometry = u.geos[d > LOD_DIST[1] ? 2 : d > near ? 1 : 0];
+      m.geometry = u.geos[lodOf(d)];
       // Shadow pass budget: only near chunks cast; city-wide movers (never culled) cast only up close.
-      if (u.roams ? holeR > 2.5 : d > 35) m.castShadow = false;
+      this.caster(m, u.geos, lodOf(d), m.visible && u.tier >= holeR * 0.12 && !(u.roams ? holeR > 2.5 : d > 35));
     }
+  }
+
+  /**
+   * Who casts, and from what: a mesh drawn at full detail (LOD0) casts through its shadow stand-in at LOD1 - same
+   * silhouette at shadow-map resolution, a quarter of the triangles in the shadow pass. Farther LODs cast as drawn.
+   */
+  caster(m, geos, lod, cast) {
+    const p = m.userData.proxy;
+    if (!p) { m.castShadow = cast; return; }
+    m.castShadow = false;
+    p.visible = cast;
+    if (cast) p.geometry = geos[Math.max(1, lod)];
+  }
+
+  /**
+   * Shadow-only stand-ins: an InstancedMesh per group on SHADOW_LAYER that shares the group's instance matrices (one
+   * buffer, no copies) so the shadow pass can use a coarser LOD than the view. Trees and bushes keep casting from
+   * their own geometry (leaf-card shadows would thin out).
+   */
+  shadowProxies() {
+    const make = (m, geos) => {
+      if (Array.isArray(m.material) || !geos || geos[0] === geos[1]) return;
+      const p = new THREE.InstancedMesh(geos[1], m.material, m.count);
+      p.instanceMatrix = m.instanceMatrix;
+      p.count = m.count;
+      p.layers.set(SHADOW_LAYER);
+      p.castShadow = true;
+      p.receiveShadow = false;
+      p.frustumCulled = m.frustumCulled;
+      if (!m.boundingSphere) m.computeBoundingSphere();
+      p.boundingSphere = m.boundingSphere;
+      p.userData = { toyFlags: m.userData.toyFlags };
+      p.visible = false;
+      m.userData.proxy = p;
+      this.group.add(p);
+    };
+    for (const m of this.meshes) if (!m.userData.ground) make(m, m.userData.geos);
   }
 
   dispose() {
     for (const m of this.meshes) m.dispose();
     for (const b of this.batches || []) b.mesh.dispose();
+    for (const m of this.meshes) m.userData.proxy?.dispose();
+    for (const m of this.shadowBatches || []) m.dispose();
     this.clouds.dispose();
     this.ao.dispose();
     this.ao.material.dispose();

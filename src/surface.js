@@ -87,6 +87,15 @@ export class ToyNodeMaterial extends ToyBase {
     if (this.preInstanceNode) positionLocal.assign(this.preInstanceNode);
     return super.setupPosition(builder);
   }
+
+  // The palette/scan colour graph lives in toyColorNode, not colorNode: three's shadow pass evaluates a material's
+  // whole colorNode just to read its alpha (always 1 here), which made every shadow-map fragment pay for 9 scan
+  // fetches, noise and glass interiors. With colorNode null the shadow shader is depth-only.
+  setupDiffuseColor(builder) {
+    if (!this.toyColorNode) return super.setupDiffuseColor(builder);
+    this.colorNode = this.toyColorNode;
+    try { return super.setupDiffuseColor(builder); } finally { this.colorNode = null; }
+  }
 }
 
 const swatchIndex = () => {
@@ -199,7 +208,7 @@ function buildToy(mat, { ground = false, holes = null } = {}) {
     }
     return vec4(c, 1);
   })();
-  mat.colorNode = colorNode;
+  mat.toyColorNode = colorNode; // (see ToyNodeMaterial.setupDiffuseColor)
 
   // ---- roughness / metalness: scan roughness on textured swatches, remapped around the swatch's finish
   const scanRough = clamp(tri.rough.mul(0.6).add(orm.g.mul(0.5)), 0.04, 1);

@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { createRenderer, createScene, followSun, applyTime, setFogRange, TIMES } from './look.js';
 import { loadAll, loadPacks, packReady, pedTime, glow } from './assets.js';
-import { City, rng, BUILDINGS, PEOPLE, moodFor, forcedMood } from './city.js';
+import { City, rng, BUILDINGS, PEOPLE, moodFor, forcedMood, SHADOW_LAYER } from './city.js';
 import { packsFor, PACK_LABEL, MOOD_PACKS } from './packs.js';
 import { Hole, holeField } from './hole.js';
 import { Rivals } from './rivals.js';
@@ -28,6 +28,7 @@ const $ = (id) => document.getElementById(id);
 const renderer = await createRenderer($('c'));
 const look = createScene();
 const { scene, sun } = look;
+sun.shadow.camera.layers.enable(SHADOW_LAYER); // shadow-only stand-ins (city.js shadowProxies)
 // Longer lens: less perspective distortion on tall props and a truer miniature/tilt-shift read.
 const FOV = 26, LENS = Math.tan(THREE.MathUtils.degToRad(19)) / Math.tan(THREE.MathUtils.degToRad(FOV / 2));
 const camera = new THREE.PerspectiveCamera(FOV, 1, 0.5, 1600);
@@ -988,6 +989,7 @@ function frame(dt) {
   surfaceOn.value = 1; // low tiers use the lite (single-projection) shader instead of losing detail
   city.budget(camera, hole.r, low);
   followSun(sun, camTarget);
+  city.shadowCam = sun.shadow.camera; // the batched landmarks pack only what the shadow map can see
   grass.update(camTarget, camDist / LENS, low);
   setFogRange(camDist);
   const sc = sun.shadow.camera, ext = Math.max(25, (camDist / LENS) * 0.9);
