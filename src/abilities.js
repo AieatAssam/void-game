@@ -4,7 +4,7 @@ import { save, persist } from './meta.js';
 import { BUILDINGS } from './city.js';
 
 export const ABILITIES = {
-  quake: { name: 'Quake', icon: '💥', cost: 400, cd: 25, desc: 'Shockwave out to 3× your size: props slide in, units reel for 2 s.' },
+  quake: { name: 'Quake', icon: '💥', cost: 400, cd: 30, desc: 'Shockwave out to 3× your size: props slide in, units reel for 2 s.' },
   vortex: { name: 'Vortex Burst', icon: '🌀', cost: 350, cd: 18, desc: 'Full suction at 2.5× reach for 1.5 s.' },
   dash: { name: 'Dash', icon: '💨', cost: 300, cd: 8, desc: 'A 0.35 s burst at 3× speed. Barricade tolls are free mid-dash.' },
 };

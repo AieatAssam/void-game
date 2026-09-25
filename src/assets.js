@@ -14,6 +14,12 @@ const base = import.meta.env.BASE_URL;
 export const VEHICLES = new Set(['car', 'car_b', 'car_c', 'taxi', 'bus', 'police_car', 'icecream_van', 'cement_truck', 'mayor_limo', 'scooter', 'tank', 'heli',
   'supercar', 'classic_car', 'bumper_car', 'tractor', 'baggage_tug', 'locomotive', 'carriage', 'airliner']);
 
+// cloth-heavy models: sheen, wind flutter and sun glowing through (toyFlags.w = 2)
+const FABRIC = new Set(['hoopla_stall', 'balloon_stand', 'ticket_booth', 'balloon_float', 'parade_float', 'beach_umbrella', 'deckchair',
+  'noodle_stall', 'hotdog_cart', 'kiosk', 'finish_arch', 'show_turntable', 'scarecrow']);
+// show lights that chase (toyFlags.w = 3): rides, fair festoons, runway edge lights, neon
+const LIGHTS = new Set(['ferris_wheel', 'carousel', 'tile_fair', 'tile_runway', 'control_tower', 'neon_sign', 'arcade', 'karaoke']);
+
 // One material for (almost) the whole game; per-object flags ride on mesh.userData.toyFlags.
 export const toyMaterial = makeToy();
 const walkMaterial = pedMaterial();
@@ -42,7 +48,8 @@ async function loadModel(name, meta, tick) {
   const material = ped ? walkMaterial : toyMaterial;
   const edible = meta.kind === 'prop' || meta.kind === 'unit';
   const building = meta.tier >= 3 && meta.height > 4 && !VEHICLES.has(name);
-  const flags = new THREE.Vector4(name.startsWith('tree') ? 1 : 0, building ? 1 : 0, edible ? meta.tier : 0, VEHICLES.has(name) ? 1 : 0);
+  const kind = VEHICLES.has(name) ? 1 : FABRIC.has(name) ? 2 : LIGHTS.has(name) ? 3 : 0;
+  const flags = new THREE.Vector4(name.startsWith('tree') ? 1 : 0, building ? 1 : 0, edible ? meta.tier : 0, kind);
   for (const s of [gltf.scene, lod.scene, lod2.scene]) {
     s.traverse((o) => {
       if (!o.isMesh) return;

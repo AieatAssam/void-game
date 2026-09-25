@@ -5,8 +5,8 @@
 import * as THREE from 'three/webgpu';
 import { Q } from './quality.js';
 import {
-  texture, vec3, float, abs, pow, dot, cross, dFdx, dFdy, sign, max, positionView, normalViewGeometry, uniformArray,
-  mx_noise_float, time, cos, select,
+  texture, vec2, vec3, float, abs, pow, dot, cross, dFdx, dFdy, sign, max, positionView, normalViewGeometry, uniformArray,
+  mx_noise_float, time, cos, sin, select, Fn, Loop, normalize, cameraPosition,
 } from 'three/tsl';
 
 export const LAYERS = ['plaster', 'asphalt', 'concrete', 'grass', 'paving', 'sand', 'dirt', 'brick', 'wood', 'foliage', 'metal',
@@ -161,3 +161,47 @@ export const uvGrad = (nm, uvNode, strength = 1) => {
   const s = nm.xy.div(max(nm.z, 0.25)).negate().mul(strength);
   return gU.mul(s.x).add(gV.mul(s.y));
 };
+
+/** View-space surface gradients of the three coordinates of p (any space), for procedural relief. */
+export const coordGrads = (p) => {
+  const { r1, r2 } = surfaceBasis();
+  const dx = dFdx(p), dy = dFdy(p);
+  return { gX: r1.mul(dx.x).add(r2.mul(dy.x)), gY: r1.mul(dx.y).add(r2.mul(dy.y)), gZ: r1.mul(dx.z).add(r2.mul(dy.z)) };
+};
+
+/**
+ * Brushed metal (ART.md metals): fine horizontal streaks as a height field h(y) in object space, returned as a
+ * view-space surface gradient. Two octaves, wobbled so the lines never read as a perfect grating.
+ */
+export const brushedGrad = (p, amp = 0.0009) => {
+  const { gY } = coordGrads(p);
+  const wob = sin(p.x.mul(2.7).add(p.z.mul(3.3))).mul(3);
+  const d1 = cos(p.y.mul(310).add(wob)).mul(310), d2 = cos(p.y.mul(123).sub(wob.mul(0.7))).mul(123 * 0.6);
+  const grain = mx_noise_float(vec3(p.x.mul(3), p.y.mul(420), p.z.mul(3))).mul(0.6).add(0.7);
+  return gY.mul(d1.add(d2).mul(grain).mul(amp));
+};
+
+/**
+ * Parallax occlusion for flat ground (world xz): march `steps` layers down the scan's height (RHA .y) along the
+ * view ray and return the world-space xz offset of the visible point. depth: relief depth in metres.
+ * Fixed step count (no early exit) keeps texture sampling in uniform control flow for WGSL.
+ */
+export const pomOffset = (pw, layer, scale, steps, depth) => Fn(() => {
+  const V = normalize(cameraPosition.sub(pw));
+  const step = V.xz.div(max(V.y, 0.3)).mul(depth).div(steps).negate();
+  const off = vec2(0).toVar(), prev = vec2(0).toVar();
+  const layerD = float(0).toVar(), h = float(0).toVar(), hPrev = float(0).toVar();
+  h.assign(float(1).sub(texture(pbrRha, pw.xz.mul(scale)).depth(layer).y));
+  Loop(steps, () => {
+    const below = layerD.lessThan(h);
+    prev.assign(select(below, off, prev));
+    hPrev.assign(select(below, h.sub(layerD), hPrev));
+    off.assign(select(below, off.add(step), off));
+    layerD.assign(select(below, layerD.add(1 / steps), layerD));
+    h.assign(float(1).sub(texture(pbrRha, pw.xz.add(off).mul(scale)).depth(layer).y));
+  });
+  // refine between the last two layers (linear occlusion mapping)
+  const after = h.sub(layerD), before = hPrev;
+  const w = after.div(after.sub(before).min(-1e-4)).clamp(0, 1);
+  return off.mix(prev, w);
+})();

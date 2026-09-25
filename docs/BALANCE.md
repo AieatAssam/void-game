@@ -46,3 +46,17 @@ food); both stay inside the base game's spread (base seed 11 also stalls). Slopp
 
 Greedy 4/6 clear, 2:47–5:23 (fastest just above the 2:45 floor: the parade's drummer conveyor feeds a small hole
 well). Sloppy 2/6 (baseline 3/6). Inside the baseline spread.
+
+## A/B after power-ups + chain reactions (12 seeds, greedy; commit f49142a vs 0ca949f)
+
+A 6-seed sweep after M5 looked worse (greedy 2/6 clears), so both builds were run side by side on 12 seeds
+(777, 11, 23, 42, 99, 2024, 5, 8, 13, 31, 64, 101). Moods differ per seed between the builds (four new moods in the
+seed roll), so this compares distributions, not seeds.
+
+| build | clears | clear times | open at 7:00 | died |
+|---|---|---|---|---|
+| base (0ca949f) | 8/12 | 3:28–4:35 (median ≈ 4:05) | 3 | 1 |
+| Stage 11 so far (f49142a) | 7/12 | 2:57–4:31 (median ≈ 3:36) | 2 | 3 |
+
+Clears get a little faster (capsules, drummer/runner conveyors, chain reactions knocking food loose) and a greedy
+hole that over-heats dies a bit more often (fireworks notoriety, capsule detours). Nothing clears under 2:45.

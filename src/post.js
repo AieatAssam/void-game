@@ -5,14 +5,39 @@
 import * as THREE from 'three/webgpu';
 import {
   pass, sample, uniform, vec2, vec3, vec4, float, mix, dot, renderOutput, clamp, max, time, fract, sin, luminance,
-  pow, toneMappingExposure, convertToTexture,
+  pow, toneMappingExposure, convertToTexture, texture3D, step, smoothstep,
 } from 'three/tsl';
+
+const LUT = 16;
+/**
+ * A per-time-of-day grade baked into a small 3D LUT (display-referred, after the filmic curve): split toning
+ * (shadow / highlight tints), saturation and a touch of contrast. Rewritten in place when the preset changes.
+ */
+function bakeLut(tex, { shadow = [1, 1, 1], high = [1, 1, 1], sat = 1, con = 1 } = {}) {
+  const d = tex.image.data;
+  for (let b = 0; b < LUT; b++) for (let g = 0; g < LUT; g++) for (let r = 0; r < LUT; r++) {
+    let c = [r / (LUT - 1), g / (LUT - 1), b / (LUT - 1)];
+    const l = c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722;
+    const ws = (1 - l) ** 2, wh = l * l;
+    c = c.map((v, i) => v * (1 + (shadow[i] - 1) * ws) * (1 + (high[i] - 1) * wh));
+    const l2 = c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722;
+    c = c.map((v) => Math.min(1, Math.max(0, (l2 + (v - l2) * sat - 0.5) * con + 0.5)));
+    const o = ((b * LUT + g) * LUT + r) * 4;
+    d[o] = c[0] * 255; d[o + 1] = c[1] * 255; d[o + 2] = c[2] * 255; d[o + 3] = 255;
+  }
+  tex.needsUpdate = true;
+}
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { denoise } from 'three/addons/tsl/display/DenoiseNode.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { smaa } from 'three/addons/tsl/display/SMAANode.js';
+import { lut3D } from 'three/addons/tsl/display/Lut3DNode.js';
+import { radialBlur } from 'three/addons/tsl/display/radialBlur.js';
+import { sunDir, sunCol } from './look.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import { Q } from './quality.js';
+
+const _sp = new THREE.Vector3();
 
 export class Post {
   constructor(renderer, scene, camera) {
@@ -25,7 +50,15 @@ export class Post {
     this.time = 0;
     this.good = 0;
     this.grade = uniform(new THREE.Vector3(1, 1, 1));
-    this.opts = { ao: Q.ao && !q.has('noao'), aoRes: Q.aoRes, aoSamples: Q.aoSamples, bloom: Q.bloom, aa: Q.aa, grain: Q.grain };
+    this.opts = { ao: Q.ao && !q.has('noao'), aoRes: Q.aoRes, aoSamples: Q.aoSamples, bloom: Q.bloom, aa: Q.aa, grain: Q.grain,
+      shafts: Q.tier === 'high' && !q.has('noshafts'), lut: !q.has('nolut') };
+    this.lutTex = new THREE.Data3DTexture(new Uint8Array(LUT ** 3 * 4), LUT, LUT, LUT);
+    this.lutTex.minFilter = this.lutTex.magFilter = THREE.LinearFilter;
+    this.lutTex.wrapS = this.lutTex.wrapT = this.lutTex.wrapR = THREE.ClampToEdgeWrapping;
+    this.lutTex.unpackAlignment = 1;
+    bakeLut(this.lutTex, {});
+    this.sunUV = uniform(new THREE.Vector2(0.5, -1));
+    this.shaftK = uniform(0);
     this.lowSpec = false; // set by the watchdog: thins grass, never draws LOD0
     if (!this.enabled) return;
     this.pipeline = new THREE.RenderPipeline(renderer);
@@ -61,11 +94,21 @@ export class Post {
       const bloomPass = (this.bloomPass = bloom(vec4(lit.mul(toneMappingExposure), 1), 0.28, 0.6, 1.25));
       hdr = lit.add(bloomPass.rgb.div(max(toneMappingExposure, 0.05)));
     }
+    if (opts.shafts) {
+      // light shafts (golden hour, dusk): the sky and the hottest pixels, radially blurred toward the sun's
+      // screen position (screen-space, high tier only); faded out when the sun is behind the camera
+      const depth = scenePass.getTextureNode('depth');
+      const hot = smoothstep(0.9, 2.2, luminance(lit.mul(toneMappingExposure))).add(step(0.99995, depth.r));
+      const src = vec4(lit.mul(hot).min(vec3(4)), 1);
+      const rays = radialBlur(src, { center: this.sunUV, weight: 0.85, decay: 0.955, count: 24, exposure: 1.6 });
+      hdr = hdr.add(rays.rgb.mul(sunCol).mul(this.shaftK));
+    }
     // grade in scene-linear: per-time white balance, a touch more saturation (ACES desaturates brights)
     const wb = hdr.mul(this.grade);
     const graded = mix(vec3(luminance(wb)), wb, 1.12);
     const toned = renderOutput(vec4(max(graded, vec3(0)), 1));
-    const mapped = vec4(mix(toned.rgb, toned.rgb.mul(toned.rgb).mul(float(3).sub(toned.rgb.mul(2))), 0.35), 1);
+    let mapped = vec4(mix(toned.rgb, toned.rgb.mul(toned.rgb).mul(float(3).sub(toned.rgb.mul(2))), 0.35), 1);
+    if (opts.lut) mapped = vec4(lut3D(mapped, texture3D(this.lutTex), LUT, float(1)).rgb, 1); // per-preset grade
     const aa = opts.aa === 'smaa' ? smaa(mapped).getTextureNode() : convertToTexture(fxaa(mapped));
     const grain = opts.grain;
     this.pipeline.outputNode = sample((uv) => {
@@ -115,9 +158,21 @@ export class Post {
     if (step.startsWith('AO') || step.startsWith('bloom')) this.build();
   }
 
+  /** New time of day: bake its LUT and set its shaft strength. */
+  setPreset(t) {
+    bakeLut(this.lutTex, t.lut);
+    this.shafts = t.shafts || 0;
+  }
+
   render(grade) {
     if (!this.enabled) { this.renderer.render(this.scene, this.camera); return; }
     this.grade.value.fromArray(grade);
+    if (this.opts.shafts) { // where the sun sits on screen (uv, y down)
+      _sp.copy(this.camera.position).addScaledVector(sunDir.value, 1000).project(this.camera);
+      const behind = _sp.z > 1;
+      this.sunUV.value.set(_sp.x * 0.5 + 0.5, 0.5 - _sp.y * 0.5);
+      this.shaftK.value = behind ? 0 : this.shafts || 0;
+    }
     this.pipeline.render();
   }
 }

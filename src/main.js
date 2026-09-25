@@ -20,7 +20,7 @@ import { UPGRADES, ECON, save, persist, level, buy, todaySeed } from './meta.js'
 import * as sfx from './sfx.js';
 import { Post } from './post.js';
 import { Sparks, Debris, SMOKE } from './fx.js';
-import { surfaceTime, surfaceOn, world } from './surface.js';
+import { surfaceTime, surfaceOn, world, lightsTime, lightsPulse } from './surface.js';
 import { Grass } from './grass.js';
 import { Q } from './quality.js';
 
@@ -161,6 +161,7 @@ function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null, 
   const time = new URLSearchParams(location.search).get('time') || (city.mood.night || mutator === 'night' ? 'night' : r.pick(DAY_TIMES));
   const preset = applyTime(look, renderer, time);
   look.grade = preset.grade;
+  post.setPreset(preset);
   glow.value = preset.glow;
   world.night.value = TIMES[time]?.night ? 1 : 0;
   world.edCol.value.set(SKINS[save.skin || 'void'].rim);
@@ -1003,6 +1004,8 @@ function frame(dt) {
   }
   world.hole.value.set(hole.x, hole.z, hole.hidden || !state.playing ? 0 : hole.r, hole.vac || 0);
   pedTime.value += dt;
+  lightsTime.value += dt;
+  lightsPulse.value = 0.85 + 0.15 * Math.sin(lightsTime.value * 2.2);
   surfaceTime.value += dt;
   for (const q of rivals.list) q.hole.update(dt, state.time, 0, city.groundSpan(q.hole.x, q.hole.z, q.hole.r));
   const tw = powerups.twin;

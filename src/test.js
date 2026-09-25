@@ -16,7 +16,7 @@ if (kind !== 'std') {
   const s = await import('./surface.js');
   const { loadPBR } = await import('./pbr.js');
   await loadPBR();
-  mat = kind === 'ground' ? s.groundMaterial({ value: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] }) : s.toyMaterial();
+  mat = kind === 'ground' ? s.groundMaterial({ value: Array.from({ length: 5 }, () => new THREE.Vector3()) }) : s.toyMaterial();
 }
 if (kind === 'fx') {
   const { Sparks, Debris } = await import('./fx.js');
@@ -34,7 +34,7 @@ if (kind === 'fx') {
   ground.userData.grassMask = new THREE.MeshBasicNodeMaterial();
   ground.userData.grassMask.colorNode = tsl.vec4(1, 0, +(q.get('wild') || 0), 1);
   scene.add(ground);
-  const field = { value: [new THREE.Vector3(3, 3, 1.2), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] };
+  const field = { value: [new THREE.Vector3(3, 3, 1.2), ...Array.from({ length: 4 }, () => new THREE.Vector3())] };
   const grass = new Grass(renderer, [ground], 60, field, { density: +(q.get('grass') || 1) });
   grass.update(new THREE.Vector3(0, 0, 0), 20, false);
   scene.add(grass.group);
