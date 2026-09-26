@@ -1062,7 +1062,9 @@ async function breakout(quick = false) {
   grass.dispose();
   city = reg;
   city.capital = city.settlements.find((q) => q.kind === 'capital');
-  events = quietEvents(); chains = quietChains(); powerups = quietPowerups(); rivals = quietRivals();
+  events = quietEvents(); chains = quietChains(); powerups = quietPowerups();
+  rivals = /[?&]norivals\b/.test(location.search) || state.card === 'lonely' ? quietRivals() : new Rivals(assets, field, city, scene, 2, save.skin || 'void', (t) => news.say(t));
+  for (const rv of rivals.list) rv.respawn = 40 + rivals.list.indexOf(rv) * 50; // let the country settle before company arrives
   director = /[?&]noarmy\b/.test(location.search) ? quietDirector() : new Army(city, scene, {
     hurt, toll, drain, warn: (t) => flash(t, false), news: (t) => news.say(t), boom: sfx.boom, siren: sfx.airRaid,
     jam: (s) => { state.jam = Math.max(state.jam, s); }, kick: (dx, dz) => { state.kick = { x: dx * 60, z: dz * 60 }; }, shake: (k) => { state.shake = Math.max(state.shake, k); },
