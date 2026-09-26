@@ -1307,13 +1307,28 @@ async function gpuBisect() {
   fpsEl.dataset.bisect = 'running… (about 90 s: keep this tab in front)';
   post.paused = true;
   await wait(4000);
-  for (const [name, on, off] of steps) {
+  for (const [name, on] of steps) {
+    // each row restores exactly what it changed (not a hard-coded 'on': a tier may start with a feature off)
+    const saved = { ...o, pr: renderer.getPixelRatio(), low: post.lowSpec, hidden: grass.hidden, enabled: post.enabled, recv: grass.layers.map((l) => l.receiveShadow) };
+    const off = () => {
+      const { pr, low, hidden, enabled, recv, ...opts } = saved, rebuildNeeded = opts.ao !== o.ao || opts.bloom !== o.bloom || opts.aoRes !== o.aoRes || opts.aoSamples !== o.aoSamples || opts.aoDenoise !== o.aoDenoise;
+      Object.assign(o, opts);
+      if (renderer.getPixelRatio() !== pr) renderer.setPixelRatio(pr);
+      post.lowSpec = low; grass.hidden = hidden; post.enabled = enabled;
+      grass.layers.forEach((l, i) => { if (l.receiveShadow !== recv[i]) { l.receiveShadow = recv[i]; l.material.needsUpdate = true; } });
+      if (rebuildNeeded) rebuild();
+    };
     on();
     await wait(2500); // (settle: pipelines rebuilt, frames steady)
     const gpu0 = perf.gpu;
     await wait(3000);
     const st = perfStats(3000);
-    if (!st) { rows.push({ step: name + ' (page hidden: no data)', fps: 0, low1: 0, worst: 0, gpu: null, js: 0, submit: 0 }); off(); continue; }
+    if (!st) {
+      rows.push({ step: name + ' (page hidden: no data)', fps: 0, low1: 0, worst: 0, gpu: null, js: 0, submit: 0 });
+      off();
+      fpsEl.dataset.bisect = rows.map((r) => r.step).join('\n');
+      continue;
+    }
     rows.push({ step: name, fps: +st.avgFps.toFixed(1), low1: +st.lowFps1.toFixed(0), worst: Math.round(st.worstMs), gpu: perf.gpu != null ? +perf.gpu.toFixed(1) : null, js: +st.avgJs.toFixed(1), submit: +st.avgSubmit.toFixed(1), was: gpu0 });
     off();
     await wait(1500);
