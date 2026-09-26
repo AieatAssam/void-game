@@ -1271,10 +1271,14 @@ function perfStats(win = 10000) {
  */
 async function gpuBisect() {
   const o = post.opts, wait = (ms) => new Promise((r) => setTimeout(r, ms)), dpr = renderer.getPixelRatio();
+  Object.assign(o, { ao: Q.ao, aoRes: Q.aoRes, aoSamples: Q.aoSamples, bloom: Q.bloom }); // (start from the tier, even if the watchdog trimmed it)
+  post.build();
   const sun = look.sun, rebuild = () => post.enabled && post.build();
   const steps = [
     ['baseline', () => {}, () => {}],
     ['AO off', () => { o.ao = false; rebuild(); }, () => { o.ao = true; rebuild(); }],
+    ['AO 0.5x · 6 samples', () => { o.ao = true; o.aoSamples = 6; rebuild(); }, () => { o.aoSamples = Q.aoSamples; rebuild(); }],
+    ['AO 0.35x · 6 samples', () => { o.ao = true; o.aoRes = 0.35; o.aoSamples = 6; rebuild(); }, () => { o.aoRes = Q.aoRes; o.aoSamples = Q.aoSamples; rebuild(); }],
     ['bloom off', () => { o.bloom = false; rebuild(); }, () => { o.bloom = true; rebuild(); }],
     ['grass off', () => { grass.hidden = true; }, () => { grass.hidden = false; }],
     // (not castShadow: toggling it at runtime crashes three's ShadowNode and every frame after it renders nothing)
