@@ -96,3 +96,27 @@ Clock) are the real gate. Dust: ×1.75 at Heat 5 (a 299-dust clear paid 521).
 
 **Blitz** (seed 11, 2:00): r 3.6, 13 dust. Blitz is for the size record and the "Grow past 6 m in a Blitz"
 contract, not for farming dust.
+
+## Phase 2 — the region (branch `feature/phase-two`)
+
+Run with `?region&bot&seed=N` and `__regionBot(900)` (starts at 10 m; `__sloppy = true` for the careless bot).
+
+| Change | Why (what the bot showed) |
+|---|---|
+| Region bites grow the hole at 60% of a town bite; crumbs (trees, hedges, rocks) at 30% of that; the capital pays 90% | With town rates the bot went 10 → 20 m in a minute on woods and boulders, and the capital snowballed from 16 m. At 60% the country has to be eaten; the capital's 90% makes it a climax and leaves enough growth to fit the stadium (its last piece, 40.7 m). |
+| No small-tower lots in the capital; the Capper arrives at 20 m | The capital opened at 10 m and was an early buffet; now it opens at ~16 m (glass towers) and properly at 20 m (city blocks). |
+| Belly 16 s, crumbs +1.8% each, fed decay 0.2%/s, starving 1.5%/s | Travel legs between settlements are long; starving at a big size used to halve the hole in 30 s. |
+| Army eased: two-gun salvos every 11 s at 5%, wider aim; at most two roadblocks; jets every 22–30 s; castle cannons 120 m, 3.5%; Capper 15% with a 10 s cooldown; Void Lids every 30 s, a short, gentler setting drain | 44 hits in 10 min (26 shells, 16 tolls) ground the bot down at 11–19 m. |
+
+Results (final tuning):
+
+| Seed | Greedy bot | Notes |
+|---|---|---|
+| 4242 | wins 5:12 | town → capital |
+| 99 | wins 4:04 | stalled at 16–20 m before the Capper change; now climbs through the industrial valley |
+| 2024 | wins 4:18 | |
+| 7 | wins 3:51 | |
+| 4242, careless bot | dies 13:30 | no dodging: 23 shells, 7 cannonballs |
+
+Region dust is 90–160 on top of the town's (meals and combos at half rate from the region's score, plus 8 per settlement
+and 40 for the capital). A human player takes longer than the greedy bot (it knows every target and path).

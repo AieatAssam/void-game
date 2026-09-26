@@ -53,6 +53,25 @@ The region is 3 km of land with ten settlements, ~500 buildings and 34k trees, h
 | **Depth precision** at 700 m (roads and paving are stacked a few cm apart). | The near plane follows the camera distance (2%); far plane = 4x the distance. | no z-fighting |
 | **The crumble** would need its own material per building type. | The buildings' own instanced meshes carry per-vertex part centres and a per-instance progress slot; one crumble variant of the toy material. | no extra pipelines |
 
+### Phase 2 on the real device (Apple Silicon, Chrome, WebGPU, visible window)
+
+| Where | High tier | Low tier, WebGL2 fallback |
+|---|---|---|
+| Village (r = 12) | 60 fps (vsync), p95 17.6 ms, 112 draws, 0.72M tris | — |
+| Market town (r = 18) | 60 fps, p95 17.8 ms, 119 draws, 0.69M tris | 51 fps |
+| Industrial valley (r = 24) | 60 fps, p95 17.5 ms | — |
+| Densest forest cell (r = 14 / 30) | 60 fps, 86–100 draws, 0.54–0.72M tris | — |
+| Capital (r = 40) | 58–60 fps, 100–114 draws, 1.0–1.5M tris | 54 fps |
+
+**The breakout on a visible run** (long-animation-frame attribution):
+
+| Found | Fix | Result |
+|---|---|---|
+| The region pack (36 models, 108 files) decoded all at once when the prebuild started: a ~1 s freeze 6 s into every town. | `loadPack(..., { gentle: true })`: one model per frame. | gone |
+| Prebuild steps up to 230 ms between yields (field layout, the terrain build's tail, the crumb list; `fieldAt` scanned ~300 fields per vertex). | Everything sliced; `fieldAt` uses a 64 m grid. | no step over 16 ms |
+| The swap: drawing the whole new world on its first frame froze for 1.2 s (first-sight shader builds). Precompiling it (canvas or scene-pass target) froze for 1–5 s instead. | The region's meshes reveal five per frame under the dust; finish and the grass mask in separate frames. | worst frame ~200 ms, reveal frames 65–90 ms for ~0.7 s |
+| The breakout dust was fill-rate bound (dozens of 30–40 m sprites). | Fewer, smaller puffs. | — |
+
 ## Measuring on the target machine
 
 - `?fps`: frame rate, CPU split (game logic / render submission), GPU time, draws, triangles, tier, dynamic-resolution steps.

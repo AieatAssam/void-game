@@ -30,9 +30,15 @@ Built and playable end to end. Try it with `?region` (straight into Phase 2 at 1
 | Surfaces | roads x1.35, farmland x1.1, woods x0.88, marsh x0.7, water x0.55 (shown in the status line) | `region.js` `surfaceSpeed` |
 | Scale cues | camera pull-back and far/near planes that follow it, cloud shadows over the whole region, low cloud wisps at the edges of the view once the hole is big, people and cars stay visible as specks, slower collapses for bigger buildings | `fx.js` `Wisps`, `city.js` |
 
-**Measured** (Apple Silicon, WebGPU, high tier): about 100 draw calls and 0.4-1.2M triangles a frame at a village, a town
-and the capital (r = 12-40); CPU ~7-8 ms a frame including render submission. Greedy bot, seed 4242: 10 m -> 49 m, the
-capital swallowed at 4:36, 29 army hits taken; eating everything in size order can take a 12.5 m hole past 60 m.
+**Measured** (Apple Silicon, Chrome, WebGPU, visible window): 58–60 fps (vsync) everywhere in the region on high,
+100–120 draws and 0.5–1.5M triangles; low tier on the WebGL2 fallback 51–54 fps. The breakout's worst frame is ~200 ms
+(was 1.2 s). Greedy bot: wins in 3:51–5:12 on four seeds; the careless bot dies (docs/BALANCE.md, docs/PERFORMANCE.md).
+
+**Fidelity pass (so the look doesn't drop when the camera climbs):** surface detail, terrain relief and AO reach scale
+with the camera distance; meadows are dressed across the whole region (trees, bushes, boulder fields), forests at full
+density with undergrowth, a denser field patchwork, orchards, trodden-earth farmyards, bailey and village lanes, boats on
+the lakes, snow on the peaks, chimney smoke, mill smoke and cooling-tower steam, bird flocks. The breakout keeps the
+town's exact land (lakes, fields, woods don't move under the dust).
 
 **Changed from the plan above:** the stadium is tier 39 (not 44) to keep the ladder at 1.3x, so the capital needs a ~41 m
 hole and the run peaks around 50-65 m. The region is 3 km across (not 3.6). Rivals, the settlement perk draft, the minimap,
