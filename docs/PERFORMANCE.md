@@ -94,3 +94,16 @@ which feature costs most. If CPU time is close, it's the game logic or draw subm
 - [ComputeBatchCulling: GPU culling with WebGPU](https://www.threejs-blocks.com/docs/ComputeBatchCulling)
 - [Shadow map `autoUpdate` / caching (forum)](https://discourse.threejs.org/t/renderer-shadowmap-autoupdate-false/50401)
 - [Three.js performance guide (gist)](https://gist.github.com/iErcann/2a9dfa51ed9fc44854375796c8c24d92)
+
+### Island pass (see-through, detail reach, cracks, rivals, minimap, rubble, capsules)
+
+Visible window, Apple Silicon, Chrome, high tier, 1627×1071 at 1.5x:
+
+| Scene | WebGPU | WebGL2 fallback |
+|---|---|---|
+| Town, start and 12 m | 60 fps (vsync), worst 18–19 ms, CPU ~5 ms, 130–165 draws | 60 fps, worst 18 ms, GPU ~13 ms |
+| Island, 20–25 m | 60 fps, worst 18 ms, ~100 draws, 0.7M tris | 60 fps, worst 18–19 ms, GPU ~20 ms |
+| Capital, 45 m hole | 60 fps, worst 18 ms, ~120 draws, 1.85M tris | |
+
+Loading: ~3–4 s to the menu on WebGPU, ~20 s on WebGL2 (shader compiles; the precompile wait is capped at 8 s so a
+background tab can't stall it, since three's WebGL backend polls compiles with requestAnimationFrame).
