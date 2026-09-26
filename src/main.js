@@ -1345,6 +1345,31 @@ if (import.meta.env.DEV) window.__snap = async (name = 'shot', n = 1) => {
   return fetch(`/__shot?name=${name}`, { method: 'POST', body: c2.toDataURL('image/jpeg', 0.85) }).then((r) => r.text());
 };
 
+/**
+ * dev: the establishing shots. Take them all before and after any visual change and compare (.shots/view-*.jpg); the
+ * README's screenshots come from here too. In the town it frames the hole at three sizes; on the island (?region) the
+ * coast, the foothills, a village, the castle and the capital. It moves and resizes the hole: reload afterwards.
+ * Use a fixed ?seed and ?time so before/after match. __views('coast') takes just the named ones.
+ */
+if (import.meta.env.DEV) window.__views = async (...only) => {
+  const C = city, T = C.terrain, at = (q) => q && [q.x + q.r * 0.9, q.z], kind = (k) => C.settlements?.find((q) => q.kind === k);
+  const coast = (a, off) => { const R = T.coastR(Math.cos(a), Math.sin(a)); return [Math.cos(a) * (R - off), Math.sin(a) * (R - off)]; };
+  const views = state.phase === 2 ? {
+    coast: [coast(0.5, 30), 30], foothills: [coast(T.ridgeA ?? 0, 640), 30], village: [at(kind('village')), 14],
+    castle: [at(kind('castle')), 18], capital: [at(kind('capital')), 45], wide: [[hole.x, hole.z], 70],
+  } : { start: [[0, 0], 0.45], mid: [[0, 0], 8], late: [[0, 0], 16] };
+  const out = [];
+  for (const [name, [pos, r]] of Object.entries(views)) {
+    if (only.length && !only.includes(name)) continue;
+    if (!pos) continue;
+    hole.area = Math.PI * r * r;
+    for (let i = 0; i < 12; i++) { hole.x = pos[0]; hole.z = pos[1]; window.__tick(1 / 30, 10); } // (camera settles, reveal runs)
+    await window.__snap('view-' + name, 1);
+    out.push(name);
+  }
+  return out;
+};
+
 function frame(dt) {
   if (state.hitstop > 0) { state.hitstop -= dt; dt *= 0.1; } // hit-stop: the world freezes for a beat on a big bite
   if (state.draft) dt *= 0.04; // perk draft: the world all but stops while you choose

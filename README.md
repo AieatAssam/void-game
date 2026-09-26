@@ -104,7 +104,7 @@ Debug URL flags: `?webgl` (WebGL2 backend), `?seed=7`, `?time=golden|noon|mornin
 `?q=low|medium|high`, `?fps`, `?nopost`, `?noao`, `?low`, `?event=parade|marathon|carshow|ufo&eventAt=5` (force the run's event),
 `?mutator=lowgrav|ducks|mini|night|rush`, `?abil=quake,dash,vortex` (equip abilities), `?allcities`, `?tone=agx`,
 `?noshafts`, `?nolut`, `?off=glass,cav,jit,brush,sheen` (disable new material terms), `?region` (start in Phase 2; with `?r=`
-for the size), `?nophase2` (win at the town clear), `?noarmy`, `?norivals`. In the dev server, `__snap('name')` saves the graded frame to
+for the size), `?nophase2` (win at the town clear), `?noarmy`, `?norivals`. In the dev server, `__views()` takes the establishing shots (town at three sizes; on the island the coast, foothills, a village, the castle and the capital) into `.shots/view-*.jpg`: take them before and after any visual change, with a fixed `?seed` and `?time`. `__perf()` returns the frame-time stats behind the `?fps` overlay. `__snap('name')` saves the graded frame to
 `.shots/name.jpg` even when the window is in the background. `test.html?mat=trees|grass|toy|ground`
 renders materials in isolation; `node tools/shot.mjs out.png "?seed=7&webgl"` captures a frame headlessly.
 Rebuild art (Blender with the MCP add-on running): run `blender/build_all.py` inside Blender, then `npm run optimize`.
