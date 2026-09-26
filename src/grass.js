@@ -162,7 +162,9 @@ export class Grass {
     // interleaved: consecutive instances cycle through the patches, so lowering mesh.count thins every patch evenly
     const np = int(active);
     const patch = int(instanceIndex).mod(np);
-    const j = int(instanceIndex).div(np);
+    // ...and within a patch the slots are visited in a scrambled order (x 2749, a prime, mod side^2): a lower count drops
+    // blades all over the patch, not its last rows (that left lawns half bare, cut off along a straight edge)
+    const j = int(instanceIndex).div(np).mul(2749).mod(int(side * side));
     const gx = float(j.mod(int(side))), gz = float(j.div(int(side)));
     const h1 = hash(id.mul(8).add(1)), h2 = hash(id.mul(8).add(2)), h3 = hash(id.mul(8).add(3));
     const h4 = hash(id.mul(8).add(4)), h5 = hash(id.mul(8).add(5));
