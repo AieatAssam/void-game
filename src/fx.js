@@ -1,6 +1,6 @@
 // Swallow sparks: lilac/white motes that burst out of the rim, sized by the bite. One Points draw call.
 import * as THREE from 'three/webgpu';
-import { instancedBufferAttribute, vec4, uv, length, smoothstep, cameraProjectionMatrix, float, pow, abs, clamp, mix, atan, sin } from 'three/tsl';
+import { instancedBufferAttribute, vec4, uv, length, smoothstep, cameraProjectionMatrix, float, pow, abs, clamp, mix } from 'three/tsl';
 
 /** Camera-facing instanced sprites (WebGPU has no sized points): position/colour/size/alpha per instance. */
 function spriteCloud(n, { additive, world, bird = false }) {
@@ -17,9 +17,8 @@ function spriteCloud(n, { additive, world, bird = false }) {
   const a = instancedBufferAttribute(alpha);
   // bird: a soft wing "V" instead of a round puff
   const q = uv().sub(0.5), wing = abs(q.y.add(abs(q.x).mul(0.7)).sub(0.08));
-  // puff: no flat opaque core (that reads as milk), a lumpy rim, and lit from above so it has volume
-  const lump = sin(atan(q.y, q.x).mul(5).add(instancedBufferAttribute(pos).x.mul(0.37))).mul(0.06);
-  const shape = bird ? smoothstep(0.09, 0.03, wing).mul(smoothstep(0.48, 0.38, abs(q.x))) : pow(clamp(float(1).sub(d.add(lump).mul(2.1)), 0, 1), float(1.7));
+  // puff: no flat opaque core (that reads as milk) and lit from above so it has volume
+  const shape = bird ? smoothstep(0.09, 0.03, wing).mul(smoothstep(0.48, 0.38, abs(q.x))) : pow(clamp(float(1).sub(d.mul(2)), 0, 1), float(1.7));
   const shade = bird ? float(1) : mix(float(0.68), float(1.08), uv().y);
   mat.colorNode = additive
     ? vec4(instancedBufferAttribute(col).mul(pow(smoothstep(0.5, 0.0, d), float(1.5))).mul(2.2), 1)
