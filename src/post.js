@@ -99,7 +99,7 @@ export class Post {
     let hdr = lit;
     if (opts.bloom) {
       // measured on exposed values so only genuinely hot pixels bloom at any time of day
-      const bloomPass = (this.bloomPass = bloom(vec4(lit.mul(toneMappingExposure), 1), 0.28, 0.6, 1.25));
+      const bloomPass = (this.bloomPass = bloom(vec4(lit.mul(toneMappingExposure), 1), 0.24, 0.45, 2.2)); // (threshold well above sunlit white: else the whole frame blooms milky)
       hdr = lit.add(bloomPass.rgb.div(max(toneMappingExposure, 0.05)));
     }
     if (opts.shafts) {
