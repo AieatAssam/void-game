@@ -35,12 +35,15 @@ Built and playable end to end. Try it with `?region` (straight into Phase 2 at 1
 | Sealed | the scripted loss: below 9 m the army flies a Void Lid in and hangs it over the hole (warning, countdown in the status line); grow past 9.6 m within 14 s or it drops (at once below 7.5 m). Why: a hole only gets small enough to cap when it starves, and the army has been trying all along. Every run then restarts from a fresh town | `army.js` `sealWatch`, `phase2.js` `P2` |
 | Rivals | two other breakout holes appear after 40 s / 90 s at far settlements (80% of your size), hunt food and settlements, chase a smaller player and flee a bigger one, respect the coast and mountains, and are capped by the army if they starve (news bulletins) | `rivals.js` region mode |
 | Rubble | crumbling buildings spill 4–12 chunks over the rim on their side; one instanced draw, 700-piece ring buffer; holes swallow them as they pass | `fx.js` `Rubble` |
+| Perk drafts | clearing a village, the castle, the market town or the industrial valley opens the existing perk draft (farms are too many; the capital ends the run) | `main.js` |
+| Rim cracks | radial and concentric fissures in a band outside the rim of holes over 4 m, on the town ground and the island terrain | `surface.js` `rimCracks` |
+| Capsules | power-ups on the island, sized and spaced to the hole, never at sea or on the mountains | `powerups.js` |
 | Minimap | round HUD map, baked a few rows per frame after the swap: coast, shallows, woods, rock, snow, roads, settlements (warm = standing, dark = cleared, orange = capital, ringed = next), the hole, rivals, the Capper and the sealing chopper | `minimap.js` |
 | Scale cues | camera pull-back and far/near planes that follow it, cloud shadows over the whole region, low cloud wisps at the edges of the view once the hole is big, people and cars stay visible as specks, slower collapses for bigger buildings | `fx.js` `Wisps`, `city.js` |
 
 **Measured** (Apple Silicon, Chrome, WebGPU, visible window): 58–60 fps (vsync) everywhere in the region on high,
 100–120 draws and 0.5–1.5M triangles; low tier on the WebGL2 fallback 51–54 fps. The breakout's worst frame is ~200 ms
-(was 1.2 s). Greedy bot (island pass): wins in 4:07–5:43; the careless bot wins slowly (8:48) (docs/BALANCE.md, docs/PERFORMANCE.md).
+(was 1.2 s). Greedy bot (island pass): wins in 4:10–6:38; the careless bot loses on one of two seeds (docs/BALANCE.md, docs/PERFORMANCE.md).
 
 **Fidelity pass (so the look doesn't drop when the camera climbs):** surface detail, terrain relief and AO reach scale
 with the camera distance; meadows are dressed across the whole region (trees, bushes, boulder fields), forests at full
@@ -50,8 +53,9 @@ town's exact land (lakes, fields, woods don't move under the dust).
 
 **Changed from the plan above:** the stadium is tier 39 (not 44) to keep the ladder at 1.3x, so the capital needs a ~41 m
 hole and the run peaks around 50-65 m. The region is an island ~3 km across (not a 3.6 km square). Losing is the army's
-seal (above), not the Phase 1 "ground seals" at 6 m. The settlement perk draft, the rim crack ring, dams and bridges are
-not built yet; the town's powerups and events are quiet in Phase 2.
+seal (above), not the Phase 1 "ground seals" at 6 m. No dams or bridges: the island has no river, and the road corridor
+already lifts roads clear of the lakes. City events (parade, UFO…) and chain reactions stay town-only. Shorelines and the
+snow line show the 6 m terrain grid as a slight sawtooth (a finer mesh would be ~4x the vertices).
 
 ---
 

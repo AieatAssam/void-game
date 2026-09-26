@@ -126,13 +126,12 @@ Results (final tuning):
 | No dead ends: if nothing standing fits, crumbs grow you at the full rate (hint shown) | Seed 4242: shelled from 18.9 to 13.7 m with every settlement left needing 16 m+; sealed at 10:33. Now a win in 5:43. |
 | Death is the army's seal below 9 m (14 s to grow past 9.6 m; instant below 7.5 m) | A scripted, readable loss instead of shrinking back to town scale. |
 
+| Net at 0.6x while stuck (`P2.stuckGrowth`); the bot heads for the woods when stuck | At 1.0x the careless bot always won (8:48); careless play should lose sometimes. The greedy bot didn't know to follow the "go to the woods" hint (crumbs aren't in its target list) and starved at 0.6x until it did. |
+
 | Seed | Greedy bot | Careless bot |
 |---|---|---|
-| 4242 | wins 5:43 (first pass, before the fixes: 6:31, then sealed 10:33) | wins 8:48 (14 shells, 3 lids) |
-| 77 | wins 4:07 | |
-
-Open question: the careless bot now wins slowly instead of dying at 13:30; the no-dead-end net is generous. If
-careless play should lose, halve the net (crumbs at 0.6 instead of 1.0 while stuck) and re-run.
+| 4242 | wins 6:38 | sealed at 9:53 (16 shells) |
+| 77 | wins 4:10 | wins 4:39 |
 
 Region dust is 90–160 on top of the town's (meals and combos at half rate from the region's score, plus 8 per settlement
 and 40 for the capital). A human player takes longer than the greedy bot (it knows every target and path).
