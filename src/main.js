@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { createRenderer, createScene, followSun, applyTime, setFogRange, TIMES } from './look.js';
-import { loadAll, loadPacks, packReady, pedTime, glow } from './assets.js';
+import { loadAll, loadPack, loadPacks, packReady, pedTime, glow } from './assets.js';
 import { City, rng, BUILDINGS, PEOPLE, moodFor, forcedMood, SHADOW_LAYER } from './city.js';
 import { packsFor, PACK_LABEL, MOOD_PACKS } from './packs.js';
 import { Hole, holeField } from './hole.js';
@@ -19,13 +19,17 @@ import { installBot } from './bot.js';
 import { UPGRADES, ECON, save, persist, level, buy, todaySeed } from './meta.js';
 import * as sfx from './sfx.js';
 import { Post } from './post.js';
-import { Sparks, Debris, SMOKE } from './fx.js';
-import { surfaceTime, surfaceOn, world, lightsTime, lightsPulse } from './surface.js';
+import { Sparks, Debris, SMOKE, Wisps, Birds, Rubble } from './fx.js';
+import { surfaceTime, surfaceOn, world, lightsTime, lightsPulse, viewScale } from './surface.js';
 import { Grass } from './grass.js';
 import { Q } from './quality.js';
 import { PERKS, DRAFT_AT, offerPerks, modsFor } from './perks.js';
 import { HEAT, heatMods, heatPay, heatMax, heatBest, recordHeat } from './heat.js';
 import { today as todaysContracts, streak, scoreContracts } from './contracts.js';
+import { Region, slicer } from './region.js';
+import { Army } from './army.js';
+import { Minimap } from './minimap.js';
+import { P2, News, residents, quietDirector, quietEvents, quietChains, quietRivals } from './phase2.js';
 
 const $ = (id) => document.getElementById(id);
 const renderer = await createRenderer($('c'));
@@ -41,10 +45,17 @@ const sparks = new Sparks();
 scene.add(sparks.points);
 const debris = new Debris();
 scene.add(debris.group);
+const wisps = new Wisps(); // Phase 2: low cloud between the camera and the land
+scene.add(wisps.sprite);
+const birds = new Birds(); // Phase 2: flocks over the countryside
+const rubble = new Rubble(); // Phase 2: what spills over the rim
+const minimap = new Minimap(); // Phase 2
+scene.add(birds.sprite, rubble.mesh);
 const LOW_FX = /[?&]low\b/.test(location.search); // ?low: skip extra particles and smoke
 // debug framing for screenshots: ?view=x,z,dist[,yaw,pitch]
 const VIEW = new URLSearchParams(location.search).get('view')?.split(',').map(Number);
 const smokeCol = new THREE.Color();
+const dustCol = new THREE.Color(0xb3a28c);
 
 // ---------- starvation tuning (PLAN.md: keep moving or the ground seals) ----------
 const BELLY_DRAIN = 1 / 8; // a full belly lasts 8s (at the start: the void gets hungrier as the run goes on)
@@ -56,10 +67,22 @@ const DEAD_R = 0.26;
 const MAX_HIT = 0.25; // rule 3: no single hit takes more than 25%
 
 // Loading: files are ~80% of the bar, then building the first city and compiling its shaders (each stage paints first).
-const nextPaint = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+// compile every pipeline up front, in the post pipeline's real context (post.precompile), hidden meshes included
+const precompile = () => post.precompile();
+const nextPaint = () => new Promise((r) => (document.hidden ? setTimeout(r, 0) : requestAnimationFrame(() => setTimeout(r, 0)))); // (no rAF in a background tab)
 let lastLabel = '';
+const TIPS = ['Swallow what fits. Everything bigger waits until you grow.', 'Clear the town and the hole breaks out across the island.',
+  'Villages, castles, cities: the whole island is on the menu.', 'Woods and herds keep you fed on the long roads between towns.',
+  'Red rings mean something is about to land on you. Move!', 'Shrink too far and the army drops a lid on the hole for good.'];
+let tipI = Math.floor(Math.random() * TIPS.length);
+const tipEl = $('tip'), showTip = () => { tipEl.textContent = TIPS[tipI++ % TIPS.length]; tipEl.classList.remove('in'); void tipEl.offsetWidth; tipEl.classList.add('in'); };
+showTip();
+const tipTimer = setInterval(showTip, 3600);
 function setLoad(label, p) {
-  $('load').innerHTML = `${label} <b>${Math.round(p * 100)}%</b>`;
+  const [l, n] = $('load').querySelectorAll('p:first-of-type span, p:first-of-type b');
+  l.textContent = label;
+  n.textContent = `${Math.round(p * 100)}%`;
+  $('load').style.setProperty('--p', p);
   if (label !== lastLabel) console.info(`[load] ${(performance.now() / 1000).toFixed(1)}s ${lastLabel = label}`);
 }
 setLoad('Unpacking the toybox…', 0);
@@ -123,6 +146,10 @@ let city, hole, state, director, rivals, grass, events, chains, powerups, abilit
 const randomSeed = () => (Math.random() * 2 ** 31) | 0;
 // Normal runs play the city picked in the menu; daily/weekly (and the playtest bot) roll the seed's own mood.
 const BOT = location.search.includes('bot');
+// Phase 2 (docs/PHASE2.md): clearing the town breaks the hole out into the countryside. Bot balance runs keep the old
+// ending unless they ask (?region starts straight in Phase 2; ?nophase2 turns it off).
+const START_REGION = /[?&]region\b/.test(location.search);
+const PHASE2 = !/[?&]nophase2\b/.test(location.search) && (!BOT || START_REGION);
 let pickedCity = forcedMood()?.name || (save.city && unlocked(save.city) ? save.city : 'Old Town');
 const runMood = (seed, daily) => (daily || BOT || forcedMood() ? moodFor(seed).name : pickedCity);
 
@@ -142,7 +169,13 @@ const URL_HEAT = Math.min(HEAT.length, +new URLSearchParams(location.search).get
 let pickedHeat = URL_HEAT;
 const pickedMode = new URLSearchParams(location.search).get('mode') === 'blitz' ? 'blitz' : 'city';
 function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null, mutator = null, heat = 0, mode = 'city') {
+  minimap.stop();
+  rubble.clear();
   const hm = heatMods(heat);
+  if (state?.slice) { // a region was being prebuilt for the last run: drop it
+    state.slice.cancelled = true;
+    state.regionJob?.then((r) => { if (r && !r.finished) r.terrain.dispose(); });
+  }
   if (city) { powerups.dispose(); scene.remove(city.group, hole.group, grass.group); city.dispose(); hole.dispose(); director.dispose(); rivals.dispose(); grass.dispose(); events.dispose(); chains.dispose(); }
   const debugR = +new URLSearchParams(location.search).get('r') || 0; // screenshot/debug: start bigger
   hole = new Hole(assets, field, 0, { r: debugR || 0.45 + level('headstart') * 0.04, skin: save.skin || 'void' });
@@ -199,7 +232,7 @@ function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null, 
     reverse: 0, jam: 0, slow: 0, invuln: 0, shake: 0, sealing: 0, hits: [], left: city.buildingsLeft(), combo: 0, comboT: 0, bonus: 0,
     rares: 0, rivalsEaten: 0, hitstop: 0, punch: 0, finale: 0, mi: MILESTONES.filter((m) => hole.r >= m.need * city.scaleK).length, mutator,
     crave: null, craveCool: 18, cravings: 0, wet: 0, mood: city.mood.name, stats: newStats(),
-    heat, hm, mode, perks: [], mods: modsFor([]), drafts: 0, draftsDue: 0, draft: null, happy: 0,
+    heat, hm, mode, perks: [], mods: modsFor([]), drafts: 0, draftsDue: 0, draft: null, happy: 0, phase: 1, pop: 0, slowmo: 1,
     // Happy Hour: about every other run, once, somewhere in the middle - a surprise 20 s feast (variable reward)
     happyAt: r() < 0.55 ? 60 + r() * 150 : Infinity };
   Object.assign(state.stats, { buildings: 0, chains: 0, capsules: 0, eventMeals: 0 });
@@ -268,11 +301,13 @@ newRun(firstSeed, false, 'none', runMood(firstSeed, false), MUTATORS[new URLSear
 // compile every pipeline now, behind the loading screen, instead of stuttering through the first seconds of play
 setLoad('Warming up shaders…', 0.9);
 await nextPaint();
-try { await renderer.compileAsync(scene, camera); } catch (e) { console.warn('precompile skipped', e); }
+await precompile();
 setLoad('Opening the ground…', 0.98);
 await nextPaint();
 $('load').hidden = true;
 $('menu').hidden = false;
+$('screen').classList.remove('loading');
+clearInterval(tipTimer);
 window.__game = () => ({ hole, city, state, renderer, director, rivals, events, chains, powerups, camera, scene, grass, THREE });
 window.__abil = () => abilities;
 window.__info = () => { const r = renderer.info.render; return { calls: r.drawCalls, tris: r.triangles, frameCalls: r.frameCalls }; };
@@ -433,7 +468,7 @@ function hud() {
   $('eaten').querySelector('b').textContent = state.eaten;
   $('hunger').style.width = `${state.belly * 100}%`;
   $('hunger').parentElement.classList.toggle('low', state.belly < 0.3);
-  $('stars').firstChild.textContent = '★'.repeat(director.stars) + '☆'.repeat(4 - director.stars);
+  $('stars').firstChild.textContent = '★'.repeat(director.stars) + '☆'.repeat(Math.max(0, (director.max ?? 4) - director.stars));
   $('noto').style.width = `${director.noto}%`; // notoriety: how hard the city is looking for you
   const cr = state.crave;
   $('crave').hidden = !cr;
@@ -461,9 +496,14 @@ function hud() {
   edgeArrow('pu', pu && [pu.e.x, pu.e.z], POWERS[pu?.kind]?.icon, POWERS[pu?.kind]?.color);
   powerChips();
   abilityHud();
+  if (state.phase === 2) {
+    const q = nextSettlement();
+    const ok = q && q.list.some((e) => e.alive && e.meta.tier < hole.r * 0.95); // something there fits now
+    edgeArrow('town', q && Math.hypot(q.x - hole.x, q.z - hole.z) > q.r * 0.6 && [q.x, q.z], q ? `${q.name}${ok ? '' : ` · ${(q.big / 0.95).toFixed(0)} m`}` : '', ok ? '#9ed9bf' : '#ff8a3d');
+  } else edgeArrow('town', null);
   const ef = events.focus;
   edgeArrow('event', ef, { parade: '🎺', marathon: '🏃', carshow: '🏎️', ufo: '🛸' }[events.kind], '#ffd166');
-  const st = [state.reverse > 0 && 'Controls reversed', state.jam > 0 && 'Jammed', state.wet > 0 ? 'Wet concrete! Get out' : state.slow > 0 && 'Slowed', state.flooded && 'Tide! Slow + hungry',
+  const st = [state.reverse > 0 && 'Controls reversed', state.jam > 0 && (director.seal?.state === 'drop' ? 'The lid is coming down' : 'Jammed'), state.wet > 0 ? 'Wet concrete! Get out' : state.slow > 0 && 'Slowed', state.flooded && 'Tide! Slow + hungry',
     director.bonusT > 0 && 'Spotted'].filter(Boolean);
   const c = CARDS[state.card];
   $('card').hidden = state.card === 'none';
@@ -471,6 +511,9 @@ function hud() {
   const limit = state.mode === 'blitz' ? BLITZ : state.hm.limit;
   if (limit) st.unshift(`⏱ ${clock(Math.max(0, limit - state.time))}`);
   if (state.happy > 0) st.unshift(`🍹 Happy Hour ${Math.ceil(state.happy)}s`);
+  if (state.phase === 2 && city.surface) st.push(city.surface);
+  const seal = director.seal;
+  if (seal && (seal.state === 'in' || seal.state === 'hover')) st.unshift(`⚠ Sealing in ${Math.ceil(seal.left)}s: grow past ${P2.recover} m`);
   $('status').textContent = st.join(' · ');
   $('status').classList.toggle('good', state.happy > 0 || (!!limit && st.length === 1));
 }
@@ -654,6 +697,7 @@ function poison(effect) {
   if (effect === 'shrink') hurt(0.12, 'Gas can! Shrunk');
   if (effect === 'reverse') { state.reverse = 3; flash('Toxic! Controls reversed'); }
   if (effect === 'jam') { state.jam = 2; flash('Spiky art! Jammed'); }
+  if (effect === 'zap') { state.jam = 1; state.shake = 0.4; sparks.burst(hole.x, hole.z, hole.r, 6); flash('Zapped! Power lines'); sfx.hurt(); }
 }
 
 // ---------- growth, notoriety, cravings ----------
@@ -689,6 +733,7 @@ const CRAVES = [
   { label: 'buildings', need: 2, test: (n) => BUILDINGS.has(n) },
 ];
 function cravings(dt) {
+  if (state.phase === 2) { state.crave = null; return; } // (town cravings: the region is fed by whole settlements)
   const c = state.crave;
   if (c) {
     c.t -= dt;
@@ -734,6 +779,16 @@ function craveEat(e) {
 /** Dust for a finished run, itemised. Scarce on purpose (meta.js ECON). */
 function runDust(won) {
   const e = ECON;
+  if (state.phase === 2) { // the region pays on top of the town (banked at the breakout): meals at half rate, whole settlements
+    const k = won ? 1 : e.lossShare;
+    const parts = {
+      meals: e.perScore * Math.sqrt(Math.max(0, state.score - state.townScore)) * 0.5 * k,
+      combos: e.comboDust * Math.sqrt(Math.max(0, state.bonus - state.townBonus)) * 0.5 * k,
+      country: city.settlements.filter((q) => q.left === 0).length * e.settlement + (city.capital?.left === 0 ? e.capital : 0),
+    };
+    const mult = +(CARDS[state.card].mult * heatPay(state.heat)).toFixed(2);
+    return { parts, mult, total: Math.floor(Object.values(parts).reduce((a, b) => a + b, 0) * mult) };
+  }
   const parts = {
     meals: e.perScore * Math.sqrt(state.score) * (won ? 1 : e.lossShare),
     combos: e.comboDust * Math.sqrt(state.bonus) * (won ? 1 : e.lossShare),
@@ -741,7 +796,7 @@ function runDust(won) {
     rares: state.rares * e.rare,
     rivals: state.rivalsEaten * e.rival,
     win: won ? e.winBonus : 0,
-    speed: won ? e.speedBonus * THREE.MathUtils.clamp((720 - state.time) / 420, 0, 1) : 0,
+    speed: won ? e.speedBonus * THREE.MathUtils.clamp((720 - (state.cityTime ?? state.time)) / 420, 0, 1) : 0,
     daily: won && state.daily && !save.daily[state.seed]?.clear ? e.dailyFirstClear : 0,
   };
   const mult = +(CARDS[state.card].mult * heatPay(state.heat)).toFixed(2);
@@ -773,7 +828,7 @@ async function start(seed, daily, mutator = null, mode = 'city') {
         newRun(s, daily, card, mood, mutator, heat, mode);
         setLoad('Warming up shaders…', 1);
         await nextPaint();
-        try { await renderer.compileAsync(scene, camera); } catch (e) { console.warn('precompile skipped', e); }
+        await precompile();
       } finally {
         starting = false;
         $('load').hidden = true;
@@ -784,6 +839,11 @@ async function start(seed, daily, mutator = null, mode = 'city') {
   $('screen').hidden = true;
   $('hud').hidden = false;
   state.playing = true;
+  if (START_REGION && state.phase === 1) { // ?region: straight into Phase 2 at 10 m (or ?r=)
+    hole.area = Math.PI * (+new URLSearchParams(location.search).get('r') || 10) ** 2;
+    state.mi = MILESTONES.length; // (no size-up banners or drafts for the jump)
+    breakout(true);
+  }
 }
 $('play').onclick = () => start(undefined, false, null, pickedMode);
 $('blitz').onclick = () => start(undefined, false, null, 'blitz');
@@ -942,11 +1002,174 @@ if (!location.search.includes('nothumbs')) {
   setTimeout(() => warmThumbs(assets, Object.values(LANDMARK).map(([n]) => n), () => state?.playing).then(renderCities), 1500);
 }
 
+// ---------- Phase 2: breakout (docs/PHASE2.md §2) ----------
+const news = new News();
+/**
+ * The last building fell: the ground gives way, the hole surges and the camera climbs while the region is built behind
+ * the slowed-down cinematic; then the world swaps and the countryside is the map. quick: ?region (no cinematic).
+ */
+async function breakout(quick = false) {
+  if (state.breaking || state.phase === 2) return;
+  state.breaking = true;
+  state.cityTime = state.time;
+  state.townScore = state.score;
+  state.townBonus = state.bonus;
+  if (!quick) { // the town is cleared: bank it now (records, stars, contracts, dust), so leaving mid-region loses nothing
+    state.bank = bankTown(true);
+    flash(`${state.mood} cleared in ${clock(state.time)} · +${state.bank.pay.total} dust`, false);
+  } else state.bank = { pay: { total: 0, parts: {}, mult: 1 }, stars: { list: [], opened: [] }, deals: { completed: [] }, heatUp: false, heatOpen: false, skinsBefore: 0 }; // (?region: no town)
+  const hold = quick ? 0 : 1300; // the swap waits for the dust to cover the town
+  if (!quick) {
+    state.slowmo = P2.slowmo;
+    state.finale = 7;
+    state.shake = 0.8;
+    hole.shockwave();
+    sfx.boom?.();
+    sfx.levelUp();
+    flash('The ground gives way!', false);
+    // the town's ground breaks up: rings of dust roll out from the hole to the city limits and beyond
+    const dust = new THREE.Color(0xb8a58a), dark = new THREE.Color(0x8c7a64), hx = hole.x, hz = hole.z, H = city.half;
+    // (sizes and counts kept in check: huge overlapping sprites make the breakout fill-rate bound)
+    const rings = [[0, hole.r, 25, 32, 10, 3.5, dust], [350, hole.r * 2, 45, 32, 16, 4, dark], [800, H * 0.5, 70, 32, 24, 5, dust], [1150, H * 0.9, 90, 32, 30, 6, dark]];
+    for (const [ms, r0, v, n, size, life, col] of rings) setTimeout(() => {
+      if (!state.breaking) return;
+      debris.dustRing(hx, 1, hz, r0, v, LOW_FX ? n / 2 : n, size, life, col);
+      hole.shockwave();
+      state.shake = Math.max(state.shake, 0.6);
+      sfx.boom?.();
+    }, ms);
+  }
+  news.say(`Void hole escapes ${city.mood.name} — army mobilised`);
+  const t0 = performance.now();
+  await loadPacks(assets, ['region']);
+  const old = city;
+  // normally prebuilt in the background during the town (prebuildRegion); if not, finish it now in bigger slices
+  if (!state.regionJob) prebuildRegion();
+  state.slice.budget = quick ? 1000 : 40; // (?region: nothing to show meanwhile, just build it)
+  // while the cinematic plays: build the region's meshes and compile every pipeline they need in the background, so the
+  // swap and the reveal don't compile on first draw (WebGL: 4 s at the swap, then 200-400 ms per few meshes)
+  const ready = state.regionJob.then(async (g) => {
+    if (!g) return null;
+    await nextPaint();
+    g.finish();
+    await nextPaint();
+    await post.precompile(g.group, quick ? 20000 : 12000);
+    return g;
+  });
+  const [reg] = await Promise.all([ready, new Promise((r) => setTimeout(r, hold))]);
+  if (!reg) { state.breaking = false; state.slowmo = 1; endRun(true); return; }
+  await nextPaint(); // (finish and the grass mask render in separate frames)
+  // the grass mask renders now (off-screen); the region's meshes reveal a few per frame after the swap (Region.budget):
+  // compiling them all up front, or drawing them all at once, both froze the game for a second or more
+  const grass2 = new Grass(renderer, reg.groundMeshes, Math.min(reg.bound, 700), field, { density: +(new URLSearchParams(location.search).get('grass') ?? Q.grass) * 0.6, far: Q.grassFar, lawns: [] });
+  await post.precompile(grass2.group, quick ? 8000 : 4000); // (its blades and the grass mask: the swap frame compiled them)
+  reg.reveal = 0;
+  // swap under a fresh wave of dust: the new world goes in, the old systems go out
+  if (!quick) {
+    debris.dustRing(hole.x, 1, hole.z, hole.r * 1.5, 60, LOW_FX ? 14 : 24, 30, 5, new THREE.Color(0xb8a58a), 0.8);
+    hole.shockwave();
+    sfx.boom?.();
+  }
+  scene.remove(old.group, grass.group);
+  for (const o of [director, events, chains, powerups, rivals]) o.dispose();
+  old.dispose();
+  grass.dispose();
+  city = reg;
+  city.capital = city.settlements.find((q) => q.kind === 'capital');
+  // the hometown's emptied blocks keep what didn't fit down the hole
+  for (const t of old.tiles) if (!/beach|runway|rail|canal|plaza/.test(t.type)) rubble.scatter(t.cx, t.cz, 13, 6, (x, z) => city.groundY(x, z));
+  events = quietEvents(); chains = quietChains();
+  powerups = new Powerups(assets, city, field, state.seed, save.skin || 'void', {
+    flash: (t) => flash(t, false), star: () => { sfx.star(); sfx.whoosh(); }, slotTaken: (i) => i <= rivals.list.length,
+    took: () => { state.stats.capsules++; },
+  });
+  rivals = /[?&]norivals\b/.test(location.search) || state.card === 'lonely' ? quietRivals() : new Rivals(assets, field, city, scene, 2, save.skin || 'void', (t) => news.say(t));
+  for (const rv of rivals.list) rv.respawn = 40 + rivals.list.indexOf(rv) * 50; // let the country settle before company arrives
+  director = /[?&]noarmy\b/.test(location.search) ? quietDirector() : new Army(city, scene, {
+    hurt, toll, drain, warn: (t) => flash(t, false), news: (t) => news.say(t), boom: sfx.boom, siren: sfx.airRaid,
+    jam: (s) => { state.jam = Math.max(state.jam, s); }, kick: (dx, dz) => { state.kick = { x: dx * 60, z: dz * 60 }; }, shake: (k) => { state.shake = Math.max(state.shake, k); },
+    lock: () => { state.jam = 99; }, // the lid is coming down: nothing more to eat
+    sealed: () => endRun(false, 'Sealed — the army capped the hole'),
+  }, debris, sparks);
+  grass = grass2;
+  scene.add(city.group, grass.group);
+  console.info(`[phase2] region ready in ${((performance.now() - t0) / 1000).toFixed(1)}s: ${city.settlements.length} settlements, ${city.entities.length} entities, ${city.crumbs.length} crumbs`, city.times);
+  if (!quick) state.surgeTo = hole.area * P2.surge ** 2; // grows over the next second or so (frame)
+  state.phase = 2;
+  state.belly = 1;
+  state.left = city.buildingsLeft();
+  state.breaking = false;
+  if (quick) state.slowmo = 1;
+  else setTimeout(() => { state.slowmo = 1; }, 1600); // the slow climb continues over the new world
+  $('where').textContent = `${city.mood.name} countryside · ${city.settlements.length} settlements`;
+  minimap.start(city);
+  news.say(`${city.capital?.name || 'The capital'} on alert as the hole heads for the countryside`);
+  if (!quick) {
+    levelEl.innerHTML = `<small>Breakout · ${hole.r.toFixed(1)} m</small><b>The whole country is on the menu</b>`;
+    levelEl.classList.remove('show');
+    void levelEl.offsetWidth;
+    levelEl.classList.add('show');
+    bannerUntil = performance.now() + 2600;
+  }
+}
+window.__breakout = (quick = true) => breakout(quick); // (dev: __breakout(false) plays the real cinematic)
+const phase2Run = () => PHASE2 && state.mode === 'city' && !state.mutator;
+
+/** Start building the region between frames while the town is still being eaten (3 ms a slice). */
+function prebuildRegion() {
+  state.slice = slicer(3, () => post.fps > 0 && post.fps < 55); // (pauses while the game is below 55 fps)
+  state.regionJob = loadPack(assets, 'region', null, { gentle: true }).then(() => Region.create(assets, city, field, state.slice, false))
+    .catch((e) => { if (!state.slice?.cancelled) console.warn('region prebuild failed', e); return null; });
+}
+
+/** The settlement to head for: the best meal per metre of travel; if nothing is edible yet, the nearest one left. */
+function nextSettlement() {
+  if ((state.targetT = (state.targetT || 0) - 1) > 0 && state.target?.left) return state.target;
+  state.targetT = 20; // (re-chosen every 20 frames)
+  let best = city.target(hole);
+  if (!best) {
+    let bd = Infinity;
+    for (const q of city.settlements) { const d = Math.hypot(q.x - hole.x, q.z - hole.z); if ((q.left ?? q.total) && d < bd) { bd = d; best = q; } }
+  }
+  return (state.target = best);
+}
+
+/**
+ * The town's results: clear time, daily/weekly records, stars, contracts, Heat and its dust. Called by endRun, or at the
+ * breakout (Phase 2 banks the town at once, so leaving mid-region never loses a clear).
+ */
+function bankTown(cleared) {
+  const clearT = state.cityTime ?? state.time;
+  if (state.phase === 1 && !state.cityTime) { state.townScore = state.score; state.townBonus = state.bonus; }
+  const pay = runDust(cleared);
+  save.dust += pay.total;
+  save.best = Math.max(save.best, state.best);
+  if (cleared) save.fastest = Math.min(save.fastest || Infinity, clearT);
+  if (state.mutator) recordWeek(thisWeek().key, state.best, cleared && clearT);
+  if (state.daily) {
+    const d = { r: 0, ...save.daily[state.seed] };
+    d.r = Math.max(d.r, state.best);
+    if (cleared) d.clear = Math.min(d.clear || Infinity, clearT);
+    save.daily[state.seed] = d;
+  }
+  const skinsBefore = Object.values(SKINS).filter((k) => k.stars && totalStars() >= k.stars).length;
+  state.stats.eventLive = events.live ? events.kind : null;
+  const clearedBefore = !!save.cleared?.[state.mood];
+  const stars = scoreRun(state.mood, state.stats, cleared, clearT);
+  Object.assign(state.stats, { cravings: state.cravings, rivals: state.rivalsEaten, rares: state.rares, best: state.best });
+  const deals = BOT ? { completed: [], dust: 0 } : scoreContracts(state.stats, { won: cleared, time: clearT, heat: state.heat, mode: state.mode });
+  const heatUp = cleared && state.heat > 0 && recordHeat(state.mood, state.heat);
+  const heatOpen = cleared && !clearedBefore; // first clear: Heat unlocks for this city
+  persist();
+  return { pay, stars, deals, heatUp, heatOpen, skinsBefore };
+}
+
 /** Ends a run. won = every building swallowed; why = how a lost run ended. */
 function endRun(won, why) {
   if (!state.playing) return;
   state.playing = false;
   rivals.hideLabels();
+  minimap.stop();
   for (const el of Object.values(edgeArrows)) el.hidden = true;
   state.draft = null;
   draftEl.hidden = true;
@@ -960,25 +1183,15 @@ function endRun(won, why) {
   ensurePacks(runMood(nextSeed, false), () => {}).catch((e) => console.warn('pack preload failed', e));
   if (won) { sfx.star(); state.finale = 3.4; }
   else { state.sealing = 1.2; sfx.seal(); }
-  const pay = runDust(won), dust = pay.total, mult = pay.mult;
-  save.dust += dust;
+  // Phase 2: the town was banked at the breakout (bankTown); this run adds the region's pay on top
+  const region = state.phase === 2, clearT = state.cityTime ?? state.time;
+  const bank = state.bank ?? bankTown(won);
+  const pay = region ? runDust(won) : bank.pay, dust = pay.total + (region ? bank.pay.total : 0), mult = pay.mult;
+  if (region) save.dust += pay.total;
   save.best = Math.max(save.best, state.best);
-  if (won) save.fastest = Math.min(save.fastest || Infinity, state.time);
-  if (state.mutator) recordWeek(thisWeek().key, state.best, won && state.time);
-  if (state.daily) {
-    const d = { r: 0, ...save.daily[state.seed] };
-    d.r = Math.max(d.r, state.best);
-    if (won) d.clear = Math.min(d.clear || Infinity, state.time);
-    save.daily[state.seed] = d;
-  }
-  const skinsBefore = Object.values(SKINS).filter((k) => k.stars && totalStars() >= k.stars).length;
-  state.stats.eventLive = events.live ? events.kind : null;
-  const clearedBefore = !!save.cleared?.[state.mood];
-  const stars = scoreRun(state.mood, state.stats, won, state.time);
-  Object.assign(state.stats, { cravings: state.cravings, rivals: state.rivalsEaten, rares: state.rares, best: state.best });
-  const deals = BOT ? { completed: [], dust: 0 } : scoreContracts(state.stats, { won, time: state.time, heat: state.heat, mode: state.mode });
-  const heatUp = won && state.heat > 0 && recordHeat(state.mood, state.heat);
-  const heatOpen = won && !clearedBefore; // first clear: Heat unlocks for this city
+  if (state.daily) save.daily[state.seed] = { ...save.daily[state.seed], r: Math.max(save.daily[state.seed]?.r || 0, state.best) };
+  const { stars, deals, heatUp, heatOpen, skinsBefore } = bank;
+  const towns = region ? city.settlements.filter((q) => q.left === 0).length : 0;
   let blitzBest = false;
   if (state.mode === 'blitz') {
     save.blitz ??= {};
@@ -990,15 +1203,18 @@ function endRun(won, why) {
   setTimeout(() => {
     $('hud').hidden = true;
     $('screen').hidden = false;
-    $('title').innerHTML = state.mode === 'blitz' && !won ? `Blitz over<br><span>${state.best.toFixed(1)} m</span>` : won ? 'You swallowed<br><span>the city</span>' : why ? `${why.split(' — ')[0]}<br><span>${why.split(' — ')[1] || 'game over'}</span>` : 'The ground<br><span>sealed</span>';
+    $('title').innerHTML = state.mode === 'blitz' && !won ? `Blitz over<br><span>${state.best.toFixed(1)} m</span>` : won ? `You swallowed<br><span>the ${region ? 'country' : 'city'}</span>` : why ? `${why.split(' — ')[0]}<br><span>${why.split(' — ')[1] || 'game over'}</span>` : 'The ground<br><span>sealed</span>';
     $('result').hidden = false;
     $('result').innerHTML = (state.mode === 'blitz' && !won
       ? `Two minutes, <b>${state.eaten}</b> things swallowed, grew to <b>${state.best.toFixed(1)} m</b>. ${blitzBest ? '<b>New Blitz best!</b>' : `Blitz best <b>${(save.blitz[state.mood] || 0).toFixed(1)} m</b>`}`
+      : region
+      ? `${state.mood} gone in <b>${clock(clearT)}</b>, then <b>${towns}</b> of ${city.settlements.length} settlements${won ? `, ${city.capital?.name || 'the capital'} last` : ''}. Grew to <b>${state.best.toFixed(1)} m</b>, <b>${Math.round(state.pop).toLocaleString()}</b> people swallowed.${won ? '' : '<br>Too weak to swallow a Void Lid, it was capped for good. Every run starts over from a fresh town.'}`
       : won
       ? `Every building gone in <b>${clock(state.time)}</b>${state.daily ? ' — today\'s city' : ''}. Fastest ever <b>${clock(save.fastest)}</b>.`
       : `You swallowed <b>${state.eaten}</b> things and grew to <b>${state.best.toFixed(1)} m</b>${state.daily ? ' in today\'s city' : ''}. <b>${state.left}</b> buildings still stand.`)
       + (state.bite ? `<span class="bite"><img alt="" src="${state.bite}"><small>Biggest bite · ${title(state.biteName)}</small></span>` : '<br>')
       + `+<b>${dust}</b> void dust${mult > 1 ? ` (×${mult}${state.card !== 'none' ? ` ${CARDS[state.card].name}` : ''}${state.heat ? ` 🔥${state.heat}` : ''})` : ''} · best ever <b>${save.best.toFixed(1)} m</b>`
+      + (region ? `<small class="pay">town ${bank.pay.total} · country ${pay.total}</small>` : '')
       + `<small class="pay">${Object.entries(pay.parts).filter(([, v]) => v >= 0.5).map(([k, v]) => `${k} ${Math.round(v)}`).join(' · ')}</small>`
       + `<span class="goals"><small>${state.mood} stars</small>${stars.list.map((c, i) => `<i class="${c.done ? 'done' : ''}${c.fresh ? ' fresh' : ''}" style="--d:${i * 0.25}s">${c.done ? '★' : '☆'} ${c.text}</i>`).join('')}</span>`
       + stars.opened.map((m) => `<span class="unlock">🔓 New city: <b>${m}</b></span>`).join('')
@@ -1018,44 +1234,146 @@ const camTarget = new THREE.Vector3(hole.x, 0, hole.z);
 const _v = new THREE.Vector3();
 let camDist = 14 * LENS, camYaw = 0;
 
-// ?fps: live performance overlay (frame rate, frame time, draw calls, triangles, tier and any quality steps taken)
+// ?fps: live performance overlay. Every frame is recorded (interval, JS game time, render submit time); the overlay shows
+// now / 10 s average / 1% low / worst, a 10 s frame-time graph and hitch counts, and every hitch (>50 ms) is logged with
+// what the game was doing (phase, breakout, region reveal). __perf() returns the numbers, __perf(true) resets them.
 const fpsEl = new URLSearchParams(location.search).has('fps') ? Object.assign(document.createElement('div'), { id: 'fps' }) : null;
+const fpsTxt = fpsEl && fpsEl.appendChild(document.createElement('pre'));
+const fpsGraph = fpsEl && fpsEl.appendChild(Object.assign(document.createElement('canvas'), { width: 300, height: 60 }));
 if (fpsEl) document.body.append(fpsEl);
-const perf = { t0: performance.now(), n: 0, worst: 0, last: performance.now(), cpu: 0, sub: 0, gpu: null, gpuN: 0, gpuBusy: false };
-function perfOverlay() {
-  const now = performance.now();
-  perf.worst = Math.max(perf.worst, now - perf.last);
+const HIST = 2400; // frames kept (10 s at up to 240 Hz)
+const perf = {
+  last: performance.now(), shown: 0, cpu: 0, sub: 0, gpu: null, gpuN: 0, gpuBusy: false,
+  at: new Float64Array(HIST), dt: new Float32Array(HIST), js: new Float32Array(HIST), sb: new Float32Array(HIST), i: 0, n: 0,
+  hitches: [], since: performance.now(), worstEver: 0,
+};
+function perfTag() {
+  return [`p${state?.phase ?? 1}`, state?.breaking && 'breakout', city?.reveal != null && city.meshes && city.reveal < city.meshes.length && `reveal ${city.reveal}/${city.meshes.length}`,
+    state?.draft && 'draft', !state?.playing && 'menu'].filter(Boolean).join(' ');
+}
+function perfStats(win = 10000) {
+  const now = performance.now(), d = [];
+  let js = 0, sb = 0;
+  for (let k = 0; k < Math.min(perf.n, HIST); k++) {
+    const j = (perf.i - 1 - k + HIST) % HIST;
+    if (now - perf.at[j] > win) break;
+    d.push(perf.dt[j]); js += perf.js[j]; sb += perf.sb[j];
+  }
+  if (!d.length) return null;
+  const sum = d.reduce((a, b) => a + b, 0), sorted = [...d].sort((a, b) => b - a);
+  const p99 = sorted[Math.floor(sorted.length * 0.01)], worst = sorted[0], best = sorted[sorted.length - 1];
+  return { frames: d.length, avgFps: (1000 * d.length) / sum, lowFps1: 1000 / p99, minFps: 1000 / worst, maxFps: 1000 / best, worstMs: worst,
+    avgJs: js / d.length, avgSubmit: sb / d.length, over33: d.filter((v) => v > 33.4).length, over50: d.filter((v) => v > 50).length, over100: d.filter((v) => v > 100).length };
+}
+window.__perf = (reset = false) => {
+  const out = { hidden: document.hidden, hiddenRecently: performance.now() - (perf.hiddenT || -1e9) < 10000, last10s: perfStats(), last1s: perfStats(1000), worstEverMs: perf.worstEver, hitches: perf.hitches.slice(), since: ((performance.now() - perf.since) / 1000).toFixed(0) + 's' };
+  if (reset) Object.assign(perf, { hitches: [], worstEver: 0, since: performance.now(), n: 0, i: 0 });
+  return out;
+};
+function perfOverlay(jsMs, subMs) {
+  const now = performance.now(), dt = now - perf.last;
   perf.last = now;
-  perf.n++;
-  // GPU time per frame (WebGPU timestamp queries; resolved every frame, so the total covers about one frame)
+  // a hidden page is throttled by the browser: those frames say nothing about the game, so they aren't recorded
+  if (document.hidden) { perf.hiddenT = now; return; }
+  if (now - (perf.hiddenT || 0) < 500) return; // (and the first frames back are catch-up)
+  perf.at[perf.i] = now; perf.dt[perf.i] = dt; perf.js[perf.i] = jsMs; perf.sb[perf.i] = subMs;
+  perf.i = (perf.i + 1) % HIST; perf.n++;
+  if (perf.n > 30) { // (skip the first frames after load)
+    perf.worstEver = Math.max(perf.worstEver, dt);
+    if (dt > 50) { perf.hitches.push({ t: +((now - perf.since) / 1000).toFixed(1), ms: Math.round(dt), js: +jsMs.toFixed(1), submit: +subMs.toFixed(1), tag: perfTag() }); if (perf.hitches.length > 200) perf.hitches.shift(); }
+  }
+  // GPU time per frame (WebGPU timestamp queries)
   perf.gpuN++;
   if (renderer.backend.trackTimestamp && !perf.gpuBusy) {
     perf.gpuBusy = true;
     const frames = perf.gpuN;
     perf.gpuN = 0;
-    renderer.resolveTimestampsAsync('render').then((ms) => { if (ms > 0) perf.gpu = ms / Math.max(1, frames); }).catch(() => {}).finally(() => { perf.gpuBusy = false; });
+    renderer.resolveTimestampsAsync('render').then((ms) => { if (ms > 0 && ms < 1000) perf.gpu = ms / Math.max(1, frames); }).catch(() => {}).finally(() => { perf.gpuBusy = false; });
   }
-  if (now - perf.t0 < 500) return;
-  const fps = (perf.n * 1000) / (now - perf.t0), r = renderer.info.render, o = post.opts || {};
+  if (now - perf.shown < 250) return;
+  perf.shown = now;
+  const a = perfStats(), b = perfStats(1000), r = renderer.info.render, o = post.opts || {};
+  if (!a || !b) return;
   const tris = r.triangles > 1e6 ? `${(r.triangles / 1e6).toFixed(2)}M` : `${Math.round(r.triangles / 1e3)}k`;
-  fpsEl.textContent = `${fps.toFixed(0)} fps · ${(1000 / fps).toFixed(1)} ms (worst ${perf.worst.toFixed(0)})\n`
-    + `CPU ${(perf.cpu / perf.n).toFixed(1)} ms (game ${((perf.cpu - perf.sub) / perf.n).toFixed(1)} · render submit ${(perf.sub / perf.n).toFixed(1)}) · GPU ${renderer.backend.trackTimestamp ? (perf.gpu == null ? '…' : `${perf.gpu.toFixed(1)} ms`) : 'n/a'}\n`
-    + `${r.drawCalls} draws · ${tris} tris\n`
+  const lastHitch = perf.hitches.at(-1);
+  fpsTxt.textContent = `now ${b.avgFps.toFixed(0)} fps · 10s avg ${a.avgFps.toFixed(0)} · 1% low ${a.lowFps1.toFixed(0)} · min ${a.minFps.toFixed(0)} · max ${a.maxFps.toFixed(0)}\n`
+    + `frame worst ${a.worstMs.toFixed(0)} ms (10s) · ${perf.worstEver.toFixed(0)} ms (since ${((now - perf.since) / 1000).toFixed(0)}s)\n`
+    + `hitches 10s: >33ms ${a.over33} · >50ms ${a.over50} · >100ms ${a.over100} · total ${perf.hitches.length}\n`
+    + (lastHitch ? `last hitch ${lastHitch.ms} ms at ${lastHitch.t}s (js ${lastHitch.js} · submit ${lastHitch.submit}) ${lastHitch.tag}\n` : '')
+    + `CPU js ${a.avgJs.toFixed(1)} ms · submit ${a.avgSubmit.toFixed(1)} ms · GPU ${renderer.backend.trackTimestamp ? (perf.gpu == null ? '…' : `${perf.gpu.toFixed(1)} ms`) : 'n/a'}\n`
+    + `${r.drawCalls} draws · ${tris} tris · ${perfTag()}\n`
     + `${Q.tier} · ${renderer.backend.isWebGPUBackend ? 'WebGPU' : 'WebGL2'} · ${renderer.getPixelRatio()}x · ${renderer.domElement.width}×${renderer.domElement.height}\n`
     + `AO ${o.ao ? `${o.aoRes}x` : 'off'} · bloom ${o.bloom ? 'on' : 'off'} · grass ${grass.layers.length ? (post.lowSpec ? 'half' : 'on') : 'off'}`
     + (post.steps ? `\nfallback: ${post.steps.join(' → ')}` : '');
-  Object.assign(perf, { t0: now, n: 0, worst: 0, cpu: 0, sub: 0 });
+  // graph: the last 10 s of frame times (green under 16.7 ms, amber to 33, red above), guide lines at 60 and 30 fps
+  const g = fpsGraph.getContext('2d'), W = fpsGraph.width, H = fpsGraph.height, y = (ms) => H - Math.min(H, (ms / 100) * H);
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = '#ffffff22'; g.fillRect(0, y(16.7), W, 1); g.fillRect(0, y(33.3), W, 1);
+  for (let k = 0; k < Math.min(perf.n, HIST); k++) {
+    const j = (perf.i - 1 - k + HIST) % HIST, age = now - perf.at[j];
+    if (age > 10000) break;
+    const x = W - (age / 10000) * W, v = perf.dt[j];
+    g.fillStyle = v > 33.4 ? '#ff5d5d' : v > 17.5 ? '#ffc84a' : '#7be38f';
+    g.fillRect(x, y(v), Math.max(1, W / 600), H - y(v));
+  }
 }
 renderer.setAnimationLoop(() => {
   const t0 = fpsEl && performance.now();
+  if (fpsEl) perf.sub = 0;
   frame(Math.min(timer.getDelta(), 1 / 20));
-  if (fpsEl) { perf.cpu += performance.now() - t0; perfOverlay(); }
+  if (fpsEl) { const all = performance.now() - t0; perfOverlay(all - perf.sub, perf.sub); }
 });
-window.__tick = (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) frame(dt); };
+// (stepping outside the animation loop: advance three's frame counter too, or per-frame passes won't re-render)
+window.__tick = (dt = 1 / 60, n = 1) => {
+  for (let i = 0; i < n; i++) { const nf = renderer._nodes?.nodeFrame; if (nf) { nf.update(); renderer.info.frame = nf.frameId; } frame(dt); }
+};
+// dev: step, then save the frame to .shots/<name>.jpg (vite.config.js) - works with the window in the background
+if (import.meta.env.DEV) window.__snap = async (name = 'shot', n = 1) => {
+  window.__tick(1 / 60, n);
+  // render the graded frame into a target and read it back (a background window never presents its canvas)
+  const w = canvas.width, h = canvas.height, rt = new THREE.RenderTarget(w, h);
+  renderer.setRenderTarget(rt);
+  post.render(look.grade || [1, 1, 1]);
+  renderer.setRenderTarget(null);
+  const px = await renderer.readRenderTargetPixelsAsync(rt, 0, 0, w, h);
+  rt.dispose();
+  const c2 = Object.assign(document.createElement('canvas'), { width: w, height: h }), ctx = c2.getContext('2d');
+  const img = ctx.createImageData(w, h);
+  const stride = px.length === w * h * 4 ? w * 4 : Math.ceil((w * 4) / 256) * 256; // (WebGPU pads rows to 256 bytes)
+  for (let y = 0; y < h; y++) img.data.set(px.subarray(y * stride, y * stride + w * 4), y * w * 4);
+  ctx.putImageData(img, 0, 0);
+  return fetch(`/__shot?name=${name}`, { method: 'POST', body: c2.toDataURL('image/jpeg', 0.85) }).then((r) => r.text());
+};
+
+/**
+ * dev: the establishing shots. Take them all before and after any visual change and compare (.shots/view-*.jpg); the
+ * README's screenshots come from here too. In the town it frames the hole at three sizes; on the island (?region) the
+ * coast, the foothills, a village, the castle and the capital. It moves and resizes the hole: reload afterwards.
+ * Use a fixed ?seed and ?time so before/after match. __views('coast') takes just the named ones.
+ */
+if (import.meta.env.DEV) window.__views = async (...only) => {
+  const C = city, T = C.terrain, at = (q) => q && [q.x + q.r * 0.9, q.z], kind = (k) => C.settlements?.find((q) => q.kind === k);
+  const coast = (a, off) => { const R = T.coastR(Math.cos(a), Math.sin(a)); return [Math.cos(a) * (R - off), Math.sin(a) * (R - off)]; };
+  const views = state.phase === 2 ? {
+    coast: [coast(0.5, 30), 30], foothills: [coast(T.ridgeA ?? 0, 640), 30], village: [at(kind('village')), 14],
+    castle: [at(kind('castle')), 18], capital: [at(kind('capital')), 45], wide: [[hole.x, hole.z], 70],
+  } : { start: [[0, 0], 0.45], mid: [[0, 0], 8], late: [[0, 0], 16] };
+  const out = [];
+  for (const [name, [pos, r]] of Object.entries(views)) {
+    if (only.length && !only.includes(name)) continue;
+    if (!pos) continue;
+    hole.area = Math.PI * r * r;
+    for (let i = 0; i < 12; i++) { hole.x = pos[0]; hole.z = pos[1]; window.__tick(1 / 30, 10); } // (camera settles, reveal runs)
+    await window.__snap('view-' + name, 1);
+    out.push(name);
+  }
+  return out;
+};
 
 function frame(dt) {
   if (state.hitstop > 0) { state.hitstop -= dt; dt *= 0.1; } // hit-stop: the world freezes for a beat on a big bite
   if (state.draft) dt *= 0.04; // perk draft: the world all but stops while you choose
+  dt *= state.slowmo; // Phase 2 breakout cinematic
   const w = innerWidth, h = innerHeight;
   if (canvas.width !== Math.floor(w * renderer.getPixelRatio())) {
     renderer.setSize(w, h, false);
@@ -1072,31 +1390,48 @@ function frame(dt) {
     const tide = state.flooded ? 2 : 1;
     state.wet = Math.max(0, state.wet - dt);
     const ramp = 1 + state.time / HUNGER_RAMP; // the void gets hungrier the longer the run goes on
-    state.belly = Math.max(0, state.belly - BELLY_DRAIN * state.mods.hunger * state.hm.hunger * tide * ramp * Math.min(1, 0.3 + state.time / 25) * dt); // gentle first 20s
+    const drain = state.phase === 2 ? P2.bellyDrain : BELLY_DRAIN * ramp * Math.min(1, 0.3 + state.time / 25); // (gentle first 20 s)
+    state.belly = Math.max(0, state.belly - drain * state.mods.hunger * state.hm.hunger * tide * dt);
     cravings(dt);
     const [sx, sz] = window.__bot ? window.__bot(hole, city) : steer();
     const surge = (powerups.active.boost ? 1.8 : 1) * abilities.update(dt, hole) * (state.mutator === 'lowgrav' ? 1.1 : 1);
     if (BOT && abilities.list.length) abilities.auto({ hole, city, director, state }, window.__botTarget);
     if (hole.dash > 0) dashFx();
-    const speed = (6.5 + hole.r * 1.8) * state.mods.speed * (state.slow > 0 ? 0.45 : 1) * (state.flooded ? 0.6 : 1) * surge;
-    // a little weight (~0.1s to turn / reach speed), not a boat
-    const kv = 1 - Math.exp(-dt * 11);
+    // Phase 2: the ground matters - roads, fields, woods, water - and so do the hills (slower up, a little quicker down)
+    const slope = state.phase === 2 ? city.groundTilt?.(hole.x, hole.z, hole.r) : null;
+    const hill = slope ? THREE.MathUtils.clamp(1 - (slope.nx * hole.sx + slope.nz * hole.sz) * 1.4, 0.62, 1.2) : 1;
+    const base = state.phase === 2 ? P2.speed(hole.r) * (city.surfaceSpeed?.(hole.x, hole.z) ?? 1) * hill : 6.5 + hole.r * 1.8;
+    const speed = base * state.mods.speed * (state.slow > 0 ? 0.45 : 1) * (state.flooded ? 0.6 : 1) * surge;
+    // a little weight (~0.1s to turn / reach speed), not a boat; in Phase 2 it gets heavier as it grows
+    const kv = 1 - Math.exp(-dt / (state.phase === 2 ? P2.turn(hole.r) : 1 / 11));
     hole.sx = (hole.sx || 0) + (sx - (hole.sx || 0)) * kv;
     hole.sz = (hole.sz || 0) + (sz - (hole.sz || 0)) * kv;
-    const lim = Math.max(2, city.half - hole.r * 0.95); // keep the whole hole disc inside town
+    const lim = Math.max(2, (state.phase === 2 ? city.bound + 400 : city.half) - hole.r * 0.95); // keep the whole hole disc on the map
     const px = hole.x, pz = hole.z;
     const kick = state.kick || { x: 0, z: 0 };
     hole.x = THREE.MathUtils.clamp(hole.x + (hole.sx * speed + kick.x) * dt, -lim, lim);
     hole.z = THREE.MathUtils.clamp(hole.z + (hole.sz * speed + kick.z) * dt, -lim, lim);
+    if (state.phase === 2) { // the island's coast is the edge: the hole can wade into the shallows, no further
+      const rr = Math.hypot(hole.x, hole.z), cr = city.terrain.coastR(hole.x, hole.z) + 25 - hole.r * 0.5;
+      if (rr > cr) { hole.x *= cr / rr; hole.z *= cr / rr; }
+      const wall = (x, z) => city.terrain.mountain(x, z) > 0.22; // the mountains: slide along the foothills
+      if (wall(hole.x, hole.z)) {
+        if (!state.saidWall) { state.saidWall = true; flash('Too steep: the mountains wall off the island', false); }
+        if (!wall(hole.x, pz)) hole.z = pz; else if (!wall(px, hole.z)) hole.x = px; else { hole.x = px; hole.z = pz; } }
+    }
     hole.vac = Math.max(0, (hole.vac || 0) - dt * state.mods.vacDecay);
+    if (state.surgeTo) { // breakout surge
+      hole.area += (state.surgeTo - hole.area) * Math.min(1, dt * 1.5);
+      if (hole.area > state.surgeTo * 0.99) state.surgeTo = 0;
+    }
     kick.x *= Math.max(0, 1 - dt * 5);
     kick.z *= Math.max(0, 1 - dt * 5);
     hole.vx = (hole.x - px) / dt;
     hole.vz = (hole.z - pz) / dt;
 
     const slower = (1 - level('appetite') * 0.06) * (state.card === 'lonely' ? 1.3 : 1);
-    const fed = DECAY_FED / (1 + hole.r * 0.1); // big holes need proportionally bigger meals already
-    hole.area *= 1 - (state.belly > 0 ? fed : DECAY_STARVING) * slower * dt;
+    const fed = state.phase === 2 ? P2.decayFed : DECAY_FED / (1 + hole.r * 0.1); // big holes need proportionally bigger meals already
+    hole.area *= 1 - (state.belly > 0 ? fed : state.phase === 2 ? P2.decayStarving : DECAY_STARVING) * slower * dt;
     director.update(dt, hole, state);
     events.update(dt, hole, state);
     city.alarm = director.stars; // at high heat the city evacuates: people hide indoors
@@ -1109,11 +1444,19 @@ function frame(dt) {
     }
     if (director.stars > state.stars) {
       sfx.star();
-      flash('★'.repeat(director.stars) + ' The city fights back', false);
+      flash('★'.repeat(director.stars) + (state.phase === 2 ? ' The army closes in' : ' The city fights back'), false);
       if (!save.hinted && director.stars === 1) setTimeout(() => hint('Red rings = something is about to land. Move!'), 1500);
     }
     state.stars = director.stars;
-    if ((state.leftTimer = (state.leftTimer || 0) - dt) <= 0) { state.leftTimer = 0.5; state.left = city.buildingsLeft(); }
+    if ((state.leftTimer = (state.leftTimer || 0) - dt) <= 0) {
+      state.leftTimer = 0.5;
+      state.left = city.buildingsLeft();
+      if (state.phase === 2) { // no dead ends (PLAN rule 2): if nothing standing fits, the countryside grows you at full rate
+        const was = state.starved2;
+        state.starved2 = !city.settlements.some((q) => q.list.some((e) => e.alive && !e.noSwallow && e.meta.tier < hole.r * 0.95));
+        if (state.starved2 && !was) hint('Nothing in town fits: feast on the woods and herds to grow');
+      }
+    }
     const rv = rivals.update(dt, hole, true, state.time, powerups);
     if (rv === 'eaten') endRun(false, `Eaten — by ${rivals.list.find((q) => !q.dead && q.hole.r > hole.r)?.name || 'a rival'}`);
     else for (const q of rv) {
@@ -1126,10 +1469,14 @@ function frame(dt) {
       sparks.burst(hole.x, hole.z, hole.r, 6);
     }
     if (!state.playing) { /* eaten above */ }
-    else if (hole.r < DEAD_R) endRun(false);
-    else if (state.left === 0) endRun(true);
-    else if (state.card === 'rush' && state.time > 300) endRun(false, 'Too slow — Rush Hour over');
-    else if (state.hm.limit && state.time > state.hm.limit) endRun(false, 'Too slow — Against the Clock');
+    else if (hole.r < (state.phase === 2 ? 3 : DEAD_R)) endRun(false); // (Phase 2 ends with the army's seal first: army.js)
+    else if (state.phase === 2 && city.capital?.left === 0) endRun(true, 'capital');
+    // Phase 2 follows a normal town clear (not Blitz, not the weekly mutator runs: their twist is the whole run)
+    else if (state.left === 0 && state.phase === 1) { if (phase2Run()) breakout(); else endRun(true); }
+    if (phase2Run() && state.phase === 1 && !state.regionJob && state.time > 6) prebuildRegion();
+    // (time limits are for the town: after the breakout the clock is the town's clear time)
+    else if (state.phase === 1 && state.card === 'rush' && state.time > 300) endRun(false, 'Too slow — Rush Hour over');
+    else if (state.phase === 1 && state.hm.limit && state.time > state.hm.limit) endRun(false, 'Too slow — Against the Clock');
     else if (state.mode === 'blitz' && state.time >= BLITZ) endRun(false, 'Time! — Blitz over');
     if (state.playing && state.time >= state.happyAt) { // Happy Hour starts
       state.happyAt = Infinity;
@@ -1139,6 +1486,24 @@ function frame(dt) {
       flash('🍹 Happy Hour! Everything grows you 50% more', false);
     }
     state.happy = Math.max(0, state.happy - dt);
+    if (state.phase === 2) for (const q of city.settlements) { // the hole comes near: bells, sirens, the roads fill
+      if (!q.alarmed && Math.hypot(q.x - hole.x, q.z - hole.z) < q.r + 180 + hole.r * 4) {
+        q.alarmed = true;
+        if (q.kind === 'village' || q.kind === 'farm') sfx.bells(); else sfx.airRaid();
+        news.say(`${q.name} evacuates as the hole approaches`);
+        city.evacuate?.(q);
+      }
+    }
+    if (state.phase === 2) for (const q of city.settlements) { // a settlement falls
+      if (q.left === 0 && !q.gone) {
+        q.gone = true;
+        hole.shockwave();
+        sfx.levelUp();
+        flash(`${q.name} is gone`, false);
+        news.say(`${q.name} swallowed whole${q.kind === 'capital' ? ' — the capital has fallen' : ''}`);
+        if (q.kind !== 'farm' && q.kind !== 'capital') { state.draftsDue++; if (BOT) openDraft(); else setTimeout(openDraft, 1100); } // a real settlement: the void mutates
+      }
+    }
   } else if (state.sealing > 0) {
     state.sealing = Math.max(0, state.sealing - dt);
     hole.area *= Math.max(0, 1 - dt * 6);
@@ -1149,11 +1514,15 @@ function frame(dt) {
   abilities.hold(hole);
   if (powerups.active.boost && state.playing) surgeFx(dt);
   const eaten = city.update(dt, [hole, ...rivals.holes, ...twins], state.jam > 0 || !state.playing);
+  if (state.phase === 2) rubble.update([hole, ...rivals.holes]);
   for (const ev of city.events) {
     if (ev.type === 'fall') {
       const e = ev.e, t = e.meta.tier, mine = e.eater === hole && state.playing;
       if (t >= 2.5) {
         debris.collapse(e, e.eater || hole, LOW_FX || post.lowSpec);
+        if (state.phase === 2 && t >= 3 && e.mesh?.userData.crumble) rubble.spill(e, e.eater || hole, (x, z) => city.groundY(x, z));
+        // big buildings: a dust front rolls out across the streets, sized to the building (scale reads in the dust)
+        if (t >= 5 && !ev.crumb) debris.dustRing(e.x, e.gy || 0, e.z, t * 0.7, t * 0.45, LOW_FX || post.lowSpec ? 8 : 16, t * 0.8, 3.2 + t * 0.03, dustCol);
         if (mine) state.shake = Math.max(state.shake, Math.min(0.5, t * 0.04));
       }
       if (mine && t >= 0.5 && t > hole.r * 0.6 && state.time > (state.stopCool || 0)) {
@@ -1186,6 +1555,18 @@ function frame(dt) {
       continue;
     }
     if (!state.playing) continue;
+    if (state.phase === 2) {
+      state.pop += residents(e.name, e.meta.tier);
+      if (e.mover?.crumb || e.meta.tier < hole.r * 0.12) { // crumbs (trees, hedges, cars at this size): no fanfare each
+        const before = hole.area;
+        hole.grow(e.meta.tier, growthShare(e.meta.tier, hole.r) * P2.growth * (e.mover?.crumb ? (state.starved2 ? P2.stuckGrowth : P2.crumbGrowth) : 1)); // (starved2: no dead ends, below)
+        state.belly = Math.min(1, state.belly + (hole.area - before) / (before * P2.meal) + P2.crumb);
+        state.eaten++;
+        state.score += Math.PI * e.meta.tier ** 2;
+        if ((state.crumbT = (state.crumbT || 0) - 1) <= 0) { state.crumbT = 6; sfx.gulp(e.meta.tier); sparks.burst(hole.x, hole.z, hole.r, 0.5); }
+        continue;
+      }
+    }
     sfx.gulp(e.meta.tier);
     hole.vac = Math.min(1, (hole.vac || 0) + 0.35); // whirlpool: a short burst of suction after each bite
     if (record(e.name)) flash(`New in the book: ${title(e.name)}`, false);
@@ -1205,10 +1586,10 @@ function frame(dt) {
     const mult = (state.card === 'vehicles' ? (VEHICLES.has(e.name) ? 1.5 : 0.25) : state.card === 'glass' ? 1.5 : 1) * kind * (state.happy > 0 ? 1.5 : 1);
     if (BUILDINGS.has(e.name)) st.buildings++;
     if (e.meta.event) st.eventMeals++;
-    hole.grow(e.meta.tier, mult * growthShare(e.meta.tier, hole.r));
+    hole.grow(e.meta.tier, mult * growthShare(e.meta.tier, hole.r) * (state.phase === 2 ? (e.home?.kind === 'capital' ? P2.capitalGrowth : P2.growth) : 1));
     // a full meal is MEAL of the hole's area, capped at a 6 m hole's worth so late game stays feedable
-    const meal = MEAL * (1 + level('appetite') * 0.04);
-    state.belly = Math.min(1, state.belly + (hole.area - before) / (Math.min(before, Math.PI * 36) * meal));
+    const meal = (state.phase === 2 ? P2.meal : MEAL) * (1 + level('appetite') * 0.04);
+    state.belly = Math.min(1, state.belly + (hole.area - before) / ((state.phase === 2 ? before : Math.min(before, Math.PI * 36)) * meal));
     state.eaten++;
     state.score += Math.PI * e.meta.tier ** 2;
     hole.bump = Math.min(0.25, (hole.bump || 0) + e.meta.tier / hole.r * 0.3);
@@ -1231,15 +1612,17 @@ function frame(dt) {
   // chimney + street-food smoke near the camera
   if (!LOW_FX && !post.lowSpec) for (const e of city.smokers ??= city.entities.filter((q) => SMOKE[q.name])) {
     if (!e.alive || e.falling || (e.smokeT = (e.smokeT ?? Math.random()) - dt) > 0) continue;
-    e.smokeT = 0.35 + Math.random() * 0.3;
+    const [lx, ly, lz, c, k = 1] = SMOKE[e.name], cs = Math.cos(e.rot), sn = Math.sin(e.rot), q = Math.sqrt(k);
+    e.smokeT = (0.35 + Math.random() * 0.3) * (k > 3 ? q / 2 : 1); // big plumes: fewer, bigger puffs
     if (Math.abs(e.x - camTarget.x) > camDist * 0.8 || Math.abs(e.z - camTarget.z) > camDist * 0.8) continue;
-    const [lx, ly, lz, c, k = 1] = SMOKE[e.name], cs = Math.cos(e.rot), sn = Math.sin(e.rot);
-    debris.puff(e.x + lx * cs + lz * sn, ly + e.y, e.z - lx * sn + lz * cs, 0.25 + Math.random() * 0.2, 0.8 + Math.random() * 0.4,
-      (Math.random() - 0.5) * 0.2, 0.3 * k, 0.7 * k, 2.6 * Math.sqrt(k), smokeCol.set(c), 0.4 + 0.1 * (k - 1));
+    const gs = e.gs || 1, big = k > 3; // (e.gy: Phase 2 ground height)
+    debris.puff(e.x + (lx * cs + lz * sn) * gs, ly * gs + e.y + (e.gy || 0), e.z + (-lx * sn + lz * cs) * gs, (0.25 + Math.random() * 0.2) * (big ? q : 1),
+      (0.8 + Math.random() * 0.4) * (big ? q * 0.6 : 1), (Math.random() - 0.5) * 0.2 * (big ? q : 1), 0.3 * k, 0.7 * k * (big ? 0.35 : 1), 2.6 * q * (big ? 1.3 : 1),
+      smokeCol.set(c), Math.min(big ? 0.4 : 0.5, 0.35 + 0.05 * (k - 1)));
   }
   city.mixers.forEach((m) => m.update(dt));
   city.syncBatches();
-  hole.update(dt, state.time, Math.max(0, 0.5 - state.belly) * 2, city.groundSpan(hole.x, hole.z, hole.r));
+  hole.update(dt, state.time, Math.max(0, 0.5 - state.belly) * 2, city.groundSpan(hole.x, hole.z, hole.r), city.groundTilt?.(hole.x, hole.z, hole.r));
 
   // camera: pull back as the hole grows
   const portrait = Math.max(1, 1.2 / camera.aspect) ** 0.7; // phones see as much width as desktops
@@ -1253,12 +1636,17 @@ function frame(dt) {
   // attract mode: slow orbit behind the menu; snaps back to north-up for play (steering is screen-relative)
   camYaw = state.finale > 0 ? camYaw + dt * 0.3 : state.playing || state.over ? Math.atan2(Math.sin(camYaw), Math.cos(camYaw)) * Math.max(0, 1 - dt * 4) : camYaw + dt * 0.06;
   if (VIEW) { camTarget.set(VIEW[0], 0, VIEW[1]); camDist = VIEW[2]; camYaw = VIEW[3] || 0; }
-  const pitch = VIEW?.[4] ? THREE.MathUtils.degToRad(VIEW[4]) : PITCH;
+  // the finale (breakout, victory) drops to a lower, kaiju angle as it orbits and climbs
+  state.lowK = THREE.MathUtils.lerp(state.lowK || 0, state.finale > 0 ? 1 : 0, Math.min(1, dt * 1.5));
+  const pitch = VIEW?.[4] ? THREE.MathUtils.degToRad(VIEW[4]) : PITCH - state.lowK * 0.22;
   const camD = camDist * (1 - state.punch * 0.07); // punch-in on big bites
   const horiz = Math.cos(pitch) * camD;
   camera.position.set(camTarget.x + Math.sin(camYaw) * horiz + (Math.random() - 0.5) * sh, Math.sin(pitch) * camD,
     camTarget.z + Math.cos(camYaw) * horiz + (Math.random() - 0.5) * sh);
   camera.lookAt(camTarget);
+  // Phase 2: the view reaches kilometres; the near plane follows so depth precision holds for paving and roads
+  const far = Math.max(1600, camDist * 4), near = Math.max(0.5, camDist * 0.02);
+  if (Math.abs(camera.far - far) > far * 0.1 || Math.abs(camera.near - near) > near * 0.2) { camera.far = far; camera.near = near; camera.updateProjectionMatrix(); }
   const low = post.lowSpec || LOW_FX;
   surfaceOn.value = 1; // low tiers use the lite (single-projection) shader instead of losing detail
   city.budget(camera, hole.r, low);
@@ -1267,11 +1655,15 @@ function frame(dt) {
   city.cullTraffic(camera); // city-wide traffic: only what the camera or the shadow map sees
   grass.update(camTarget, camDist / LENS, low, camera);
   setFogRange(camDist);
+  viewScale.value = Math.max(1, camDist / 45); // surface detail must reach the ground at every size, or the town goes flat and milky
+  post.setViewScale(Math.max(1, camDist / 130)); // (AO reach: only once the camera is really high)
   const sc = sun.shadow.camera, ext = Math.max(25, (camDist / LENS) * 0.9);
   if (sc.right !== ext) { sc.left = sc.bottom = -ext; sc.right = sc.top = ext; sc.updateProjectionMatrix(); }
 
   sparks.update(dt);
   debris.update(dt);
+  wisps.update(dt, camTarget, camDist, look.sun.color);
+  birds.update(dt, state.phase === 2 && world.night.value < 0.5, camTarget, camDist, hole); // (no birds at night)
   chains.update(dt, hole, director);
   for (const s of bubbles) {
     if (s.t <= 0) continue;
@@ -1281,14 +1673,17 @@ function frame(dt) {
     s.b.style.transform = `translate(${(_v.x * 0.5 + 0.5) * innerWidth}px, ${(-_v.y * 0.5 + 0.5) * innerHeight}px) translate(-10%, -100%)`;
   }
   world.hole.value.set(hole.x, hole.z, hole.hidden || !state.playing ? 0 : hole.r, hole.vac || 0);
+  world.holeY.value = hole.ry ?? 0;
   pedTime.value += dt;
   lightsTime.value += dt;
   lightsPulse.value = 0.85 + 0.15 * Math.sin(lightsTime.value * 2.2);
   surfaceTime.value += dt;
-  for (const q of rivals.list) q.hole.update(dt, state.time, 0, city.groundSpan(q.hole.x, q.hole.z, q.hole.r));
+  for (const q of rivals.list) q.hole.update(dt, state.time, 0, city.groundSpan(q.hole.x, q.hole.z, q.hole.r), city.groundTilt?.(q.hole.x, q.hole.z, q.hole.r));
   const tw = powerups.twin;
   if (tw) tw.update(dt, state.time, 0, city.groundSpan(tw.x, tw.z, tw.r));
   if (state.playing) { hud(); rivals.labels(camera); }
+  news.update(dt, state.pop, state.playing && state.phase === 2);
+  if (state.phase === 2) minimap.update(dt, { hole, rivals: rivals.holes, boss: director.boss?.alive ? director.boss : null, heli: director.seal?.heli });
   if (!window.__headless) {
     if (state.playing && document.visibilityState === 'visible') post.watch(dt);
     const ts = fpsEl && performance.now();

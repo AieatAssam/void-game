@@ -96,3 +96,42 @@ Clock) are the real gate. Dust: ×1.75 at Heat 5 (a 299-dust clear paid 521).
 
 **Blitz** (seed 11, 2:00): r 3.6, 13 dust. Blitz is for the size record and the "Grow past 6 m in a Blitz"
 contract, not for farming dust.
+
+## Phase 2 — the region (branch `feature/phase-two`)
+
+Run with `?region&bot&seed=N` and `__regionBot(900)` (starts at 10 m; `__sloppy = true` for the careless bot).
+
+| Change | Why (what the bot showed) |
+|---|---|
+| Region bites grow the hole at 60% of a town bite; crumbs (trees, hedges, rocks) at 30% of that; the capital pays 90% | With town rates the bot went 10 → 20 m in a minute on woods and boulders, and the capital snowballed from 16 m. At 60% the country has to be eaten; the capital's 90% makes it a climax and leaves enough growth to fit the stadium (its last piece, 40.7 m). |
+| No small-tower lots in the capital; the Capper arrives at 20 m | The capital opened at 10 m and was an early buffet; now it opens at ~16 m (glass towers) and properly at 20 m (city blocks). |
+| Belly 16 s, crumbs +1.8% each, fed decay 0.2%/s, starving 1.5%/s | Travel legs between settlements are long; starving at a big size used to halve the hole in 30 s. |
+| Army eased: two-gun salvos every 11 s at 5%, wider aim; at most two roadblocks; jets every 22–30 s; castle cannons 120 m, 3.5%; Capper 15% with a 10 s cooldown; Void Lids every 30 s, a short, gentler setting drain | 44 hits in 10 min (26 shells, 16 tolls) ground the bot down at 11–19 m. |
+
+Results (final tuning):
+
+| Seed | Greedy bot | Notes |
+|---|---|---|
+| 4242 | wins 4:07 | market town, castle, then the capital from 18 m |
+| 99 | wins 4:04 | stalled at 16–20 m before the Capper change; now climbs through the industrial valley |
+| 2024 | wins 4:18 | |
+| 7 | wins 3:48 | farms, then the capital from 13 m via its glass towers |
+| 4242, careless bot | dies 13:30 | no dodging: 23 shells, 7 cannonballs |
+
+### Island pass (relief, mountains, rivals, the seal)
+
+| Change | Why (what the bot showed) |
+|---|---|
+| Rivals only swallow things under half your size | Seed 77: Bubblegum ate 439 things including the market town, leaving nothing between 16 and 20 m; the bot starved and was sealed at 8:14. Now a win in 4:07. |
+| No dead ends: if nothing standing fits, crumbs grow you at the full rate (hint shown) | Seed 4242: shelled from 18.9 to 13.7 m with every settlement left needing 16 m+; sealed at 10:33. Now a win in 5:43. |
+| Death is the army's seal below 9 m (14 s to grow past 9.6 m; instant below 7.5 m) | A scripted, readable loss instead of shrinking back to town scale. |
+
+| Net at 0.6x while stuck (`P2.stuckGrowth`); the bot heads for the woods when stuck | At 1.0x the careless bot always won (8:48); careless play should lose sometimes. The greedy bot didn't know to follow the "go to the woods" hint (crumbs aren't in its target list) and starved at 0.6x until it did. |
+
+| Seed | Greedy bot | Careless bot |
+|---|---|---|
+| 4242 | wins 6:38 | sealed at 9:53 (16 shells) |
+| 77 | wins 4:10 | wins 4:39 |
+
+Region dust is 90–160 on top of the town's (meals and combos at half rate from the region's score, plus 8 per settlement
+and 40 for the capital). A human player takes longer than the greedy bot (it knows every target and path).

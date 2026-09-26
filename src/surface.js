@@ -7,7 +7,7 @@ import {
   Fn, uniform, uniformArray, texture, uv, vec3, vec4, float, int, floor, clamp, mix, smoothstep, max, dot, pow,
   normalize, positionGeometry, normalGeometry, positionWorld, normalWorldGeometry, normalViewGeometry, positionView,
   positionLocal, attribute, instanceIndex, sin, cos, abs, sign, step, length, Discard, If, luminance, select, fract,
-  time, oneMinus, hash, atan, cameraPosition, dFdx, dFdy, min,
+  time, oneMinus, hash, atan, cameraPosition, dFdx, dFdy, min, screenCoordinate,
 } from 'three/tsl';
 import { triplanar, layerMean, waterGrad, macro, L, brushedGrad, pomOffset } from './pbr.js';
 import { sunDir, sunCol } from './look.js';
@@ -16,9 +16,12 @@ import { MAX_HOLES } from './hole.js';
 
 export const surfaceTime = uniform(0); // legacy tick (kept for callers); shaders use it for hole pulses
 export const surfaceOn = uniform(1); // 0 on low-spec devices (set by the fps watchdog)
+// how far the camera has pulled back relative to the town view (1 up to ~130 m): detail fades and AO reach scale with it,
+// so a Phase 2 view hundreds of metres up keeps its scanned relief and contact shadows instead of going flat
+export const viewScale = uniform(1);
 export const glow = uniform(1.4); // emissive strength (time of day)
 // Shared world state: player hole (x, z, r, vacuum), night amount, edible-glow colour.
-export const world = { hole: uniform(new THREE.Vector4()), night: uniform(0), edCol: uniform(new THREE.Color(0xb58cff)) };
+export const world = { hole: uniform(new THREE.Vector4()), holeY: uniform(0), night: uniform(0), edCol: uniform(new THREE.Color(0xb58cff)) };
 export const pedTime = uniform(0);
 // show lights: one clock + a gentle breathing pulse shared by every chase (ferris rims, carousel, festoons, runway)
 export const lightsTime = uniform(0);
@@ -127,7 +130,7 @@ function buildToy(mat, { ground = false, holes = null, seed = float(instanceInde
   const layer = int(layerF);
   const water = info.x.greaterThan(15.5);
   const dist = length(positionView);
-  const fade = smoothstep(160, 30, dist).mul(surfaceOn);
+  const fade = smoothstep(viewScale.mul(160), viewScale.mul(30), dist).mul(surfaceOn);
   const n = ground ? normalWorldGeometry : normalize(normalGeometry);
   // steel keeps the tread-plate scan only where it is a floor or a cart bed (faces pointing up); elsewhere it's brushed
   const plateOK = ground ? float(1).greaterThan(0) : sw.notEqual(SW.steel).or(n.y.greaterThan(0.7));
@@ -160,6 +163,7 @@ function buildToy(mat, { ground = false, holes = null, seed = float(instanceInde
       // lawns: a living green (the scan's detail on it), keeping each swatch's relative brightness
       const lawn = vec3(0.07, 0.15, 0.03).mul(luminance(tri.col).div(max(luminance(mean), 0.02))).mul(luminance(pal.rgb).div(0.5).add(0.35));
       c.assign(select(info.x.equal(L.grass), mix(c, lawn, k.mul(0.85)), c));
+      c.assign(mix(c, crackCol, rimCracks(positionWorld).mul(0.85)));
       // large-scale variation so repeats never read as a grid: patches of lusher/drier grass, worn asphalt
       const m = macro(positionWorld, 0.05), m2 = macro(positionWorld, 0.37);
       c.mulAssign(mix(0.82, 1.14, m).mul(mix(0.93, 1.05, m2)));
@@ -271,6 +275,37 @@ function buildToy(mat, { ground = false, holes = null, seed = float(instanceInde
  */
 const seedOf = (seeded) => (seeded ? attribute('iseed', 'float') : float(instanceIndex));
 
+/**
+ * Rim cracks (docs/PHASE2.md §9): around a big hole the ground breaks - radial fissures and concentric slab edges in a band
+ * just outside the rim, fading out by 1.4 r. Returns 0..1 (how much crack); callers darken toward a void violet.
+ */
+export function rimCracks(pw) {
+  const h = world.hole, r = h.z, dx = pw.x.sub(h.x), dz = pw.z.sub(h.y), d = length(vec3(dx, 0, dz));
+  const band = smoothstep(r.mul(1.4).add(3), r.add(0.3), d).mul(smoothstep(3, 6, r));
+  const u = d.sub(r), a = atan(dz, dx);
+  const t = a.div(6.2832).mul(26).add(sin(u.mul(0.35).add(a.mul(3))).mul(0.2));
+  const radial = smoothstep(0.05, 0.012, abs(fract(t).sub(0.5))).mul(smoothstep(r.mul(0.4).add(2), 0, u).mul(0.6).add(0.4));
+  const ring = smoothstep(0.08, 0.025, abs(fract(u.mul(0.22).add(sin(a.mul(9)).mul(0.25))).sub(0.5)));
+  return max(radial, ring.mul(0.7)).mul(band);
+}
+export const crackCol = vec3(0.045, 0.02, 0.08);
+
+/**
+ * See-through: anything standing between the camera and the hole (inside a cone from the eye to just past the rim, above
+ * street level) is screen-door dithered away, so a tower never hides the player. Stipple edge, no sorting, no blending.
+ */
+function seeThrough(m) {
+  const h = world.hole, H = vec3(h.x, world.holeY.add(0.5), h.y), C = cameraPosition, P = positionWorld;
+  const ax = H.sub(C), t = dot(P.sub(C), ax).div(max(dot(ax, ax), 1e-3));
+  const d = length(P.sub(C.add(ax.mul(t))));
+  const R = t.mul(h.z.mul(1.25).add(2.5)), edge = hash(floor(screenCoordinate.x).add(floor(screenCoordinate.y).mul(1731.0)));
+  const cut = h.z.greaterThan(0).and(t.greaterThan(0.05)).and(t.lessThan(0.97)).and(P.y.greaterThan(world.holeY.add(1.2)))
+    .and(length(P.xz.sub(H.xz)).greaterThan(h.z.mul(1.05))) // (what's going in stays in view)
+    .and(d.lessThan(R.mul(edge.mul(0.16).add(0.84))));
+  m.maskNode = cut.not();
+  return m;
+}
+
 /** The shared prop material (one pipeline for every static/moving prop). seeded: the variant for culled traffic. */
 export function toyMaterial({ seeded = false } = {}) {
   const m = new ToyNodeMaterial();
@@ -279,7 +314,40 @@ export function toyMaterial({ seeded = false } = {}) {
   const amp = select(isFabric, smoothstep(2.0, 4.5, pg.y).mul(0.035), float(0));
   const ph = time.mul(6.5).add(pg.x.mul(2.3)).add(pg.z.mul(1.9));
   m.preInstanceNode = pg.add(vec3(sin(ph), sin(ph.mul(1.3)).mul(0.3), cos(ph.mul(0.8))).mul(amp));
-  return buildToy(m, { seed: seedOf(seeded) });
+  return seeThrough(buildToy(m, { seed: seedOf(seeded) }));
+}
+
+/**
+ * Buildings crumble instead of dropping whole (docs/PHASE2.md §9). Every vertex knows the centre of the modelled part it
+ * belongs to (aPart: each box, roof, column is its own connected piece), so parts break away rigidly - no stretched
+ * triangles. aCrumble per instance: x progress (0 = standing), y/z the hole centre in object space, w model height.
+ * Parts tremble, then let go in a staggered pancake - the side over the hole and the lower storeys first - tumbling,
+ * shrinking into rubble and sliding toward the hole as they sink below the rim.
+ */
+export function crumbleMaterial() {
+  const m = new ToyNodeMaterial();
+  const pg = positionGeometry, c = attribute('aCrumble', 'vec4'), part = attribute('aPart', 'vec3');
+  m.preInstanceNode = Fn(() => {
+    const p = pg.toVar();
+    If(c.x.greaterThan(0), () => {
+      const h = max(c.w, 1);
+      const rnd = hash(part.x.mul(13.13).add(part.y.mul(7.71)).add(part.z.mul(3.37)));
+      const toHole = c.yz.sub(part.xz), dh = length(toHole);
+      const delay = clamp(part.y.div(h), 0, 1).mul(0.3).add(rnd.mul(0.22)).add(clamp(dh.div(h.add(10)), 0, 1).mul(0.3));
+      const q = clamp(c.x.sub(delay).div(0.55), 0, 1);
+      const shake = smoothstep(0, 0.08, c.x).mul(float(1).sub(q)).mul(0.05).mul(h.mul(0.02).add(1));
+      // tumble: the part's offset from its centre turns about y and x as it goes, and crumbles smaller
+      const off = p.sub(part), a1 = q.mul(rnd.sub(0.5)).mul(5), a2 = q.mul(rnd.mul(3.1).fract().sub(0.5)).mul(4);
+      const c1 = cos(a1), s1 = sin(a1), c2 = cos(a2), s2 = sin(a2);
+      const r1 = vec3(off.x.mul(c1).sub(off.z.mul(s1)), off.y, off.x.mul(s1).add(off.z.mul(c1)));
+      const r2 = vec3(r1.x, r1.y.mul(c2).sub(r1.z.mul(s2)), r1.y.mul(s2).add(r1.z.mul(c2))).mul(float(1).sub(q.mul(0.45)));
+      const slide = smoothstep(0.05, 1, q).mul(0.9), fall = q.mul(q).mul(part.y.add(h.mul(0.7)).add(8));
+      const jit = vec3(sin(time.mul(47).add(rnd.mul(20))), sin(time.mul(39).add(rnd.mul(9))).mul(0.4), cos(time.mul(43).add(rnd.mul(13)))).mul(shake);
+      p.assign(part.add(r2).add(vec3(toHole.x.mul(slide), fall.negate(), toHole.y.mul(slide))).add(jit));
+    });
+    return p;
+  })();
+  return seeThrough(buildToy(m, { seed: seedOf(false) }));
 }
 
 /** People walk: arms/legs carry _swing (+-1 legs, +-2 arms, sign = side) and _pivot (hip/shoulder height). */

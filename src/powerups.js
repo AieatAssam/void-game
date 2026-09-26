@@ -45,16 +45,18 @@ export class Powerups {
   }
 
   /** Try to drop a capsule 25-45 m from (x, z) on open ground inside town. */
-  spawn(x, z) {
+  spawn(x, z, r = 1) {
     const kinds = this.kinds;
     if (!kinds.length) return;
-    const lim = this.city.half - 4;
+    const C = this.city, T = C.terrain, region = !!C.settlements, lim = region ? Infinity : C.half - 4;
+    const k = region ? Math.max(1, r / 3) : 1; // Phase 2: a capsule the size of a bus, further out, so it reads at scale
     for (let tries = 0; tries < 20; tries++) {
-      const a = this.r() * Math.PI * 2, d = this.r.range(25, 45);
+      const a = this.r() * Math.PI * 2, d = this.r.range(25, 45) * k;
       const px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d;
-      if (Math.abs(px) > lim || Math.abs(pz) > lim || this.city.blocked(px, pz, 1.5)) continue;
+      if (Math.abs(px) > lim || Math.abs(pz) > lim || C.blocked(px, pz, 1.5 * k)) continue;
+      if (region && (T.coastR(px, pz) - Math.hypot(px, pz) < 40 || T.mountain(px, pz) > 0.1 || C.groundY(px, pz) < T.water + 0.3)) continue;
       const kind = this.r.pick(kinds);
-      const e = this.city.spawn('pu_' + kind, px, pz, this.r() * 6.28, { noSwallow: true, pickup: kind });
+      const e = C.spawn('pu_' + kind, px, pz, this.r() * 6.28, { noSwallow: true, pickup: kind, gs: k });
       this.items.push({ e, kind, life: LIFE });
       return e;
     }
@@ -79,7 +81,7 @@ export class Powerups {
     this.t += dt;
     if (playing && this.t >= this.nextT) {
       this.nextT = this.t + this.r.range(45, 70) * this.gapK;
-      this.spawn(player.x, player.z);
+      this.spawn(player.x, player.z, player.r);
     }
     for (const p of this.items) {
       p.life -= dt;
@@ -88,8 +90,9 @@ export class Powerups {
       e.s = p.life > 3 ? 1 : Math.max(0, p.life / 3) * (Math.sin(p.life * 18) > -0.3 ? 1 : 0.6);
       this.city.place(e);
       let taker = null;
-      if (playing && Math.hypot(player.x - e.x, player.z - e.z) < player.r + 0.5) taker = 'player';
-      else for (const rv of rivals.list) if (!rv.dead && Math.hypot(rv.hole.x - e.x, rv.hole.z - e.z) < rv.hole.r + 0.5) taker = rv;
+      const grab = 0.5 * (e.gs || 1);
+      if (playing && Math.hypot(player.x - e.x, player.z - e.z) < player.r + grab) taker = 'player';
+      else for (const rv of rivals.list) if (!rv.dead && Math.hypot(rv.hole.x - e.x, rv.hole.z - e.z) < rv.hole.r + grab) taker = rv;
       if (taker || p.life <= 0) {
         p.gone = true;
         this.city.remove(e);
@@ -127,7 +130,7 @@ export class Powerups {
 
   /** The twin mirrors your steering at 2.5 x r to the side; it is always 70% of your size and feeds your area. */
   moveTwin(dt, player) {
-    const tw = this.twin, lim = this.city.half - 1;
+    const tw = this.twin, lim = this.city.settlements ? Infinity : this.city.half - 1;
     if (tw.merging) {
       tw.merging -= dt;
       tw.x += (player.x - tw.x) * Math.min(1, dt * 8);

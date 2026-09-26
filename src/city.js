@@ -4,7 +4,7 @@
 import * as THREE from 'three/webgpu';
 import { Fn, uniformArray, uv, vec4, length, smoothstep, pow, If, Discard, positionWorld } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { groundMaterial, groundMaskMaterial } from './surface.js';
+import { groundMaterial, groundMaskMaterial, crumbleMaterial } from './surface.js';
 import { Terrain } from './terrain.js';
 import { planEvent } from './events.js';
 import { MAX_HOLES } from './hole.js';
@@ -12,6 +12,15 @@ import { Collider } from './collide.js';
 import { makeEntity } from './entity.js';
 
 export const TILE = 40;
+
+/** Mark only the first `n` floats of a per-frame re-packed instance buffer for upload (not the whole capacity: WebGL
+ * re-uploads the full array otherwise, into a buffer the GPU may still be reading). */
+function upload(attr, n) {
+  if (!n) return; // (nothing drawn: nothing to send; an empty range list would mean the whole array)
+  attr.clearUpdateRanges();
+  attr.addUpdateRange(0, n);
+  attr.needsUpdate = true;
+}
 export const SHADOW_LAYER = 1; // shadow-only stand-in meshes: the sun's shadow camera sees this layer, the view camera doesn't
 const CHUNK = 40;
 const LOD_DIST = [15, 60]; // metres from camera to chunk edge: beyond [0] draw LOD1, beyond [1] LOD2
@@ -104,15 +113,44 @@ const PARK = ['tree_small', 'tree_big', 'bench', 'picnic_table', 'flower_pot', '
 const TRAFFIC = ['car', 'car_b', 'car_c', 'taxi', 'car', 'car_b', 'icecream_van', 'bus'];
 export const PEOPLE = ['ped_business', 'ped_jogger', 'ped_tourist', 'ped_granny', 'ped_student', 'ped_chef', 'ped_worker', 'ped_kid'];
 const PEDS = PEOPLE;
-const CLONED = new Set(['fountain', 'clock_tower', 'crane', 'swing', 'searchlight']);
+const CLONED = new Set(['fountain', 'clock_tower', 'crane', 'swing', 'searchlight', 'windmill', 'wind_turbine']);
 export const BUILDINGS = new Set(['house', 'shop', 'cafe', 'apartment', 'clock_tower', 'office', 'hotel', 'skyscraper', 'crane', 'arcade', 'karaoke',
   'gas_station', 'station', 'hangar', 'control_tower']);
 // wanderers and bumping traffic bounce off these (buildings plus the big fair rides)
 const SOLID = new Set([...BUILDINGS, 'ferris_wheel', 'carousel']);
+/** Phase 2 region buildings (region.js counts these toward clearing a settlement). */
+export const REGION_BUILDINGS = new Set(['cottage', 'farmhouse', 'grain_silo', 'village_church', 'village_inn', 'castle_wall', 'castle_tower',
+  'castle_gate', 'castle_keep', 'townhouse_row', 'townhouse_row_b', 'market_hall', 'town_hall', 'cathedral', 'factory', 'chimney_stack', 'gasholder',
+  'fuel_tank', 'cooling_tower', 'city_block', 'city_block_b', 'glass_tower', 'supertall', 'tv_tower', 'stadium', 'parliament', 'barn', 'windmill']);
+/** What crumbles into the hole part by part instead of dropping whole (surface.js crumbleMaterial). */
+const CRUMBLES = new Set([...BUILDINGS, ...REGION_BUILDINGS, 'gas_station', 'station', 'hangar', 'water_tower', 'control_tower', 'pier']);
+let crumbleMat = null;
+
+/** Per-vertex centre of the connected piece (modelled part) it belongs to, for the crumble. Cached per geometry. */
+function partCentres(geo) {
+  if (geo.userData.aPart) return geo.userData.aPart;
+  const pos = geo.attributes.position, n = pos.count, idx = geo.index.array;
+  const parent = new Int32Array(n).map((_, i) => i);
+  const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  for (let t = 0; t < idx.length; t += 3) {
+    const a = find(idx[t]), b = find(idx[t + 1]), c = find(idx[t + 2]);
+    parent[b] = a; parent[find(c)] = a;
+  }
+  const sum = new Map();
+  for (let i = 0; i < n; i++) {
+    const r = find(i);
+    let q = sum.get(r);
+    if (!q) sum.set(r, (q = [0, 0, 0, 0]));
+    q[0] += pos.getX(i); q[1] += pos.getY(i); q[2] += pos.getZ(i); q[3]++;
+  }
+  const out = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { const q = sum.get(find(i)); out[i * 3] = q[0] / q[3]; out[i * 3 + 1] = q[1] / q[3]; out[i * 3 + 2] = q[2] / q[3]; }
+  return (geo.userData.aPart = new THREE.BufferAttribute(out, 3));
+}
 const ANIMALS = new Set(['pigeon', 'rainbow_pigeon', 'dog', 'crab', 'cow', 'sheep', 'pig', 'chicken', 'horse', 'goat', 'duck']);
 const isTree = (n) => n.startsWith('tree') || n.startsWith('palm') || n.startsWith('pine') || n === 'bush' || n === 'hedge';
 // movers that range across the whole town: never frustum-culled per chunk, mid LOD
-const ROAMERS = new Set(['drive', 'wander', 'taxi', 'apron', 'field', 'rail', 'parade', 'jog', 'still']);
+const ROAMERS = new Set(['drive', 'wander', 'taxi', 'apron', 'field', 'rail', 'parade', 'jog', 'still', 'road']);
 const RAIL_Y = 0.47; // top of the rails on tile_rail (manifest rail_top)
 const WHEEL_V = 4.5; // wheel clips are authored for 4.5 m/s rolling
 const FAIR_STALLS = ['hoopla_stall', 'balloon_stand', 'ticket_booth', 'hoopla_stall', 'balloon_stand', 'fireworks_stand'];
@@ -179,6 +217,8 @@ export class City {
     // ...and the same ground without the cut, for every chunk no hole touches: a shader that can discard switches off
     // hidden-surface removal on tile-based GPUs (Apple), and the ground covers most of the screen
     this.groundSolid = groundMaterial(null);
+    this.chunk = CHUNK;
+    if (opts.defer) return; // Region (Phase 2) lays itself out in stages
     this.layout();
     this.build();
     this.collide = new Collider(this, (e) => this.footprint(e));
@@ -583,7 +623,8 @@ export class City {
 
   /** Countryside around the town: a real terrain (src/terrain.js) with its own scatter. Scenery only (never swallowed). */
   scenery() {
-    this.terrain = new Terrain((this.r() * 2 ** 31) | 0, this.half, { beach: this.beach, farm: !!this.mood.county });
+    this.terrainSeed = (this.r() * 2 ** 31) | 0; // Phase 2 grows the same land outward (region.js)
+    this.terrain = new Terrain(this.terrainSeed, this.half, { beach: this.beach, farm: !!this.mood.county });
     this.sceneryList = this.terrain.scatter(this.assets);
     if (this.beach) for (let k = 0; k < 6; k++) {
       this.sceneryList.push({ name: 'sailboat', x: this.r.range(-this.half - 100, this.half + 100), y: this.terrain.water - 0.1, z: this.half + this.r.range(40, 260), rot: this.r() * 6.28 });
@@ -906,7 +947,8 @@ export class City {
   // ---------- build three.js objects ----------
   build() {
     const groups = new Map();
-    const chunkKey = (x, z) => `${Math.floor(x / CHUNK)},${Math.floor(z / CHUNK)}`;
+    const C = this.chunk;
+    const chunkKey = (x, z) => `${Math.floor(x / C)},${Math.floor(z / C)}`;
     for (const t of this.tileEntities) {
       const k = `${t.name}|${chunkKey(t.x, t.z)}`;
       if (!groups.has(k)) groups.set(k, { name: t.name, list: [], ground: true });
@@ -929,8 +971,9 @@ export class City {
       const roams = ROAMERS.has(e.mover?.type);
       const reserve = !!e.mover?.reserve;
       const home = e.mover?.type === 'walk' ? chunkKey(e.mover.cx, e.mover.cz) : chunkKey(e.x, e.z);
-      const k = roams ? `${e.name}|${reserve ? 'reserve' : 'roam'}` : `${e.name}|${home}|${e.mover ? 'm' : 's'}`;
-      if (!groups.has(k)) groups.set(k, { name: e.name, list: [], mover: !!e.mover, roams, reserve });
+      // (Phase 2 crumbs - trees, hedges, rocks - are region-wide roaming groups, one per species variant)
+      const k = roams ? `${e.name}|${reserve ? 'reserve' : 'roam'}${e.mover.v ?? ''}` : `${e.name}|${home}|${e.mover ? 'm' : 's'}`;
+      if (!groups.has(k)) groups.set(k, { name: e.name, list: [], mover: !!e.mover, roams, reserve, crumb: !!e.mover?.crumb, v: e.mover?.v });
       groups.get(k).list.push(e);
     }
     this.meshes = [];
@@ -941,16 +984,19 @@ export class City {
       const duck = this.mutator === 'ducks' && !g.ground && this.assets.rubber_duck && ['prop', 'poison', 'unit'].includes(a.meta.kind) && !SOLID.has(g.name);
       const src = duck ? this.assets.rubber_duck : a;
       if (duck) for (const e of g.list) e.gs = e.meta.tier / duckK;
-      const variant = (this.groupCount = (this.groupCount || 0) + 1); // procedural trees differ chunk to chunk
+      const variant = g.v ?? (this.groupCount = (this.groupCount || 0) + 1); // procedural trees differ chunk to chunk
       let full = flatGeometry(src, 0, variant), lod = flatGeometry(src, 1, variant), lod2 = flatGeometry(src, 2, variant);
       let mat = g.ground ? this.groundMat : src.material;
       // city-wide traffic can't be culled per group (it spans the whole map), so it's culled per instance: every frame
       // only what the camera or the shadow map can see is packed to the front (cullTraffic). A stable seed attribute
       // travels with each instance so its tint jitter and walk phase don't change as it's re-packed.
       let cull = null;
-      if (g.roams && src.seeded && !g.ground) {
+      if (g.roams && (src.seeded || g.crumb) && !g.ground) {
         const n = g.list.length;
         const seed = new THREE.InstancedBufferAttribute(new Float32Array(n), 1).setUsage(THREE.DynamicDrawUsage);
+        if (!src.seeded || g.crumb) { // Phase 2 crumbs (vegetation, rocks, cows): keep their own material, just cull
+          cull = { src: new Float32Array(n * 16), seed, reach: Math.max(a.meta.height || 1, a.meta.tier * 2) * 1.6 + 2 };
+        } else {
         const wrap = (geo) => {
           const c = new THREE.BufferGeometry();
           for (const [k, v] of Object.entries(geo.attributes)) c.setAttribute(k, v); // shared buffers
@@ -965,13 +1011,32 @@ export class City {
         mat = src.seeded;
         const reach = Math.max(a.meta.height || 1, a.meta.tier * 2) * 0.75 + 1.5; // generous: bounds + a frame of motion
         cull = { src: new Float32Array(n * 16), seed, reach };
+        }
+      }
+      // buildings crumble: their own copy of the geometries carries part centres and a per-instance crumble slot
+      let crumble = null;
+      if (!g.roams && !g.ground && !duck && CRUMBLES.has(g.name) && !a.clips.length) {
+        crumble = new THREE.InstancedBufferAttribute(new Float32Array(g.list.length * 4), 4).setUsage(THREE.DynamicDrawUsage);
+        const wrap = (geo) => {
+          const c = new THREE.BufferGeometry();
+          for (const [k, v] of Object.entries(geo.attributes)) c.setAttribute(k, v);
+          c.setAttribute('aPart', partCentres(geo));
+          c.setAttribute('aCrumble', crumble);
+          c.setIndex(geo.index);
+          c.groups = geo.groups;
+          c.boundingSphere = geo.boundingSphere;
+          c.boundingBox = geo.boundingBox;
+          return c;
+        };
+        [full, lod, lod2] = [full, lod, lod2].map(wrap);
+        mat = crumbleMat ??= crumbleMaterial();
       }
       const mesh = new THREE.InstancedMesh(full, mat, g.list.length);
       mesh.castShadow = !g.ground;
       mesh.receiveShadow = true;
       // list: groups whose members can all be asleep or gone (snack reserves, dormant event crowds, eaten props) are
       // skipped entirely - zero-scale instances still cost their triangles and a shadow pass
-      mesh.userData = { geos: [full, lod, lod2], full, tier: g.ground ? Infinity : a.meta.tier, ground: !!g.ground, roams: g.roams, list: g.ground ? null : g.list, toyFlags: a.flags, cull };
+      mesh.userData = { geos: [full, lod, lod2], full, tier: g.ground ? Infinity : a.meta.tier, ground: !!g.ground, roams: g.roams, list: g.ground ? null : g.list, toyFlags: a.flags, cull, crumb: g.crumb, crumble };
       g.list.forEach((e, i) => { e.mesh = mesh; e.index = i; this.place(e); });
       mesh.instanceMatrix.setUsage(g.mover ? THREE.DynamicDrawUsage : THREE.StaticDrawUsage);
       if (g.roams) mesh.frustumCulled = false;
@@ -991,7 +1056,7 @@ export class City {
     for (const m of this.groundMeshes) m.userData.grassMask = lawnMask;
     this.groundMeshes.push(this.field); // terrain brings its own meadow mask
     // contact shadows under every small/medium thing (buildings already cast real shadows)
-    const aoList = this.entities.filter((e) => e.meta.tier < 6);
+    const aoList = this.entities.filter((e) => e.meta.tier < 6 && !e.mover?.crumb); // (Phase 2 crumbs: too many, too small)
     this.ao = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), aoMaterial(this.holeField), aoList.length + 64);
     this.ao.frustumCulled = false;
     this.ao.renderOrder = 1;
@@ -1067,10 +1132,12 @@ export class City {
 
   /** Per-frame render budget: LOD by distance, drop shadows and hide what is too small to see. */
   budget(camera, holeR, lowSpec = false) {
-    const near = lowSpec ? -1 : LOD_DIST[0]; // low-spec devices never draw LOD0
+    const K = this.lodScale ? this.lodScale(holeR) : 1; // Phase 2: distances grow with the hole (region.js)
+    const near = lowSpec ? -1 : LOD_DIST[0] * K; // low-spec devices never draw LOD0
     // batched landmarks: LOD and shadows by distance like the chunks; bounds refit now and then (they spin, trains move)
     const refit = (this.batchT = (this.batchT || 0) + 1) % 15 === 1;
-    const lodOf = (d) => (d > LOD_DIST[1] ? 2 : d > near ? 1 : 0);
+    const lodOf = (d) => (d > LOD_DIST[1] * K ? 2 : d > near ? 1 : 0);
+    const castD = 35 * K;
     for (const b of this.batches || []) {
       const m = b.mesh;
       if (refit) m.computeBoundingSphere();
@@ -1094,15 +1161,17 @@ export class City {
       if (u.scenery) {
         const d = camera.position.distanceTo(m.boundingSphere.center) - m.boundingSphere.radius;
         m.geometry = u.geos[lodOf(d)];
-        this.caster(m, u.geos, lodOf(d), d < 35);
+        this.caster(m, u.geos, lodOf(d), d < castD);
         continue;
       }
-      m.visible = u.tier >= holeR * 0.03 && (!u.list || u.list.some((e) => e.alive)); // idle pools and eaten groups cost nothing
+      m.visible = u.tier >= holeR * (this.tinyK ?? 0.03) && (!u.list || u.list.some((e) => e.alive)); // idle pools and eaten groups cost nothing
       // roaming traffic spans the whole city, so it can't be distance-LOD'd per instance: mid detail, low when zoomed out
-      const d = u.roams ? (holeR > 4 ? 999 : 30) : camera.position.distanceTo(m.boundingSphere.center) - m.boundingSphere.radius;
+      const d = u.crumb ? (holeR > 16 ? 999 : 30 * K) : u.roams ? (holeR > 4 ? 999 : 30) : camera.position.distanceTo(m.boundingSphere.center) - m.boundingSphere.radius;
       m.geometry = u.geos[lodOf(d)];
-      // Shadow pass budget: only near chunks cast; city-wide movers (never culled) cast only up close.
-      this.caster(m, u.geos, lodOf(d), m.visible && u.tier >= holeR * 0.12 && !(u.roams ? holeR > 2.5 : d > 35));
+      // Shadow pass budget: only near chunks cast; city-wide movers (never culled) cast only up close; Phase 2 crumbs
+      // (trees, hedges) keep casting while they're still a visible fraction of the hole
+      const casts = u.crumb ? u.tier >= holeR * 0.07 : u.tier >= holeR * 0.12 && !(u.roams ? holeR > 2.5 : d > castD);
+      this.caster(m, u.geos, lodOf(d), m.visible && casts);
     }
   }
 
@@ -1120,16 +1189,17 @@ export class City {
       _cm.multiplyMatrices(sc.projectionMatrix, sc.matrixWorldInverse);
       _fs.setFromProjectionMatrix(_cm, sc.coordinateSystem);
     }
+    this.cullCrumbs(sc);
     for (const m of this.meshes) {
       const u = m.userData, c = u.cull;
-      if (!c || !m.visible) continue;
+      if (!c || !m.visible || u.crumb) continue;
       const casts = !!(sc && u.proxy?.visible);
       const out = m.instanceMatrix.array, seeds = c.seed.array, list = u.list;
       let k = 0;
       for (let i = 0; i < list.length; i++) {
         const e = list[i];
         if (!e.alive || !e.s) continue;
-        _sph.center.set(e.x, e.y + 1, e.z);
+        _sph.center.set(e.x, e.y + 1 + (e.gy || 0), e.z); // (gy: Phase 2 ground height, region.js)
         _sph.radius = c.reach;
         if (!_fv.intersectsSphere(_sph) && !(casts && _fs.intersectsSphere(_sph))) continue;
         out.set(c.src.subarray(i * 16, i * 16 + 16), k * 16);
@@ -1137,8 +1207,53 @@ export class City {
       }
       m.count = k;
       if (u.proxy) u.proxy.count = k;
-      m.instanceMatrix.needsUpdate = true;
-      c.seed.needsUpdate = true;
+      upload(m.instanceMatrix, k * 16);
+      upload(c.seed, k);
+    }
+  }
+
+  /**
+   * Phase 2 crumbs (tens of thousands of static trees, hedges, rocks): bucketed once into 128 m cells; each frame only
+   * the cells in the view or shadow frustum are tested and packed (per-instance tests were 2+ ms a frame).
+   */
+  cullCrumbs(sc) {
+    const groups = this.meshes.filter((m) => m.userData.crumb && m.userData.cull);
+    if (!groups.length) return;
+    if (!this.crumbCells) {
+      const cells = new Map(), C = 128;
+      for (const m of groups) {
+        m.userData.list.forEach((e, i) => {
+          const k = Math.floor(e.x / C) * 4096 + Math.floor(e.z / C);
+          let cell = cells.get(k);
+          if (!cell) cells.set(k, (cell = { box: new THREE.Box3(new THREE.Vector3(Math.floor(e.x / C) * C, Infinity, Math.floor(e.z / C) * C), new THREE.Vector3(Math.floor(e.x / C) * C + C, -Infinity, Math.floor(e.z / C) * C + C)), lists: new Map() }));
+          cell.box.min.y = Math.min(cell.box.min.y, e.gy - 2);
+          cell.box.max.y = Math.max(cell.box.max.y, e.gy + (e.meta.height || 5) + 2);
+          if (!cell.lists.has(m)) cell.lists.set(m, []);
+          cell.lists.get(m).push(i);
+        });
+      }
+      for (const cell of cells.values()) cell.box.expandByScalar(4);
+      this.crumbCells = [...cells.values()];
+    }
+    const vis = this.crumbCells.filter((cell) => _fv.intersectsBox(cell.box) || (sc && _fs.intersectsBox(cell.box)));
+    for (const m of groups) {
+      if (!m.visible) { m.count = 0; continue; }
+      const u = m.userData, c = u.cull, out = m.instanceMatrix.array, seeds = c.seed.array, list = u.list;
+      let k = 0;
+      for (const cell of vis) {
+        const idx = cell.lists.get(m);
+        if (!idx) continue;
+        for (const i of idx) {
+          const e = list[i];
+          if (!e.alive || !e.s) continue;
+          out.set(c.src.subarray(i * 16, i * 16 + 16), k * 16);
+          seeds[k++] = i;
+        }
+      }
+      m.count = k;
+      if (u.proxy) u.proxy.count = k;
+      upload(m.instanceMatrix, k * 16);
+      upload(c.seed, k);
     }
   }
 
@@ -1204,7 +1319,8 @@ export class City {
       _q.premultiply(_qt.setFromAxisAngle(_ax, e.tilt));
     }
     // city entities stand on the local surface: blocks and sidewalks are 0.18 m above the road (e.y is relative to it)
-    _p.set(e.x, e.y + (e.grounded ? this.groundY(e.x, e.z) : 0), e.z);
+    e.gy = e.grounded ? this.groundY(e.x, e.z) : 0;
+    _p.set(e.x, e.y + e.gy, e.z);
     _s.setScalar(e.s * (e.gs || 1));
     if (e.obj) {
       e.obj.position.copy(_p);
@@ -1356,7 +1472,8 @@ export class City {
         } else if (m.type === 'wander') {
           if (scared) m.h = Math.atan2(-fdz, fdx) + Math.sin(m.t * 3) * 0.3; // run from the hole
           else m.h += Math.sin(m.t * 0.7 + e.x) * dt * 0.6;
-          if (Math.abs(e.x) > H - 4 || Math.abs(e.z) > H - 4) m.h = Math.atan2(e.z, -e.x); // steer back to town
+          const WB = this.bound || H; // (Phase 2: the whole region)
+          if (Math.abs(e.x) > WB - 4 || Math.abs(e.z) > WB - 4) m.h = Math.atan2(e.z, -e.x); // steer back to town
           const nx = e.x + Math.cos(m.h) * m.v * dt, nz = e.z - Math.sin(m.h) * m.v * dt;
           if (this.blocked(nx, nz, e.meta.tier)) m.h += Math.PI * (0.5 + this.r() * 0.5); // bounce off walls, never walk through
           else { e.x = nx; e.z = nz; }
@@ -1508,6 +1625,7 @@ export class City {
       for (let h = 0; h < holes.length; h++) {
         const q = holes[h];
         if (q.hidden || (h === 0 && jammed) || (e.flying && q.r < tier * 1.6)) continue;
+        if (h > 0 && this.settlements && tier >= holes[0].r * 0.5) continue; // Phase 2 rivals take scraps, never your ladder
         const dx = e.x - q.x, dz = e.z - q.z;
         // fits, and its centre is well inside the rim (a quarter of its footprint may still overhang)
         if (tier < q.r * 0.95 && dx * dx + dz * dz < (q.r * (q.pull || 1) - tier * 0.25) ** 2) {
@@ -1517,13 +1635,16 @@ export class City {
           if (e.mover?.type === 'rail') this.decouple(e);
           e.vy = 0;
           e.tiltDir = Math.atan2(dz, dx);
+          if (e.mesh?.userData.crumble) this.startCrumble(e, q);
           break;
         }
       }
     }
+    const ccx = this.camPos?.x ?? 0, ccz = this.camPos?.z ?? 0; // (clouds wrap round the view: Phase 2 goes far from town)
     for (const c of this.cloudList) {
       c.x += c.v * dt;
-      if (c.x > 700) c.x = -700;
+      if (c.x - ccx > 700) c.x -= 1400; else if (c.x - ccx < -700) c.x += 1400;
+      if (c.z - ccz > 700) c.z -= 1400; else if (c.z - ccz < -700) c.z += 1400;
       this.place(c);
     }
     for (const mesh of this.dirty) mesh.instanceMatrix.needsUpdate = true;
@@ -1532,7 +1653,30 @@ export class City {
     return eaten;
   }
 
+  /** A building starts to crumble: tell its instance where the hole is (object space) and start the clock. */
+  startCrumble(e, q) {
+    const c = Math.cos(e.rot), s = Math.sin(e.rot), k = e.s * (e.gs || 1), dx = q.x - e.x, dz = q.z - e.z;
+    e.crumble = { t: 0.001, dur: 1.1 + e.meta.tier * 0.05 }; // (big things take longer to come down: scale)
+    const a = e.mesh.userData.crumble;
+    a.setXYZW(e.index, 0.001, (dx * c - dz * s) / k, (dx * s + dz * c) / k, e.meta.height / k);
+    a.needsUpdate = true;
+  }
+
   fall(e, dt, hole, eaten) {
+    if (e.crumble) { // parts break away in the shader (surface.js crumbleMaterial); swallowed when the last one is down
+      const cr = e.crumble, a = e.mesh.userData.crumble;
+      cr.t += (dt / cr.dur) * 1.45;
+      a.setX(e.index, cr.t);
+      a.needsUpdate = true;
+      if (cr.t < 1.45) return;
+      a.setX(e.index, 0);
+      e.crumble = null;
+      e.s = 0;
+      this.place(e);
+      eaten.push(e);
+      e.alive = false;
+      return;
+    }
     // Slide fully over the opening before sinking, and only tip as far as keeps the object inside the
     // well - nothing ever pokes through the ground outside the hole.
     const tier = e.meta.tier, h = Math.max(0.3, e.meta.height);

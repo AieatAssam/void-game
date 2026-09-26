@@ -144,7 +144,8 @@ export class Director {
     run.flooded = false;
     if (!this.flood) return;
     const t = (this.tideT = (this.tideT + dt) % TIDE.period);
-    if (t >= TIDE.warn && t - dt < TIDE.warn) this.hooks.warn?.('🌊 Tide incoming!');
+    const near = hole.z > this.floodBand[0] - (40 + hole.r * 6); // (only worth a warning with the beach in view)
+    if (t >= TIDE.warn && t - dt < TIDE.warn && near) this.hooks.warn?.('🌊 Tide incoming!');
     if (t >= TIDE.flood && t - dt < TIDE.flood) this.hooks.tide?.('in');
     const out = TIDE.end % TIDE.period; // the flood runs past the wrap
     if (t >= out && t - dt < out && this.tideSeen) this.hooks.tide?.('out');

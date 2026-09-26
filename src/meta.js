@@ -21,6 +21,8 @@ export const ECON = {
   rival: 10,
   dailyFirstClear: 50,
   lossShare: 0.5, // a run that ends in defeat keeps half of what its meals and combos earned
+  settlement: 8, // Phase 2: each settlement swallowed whole
+  capital: 40, // ... and the capital
 };
 
 function load() {

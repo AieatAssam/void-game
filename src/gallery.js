@@ -7,11 +7,11 @@ import { loadAll, glow } from './assets.js';
 const renderer = await createRenderer(document.getElementById('c'));
 const look = createScene();
 const { scene } = look;
-const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 500);
+const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 4000);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 
-const table = new THREE.Mesh(new THREE.CircleGeometry(200, 64), new THREE.MeshStandardMaterial({ color: COLORS.ground, roughness: 0.9 }));
+const table = new THREE.Mesh(new THREE.CircleGeometry(2500, 96), new THREE.MeshStandardMaterial({ color: COLORS.ground, roughness: 0.9 }));
 table.rotation.x = -Math.PI / 2;
 table.receiveShadow = true;
 scene.add(table);
@@ -88,6 +88,7 @@ window.__sheet = (names = sorted.map((a) => a.name), cols = 6, cell = 256, dirs 
   names.forEach((entry, i) => {
     const [n, dir] = Array.isArray(entry) ? entry : [entry, [0.62, 0.62, 0.62]];
     const a = assets[n];
+    if (window.__solo) for (const b of sorted) b.scene.visible = b === a; // review one model at a time, no neighbours
     const box = new THREE.Box3().setFromObject(a.scene);
     let ref = null;
     if (window.__sheetRef && assets[window.__sheetRef] && n !== window.__sheetRef) { // a person beside it for scale
@@ -107,6 +108,7 @@ window.__sheet = (names = sorted.map((a) => a.name), cols = 6, cell = 256, dirs 
     ctx.font = '14px sans-serif';
     ctx.fillText(n, (i % cols) * cell + 6, Math.floor(i / cols) * cell + 18);
   });
+  if (window.__solo) for (const b of sorted) b.scene.visible = true;
   renderer.setSize(size.x, size.y, false);
   return out.toDataURL('image/jpeg', 0.85);
 };

@@ -121,6 +121,9 @@ export class Grass {
     const saved = [];
     for (const m of meshes) {
       saved.push([m, m.material, m.parent, m.layers.mask]);
+      // paved tiles sit exactly on levelled terrain (the Phase 2 settlement pads): lifted for this pass, they win the
+      // depth test, or the terrain's meadow leaked through in ragged patches and grew grass on the paving
+      if (m.userData.ground) m.position.y += 0.3;
       m.material = m.userData.grassMask;
       m.layers.set(7);
       scene.add(m); // (removed from its parent while we draw)
@@ -134,6 +137,7 @@ export class Grass {
     renderer.setRenderTarget(prevTarget);
     renderer.setClearColor(prevClear, prevAlpha);
     for (const [m, mat, parent, layers] of saved) {
+      if (m.userData.ground) m.position.y -= 0.3;
       m.material = mat;
       m.layers.mask = layers;
       parent ? parent.add(m) : scene.remove(m);

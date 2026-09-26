@@ -29,6 +29,19 @@
   "bytes": 94468,
   "clips": []
  },
+ "army_truck": {
+  "pack": "region",
+  "tier": 3.61,
+  "mass": 31.554,
+  "kind": "unit",
+  "height": 3.6,
+  "unit": "truck",
+  "tris": 10612,
+  "lodTris": 2652,
+  "lod2Tris": 848,
+  "bytes": 75500,
+  "clips": []
+ },
  "baggage_tug": {
   "tier": 3.32,
   "mass": 3,
@@ -85,6 +98,32 @@
   "bytes": 45836,
   "clips": []
  },
+ "cannon": {
+  "pack": "region",
+  "role": "artillery",
+  "tier": 2.077,
+  "mass": 6.352,
+  "kind": "unit",
+  "height": 1.65,
+  "tris": 7068,
+  "lodTris": 1766,
+  "lod2Tris": 600,
+  "bytes": 56160,
+  "clips": []
+ },
+ "capper": {
+  "pack": "region",
+  "tier": 30,
+  "mass": 17876.096,
+  "kind": "unit",
+  "height": 28.4,
+  "unit": "capper",
+  "tris": 25156,
+  "lodTris": 6288,
+  "lod2Tris": 3252,
+  "bytes": 194580,
+  "clips": []
+ },
  "carousel": {
   "tier": 4.44,
   "mass": 40,
@@ -132,6 +171,118 @@
    "w_cw-3.40.81"
   ]
  },
+ "castle_gate": {
+  "pack": "region",
+  "tier": 9.6,
+  "mass": 2028.387,
+  "kind": "prop",
+  "height": 18.6,
+  "tris": 14350,
+  "lodTris": 3586,
+  "lod2Tris": 1148,
+  "bytes": 103208,
+  "clips": []
+ },
+ "castle_keep": {
+  "pack": "region",
+  "tier": 14.169,
+  "mass": 10560.685,
+  "kind": "prop",
+  "height": 36.5,
+  "tris": 18108,
+  "lodTris": 4526,
+  "lod2Tris": 2360,
+  "bytes": 137384,
+  "clips": []
+ },
+ "castle_tower": {
+  "pack": "region",
+  "tier": 5.397,
+  "mass": 1313.828,
+  "kind": "prop",
+  "height": 28.2,
+  "tris": 8391,
+  "lodTris": 2097,
+  "lod2Tris": 1730,
+  "bytes": 72664,
+  "clips": []
+ },
+ "castle_wall": {
+  "pack": "region",
+  "tier": 10.2,
+  "mass": 658.113,
+  "kind": "prop",
+  "height": 13.074,
+  "tris": 9048,
+  "lodTris": 2262,
+  "lod2Tris": 1908,
+  "bytes": 86716,
+  "clips": []
+ },
+ "cathedral": {
+  "pack": "region",
+  "tier": 20.465,
+  "mass": 17156.161,
+  "kind": "prop",
+  "height": 39.528,
+  "tris": 17552,
+  "lodTris": 4388,
+  "lod2Tris": 2354,
+  "bytes": 136828,
+  "clips": []
+ },
+ "chimney_stack": {
+  "pack": "region",
+  "tier": 3.3,
+  "mass": 827.65,
+  "kind": "prop",
+  "height": 47.501,
+  "tris": 7924,
+  "lodTris": 1980,
+  "lod2Tris": 632,
+  "bytes": 58700,
+  "clips": []
+ },
+ "chinook": {
+  "pack": "region",
+  "tier": 8,
+  "mass": 1192.518,
+  "kind": "fx",
+  "height": 10.23,
+  "unit": "chinook",
+  "tris": 13468,
+  "lodTris": 3366,
+  "lod2Tris": 1074,
+  "bytes": 80008,
+  "clips": [
+   "rotorB",
+   "rotorF"
+  ]
+ },
+ "city_block": {
+  "pack": "region",
+  "tier": 18.95,
+  "mass": 15230.021,
+  "kind": "prop",
+  "height": 26.52,
+  "tris": 21828,
+  "lodTris": 14216,
+  "lod2Tris": 14132,
+  "bytes": 267196,
+  "clips": []
+ },
+ "city_block_b": {
+  "pack": "region",
+  "tier": 18.95,
+  "mass": 15230.021,
+  "kind": "prop",
+  "height": 26.52,
+  "tris": 21828,
+  "lodTris": 14184,
+  "lod2Tris": 14098,
+  "bytes": 267852,
+  "clips": []
+ },
  "classic_car": {
   "tier": 2.788,
   "mass": 9,
@@ -165,6 +316,30 @@
    "radar"
   ]
  },
+ "cooling_tower": {
+  "pack": "region",
+  "tier": 23.024,
+  "mass": 47829.561,
+  "kind": "prop",
+  "height": 56.39,
+  "tris": 9256,
+  "lodTris": 2314,
+  "lod2Tris": 878,
+  "bytes": 66792,
+  "clips": []
+ },
+ "cottage": {
+  "pack": "region",
+  "tier": 3.345,
+  "mass": 112.546,
+  "kind": "prop",
+  "height": 6.3,
+  "tris": 12300,
+  "lodTris": 3074,
+  "lod2Tris": 1724,
+  "bytes": 101324,
+  "clips": []
+ },
  "drummer": {
   "tier": 0.352,
   "mass": 0.08,
@@ -176,6 +351,30 @@
   "lodTris": 4756,
   "lod2Tris": 1786,
   "bytes": 141308,
+  "clips": []
+ },
+ "factory": {
+  "pack": "region",
+  "tier": 16.715,
+  "mass": 4071.778,
+  "kind": "prop",
+  "height": 15.6,
+  "tris": 8048,
+  "lodTris": 4284,
+  "lod2Tris": 4270,
+  "bytes": 92672,
+  "clips": []
+ },
+ "farmhouse": {
+  "pack": "region",
+  "tier": 6.789,
+  "mass": 548.98,
+  "kind": "prop",
+  "height": 9.45,
+  "tris": 12044,
+  "lodTris": 3010,
+  "lod2Tris": 1950,
+  "bytes": 97916,
   "clips": []
  },
  "ferris_wheel": {
@@ -240,6 +439,19 @@
   "bytes": 85512,
   "clips": []
  },
+ "fuel_tank": {
+  "pack": "region",
+  "chain": "blast",
+  "tier": 7.975,
+  "mass": 797.181,
+  "kind": "prop",
+  "height": 8.5,
+  "tris": 4668,
+  "lodTris": 1166,
+  "lod2Tris": 480,
+  "bytes": 38132,
+  "clips": []
+ },
  "gas_station": {
   "tier": 7.16,
   "mass": 110,
@@ -255,6 +467,43 @@
   "lodTris": 11414,
   "lod2Tris": 3912,
   "bytes": 223652,
+  "clips": []
+ },
+ "gasholder": {
+  "pack": "region",
+  "chain": "blast",
+  "tier": 12.725,
+  "mass": 5315.181,
+  "kind": "prop",
+  "height": 22.8,
+  "tris": 7872,
+  "lodTris": 1994,
+  "lod2Tris": 1842,
+  "bytes": 72752,
+  "clips": []
+ },
+ "glass_tower": {
+  "pack": "region",
+  "tier": 15.2,
+  "mass": 42572.158,
+  "kind": "prop",
+  "height": 116.7,
+  "tris": 8968,
+  "lodTris": 5994,
+  "lod2Tris": 5962,
+  "bytes": 111776,
+  "clips": []
+ },
+ "grain_silo": {
+  "pack": "region",
+  "tier": 6.499,
+  "mass": 781.348,
+  "kind": "prop",
+  "height": 13.425,
+  "tris": 21900,
+  "lodTris": 5474,
+  "lod2Tris": 1752,
+  "bytes": 148144,
   "clips": []
  },
  "hangar": {
@@ -295,6 +544,34 @@
   "lodTris": 5996,
   "lod2Tris": 2232,
   "bytes": 178376,
+  "clips": []
+ },
+ "howitzer": {
+  "pack": "region",
+  "tier": 4.602,
+  "mass": 74.528,
+  "kind": "unit",
+  "height": 3.558,
+  "unit": "howitzer",
+  "tris": 6942,
+  "lodTris": 1734,
+  "lod2Tris": 554,
+  "bytes": 53072,
+  "clips": [
+   "fire"
+  ]
+ },
+ "jet": {
+  "pack": "region",
+  "tier": 7,
+  "mass": 308.94,
+  "kind": "fx",
+  "height": 4.469,
+  "unit": "jet",
+  "tris": 5292,
+  "lodTris": 1322,
+  "lod2Tris": 422,
+  "bytes": 40144,
   "clips": []
  },
  "locomotive": {
@@ -346,6 +623,18 @@
   "bytes": 93904,
   "clips": []
  },
+ "market_hall": {
+  "pack": "region",
+  "tier": 8.971,
+  "mass": 2095.812,
+  "kind": "prop",
+  "height": 16.7,
+  "tris": 12476,
+  "lodTris": 3118,
+  "lod2Tris": 2428,
+  "bytes": 104088,
+  "clips": []
+ },
  "parade_float": {
   "tier": 3.542,
   "mass": 10,
@@ -362,6 +651,30 @@
   "lodTris": 14544,
   "lod2Tris": 4986,
   "bytes": 316128,
+  "clips": []
+ },
+ "parliament": {
+  "pack": "region",
+  "tier": 32.6,
+  "mass": 77176.231,
+  "kind": "prop",
+  "height": 61.4,
+  "tris": 25364,
+  "lodTris": 7554,
+  "lod2Tris": 7420,
+  "bytes": 228904,
+  "clips": []
+ },
+ "pavilion": {
+  "pack": "region",
+  "tier": 4.017,
+  "mass": 152.351,
+  "kind": "prop",
+  "height": 5.9,
+  "tris": 3309,
+  "lodTris": 827,
+  "lod2Tris": 380,
+  "bytes": 31072,
   "clips": []
  },
  "prize_pumpkin": {
@@ -440,6 +753,23 @@
    "float"
   ]
  },
+ "pylon": {
+  "pack": "region",
+  "effect": "zap",
+  "lod": [
+   0.45,
+   0.2
+  ],
+  "tier": 3.4,
+  "mass": 1435.955,
+  "kind": "poison",
+  "height": 32,
+  "tris": 11236,
+  "lodTris": 5056,
+  "lod2Tris": 2246,
+  "bytes": 84856,
+  "clips": []
+ },
  "rubber_duck": {
   "tier": 0.5,
   "mass": 0.1,
@@ -452,6 +782,18 @@
   "lodTris": 2302,
   "lod2Tris": 736,
   "bytes": 62308,
+  "clips": []
+ },
+ "sandbags": {
+  "pack": "region",
+  "tier": 4.935,
+  "mass": 41.044,
+  "kind": "hazard",
+  "height": 2.1,
+  "tris": 9452,
+  "lodTris": 2362,
+  "lod2Tris": 756,
+  "bytes": 70024,
   "clips": []
  },
  "scarecrow": {
@@ -486,6 +828,18 @@
    "turn"
   ]
  },
+ "stadium": {
+  "pack": "region",
+  "tier": 38.707,
+  "mass": 43362.492,
+  "kind": "prop",
+  "height": 22.843,
+  "tris": 4248,
+  "lodTris": 1062,
+  "lod2Tris": 716,
+  "bytes": 39592,
+  "clips": []
+ },
  "station": {
   "tier": 8.523,
   "mass": 120,
@@ -511,6 +865,18 @@
   "lodTris": 9300,
   "lod2Tris": 7468,
   "bytes": 304352,
+  "clips": []
+ },
+ "supertall": {
+  "pack": "region",
+  "tier": 26.274,
+  "mass": 204997.119,
+  "kind": "prop",
+  "height": 214.1,
+  "tris": 18320,
+  "lodTris": 4580,
+  "lod2Tris": 1464,
+  "bytes": 135904,
   "clips": []
  },
  "ticket_booth": {
@@ -564,6 +930,42 @@
   "bytes": 80872,
   "clips": []
  },
+ "town_hall": {
+  "pack": "region",
+  "tier": 12.611,
+  "mass": 7682.533,
+  "kind": "prop",
+  "height": 39.05,
+  "tris": 17492,
+  "lodTris": 5580,
+  "lod2Tris": 5516,
+  "bytes": 159656,
+  "clips": []
+ },
+ "townhouse_row": {
+  "pack": "region",
+  "tier": 10.15,
+  "mass": 943.605,
+  "kind": "prop",
+  "height": 11.75,
+  "tris": 10512,
+  "lodTris": 3376,
+  "lod2Tris": 3218,
+  "bytes": 97720,
+  "clips": []
+ },
+ "townhouse_row_b": {
+  "pack": "region",
+  "tier": 10.15,
+  "mass": 943.605,
+  "kind": "prop",
+  "height": 11.75,
+  "tris": 10512,
+  "lodTris": 3376,
+  "lod2Tris": 3218,
+  "bytes": 97656,
+  "clips": []
+ },
  "tractor": {
   "tier": 1.615,
   "mass": 2.5,
@@ -575,6 +977,18 @@
   "lodTris": 5414,
   "lod2Tris": 5142,
   "bytes": 186948,
+  "clips": []
+ },
+ "tv_tower": {
+  "pack": "region",
+  "tier": 12,
+  "mass": 65655.521,
+  "kind": "prop",
+  "height": 170.8,
+  "tris": 8804,
+  "lodTris": 2200,
+  "lod2Tris": 704,
+  "bytes": 60768,
   "clips": []
  },
  "ufo": {
@@ -598,6 +1012,30 @@
    "lights"
   ]
  },
+ "village_church": {
+  "pack": "region",
+  "tier": 11.08,
+  "mass": 3516.546,
+  "kind": "prop",
+  "height": 25.7,
+  "tris": 28490,
+  "lodTris": 7122,
+  "lod2Tris": 2278,
+  "bytes": 188128,
+  "clips": []
+ },
+ "village_inn": {
+  "pack": "region",
+  "tier": 5.468,
+  "mass": 452.628,
+  "kind": "prop",
+  "height": 9.58,
+  "tris": 12342,
+  "lodTris": 3084,
+  "lod2Tris": 1616,
+  "bytes": 97640,
+  "clips": []
+ },
  "water_tower": {
   "tier": 3.099,
   "mass": 30,
@@ -614,5 +1052,23 @@
   "lod2Tris": 1846,
   "bytes": 97396,
   "clips": []
+ },
+ "wind_turbine": {
+  "pack": "region",
+  "lod": [
+   0.4,
+   0.15
+  ],
+  "tier": 4.2,
+  "mass": 6263.109,
+  "kind": "prop",
+  "height": 59.95,
+  "tris": 3608,
+  "lodTris": 1442,
+  "lod2Tris": 540,
+  "bytes": 30728,
+  "clips": [
+   "rotor"
+  ]
  }
 }

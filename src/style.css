@@ -195,3 +195,64 @@ button.ghost { background: #fff8ee22; color: var(--cream); box-shadow: none; fon
 .contracts i { font-style: normal; opacity: .9; }
 .contracts i.done { opacity: .55; text-decoration: line-through; }
 .contracts em { font-style: normal; color: var(--butter); }
+
+/* ---------- Phase 2: news ticker, settlement marker ---------- */
+#news { position: fixed; left: 50%; bottom: 14px; translate: -50% 0; width: min(94vw, 760px); display: flex; align-items: center; gap: 10px;
+  padding: 6px 10px; border-radius: 10px; background: #1a0f3add; color: var(--cream); font-size: 14px; overflow: hidden; pointer-events: none;
+  box-shadow: 0 2px 0 #0005; backdrop-filter: blur(6px); }
+#news[hidden] { display: none; }
+#news b { flex: 0 0 auto; padding: 2px 8px; border-radius: 6px; background: #e4473c; color: #fff; font-size: 12px; letter-spacing: .12em; }
+#news span { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#news span.run { animation: newsIn .5s ease-out; }
+#news i { flex: 0 0 auto; font-style: normal; font-size: 12px; color: var(--butter); font-variant-numeric: tabular-nums; }
+@keyframes newsIn { from { translate: 0 120%; opacity: 0; } }
+@media (max-width: 560px) { #news i { display: none; } }
+.edge-arrow i { white-space: nowrap; font-size: 14px; font-weight: 700; color: var(--c); text-shadow: 0 2px 0 #1a0f3a; }
+
+/* ---------- loading: the first thing anyone sees ---------- */
+#screen::before { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: 0; transition: opacity 1.2s ease;
+  background: radial-gradient(circle at 50% 40%, #3a2378 0, #170c36 38%, #07040f 100%); }
+#screen.loading::before { opacity: 1; }
+#vortex { position: fixed; left: 50%; top: 40%; width: min(78vmin, 520px); aspect-ratio: 1; translate: -50% -50%; z-index: -1; pointer-events: none;
+  transition: opacity 1s ease, scale 1.2s cubic-bezier(.6, 0, .3, 1); }
+#screen:not(.loading) #vortex { opacity: 0; scale: .2; }
+#vortex s { position: absolute; inset: 30%; border-radius: 50%;
+  background: radial-gradient(circle, #000 0 52%, #12082b 60%, #5b3bb8 70%, #b58cff 74%, #b58cff00 80%);
+  box-shadow: 0 0 60px 10px #8f6bff66, 0 0 160px 40px #5b3bb833; animation: breathe 3.2s ease-in-out infinite; }
+#vortex s::after { content: ''; position: absolute; inset: -38%; border-radius: 50%;
+  background: conic-gradient(from 0deg, #b58cff00, #b58cff55, #b58cff00 25%, #f7d77433 40%, #b58cff00 55%, #b58cff44 75%, #b58cff00);
+  -webkit-mask: radial-gradient(circle, #0000 34%, #000 44%, #0000 72%); mask: radial-gradient(circle, #0000 34%, #000 44%, #0000 72%);
+  animation: spin 5s linear infinite; }
+#vortex b { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px; animation: fallIn 4.2s cubic-bezier(.5, 0, .9, .6) var(--d) infinite; }
+#vortex b::before { content: ''; position: absolute; inset: 0; }
+#vortex .house::before { background: linear-gradient(#e4473c 0 45%, #fff8ee 45%); clip-path: polygon(50% 0, 100% 42%, 88% 42%, 88% 100%, 12% 100%, 12% 42%, 0 42%); }
+#vortex .house.tall { height: 46px; margin-top: -23px; }
+#vortex .house.tall::before { background: linear-gradient(#7fb3d5 0 20%, #d9e6ef 20%); clip-path: inset(0 12%); }
+#vortex .tree::before { background: radial-gradient(circle at 50% 38%, #7cc26b 0 38%, #0000 39%), linear-gradient(90deg, #0000 43%, #8a5a3b 43% 57%, #0000 57%); }
+#vortex .car::before { background: #f7d774; border-radius: 6px 6px 3px 3px; inset: 30% 0 20%; box-shadow: inset 0 4px #fff8ee66; }
+#vortex .cow::before { background: radial-gradient(circle at 30% 45%, #22222a 0 16%, #0000 17%), #fff8ee; border-radius: 40%; inset: 25% 5% 25%; }
+@keyframes fallIn {
+  0% { transform: rotate(var(--a)) translateX(min(38vmin, 250px)) rotate(0) scale(1); opacity: 0; }
+  12% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { transform: rotate(calc(var(--a) + 420deg)) translateX(0) rotate(900deg) scale(.1); opacity: 0; } }
+@keyframes spin { to { rotate: 360deg; } }
+@keyframes breathe { 50% { scale: 1.06; } }
+#screen.loading h1 { animation: rise 1.1s cubic-bezier(.2, 1.3, .4, 1) both; }
+@keyframes rise { from { opacity: 0; transform: translateY(24px) scale(.85); filter: blur(8px); } }
+#load { display: grid; justify-items: center; gap: 8px; margin-top: 18px; min-height: 76px; }
+#load[hidden] { display: none; }
+#load .bar { width: min(62vw, 280px); height: 8px; border-radius: 999px; background: #fff8ee1f; overflow: hidden; box-shadow: inset 0 1px 2px #0006; }
+#load .bar i { display: block; height: 100%; width: calc(var(--p, 0) * 100%); border-radius: inherit; transition: width .35s ease;
+  background: linear-gradient(90deg, #8f6bff, #b58cff 60%, #f7d774) 0 0 / 280px 100%, #b58cff; box-shadow: 0 0 12px #b58cffaa; }
+#load p { font-size: 14px; opacity: .9; } #load p b { color: var(--butter); font-variant-numeric: tabular-nums; }
+#tip { max-width: 36ch; min-height: 2.7em; font-style: italic; }
+#tip.in { animation: tipIn .6s ease; }
+@keyframes tipIn { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { #vortex b, #vortex s, #vortex s::after, #tip.in, #screen.loading h1 { animation: none; } }
+#minimap { position: fixed; left: 14px; bottom: 64px; width: 172px; height: 172px; border-radius: 50%; pointer-events: none;
+  box-shadow: 0 0 0 3px #fff8eecc, 0 0 0 6px #1a0f3a88, 0 6px 18px #0006; }
+#minimap[hidden] { display: none; }
+@media (max-width: 600px) { #minimap { width: 112px; height: 112px; left: 10px; bottom: 60px; } }
+#fps pre { margin: 0; font: inherit; }
+#fps canvas { display: block; width: 300px; height: 60px; margin-top: 4px; background: #0006; border-radius: 4px; }

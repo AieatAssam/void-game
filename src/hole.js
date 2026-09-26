@@ -5,6 +5,7 @@ import { Fn, uniform, float, positionGeometry, normalView, positionView, normali
 import { SKINS } from './skins.js';
 
 export const GROWTH = 0.17;
+const _n = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _tq = new THREE.Quaternion();
 export const MAX_HOLES = 5; // player, up to three rivals, the split twin
 
 /** Shared uniform: vec3(x, z, r) per hole; r = 0 means the slot is empty. */
@@ -118,8 +119,16 @@ export class Hole {
     this.area += Math.PI * tier * tier * GROWTH * mult;
   }
 
-  update(dt, time, hunger = 0, span = [0.18, 0.18]) {
+  /** tilt (Phase 2 hills): { y, nx, nz } - the ground plane under the disc; the rim and its rings lie on it. */
+  update(dt, time, hunger = 0, span = [0.18, 0.18], tilt = null) {
     const r = this.hidden ? 0 : this.r;
+    this.tiltQ ??= new THREE.Quaternion();
+    if (tilt) {
+      _n.set(-tilt.nx, 1, -tilt.nz).normalize();
+      _tq.setFromUnitVectors(_up, _n);
+      this.tiltQ.slerp(_tq, Math.min(1, dt * 6));
+    } else this.tiltQ.identity();
+    for (const o of [this.rim, this.ghost_, this.swirl, this.wave]) o.quaternion.copy(this.tiltQ);
     // well opens at the lowest ground under the disc (never stands up like a can on the road);
     // the lip rests on the highest (never buried under the sidewalk)
     const k = Math.min(1, dt * 12);
@@ -133,15 +142,17 @@ export class Hole {
     this.pulse += dt * (2 + hunger * 10);
     this.bump = Math.max(0, (this.bump || 0) - dt * 0.8);
     const p = 1 + Math.sin(this.pulse) * (0.015 + hunger * 0.05) + this.bump;
-    this.rim.position.set(this.x, this.gt + 0.01, this.z);
+    // on a slope the rim lies on the ground plane through the disc's middle, not at its highest point
+    this.ry = tilt ? (this.ry === undefined ? tilt.y : this.ry + (tilt.y - this.ry) * k) : this.gt;
+    this.rim.position.set(this.x, this.ry + 0.01, this.z);
     this.rim.scale.set(r * p || 1e-3, Math.max(1, r * 0.35), r * p || 1e-3);
-    this.ghost_.position.set(this.x, this.gt + 0.02, this.z);
+    this.ghost_.position.set(this.x, this.ry + 0.02, this.z);
     this.ghost_.scale.setScalar(r * p || 1e-3);
     this.voidMat.userData.u.uTime.value = time;
     this.voidMat.userData.u.uDepth.value = depth;
     const vac = this.vac || 0;
     this.swirl.visible = vac > 0.01;
-    this.swirl.position.set(this.x, this.gt + 0.03, this.z);
+    this.swirl.position.set(this.x, this.ry + 0.03, this.z);
     this.swirl.scale.setScalar(r || 1e-3);
     this.swirlMat.userData.u.uVac.value = vac * 1.4;
     this.swirlMat.userData.u.uReach.value = (1.4 + vac * 0.5 + 1.2 / Math.max(r, 0.1)) * (this.reach || 1); // same reach as city.js pulls
@@ -151,7 +162,7 @@ export class Hole {
     if (this.waveT > 0) {
       this.waveT = Math.max(0, this.waveT - dt);
       const k = 1 - this.waveT / 0.9;
-      this.wave.position.set(this.x, this.gt + 0.05, this.z);
+      this.wave.position.set(this.x, this.ry + 0.05, this.z);
       this.wave.scale.setScalar((r || 1e-3) * (1 + k * 5));
       this.wave.material.opacity = (1 - k) * 0.9;
     }

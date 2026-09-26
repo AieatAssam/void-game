@@ -97,14 +97,21 @@ export const packReady = (assets, name) => packJobs.has(name) && Object.values(a
  * Load one content pack (HANDOVER §6) and merge its models into `assets`. Safe to call repeatedly: every pack is
  * fetched once, and concurrent callers share the same promise.
  */
-export function loadPack(assets, name, onProgress) {
+export function loadPack(assets, name, onProgress, { gentle = false } = {}) {
   if (!packJobs.has(name)) {
     packJobs.set(name, (async () => {
       const manifest = await packsManifest();
       const names = Object.keys(manifest).filter((n) => manifest[n].pack === name);
       let done = 0;
       const tick = () => onProgress?.(++done / (names.length * DIRS.length));
-      const entries = await Promise.all(names.map((n) => loadModel(n, manifest[n], tick)));
+      // gentle: one model per frame (a background load during play: decoding a whole pack at once is a ~1 s freeze)
+      const entries = [];
+      if (gentle) {
+        for (const n of names) {
+          entries.push(await loadModel(n, manifest[n], tick));
+          await new Promise((r) => (document.hidden ? setTimeout(r, 0) : requestAnimationFrame(() => r())));
+        }
+      } else entries.push(...await Promise.all(names.map((n) => loadModel(n, manifest[n], tick))));
       Object.assign(assets, Object.fromEntries(entries));
     })().catch((e) => { packJobs.delete(name); throw e; }));
   }

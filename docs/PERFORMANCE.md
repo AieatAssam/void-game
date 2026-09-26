@@ -40,6 +40,38 @@ slow frames; grass costs little. The "Multiple instances of Three.js" warning is
 the production build loads one copy. The overlay's GPU ms is not trustworthy on this setup (it reads 30–90 ms while
 holding 60 fps): judge GPU headroom by fps with features toggled (`?noao`, `?noshafts`, `?grass=0`, `?q=`).
 
+## Phase 2 (the region)
+
+The region is 3 km of land with ten settlements, ~500 buildings and 34k trees, hedges and rocks, seen from up to ~700 m.
+
+| Risk | What was done | Result |
+|---|---|---|
+| **Building the region stalls the game.** Terrain (1.3 s) and the forest scatter (2.6 s) were single long tasks. | The terrain build and scatter are generators run in 3 ms slices in the background while the town is still being eaten; the scatter's overlap test is a hash grid (it scanned every earlier placement: also speeds up every town load). Only the unsliceable part (instanced meshes, roads) runs at the breakout, under the slow-motion camera lift. | Breakout swap ~1.7 s, no long tasks |
+| **First-sight shader builds** (one per InstancedMesh, see above). | Region chunks are 400 m (one mesh per model per settlement); the new meshes compile during the breakout. | ~80 new meshes instead of ~800 |
+| **LOD and shadows in fixed metres** (15/60 m LOD, 35 m shadows) with a camera 150-700 m away. | Both scale with the hole (`lodScale`); tiny things hide by their share of the hole, people and cars stay visible as specks for longer. | ~100 draws, 0.4-1.2M tris at r = 12-40 |
+| **34k crumbs culled one by one** (2.3 ms a frame). | Crumbs are bucketed once into 128 m cells; each frame only cells in the view or shadow frustum are packed. They are also out of the per-entity update loop: only grid cells under a hole are tested. | 0.13 ms a frame |
+| **Depth precision** at 700 m (roads and paving are stacked a few cm apart). | The near plane follows the camera distance (2%); far plane = 4x the distance. | no z-fighting |
+| **The crumble** would need its own material per building type. | The buildings' own instanced meshes carry per-vertex part centres and a per-instance progress slot; one crumble variant of the toy material. | no extra pipelines |
+
+### Phase 2 on the real device (Apple Silicon, Chrome, WebGPU, visible window)
+
+| Where | High tier | Low tier, WebGL2 fallback |
+|---|---|---|
+| Village (r = 12) | 60 fps (vsync), p95 17.6 ms, 112 draws, 0.72M tris | — |
+| Market town (r = 18) | 60 fps, p95 17.8 ms, 119 draws, 0.69M tris | 51 fps |
+| Industrial valley (r = 24) | 60 fps, p95 17.5 ms | — |
+| Densest forest cell (r = 14 / 30) | 60 fps, 86–100 draws, 0.54–0.72M tris | — |
+| Capital (r = 40) | 58–60 fps, 100–114 draws, 1.0–1.5M tris | 54 fps |
+
+**The breakout on a visible run** (long-animation-frame attribution):
+
+| Found | Fix | Result |
+|---|---|---|
+| The region pack (36 models, 108 files) decoded all at once when the prebuild started: a ~1 s freeze 6 s into every town. | `loadPack(..., { gentle: true })`: one model per frame. | gone |
+| Prebuild steps up to 230 ms between yields (field layout, the terrain build's tail, the crumb list; `fieldAt` scanned ~300 fields per vertex). | Everything sliced; `fieldAt` uses a 64 m grid. | no step over 16 ms |
+| The swap: drawing the whole new world on its first frame froze for 1.2 s (first-sight shader builds). Precompiling it (canvas or scene-pass target) froze for 1–5 s instead. | The region's meshes reveal five per frame under the dust; finish and the grass mask in separate frames. | worst frame ~200 ms, reveal frames 65–90 ms for ~0.7 s |
+| The breakout dust was fill-rate bound (dozens of 30–40 m sprites). | Fewer, smaller puffs. | — |
+
 ## Measuring on the target machine
 
 - `?fps`: frame rate, CPU split (game logic / render submission), GPU time, draws, triangles, tier, dynamic-resolution steps.
@@ -62,3 +94,63 @@ which feature costs most. If CPU time is close, it's the game logic or draw subm
 - [ComputeBatchCulling: GPU culling with WebGPU](https://www.threejs-blocks.com/docs/ComputeBatchCulling)
 - [Shadow map `autoUpdate` / caching (forum)](https://discourse.threejs.org/t/renderer-shadowmap-autoupdate-false/50401)
 - [Three.js performance guide (gist)](https://gist.github.com/iErcann/2a9dfa51ed9fc44854375796c8c24d92)
+
+### Island pass (see-through, detail reach, cracks, rivals, minimap, rubble, capsules)
+
+Visible window, Apple Silicon, Chrome, high tier, 1627×1071 at 1.5x:
+
+| Scene | WebGPU | WebGL2 fallback |
+|---|---|---|
+| Town, start and 12 m | 60 fps (vsync), worst 18–19 ms, CPU ~5 ms, 130–165 draws | 60 fps, worst 18 ms, GPU ~13 ms |
+| Island, 20–25 m | 60 fps, worst 18 ms, ~100 draws, 0.7M tris | 60 fps, worst 18–19 ms, GPU ~20 ms |
+| Capital, 45 m hole | 60 fps, worst 18 ms, ~120 draws, 1.85M tris | |
+
+Loading: ~3–4 s to the menu on WebGPU, ~20 s on WebGL2 (shader compiles; the precompile wait is capped at 8 s so a
+background tab can't stall it, since three's WebGL backend polls compiles with requestAnimationFrame).
+
+### Frame-time analysis and the breakout stall (`?fps`)
+
+The `?fps` overlay now records every frame:
+- **Numbers:** now, 10 s average, 1% low, min and max fps, worst frame (10 s and since load).
+- **Hitch counts:** frames over 33, 50 and 100 ms.
+- **Graph:** a 10 s frame-time graph.
+- **Hitch log:** every frame over 50 ms, with its JS time, render-submit time and what the game was doing (phase,
+  breakout, region reveal).
+- **API:** `__perf()` returns all of it, and `__perf(true)` resets it.
+- **Hidden pages:** frames while the page is hidden are skipped, because the browser throttles them (a sleeping laptop
+  screen counts as hidden).
+
+Measure with `nowatch`, or the quality watchdog changes resolution under you. A/B the steady state only on a quiet
+machine; the pane inside the desktop app varies by ±10 fps between identical runs. Stalls over ~150 ms are unambiguous.
+
+**What the stats found (seed 4242, visible window):**
+- **One shader program per instanced mesh.** Below the uniform-buffer limit three.js reads instance matrices from a
+  uniform array whose block it names per mesh. The island then needed 862 vertex programs for 311 meshes. WebGL
+  compiles each program on the main thread: about 650 ms, measured with a long-task observer, even through
+  `compileAsync`. That caused a 4.6 s frame at the swap and 200–600 ms frames as the island revealed.
+- **The fix:** `getUniformBufferLimit` returns 0 (`look.js`), so instance matrices are always vertex attributes and
+  meshes share programs. The island went from 862 programs to 58. Steady state is unchanged: WebGL 59–60 fps with the
+  worst frame about 20 ms; WebGPU 54–57 fps with the worst about 22 ms.
+- **The precompile built the wrong variants.** It used `renderer.compileAsync(scene, camera)` on the canvas, but the
+  game draws through the post pipeline's scene pass (its own target and MRT), so the first real draw compiled again.
+  `post.precompile()` now compiles in the pass's context:
+  - Loading on WebGL: one mesh per material and geometry layout (every program exists before play); each mesh's own
+    ~25 ms node build happens as it comes into view.
+  - Loading on WebGPU: on-screen only (queueing all 1,261 town meshes cost 8 s of load and a stuttery first minute).
+  - At the breakout: the island's meshes, one per frame. three's own loop ran the builds back to back and dropped
+    the cinematic to 10 fps. Instanced meshes at count 0 (culled traffic, crumbs) are included.
+- **Culled instance buffers** upload only the drawn prefix (`upload()` in city.js).
+- **The reveal** slows to one mesh per frame while frames run long.
+- **WebGL loading** dropped from 20 s to about 4 s.
+
+| Breakout (town, switch, island) | Before | After |
+|---|---|---|
+| WebGL: swap frame | 4.0–4.6 s | 1.3–1.4 s |
+| WebGL: reveal | ~15 frames of 200–600 ms | 3–7 frames of 90–160 ms |
+| WebGL: steady island | 59 fps | 60 fps, worst frame 20 ms |
+| WebGPU: swap frame | ~300 ms | 340 ms |
+| WebGPU: cinematic | smooth | smooth (a few 90–130 ms frames) |
+| WebGPU: reveal | 7–10 frames of 100–140 ms | 6 frames of 80–145 ms |
+
+**Still open:** the swap frame compiles about 7 programs that exist only once the switch happens (probably the new
+systems: army units, rival holes, capsules), and shadow-pass shaders aren't covered by any precompile.

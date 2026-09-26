@@ -46,7 +46,16 @@ PACKS = [
     # power-ups + mutators
     'pu_magnet', 'pu_ghost', 'pu_split', 'pu_boost', 'rubber_duck',
 ]
-ALL = ASSETS + PACKS
+# Phase 2 (docs/PHASE2.md): the region pack - settlements, industry, the capital, the army.
+REGION = [
+    'cottage', 'farmhouse', 'grain_silo', 'village_church', 'village_inn',
+    'castle_wall', 'castle_tower', 'castle_gate', 'castle_keep', 'cannon', 'pavilion',
+    'townhouse_row', 'townhouse_row_b', 'market_hall', 'town_hall', 'cathedral',
+    'factory', 'chimney_stack', 'gasholder', 'fuel_tank', 'cooling_tower', 'pylon', 'wind_turbine',
+    'city_block', 'city_block_b', 'glass_tower', 'supertall', 'tv_tower', 'stadium', 'parliament',
+    'army_truck', 'howitzer', 'jet', 'chinook', 'sandbags', 'capper',
+]
+ALL = ASSETS + PACKS + REGION
 ONLY = globals().get('ONLY') or ASSETS
 for n in ONLY:
     try:
