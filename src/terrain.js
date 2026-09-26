@@ -111,19 +111,25 @@ export class Terrain {
   /** Farm patchwork: rotated rectangles in a band around town. */
   layoutFields(r) {
     const out = [];
-    const [tries, want, spread] = this.region ? [1500, 280, this.region.bound - this.half - 120] : this.farm ? [140, 44, 200] : [60, 26, 260];
-    for (let k = 0; k < tries && out.length < want; k++) {
-      const a = r() * Math.PI * 2, d = this.half + 55 + r() * spread;
-      const x = Math.cos(a) * d, z = Math.sin(a) * d;
-      if (this.beach && z > this.half - 20) continue;
-      const f = { x, z, w: 30 + r() * 45, h: 25 + r() * 40, rot: Math.round(a / (Math.PI / 2)) * Math.PI / 2 + (r() - 0.5) * 0.35, crop: Math.floor(r() * 4) };
-      if (out.some((o) => Math.hypot(o.x - x, o.z - z) < (o.w + f.w) * 0.55)) continue;
-      if (this.riverDist(x, z) < Math.max(f.w, f.h) * 0.6 + 12) continue;
-      if (this.region && this.region.pads.some((p) => Math.hypot(p.x - x, p.z - z) < p.r + Math.max(f.w, f.h) * 0.6 + 10)) continue;
-      if ([[0, 0], [f.w / 2, f.h / 2], [-f.w / 2, f.h / 2], [f.w / 2, -f.h / 2], [-f.w / 2, -f.h / 2]]
-        .some(([u, v]) => this.nz.fbm((x + u) / 210 - 9.4, (z + v) / 210 + 2.2, 3) > 0.06)) continue; // no fields in lakes
-      out.push(f);
-    }
+    const pass = (tries, want, spread, avoidPads) => {
+      for (let k = 0; k < tries && out.length < want; k++) {
+        const a = r() * Math.PI * 2, d = this.half + 55 + r() * spread;
+        const x = Math.cos(a) * d, z = Math.sin(a) * d;
+        if (this.beach && z > this.half - 20) continue;
+        const f = { x, z, w: 30 + r() * 45, h: 25 + r() * 40, rot: Math.round(a / (Math.PI / 2)) * Math.PI / 2 + (r() - 0.5) * 0.35, crop: Math.floor(r() * 4) };
+        if (out.some((o) => Math.hypot(o.x - x, o.z - z) < (o.w + f.w) * 0.55)) continue;
+        if (this.riverDist(x, z) < Math.max(f.w, f.h) * 0.6 + 12) continue;
+        if (avoidPads && this.region.pads.some((p) => Math.hypot(p.x - x, p.z - z) < p.r + Math.max(f.w, f.h) * 0.6 + 10)) continue;
+        if (avoidPads && Math.max(Math.abs(x), Math.abs(z)) - Math.max(f.w, f.h) * 0.6 < this.half + 440) continue; // (the town's land stays as it was)
+        if ([[0, 0], [f.w / 2, f.h / 2], [-f.w / 2, f.h / 2], [f.w / 2, -f.h / 2], [-f.w / 2, -f.h / 2]]
+          .some(([u, v]) => this.nz.fbm((x + u) / 210 - 9.4, (z + v) / 210 + 2.2, 3) > 0.06)) continue; // no fields in lakes
+        out.push(f);
+      }
+    };
+    // the town's own fields first, with the same draws, so the region grows the very land the town sat in
+    pass(...(this.farm ? [140, 44, 200] : [60, 26, 260]), false);
+    this.baseFields = out.length;
+    if (this.region) pass(1500, 280 + out.length, this.region.bound - this.half - 120, true);
     return out;
   }
 
@@ -171,8 +177,12 @@ export class Terrain {
     const w = smooth(3, 45, d); // flat apron at the city limits
     // hills swell into mountains toward the horizon; in the region the play area stays rolling and the
     // mountains rise only past its bound (the map edge)
-    const grow = this.region ? 0.8 + smooth(this.region.bound - 150, this.region.bound + 500, Math.max(Math.abs(x), Math.abs(z))) * 2.6
-      : 0.85 + smooth(60, 900, d) * 2.4;
+    // (the region keeps the town's hills near it - the breakout swap must not move a lake - and eases into its own
+    // gentler play area, with the mountains past the bound)
+    const townGrow = 0.85 + smooth(60, 900, d) * 2.4;
+    const grow = this.region
+      ? townGrow + (0.8 + smooth(this.region.bound - 150, this.region.bound + 500, Math.max(Math.abs(x), Math.abs(z))) * 2.6 - townGrow) * smooth(260, 560, d)
+      : townGrow;
     let h = nz.fbm(x / 240, z / 240, 5) * 30 * grow
       + nz.ridged(x / 170 + 3.7, z / 170 - 1.2, 4) * 14 * (grow - 0.55)
       + nz.fbm(x / 55 + 7.1, z / 55, 3) * 1.1
@@ -367,54 +377,74 @@ export class Terrain {
     const R = g ? g.bound : this.half + 420;
     const onPad = (x, z) => g && g.pads.some((p) => (p.x - x) ** 2 + (p.z - z) ** 2 < (p.r + 6) ** 2);
     const clear = (x, z) => !onPad(x, z) && !(g && this.roadDist(x, z) < 11);
-    // barns, windmills and cows on the farms; hedgerows around every field
-    for (const f of this.fields) {
-      yield;
-      const c = Math.cos(f.rot), s = Math.sin(f.rot);
-      const at = (u, v) => [f.x + u * c - v * s, f.z + u * s + v * c];
-      if (r() < 0.45) { const [x, z] = at(f.w / 2 + 12, 0); put('barn', x, z, 1, -f.rot + Math.PI / 2, 0.3); }
-      else if (r() < 0.35) { const [x, z] = at(-f.w / 2 - 14, f.h / 2); put('windmill', x, z, 1, r() * 6.28, 0.3); }
-      for (const [u0, v0, u1, v1] of [[-1, -1, 1, -1], [1, -1, 1, 1], [1, 1, -1, 1], [-1, 1, -1, -1]]) {
-        const len = Math.hypot((u1 - u0) * f.w / 2, (v1 - v0) * f.h / 2), steps = Math.floor(len / 1.6);
-        const gap = r() * steps;
-        for (let k = 0; k < steps; k++) {
-          if (Math.abs(k - gap) < 3) continue; // a gate
-          const t = k / steps;
-          const [x, z] = at((u0 + (u1 - u0) * t) * (f.w / 2 + 1), (v0 + (v1 - v0) * t) * (f.h / 2 + 1));
-          if (r() < (this.region ? 0.7 : 0.9)) put('bush', x + (r() - 0.5) * 0.6, z + (r() - 0.5) * 0.6, 0.9 + r() * 0.9);
-          if (r() < 0.06) put(r() < 0.5 ? 'tree_big' : 'tree_small', x, z, 0.9 + r() * 0.4);
+    // The town's land is scattered exactly as in the town (same draws, same rules), then a region scatters the rest of
+    // the map: the breakout swap must not move a tree near the town.
+    const TR = this.half + 420;
+    const fieldsPass = function* (fields, hedge) {
+      // barns, windmills and cows on the farms; hedgerows around every field
+      for (const f of fields) {
+        yield;
+        const c = Math.cos(f.rot), s = Math.sin(f.rot);
+        const at = (u, v) => [f.x + u * c - v * s, f.z + u * s + v * c];
+        if (r() < 0.45) { const [x, z] = at(f.w / 2 + 12, 0); put('barn', x, z, 1, -f.rot + Math.PI / 2, 0.3); }
+        else if (r() < 0.35) { const [x, z] = at(-f.w / 2 - 14, f.h / 2); put('windmill', x, z, 1, r() * 6.28, 0.3); }
+        for (const [u0, v0, u1, v1] of [[-1, -1, 1, -1], [1, -1, 1, 1], [1, 1, -1, 1], [-1, 1, -1, -1]]) {
+          const len = Math.hypot((u1 - u0) * f.w / 2, (v1 - v0) * f.h / 2), steps = Math.floor(len / 1.6);
+          const gap = r() * steps;
+          for (let k = 0; k < steps; k++) {
+            if (Math.abs(k - gap) < 3) continue; // a gate
+            const t = k / steps;
+            const [x, z] = at((u0 + (u1 - u0) * t) * (f.w / 2 + 1), (v0 + (v1 - v0) * t) * (f.h / 2 + 1));
+            if (r() < hedge) put('bush', x + (r() - 0.5) * 0.6, z + (r() - 0.5) * 0.6, 0.9 + r() * 0.9);
+            if (r() < 0.06) put(r() < 0.5 ? 'tree_big' : 'tree_small', x, z, 0.9 + r() * 0.4);
+          }
         }
+        if (f.crop === 0) for (let k = 0; k < 4; k++) { const [x, z] = at((r() - 0.5) * f.w * 0.8, (r() - 0.5) * f.h * 0.8); put('cow', x, z, 1, r() * 6.28, 0); }
       }
-      if (f.crop === 0) for (let k = 0; k < 4; k++) { const [x, z] = at((r() - 0.5) * f.w * 0.8, (r() - 0.5) * f.h * 0.8); put('cow', x, z, 1, r() * 6.28, 0); }
-    }
-    // forests, meadow trees, bushes and rocks
-    const tries = 16000 * Q.trees * (g ? ((2 * R) / (2 * (this.half + 420))) ** 2 * 0.62 : 1);
-    for (let k = 0; k < tries; k++) {
-      if (k % 400 === 399) yield;
-      const x = (r() * 2 - 1) * R, z = (r() * 2 - 1) * R;
-      const d = this.outside(x, z);
-      if (d < 8 || !clear(x, z)) continue;
-      if (this.fieldAt(x, z)) continue;
-      const fo = this.forest(x, z);
-      const slope = 1 - this.normalAt(x, z).y;
-      const far = g ? 0 : smooth(250, 420, d);
-      const near = g || d < 220; // (the region's meadows are dressed everywhere, not only round the town)
-      // Phase 2: boulder fields on noise patches - a few of them big enough to be a meal on their own
-      const rocky = g ? this.nz.fbm(x / 130 + 21.7, z / 130 - 8.3, 3) : -1;
-      if (r() < fo * 1.6 * (1 - far * 0.5)) {
-        const pine = this.nz.noise(x / 90, z / 90) > -0.05;
-        put(pine ? 'tree_pine' : r() < 0.6 ? 'tree_big' : 'tree_small', x, z, 0.8 + r() * 0.55);
-        if (r() < (g ? 0.5 : 0.3)) put('bush', x + (r() - 0.5) * 4, z + (r() - 0.5) * 4, 0.9 + r() * 0.8); // undergrowth
-      } else if (slope > 0.22 && r() < 0.35 && !(g && this.heightAt(x, z) < this.water + 0.4)) put('rock', x, z, 0.6 + r() * 2.4, r() * 6.28, 0.35);
-      else if (rocky > 0.28 && r() < 0.5 && this.heightAt(x, z) > this.water + 0.4) put('rock', x, z, r() < 0.08 ? 5 + r() * 5 : 1 + r() * 3, r() * 6.28, 0.4);
-      else if (near && r() < 0.035) put(r() < 0.5 ? 'tree_big' : 'tree_small', x, z, 0.85 + r() * 0.5);
-      else if (near && r() < 0.05) put('bush', x, z, 0.8 + r() * 1.2);
-      else if (near && r() < 0.012) put('rock', x, z, 0.4 + r() * 1.0, r() * 6.28, 0.3);
-    }
+    };
+    const self = this;
+    // forests, meadow trees, bushes and rocks. town: the town's rules; otherwise the region's (outside the town's square)
+    const woodsPass = function* (R, tries, town) {
+      for (let k = 0; k < tries; k++) {
+        if (k % 400 === 399) yield;
+        const x = (r() * 2 - 1) * R, z = (r() * 2 - 1) * R;
+        const d = self.outside(x, z);
+        if (d < 8 || (!town && (Math.max(Math.abs(x), Math.abs(z)) < TR || !clear(x, z)))) continue;
+        if (self.fieldAt(x, z)) continue;
+        const fo = self.forest(x, z);
+        const slope = 1 - self.normalAt(x, z).y;
+        const far = town ? smooth(250, 420, d) : 0;
+        const near = !town || d < 220; // (the region's meadows are dressed everywhere, not only round the town)
+        // Phase 2: boulder fields on noise patches - a few of them big enough to be a meal on their own
+        const rocky = town ? -1 : self.nz.fbm(x / 130 + 21.7, z / 130 - 8.3, 3);
+        if (r() < fo * 1.6 * (1 - far * 0.5)) {
+          const pine = self.nz.noise(x / 90, z / 90) > -0.05;
+          put(pine ? 'tree_pine' : r() < 0.6 ? 'tree_big' : 'tree_small', x, z, 0.8 + r() * 0.55);
+          if (r() < (town ? 0.3 : 0.5)) put('bush', x + (r() - 0.5) * 4, z + (r() - 0.5) * 4, 0.9 + r() * 0.8); // undergrowth
+        } else if (slope > 0.22 && r() < 0.35 && (town || self.heightAt(x, z) > self.water + 0.4)) put('rock', x, z, 0.6 + r() * 2.4, r() * 6.28, 0.35);
+        else if (rocky > 0.28 && r() < 0.5 && self.heightAt(x, z) > self.water + 0.4) put('rock', x, z, r() < 0.08 ? 5 + r() * 5 : 1 + r() * 3, r() * 6.28, 0.4);
+        else if (near && r() < 0.035) put(r() < 0.5 ? 'tree_big' : 'tree_small', x, z, 0.85 + r() * 0.5);
+        else if (near && r() < 0.05) put('bush', x, z, 0.8 + r() * 1.2);
+        else if (near && r() < 0.012) put('rock', x, z, 0.4 + r() * 1.0, r() * 6.28, 0.3);
+      }
+    };
     // river banks: reeds of bushes and stones
-    if (this.river) for (let k = 0; k < (g ? 3000 : 700); k++) {
-      const x = (r() * 2 - 1) * R, z = (r() * 2 - 1) * R, rd = this.riverDist(x, z);
-      if (rd > 7 && rd < 13 && this.outside(x, z) > 20) put(r() < 0.6 ? 'bush' : 'rock', x, z, 0.5 + r() * 0.8, r() * 6.28, 0.25);
+    const reedsPass = function* (R, n, town) {
+      if (!self.river) return;
+      for (let k = 0; k < n; k++) {
+        const x = (r() * 2 - 1) * R, z = (r() * 2 - 1) * R, rd = self.riverDist(x, z);
+        if (!town && Math.max(Math.abs(x), Math.abs(z)) < TR) continue;
+        if (rd > 7 && rd < 13 && self.outside(x, z) > 20) put(r() < 0.6 ? 'bush' : 'rock', x, z, 0.5 + r() * 0.8, r() * 6.28, 0.25);
+      }
+    };
+    const base = this.baseFields ?? this.fields.length;
+    yield* fieldsPass(this.fields.slice(0, base), 0.9);
+    yield* woodsPass(TR, 16000 * Q.trees, true);
+    yield* reedsPass(TR, 700, true);
+    if (g) {
+      yield* fieldsPass(this.fields.slice(base), 0.7);
+      yield* woodsPass(R, 16000 * Q.trees * ((2 * R) / (2 * TR)) ** 2 * 0.62, false);
+      yield* reedsPass(R, 3000, false);
     }
     return out;
   }
