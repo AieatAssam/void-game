@@ -99,7 +99,11 @@ export function humanBot() {
       s.next = t + 0.45 + Math.random() * 0.55;
       if (Math.random() < 0.05) { s.idleUntil = t + 0.3 + Math.random() * 0.5; return [0, 0]; }
       const v = new THREE.Vector3(), cands = [];
-      for (const e of city.entities) {
+      const q0 = city.target?.(hole), qd = q0 && Math.hypot(q0.x - hole.x, q0.z - hole.z);
+      const goal = q0 && qd > q0.r ? { x: (q0.x - hole.x) / qd, z: (q0.z - hole.z) / qd, far: qd > q0.r + 150 } : null;
+      // (Phase 2: the woods, hedges and herds are edible too, and a player sees them: the nearby ones join the scan)
+      const near = city.crumbs ? city.crumbs.filter((e) => Math.abs(e.x - hole.x) < 250 && Math.abs(e.z - hole.z) < 250) : [];
+      for (const e of near.length ? [...city.entities, ...near] : city.entities) {
         if (!e.alive || e.falling || e.flying || e.noSwallow || e.meta.kind === 'poison' || e.meta.kind === 'tile') continue;
         if (e.meta.tier >= hole.r * 0.95 || e.meta.tier < hole.r * 0.04) continue;
         const dx = e.x - hole.x, dz = e.z - hole.z, d = Math.hypot(dx, dz);
@@ -107,7 +111,15 @@ export function humanBot() {
         v.set(e.x, (e.gy || 0) + 0.5, e.z).project(camera);
         if (v.z > 1 || Math.abs(v.x) > 0.95 || Math.abs(v.y) > 0.9) continue; // off screen: a player doesn't know it's there
         const k = Math.min(1, Math.max(0, (e.meta.tier / hole.r - 0.1) / 0.4)); // (tiny crumbs barely grow you: players learn that)
-        cands.push([e.meta.mass * (0.1 + k) / (d + 3 + hole.r), e]);
+        let sc = e.meta.mass * (0.1 + k) / (d + 3 + hole.r);
+        if (goal) { // Phase 2: heading for the marked settlement, a player eats what's on the way and doesn't graze off course
+          const along = (dx * goal.x + dz * goal.z) / (d || 1);
+          sc *= 0.25 + 0.75 * Math.max(0, along);
+          if (e.mover?.crumb) sc *= 0.25; // (a town ahead beats the wood beside you: it loitered at a town's edge eating pines)
+          // travelling: only what's close to the route (a player doesn't circle a wood with a town to reach)
+          if (goal.far && (along < 0.8 || d > hole.r * 4)) continue;
+        }
+        cands.push([sc, e]);
       }
       cands.sort((a, b) => b[0] - a[0]);
       const pick = cands.length ? cands[Math.min(cands.length - 1, Math.floor(Math.random() ** 2 * 4))][1] : null;
@@ -118,7 +130,7 @@ export function humanBot() {
     let tx, tz;
     if (s.target && s.target.alive && !s.target.falling) { tx = s.target.x; tz = s.target.z; }
     else {
-      const q = city.target?.(hole) ?? window.__lastBuilding; // follow the edge marker: the next settlement (Phase 2), the last buildings (town)
+      const q = window.__lastBuilding ?? city.target?.(hole); // follow the edge marker: a building to hunt (town, or inside a settlement), else the next settlement
       if (q) { tx = q.x; tz = q.z; } else { // nothing in view: go exploring like a player would (a heading that drifts,
         // turned back toward the middle near the edge of the town)
         s.head = (s.head ?? Math.random() * 6.28) + (Math.random() - 0.5) * 0.08;
@@ -131,6 +143,12 @@ export function humanBot() {
     const len = Math.hypot(x, z) || 1;
     const c = Math.cos(s.wobble), n = Math.sin(s.wobble);
     [x, z] = [(x * c - z * n) / len, (x * n + z * c) / len];
+    // the Capper, while it can't be eaten: stay out of its reach (its warning ring shows it)
+    const boss = director.boss;
+    if (boss?.alive && boss.noSwallow) {
+      const dx = hole.x - boss.x, dz = hole.z - boss.z, dist = Math.hypot(dx, dz);
+      if (dist < hole.r + 60) { x += (dx / (dist || 1)) * 2; z += (dz / (dist || 1)) * 2; }
+    }
     // a bigger rival close by (and on screen): keep away from it, the way a player would
     for (const rv of window.__game().rivals?.list || []) {
       const h = rv.hole;
@@ -211,3 +229,4 @@ window.__humanSuite = async (n = 6, seconds = 600, who = 'human', dt = 1 / 30) =
   }
   return out;
 };
+window.__humanBot = humanBot; // (Phase 2: window.__bot = __humanBot(); __regionBot(900))

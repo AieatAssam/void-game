@@ -6,15 +6,15 @@
 export const P2 = {
   surge: 1.25, // breakout: the hole's radius jumps by this
   slowmo: 0.3, // world speed during the breakout cinematic
-  bellyDrain: 1 / 16, // a full belly lasts 16 s (settlements are a few hundred metres apart)
+  bellyDrain: 1 / 24, // a full belly lasts 24 s: a leg between settlements takes a human-paced player ~30 s (human-like bot)
   meal: 0.08, // eating this fraction of the hole's area fills the belly
-  crumb: 0.018, // each crumb (a tree, a hedge, a cow) tops the belly up this much: woods feed you, they don't grow you
-  growth: 0.6, // every bite grows you 60% of a town bite: the whole country has to be eaten
+  crumb: 0.025, // each crumb (a tree, a hedge, a cow) tops the belly up this much: woods feed you, they don't grow you
+  growth: 0.8, // every bite grows you 80% of a town bite (60% left a human-paced player unable to climb the ladder)
   capitalGrowth: 0.9, // ... except the capital: the climax pays out (enough to fit the stadium, its last and biggest piece)
-  crumbGrowth: 0.3, // ... and grows you at 30% of a normal bite (the settlements are what grow you)
+  crumbGrowth: 0.4, // ... and grows you at 40% of a normal bite (the settlements are what grow you)
   stuckGrowth: 0.6, // ... or 60% when nothing standing fits you (no dead ends, but a careless player can still lose)
-  decayFed: 0.002, // area fraction lost per second while fed (travel legs between settlements are long)
-  decayStarving: 0.015, // ... while starving
+  decayFed: 0.0012, // area fraction lost per second while fed (travel legs between settlements are long)
+  decayStarving: 0.01, // ... while starving (a long leg costs size, not the run)
   dead: 7.5, // below this the army's lid drops at once (army.js seal)
   critical: 9, // below this (back toward town scale) the army moves in to seal the hole: grow back past recover or be capped
   recover: 9.6,

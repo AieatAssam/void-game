@@ -457,8 +457,8 @@ export class Army {
       this.capRing.material.opacity = 0.4 + 0.3 * Math.sin(b.capT * (8 + b.capT * 10));
       if (b.capT > 2) {
         b.capT = 0;
-        b.cool = 10;
-        this.hooks.hurt(0.15, 'CAPPED!');
+        b.cool = 14; // (15% every 10 s ground a human-paced player down near the capital: 11 hits in one run)
+        this.hooks.hurt(0.1, 'CAPPED!');
         this.hooks.kick?.(dx / d, dz / d);
         this.debris.dustRing(hole.x, this.ground(hole.x, hole.z), hole.z, hole.r, hole.r, 24, hole.r * 0.6, 2.5, boom);
         this.hooks.boom();

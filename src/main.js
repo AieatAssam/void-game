@@ -512,7 +512,18 @@ function hud() {
   if (state.phase === 2) {
     const q = nextSettlement();
     const ok = q && q.list.some((e) => e.alive && e.meta.tier < hole.r * 0.95); // something there fits now
-    edgeArrow('town', q && Math.hypot(q.x - hole.x, q.z - hole.z) > q.r * 0.6 && [q.x, q.z], q ? `${q.name}${ok ? '' : ` · ${(q.big / 0.95).toFixed(0)} m`}` : '', ok ? '#9ed9bf' : '#ff8a3d');
+    const inside = q && Math.hypot(q.x - hole.x, q.z - hole.z) <= q.r * 0.6;
+    window.__lastBuilding = null;
+    if (inside && ok) { // in town: point at its nearest building that fits (players parked in the middle, lost, with food at the edges)
+      let b = null, bd = Infinity;
+      for (const e of q.list) {
+        if (!e.alive || e.falling || e.meta.tier >= hole.r * 0.95) continue;
+        const d = Math.hypot(e.x - hole.x, e.z - hole.z);
+        if (d < bd) { bd = d; b = e; }
+      }
+      window.__lastBuilding = b;
+      edgeArrow('town', b && bd > hole.r * 3 + 12 && [b.x, b.z], `${q.name} · ${q.list.filter((e) => e.alive && e.meta.tier < hole.r * 0.95).length} fit`, '#9ed9bf');
+    } else edgeArrow('town', q && !inside && [q.x, q.z], q ? `${q.name}${ok ? '' : ` · ${(q.big / 0.95).toFixed(0)} m`}` : '', ok ? '#9ed9bf' : '#ff8a3d');
   } else if (state.left > 0 && state.left <= Math.max(8, Math.round((state.leftStart || 0) * 0.25))) {
     // the last few buildings end up scattered: point at the nearest (a human only sees what's on screen; the human-like
     // bot stalled with 1-17 small buildings left and a hole big enough for all of them)

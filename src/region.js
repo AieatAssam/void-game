@@ -688,7 +688,9 @@ export class Region extends City {
         v += e.meta.tier * e.meta.tier * (0.06 + 0.94 * smooth(0.1, 0.5, e.meta.tier / hole.r));
       }
       if (!v) continue;
-      const sc = v / (Math.max(0, Math.hypot(q.x - hole.x, q.z - hole.z) - q.r) + 250);
+      // distance counts for more than the size of the meal: a belly lasts ~600 m of travel at a human pace, and the
+      // arrow sent players (and the human-like bot) 900 m to a big town past two villages, starving on the way
+      const sc = v / (Math.max(0, Math.hypot(q.x - hole.x, q.z - hole.z) - q.r) + 120) ** 1.5;
       if (sc > bs) { bs = sc; best = q; }
     }
     return best;
