@@ -64,10 +64,20 @@ const DEAD_R = 0.26;
 const MAX_HIT = 0.25; // rule 3: no single hit takes more than 25%
 
 // Loading: files are ~80% of the bar, then building the first city and compiling its shaders (each stage paints first).
-const nextPaint = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+const nextPaint = () => new Promise((r) => (document.hidden ? setTimeout(r, 0) : requestAnimationFrame(() => setTimeout(r, 0)))); // (no rAF in a background tab)
 let lastLabel = '';
+const TIPS = ['Swallow what fits. Everything bigger waits until you grow.', 'Clear the town and the hole breaks out across the island.',
+  'Villages, castles, cities: the whole island is on the menu.', 'Woods and herds keep you fed on the long roads between towns.',
+  'Red rings mean something is about to land on you. Move!', 'Shrink too far and the army drops a lid on the hole for good.'];
+let tipI = Math.floor(Math.random() * TIPS.length);
+const tipEl = $('tip'), showTip = () => { tipEl.textContent = TIPS[tipI++ % TIPS.length]; tipEl.classList.remove('in'); void tipEl.offsetWidth; tipEl.classList.add('in'); };
+showTip();
+const tipTimer = setInterval(showTip, 3600);
 function setLoad(label, p) {
-  $('load').innerHTML = `${label} <b>${Math.round(p * 100)}%</b>`;
+  const [l, n] = $('load').querySelectorAll('p:first-of-type span, p:first-of-type b');
+  l.textContent = label;
+  n.textContent = `${Math.round(p * 100)}%`;
+  $('load').style.setProperty('--p', p);
   if (label !== lastLabel) console.info(`[load] ${(performance.now() / 1000).toFixed(1)}s ${lastLabel = label}`);
 }
 setLoad('Unpacking the toybox…', 0);
@@ -289,6 +299,8 @@ setLoad('Opening the ground…', 0.98);
 await nextPaint();
 $('load').hidden = true;
 $('menu').hidden = false;
+$('screen').classList.remove('loading');
+clearInterval(tipTimer);
 window.__game = () => ({ hole, city, state, renderer, director, rivals, events, chains, powerups, camera, scene, grass, THREE });
 window.__abil = () => abilities;
 window.__info = () => { const r = renderer.info.render; return { calls: r.drawCalls, tris: r.triangles, frameCalls: r.frameCalls }; };
@@ -484,7 +496,7 @@ function hud() {
   } else edgeArrow('town', null);
   const ef = events.focus;
   edgeArrow('event', ef, { parade: '🎺', marathon: '🏃', carshow: '🏎️', ufo: '🛸' }[events.kind], '#ffd166');
-  const st = [state.reverse > 0 && 'Controls reversed', state.jam > 0 && 'Jammed', state.wet > 0 ? 'Wet concrete! Get out' : state.slow > 0 && 'Slowed', state.flooded && 'Tide! Slow + hungry',
+  const st = [state.reverse > 0 && 'Controls reversed', state.jam > 0 && (director.seal?.state === 'drop' ? 'The lid is coming down' : 'Jammed'), state.wet > 0 ? 'Wet concrete! Get out' : state.slow > 0 && 'Slowed', state.flooded && 'Tide! Slow + hungry',
     director.bonusT > 0 && 'Spotted'].filter(Boolean);
   const c = CARDS[state.card];
   $('card').hidden = state.card === 'none';
@@ -493,6 +505,8 @@ function hud() {
   if (limit) st.unshift(`⏱ ${clock(Math.max(0, limit - state.time))}`);
   if (state.happy > 0) st.unshift(`🍹 Happy Hour ${Math.ceil(state.happy)}s`);
   if (state.phase === 2 && city.surface) st.push(city.surface);
+  const seal = director.seal;
+  if (seal && (seal.state === 'in' || seal.state === 'hover')) st.unshift(`⚠ Sealing in ${Math.ceil(seal.left)}s: grow past ${P2.recover} m`);
   $('status').textContent = st.join(' · ');
   $('status').classList.toggle('good', state.happy > 0 || (!!limit && st.length === 1));
 }
@@ -1049,6 +1063,8 @@ async function breakout(quick = false) {
   director = /[?&]noarmy\b/.test(location.search) ? quietDirector() : new Army(city, scene, {
     hurt, toll, drain, warn: (t) => flash(t, false), news: (t) => news.say(t), boom: sfx.boom, siren: sfx.airRaid,
     jam: (s) => { state.jam = Math.max(state.jam, s); }, kick: (dx, dz) => { state.kick = { x: dx * 60, z: dz * 60 }; }, shake: (k) => { state.shake = Math.max(state.shake, k); },
+    lock: () => { state.jam = 99; }, // the lid is coming down: nothing more to eat
+    sealed: () => endRun(false, 'Sealed — the army capped the hole'),
   }, debris, sparks);
   grass = grass2;
   scene.add(city.group, grass.group);
@@ -1165,7 +1181,7 @@ function endRun(won, why) {
     $('result').innerHTML = (state.mode === 'blitz' && !won
       ? `Two minutes, <b>${state.eaten}</b> things swallowed, grew to <b>${state.best.toFixed(1)} m</b>. ${blitzBest ? '<b>New Blitz best!</b>' : `Blitz best <b>${(save.blitz[state.mood] || 0).toFixed(1)} m</b>`}`
       : region
-      ? `${state.mood} gone in <b>${clock(clearT)}</b>, then <b>${towns}</b> of ${city.settlements.length} settlements${won ? `, ${city.capital?.name || 'the capital'} last` : ''}. Grew to <b>${state.best.toFixed(1)} m</b>, <b>${Math.round(state.pop).toLocaleString()}</b> people swallowed.`
+      ? `${state.mood} gone in <b>${clock(clearT)}</b>, then <b>${towns}</b> of ${city.settlements.length} settlements${won ? `, ${city.capital?.name || 'the capital'} last` : ''}. Grew to <b>${state.best.toFixed(1)} m</b>, <b>${Math.round(state.pop).toLocaleString()}</b> people swallowed.${won ? '' : '<br>Too weak to swallow a Void Lid, it was capped for good. Every run starts over from a fresh town.'}`
       : won
       ? `Every building gone in <b>${clock(state.time)}</b>${state.daily ? ' — today\'s city' : ''}. Fastest ever <b>${clock(save.fastest)}</b>.`
       : `You swallowed <b>${state.eaten}</b> things and grew to <b>${state.best.toFixed(1)} m</b>${state.daily ? ' in today\'s city' : ''}. <b>${state.left}</b> buildings still stand.`)
@@ -1273,17 +1289,28 @@ function frame(dt) {
     const surge = (powerups.active.boost ? 1.8 : 1) * abilities.update(dt, hole) * (state.mutator === 'lowgrav' ? 1.1 : 1);
     if (BOT && abilities.list.length) abilities.auto({ hole, city, director, state }, window.__botTarget);
     if (hole.dash > 0) dashFx();
-    const base = state.phase === 2 ? P2.speed(hole.r) * (city.surfaceSpeed?.(hole.x, hole.z) ?? 1) : 6.5 + hole.r * 1.8;
+    // Phase 2: the ground matters - roads, fields, woods, water - and so do the hills (slower up, a little quicker down)
+    const slope = state.phase === 2 ? city.groundTilt?.(hole.x, hole.z, hole.r) : null;
+    const hill = slope ? THREE.MathUtils.clamp(1 - (slope.nx * hole.sx + slope.nz * hole.sz) * 1.4, 0.62, 1.2) : 1;
+    const base = state.phase === 2 ? P2.speed(hole.r) * (city.surfaceSpeed?.(hole.x, hole.z) ?? 1) * hill : 6.5 + hole.r * 1.8;
     const speed = base * state.mods.speed * (state.slow > 0 ? 0.45 : 1) * (state.flooded ? 0.6 : 1) * surge;
     // a little weight (~0.1s to turn / reach speed), not a boat; in Phase 2 it gets heavier as it grows
     const kv = 1 - Math.exp(-dt / (state.phase === 2 ? P2.turn(hole.r) : 1 / 11));
     hole.sx = (hole.sx || 0) + (sx - (hole.sx || 0)) * kv;
     hole.sz = (hole.sz || 0) + (sz - (hole.sz || 0)) * kv;
-    const lim = Math.max(2, (state.phase === 2 ? city.bound : city.half) - hole.r * 0.95); // keep the whole hole disc on the map
+    const lim = Math.max(2, (state.phase === 2 ? city.bound + 400 : city.half) - hole.r * 0.95); // keep the whole hole disc on the map
     const px = hole.x, pz = hole.z;
     const kick = state.kick || { x: 0, z: 0 };
     hole.x = THREE.MathUtils.clamp(hole.x + (hole.sx * speed + kick.x) * dt, -lim, lim);
     hole.z = THREE.MathUtils.clamp(hole.z + (hole.sz * speed + kick.z) * dt, -lim, lim);
+    if (state.phase === 2) { // the island's coast is the edge: the hole can wade into the shallows, no further
+      const rr = Math.hypot(hole.x, hole.z), cr = city.terrain.coastR(hole.x, hole.z) + 25 - hole.r * 0.5;
+      if (rr > cr) { hole.x *= cr / rr; hole.z *= cr / rr; }
+      const wall = (x, z) => city.terrain.mountain(x, z) > 0.22; // the mountains: slide along the foothills
+      if (wall(hole.x, hole.z)) {
+        if (!state.saidWall) { state.saidWall = true; flash('Too steep: the mountains wall off the island', false); }
+        if (!wall(hole.x, pz)) hole.z = pz; else if (!wall(px, hole.z)) hole.x = px; else { hole.x = px; hole.z = pz; } }
+    }
     hole.vac = Math.max(0, (hole.vac || 0) - dt * state.mods.vacDecay);
     if (state.surgeTo) { // breakout surge
       hole.area += (state.surgeTo - hole.area) * Math.min(1, dt * 1.5);
@@ -1326,7 +1353,7 @@ function frame(dt) {
       sparks.burst(hole.x, hole.z, hole.r, 6);
     }
     if (!state.playing) { /* eaten above */ }
-    else if (hole.r < (state.phase === 2 ? P2.dead : DEAD_R)) endRun(false);
+    else if (hole.r < (state.phase === 2 ? 3 : DEAD_R)) endRun(false); // (Phase 2 ends with the army's seal first: army.js)
     else if (state.phase === 2 && city.capital?.left === 0) endRun(true, 'capital');
     // Phase 2 follows a normal town clear (not Blitz, not the weekly mutator runs: their twist is the whole run)
     else if (state.left === 0 && state.phase === 1) { if (phase2Run()) breakout(); else endRun(true); }
@@ -1476,7 +1503,7 @@ function frame(dt) {
   }
   city.mixers.forEach((m) => m.update(dt));
   city.syncBatches();
-  hole.update(dt, state.time, Math.max(0, 0.5 - state.belly) * 2, city.groundSpan(hole.x, hole.z, hole.r));
+  hole.update(dt, state.time, Math.max(0, 0.5 - state.belly) * 2, city.groundSpan(hole.x, hole.z, hole.r), city.groundTilt?.(hole.x, hole.z, hole.r));
 
   // camera: pull back as the hole grows
   const portrait = Math.max(1, 1.2 / camera.aspect) ** 0.7; // phones see as much width as desktops
@@ -1531,7 +1558,7 @@ function frame(dt) {
   lightsTime.value += dt;
   lightsPulse.value = 0.85 + 0.15 * Math.sin(lightsTime.value * 2.2);
   surfaceTime.value += dt;
-  for (const q of rivals.list) q.hole.update(dt, state.time, 0, city.groundSpan(q.hole.x, q.hole.z, q.hole.r));
+  for (const q of rivals.list) q.hole.update(dt, state.time, 0, city.groundSpan(q.hole.x, q.hole.z, q.hole.r), city.groundTilt?.(q.hole.x, q.hole.z, q.hole.r));
   const tw = powerups.twin;
   if (tw) tw.update(dt, state.time, 0, city.groundSpan(tw.x, tw.z, tw.r));
   if (state.playing) { hud(); rivals.labels(camera); }

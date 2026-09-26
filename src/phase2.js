@@ -14,7 +14,10 @@ export const P2 = {
   crumbGrowth: 0.3, // ... and grows you at 30% of a normal bite (the settlements are what grow you)
   decayFed: 0.002, // area fraction lost per second while fed (travel legs between settlements are long)
   decayStarving: 0.015, // ... while starving
-  dead: 6, // below this radius the ground seals
+  dead: 7.5, // below this the army's lid drops at once (army.js seal)
+  critical: 9, // below this (back toward town scale) the army moves in to seal the hole: grow back past recover or be capped
+  recover: 9.6,
+  sealTime: 14, // seconds to recover before the lid drops
   speed: (r) => Math.min(40, 18 + r * 0.5), // sub-linear: big feels heavy, the map stays crossable
   turn: (r) => 0.1 + Math.min(0.35, r / 170), // steering smoothing time constant (s): heavier as it grows
 };

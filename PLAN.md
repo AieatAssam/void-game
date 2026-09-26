@@ -1,4 +1,4 @@
-# Void Hole City — Build Plan
+# Void Hole — Build Plan
 
 Browser game. Three.js + Vite, static build, hosted on GitHub Pages. No backend.
 All art built procedurally in Blender (via Blender MCP) from scripts in `blender/`.

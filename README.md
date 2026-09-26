@@ -1,4 +1,4 @@
-# Void Hole City
+# Void Hole
 
 **You are a hole in a toy town.** Swallow anything smaller than you, grow until skyscrapers fit, and keep eating — or the ground seals over you.
 The city fights back as you grow: police barricades, cement trucks, helicopters dropping concrete, and tanks.

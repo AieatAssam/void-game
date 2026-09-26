@@ -175,17 +175,18 @@ export class Region extends City {
       for (let t = 0; t < 160; t++) {
         const a = r() * Math.PI * 2, d = r.range(K.d[0], K.d[1]);
         const x = Math.cos(a) * d, z = Math.sin(a) * d;
-        if (Math.max(Math.abs(x), Math.abs(z)) > B - K.r - 80) continue;
+        if (probe.coastR(x, z) - Math.hypot(x, z) < K.r + 150 || [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].some(([u, v]) => probe.mountain(x + u * (K.r + 60), z + v * (K.r + 60)) > 0.05)) continue; // well inland, clear of the mountains
         if (this.beach && z > this.half - K.r - 40) continue; // the sea is that way
         if (this.settlements.some((s) => Math.hypot(s.x - x, s.z - z) < s.r + K.r + 90)) continue;
         // dry land: sample the pad
-        let wet = 0, hsum = 0;
+        let wet = 0, hsum = 0, lo = Infinity, hi = -Infinity;
         for (let k = 0; k < 9; k++) {
           const b = (k / 9) * Math.PI * 2, rr = k ? K.r * 0.8 : 0;
           const hh = probe.rawHeight(x + Math.cos(b) * rr, z + Math.sin(b) * rr);
           if (hh < probe.water + 0.8) wet++;
-          hsum += hh;
+          hsum += hh; lo = Math.min(lo, hh); hi = Math.max(hi, hh);
         }
+        if (hi > 34 || hi - lo > (K.hill ? 26 : 16)) continue; // not up in the mountains, not on a cliff
         if (probe.river && probe.riverDist(x, z) < K.r + 35) continue;
         if (wet > 1) continue;
         const score = (K.hill ? hsum : 0) + r() * 5;
@@ -365,7 +366,9 @@ export class Region extends City {
     for (let t = 0; t < 80; t++) {
       const a = r() * 6.28, d = r.range(350, this.bound - 200), x = Math.cos(a) * d, z = Math.sin(a) * d;
       if (this.settlements.some((s) => Math.hypot(s.x - x, s.z - z) < s.r + 140)) continue;
+      if (pr.coastR(x, z) - Math.hypot(x, z) < 220 || pr.mountain(x, z) > 0.15) continue;
       const h = pr.rawHeight(x, z);
+      if (h > 40) continue; // (a breezy hill, not a mountain top)
       if (!best || h > best.h) best = { x, z, h };
     }
     if (!best) return;
@@ -633,6 +636,15 @@ export class Region extends City {
     else if (t.fieldAt(x, z)) { k = 1.1; name = 'Soft farmland'; }
     this.surface = name;
     return k;
+  }
+
+  /** The ground plane under a hole's disc (for its rim on the hills): mean height and slope, capped at ~25 degrees. */
+  groundTilt(x, z, r) {
+    if (Math.abs(x) < this.half + r && Math.abs(z) < this.half + r) return null; // the town's flat tiles
+    const t = this.terrain, e = Math.max(4, r * 0.8);
+    const hx0 = t.sampleH(x - e, z), hx1 = t.sampleH(x + e, z), hz0 = t.sampleH(x, z - e), hz1 = t.sampleH(x, z + e);
+    const k = Math.min(1, 0.47 / (Math.hypot(hx1 - hx0, hz1 - hz0) / (2 * e) || 1));
+    return { y: Math.max(t.water, (hx0 + hx1 + hz0 + hz1) / 4), nx: ((hx1 - hx0) / (2 * e)) * k, nz: ((hz1 - hz0) / (2 * e)) * k };
   }
 
   /** LOD and shadow distances grow with the hole: the camera is hundreds of metres up. */

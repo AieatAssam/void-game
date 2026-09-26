@@ -3,6 +3,7 @@
 // on the ground; nothing blocks movement (rule 1); every hit is capped and temporary, every ground unit is edible
 // (rule 3). Human response rides along: bells, sirens, news.
 import * as THREE from 'three/webgpu';
+import { P2 } from './phase2.js';
 
 const THREAT_R = [12.5, 16.5, 22, 28]; // hole radius for threat 1-4 (size floor)
 const NOTO = [15, 40, 65, 88];
@@ -36,6 +37,7 @@ export class Army {
   }
 
   dispose() {
+    if (this.seal?.ring) this.scene.remove(this.seal.ring);
     for (const d of this.drops) this.scene.remove(d.ring, d.mesh);
     for (const s of this.strikes) this.scene.remove(s.band);
     if (this.capRing) this.scene.remove(this.capRing);
@@ -78,6 +80,7 @@ export class Army {
     this.updateLifts(dt, hole);
     this.updateDrops(dt, hole, state);
     this.capper(dt, hole, state);
+    this.sealWatch(dt, hole, state);
     for (const u of this.units) u.stunT = Math.max(0, (u.stunT || 0) - dt); // Quake (abilities.js) stuns the crews
     this.units = this.units.filter((u) => u.alive);
   }
@@ -133,7 +136,7 @@ export class Army {
     let best = null;
     for (let t = 0; t < 30; t++) { // high ground beyond the view, not in a settlement
       const a = Math.random() * 6.28, d = view * (0.7 + Math.random() * 0.4), x = hole.x + Math.cos(a) * d, z = hole.z + Math.sin(a) * d;
-      if (Math.max(Math.abs(x), Math.abs(z)) > C.bound - 40 || C.settlements.some((s) => Math.hypot(s.x - x, s.z - z) < s.r)) continue;
+      if (C.terrain.coastR(x, z) - Math.hypot(x, z) < 60 || C.settlements.some((s) => Math.hypot(s.x - x, s.z - z) < s.r)) continue;
       const h = this.ground(x, z);
       if (h < C.terrain.water + 0.5) continue;
       if (!best || h > best.h) best = { x, z, h };
@@ -341,6 +344,73 @@ export class Army {
     }
     for (const d of this.drops) if (d.gone) this.scene.remove(d.ring, d.mesh ?? d.ring);
     this.drops = this.drops.filter((d) => !d.gone);
+  }
+
+  // ---------- the scripted end: a weakened hole is sealed ----------
+  /**
+   * The army's whole aim is to seal the hole; it can only do that once the hole is too small to swallow a Void Lid. Below
+   * P2.critical a heavy-lift chopper flies in with the lid and hovers over the hole: grow back past P2.recover and it's
+   * called off; otherwise after P2.sealTime (or at once below P2.dead) the lid drops and the hole is capped for good.
+   */
+  sealWatch(dt, hole, state) {
+    const C = this.city;
+    let s = this.seal;
+    if (!s && state.playing && hole.r < P2.critical) {
+      const a = Math.random() * 6.28, view = (14 + hole.r * 8) * 1.5;
+      const heli = C.spawn('chinook', hole.x + Math.cos(a) * view, hole.z + Math.sin(a) * view, 0, { noSwallow: true, flying: true, grounded: false, gs: 2.4 });
+      heli.y = 55;
+      const lid = C.spawn('concrete_plug', heli.x, heli.z, 0, { noSwallow: true, grounded: false });
+      const ring = new THREE.Mesh(warnGeo, capMat.clone());
+      this.scene.add(ring);
+      s = this.seal = { t: 0, heli, lid, ring, state: 'in' };
+      this.hooks.warn('Too weak! The army is coming to seal the hole');
+      this.hooks.news('Sealing crews scramble: the hole is shrinking back');
+      this.hooks.siren?.();
+    }
+    if (!s) return;
+    s.t += dt;
+    const h = s.heli, R = hole.r * 1.45;
+    if (s.state === 'in' || s.state === 'hover') {
+      const dx = hole.x - h.x, dz = hole.z - h.z, d = Math.hypot(dx, dz) || 1;
+      h.x += (dx / d) * Math.min(d, 90 * dt); h.z += (dz / d) * Math.min(d, 90 * dt);
+      h.rot = -Math.atan2(dz, dx);
+      if (s.state === 'in' && d < 20) s.state = 'hover';
+      s.left = Math.max(0, P2.sealTime - s.t);
+      s.ring.position.set(hole.x, this.ground(hole.x, hole.z) + 0.6, hole.z);
+      s.ring.scale.setScalar(R);
+      s.ring.material.opacity = 0.35 + 0.35 * Math.abs(Math.sin(s.t * (4 + s.t)));
+      if (hole.r > P2.recover) { // grown back: called off
+        s.state = 'off';
+        this.scene.remove(s.ring);
+        this.hooks.warn('Sealing called off. Keep eating!');
+      } else if (s.state === 'hover' && (s.left <= 0 || hole.r < P2.dead)) { // capped
+        s.state = 'drop';
+        s.dropT = 0;
+        s.lid.s = R;
+        s.from = h.y - 7 - R * 0.6 - this.ground(hole.x, hole.z);
+        this.hooks.lock?.();
+      }
+    }
+    if (s.state === 'drop') {
+      s.dropT += dt;
+      const k = Math.min(1, s.dropT / 1.3), gy = this.ground(hole.x, hole.z);
+      s.lid.x = hole.x; s.lid.z = hole.z; s.lid.y = gy + s.from * (1 - k * k);
+      C.place(s.lid);
+      if (k >= 1 && !s.landed) {
+        s.landed = true;
+        this.scene.remove(s.ring);
+        this.debris.dustRing(hole.x, gy, hole.z, R, R * 1.2, 30, R * 0.6, 3, boom);
+        this.hooks.boom();
+        this.hooks.shake?.(1);
+        this.hooks.sealed?.();
+      }
+    } else if (s.state === 'off') { // fly away with the lid, then clean up
+      h.y += dt * 15;
+      h.x += Math.cos(-h.rot) * 70 * dt; h.z += Math.sin(-h.rot) * 70 * dt;
+      if (s.t > 30 || Math.hypot(h.x - hole.x, h.z - hole.z) > 900) { C.remove(h); C.remove(s.lid); this.seal = null; return; }
+    }
+    C.place(h);
+    if (s.state !== 'drop') { s.lid.x = h.x; s.lid.z = h.z; s.lid.y = h.y - 7 - R * 0.6; s.lid.s = R; C.place(s.lid); }
   }
 
   // ---------- the boss: the Capper ----------

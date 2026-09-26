@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <title>Void Hole City</title>
+  <title>Void Hole</title>
+  <meta name="theme-color" content="#0b0618" />
   <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body>
@@ -22,9 +23,19 @@
   <div id="combo"></div>
   <div id="hint"></div>
   <div id="arrow" hidden>➜</div>
-  <div id="screen">
-    <h1 id="title">Void Hole<br /><span>City</span></h1>
-    <p id="load">Unpacking the toybox… <b>0%</b></p>
+  <div id="screen" class="loading">
+    <div id="vortex" aria-hidden="true">
+      <s></s>
+      <b style="--a:0deg;--d:0s" class="house"></b><b style="--a:70deg;--d:-.5s" class="tree"></b><b style="--a:140deg;--d:-1s" class="car"></b>
+      <b style="--a:200deg;--d:-1.6s" class="house tall"></b><b style="--a:265deg;--d:-2.1s" class="tree"></b><b style="--a:320deg;--d:-2.6s" class="cow"></b>
+      <b style="--a:35deg;--d:-3s" class="car"></b><b style="--a:175deg;--d:-3.5s" class="tree"></b>
+    </div>
+    <h1 id="title">Void<br /><span>Hole</span></h1>
+    <div id="load">
+      <div class="bar"><i></i></div>
+      <p><span>Unpacking the toybox…</span> <b>0%</b></p>
+      <p id="tip" class="hint"></p>
+    </div>
     <div id="menu" hidden>
       <p id="result" hidden></p>
       <p id="where" class="hint"></p>

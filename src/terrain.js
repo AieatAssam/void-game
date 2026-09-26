@@ -62,6 +62,32 @@ export class Terrain {
     if (!noMesh && !defer) this.build(); // (noMesh: a height probe for planning; defer: the caller runs buildGen in slices)
   }
 
+  /**
+   * Region: the country is an island. The coast (an irregular ring, coastR) is the edge of the map; past it the land
+   * shelves into the sea. Along one stretch of coast a snowy mountain range rises inland.
+   */
+  coastR(x, z) {
+    const a = Math.atan2(z, x), B = this.region.bound;
+    return B * 0.92 + this.nz.fbm(Math.cos(a) * 1.7 + 40, Math.sin(a) * 1.7 - 12, 3) * B * 0.17;
+  }
+
+  /** 0..1: the mountain range (main.js stops the hole at the foothills: the rim can't sit on a slope this steep). */
+  mountain(x, z) {
+    const dc = this.coastR(x, z) - Math.hypot(x, z);
+    this.ridgeA ??= Math.atan2(this.nz.noise(3.3, 7.7), this.nz.noise(-5.1, 2.9));
+    let da = Math.atan2(z, x) - this.ridgeA;
+    da = Math.abs(Math.atan2(Math.sin(da), Math.cos(da)));
+    return (1 - smooth(0.3, 0.75, da)) * smooth(30, 200, dc) * (1 - smooth(380, 640, dc));
+  }
+
+  island(x, z, h) {
+    const dc = this.coastR(x, z) - Math.hypot(x, z); // + inland, - offshore
+    const mt = this.mountain(x, z);
+    if (mt > 0) h += mt * mt * (3 - 2 * mt) * (this.nz.ridged(x / 230 + 9, z / 230 - 4, 4) * 62 + 20);
+    const land = smooth(-60, 45, dc);
+    return h * land + (1 - land) * (-3 - 28 * smooth(0, 380, -dc));
+  }
+
   /** Signed distance outside the town square (negative inside). */
   outside(x, z) { return Math.max(Math.abs(x), Math.abs(z)) - this.half; }
 
@@ -173,7 +199,12 @@ export class Terrain {
     const d = this.outside(x, z);
     if (d < 45) return 0;
     const n = this.nz.fbm(x / 170 + 11.3, z / 170 - 4.1, 4);
-    return smooth(-0.04, 0.1, n) * smooth(40, 80, d);
+    let f = smooth(-0.04, 0.1, n) * smooth(40, 80, d);
+    if (this.region && d > 380) { // Phase 2: great woodland tracts on a broader scale (away from the town's own land)
+      const big = smooth(0.0, 0.16, this.nz.fbm(x / 430 + 3.1, z / 430 - 7.4, 3)) * smooth(380, 520, d);
+      f = Math.max(f, big * smooth(20, 80, this.coastR(x, z) - Math.hypot(x, z))); // (not on the beaches)
+    }
+    return f;
   }
 
   heightAt(x, z) {
@@ -205,9 +236,7 @@ export class Terrain {
     // (the region keeps the town's hills near it - the breakout swap must not move a lake - and eases into its own
     // gentler play area, with the mountains past the bound)
     const townGrow = 0.85 + smooth(60, 900, d) * 2.4;
-    const grow = this.region
-      ? townGrow + (0.8 + smooth(this.region.bound - 150, this.region.bound + 500, Math.max(Math.abs(x), Math.abs(z))) * 2.6 - townGrow) * smooth(260, 560, d)
-      : townGrow;
+    const grow = this.region ? townGrow + (1.25 - townGrow) * smooth(260, 560, d) : townGrow; // (rolling hills in the region)
     let h = nz.fbm(x / 240, z / 240, 5) * 30 * grow
       + nz.ridged(x / 170 + 3.7, z / 170 - 1.2, 4) * 14 * (grow - 0.55)
       + nz.fbm(x / 55 + 7.1, z / 55, 3) * 1.1
@@ -224,6 +253,7 @@ export class Terrain {
     if (fa) h = h * 0.35 + Math.max(0.3, h * 0.2) * 0.65 * smooth(0, 6, fa.edge) + h * 0.65 * (1 - smooth(0, 6, fa.edge));
     // coast: the land slides under the sea beyond the beach
     if (this.beach) h = h * (1 - smooth(this.half - 30, this.half + 5, z)) - smooth(this.half, this.half + 90, z) * 9;
+    if (this.region) h = this.island(x, z, h);
     return h * w - 0.08;
   }
 
@@ -450,7 +480,7 @@ export class Terrain {
         // Phase 2: boulder fields on noise patches - a few of them big enough to be a meal on their own
         const rocky = town ? -1 : self.nz.fbm(x / 130 + 21.7, z / 130 - 8.3, 3);
         if (r() < fo * 1.6 * (1 - far * 0.5)) {
-          const pine = self.nz.noise(x / 90, z / 90) > -0.05;
+          const pine = self.nz.noise(x / 90, z / 90) > -0.05 || (!town && self.heightAt(x, z) > 22); // pines up the hills
           put(pine ? 'tree_pine' : r() < 0.6 ? 'tree_big' : 'tree_small', x, z, 0.8 + r() * 0.55);
           if (r() < (town ? 0.3 : 0.5)) put('bush', x + (r() - 0.5) * 4, z + (r() - 0.5) * 4, 0.9 + r() * 0.8); // undergrowth
         } else if (slope > 0.22 && r() < 0.35 && (town || self.heightAt(x, z) > self.water + 0.4)) put('rock', x, z, 0.6 + r() * 2.4, r() * 6.28, 0.35);
