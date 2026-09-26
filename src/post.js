@@ -87,9 +87,12 @@ export class Post {
       aoPass.distanceExponent.value = 1.6;
       aoPass.scale.value = 1.15;
       aoPass.samples.value = opts.aoSamples;
-      const aoDenoised = denoise(aoPass.getTextureNode(), depth, null, camera);
-      aoDenoised.radius.value = 4;
-      lit = lit.mul(mix(float(1), pow(aoDenoised.r, 1.6), 0.9));
+      let aoTex = aoPass.getTextureNode();
+      if (opts.aoDenoise !== false) { // (the bisect measures without it)
+        aoTex = denoise(aoTex, depth, null, camera);
+        aoTex.radius.value = 4;
+      }
+      lit = lit.mul(mix(float(1), pow(aoTex.r, 1.6), 0.9));
       // the denoise is inline (16 depth-aware taps per pixel), and bloom, shafts and the composite each evaluate
       // `lit` at full res: bake it once so they all read a texture
       const litTex = convertToTexture(vec4(lit, 1));

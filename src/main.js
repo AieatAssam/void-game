@@ -1271,7 +1271,8 @@ function perfStats(win = 10000) {
  */
 async function gpuBisect() {
   const o = post.opts, wait = (ms) => new Promise((r) => setTimeout(r, ms)), dpr = renderer.getPixelRatio();
-  Object.assign(o, { ao: Q.ao, aoRes: Q.aoRes, aoSamples: Q.aoSamples, bloom: Q.bloom }); // (start from the tier, even if the watchdog trimmed it)
+  Object.assign(o, { ao: Q.ao, aoRes: Q.aoRes, aoSamples: Q.aoSamples, bloom: Q.bloom, aoDenoise: true }); // (start from the tier, even if the watchdog trimmed it)
+  post.lowSpec = false;
   post.build();
   const sun = look.sun, rebuild = () => post.enabled && post.build();
   const steps = [
@@ -1279,8 +1280,11 @@ async function gpuBisect() {
     ['AO off', () => { o.ao = false; rebuild(); }, () => { o.ao = true; rebuild(); }],
     ['AO 0.5x · 6 samples', () => { o.ao = true; o.aoSamples = 6; rebuild(); }, () => { o.aoSamples = Q.aoSamples; rebuild(); }],
     ['AO 0.35x · 6 samples', () => { o.ao = true; o.aoRes = 0.35; o.aoSamples = 6; rebuild(); }, () => { o.aoRes = Q.aoRes; o.aoSamples = Q.aoSamples; rebuild(); }],
+    ['AO, no denoise', () => { o.aoDenoise = false; rebuild(); }, () => { o.aoDenoise = true; rebuild(); }],
     ['bloom off', () => { o.bloom = false; rebuild(); }, () => { o.bloom = true; rebuild(); }],
     ['grass off', () => { grass.hidden = true; }, () => { grass.hidden = false; }],
+    ['grass, no shadows', () => { for (const l of grass.layers) { l.receiveShadow = false; l.material.needsUpdate = true; } }, () => { for (const l of grass.layers) { l.receiveShadow = true; l.material.needsUpdate = true; } }],
+    ['grass half', () => { post.lowSpec = true; }, () => { post.lowSpec = false; }],
     // (not castShadow: toggling it at runtime crashes three's ShadowNode and every frame after it renders nothing)
     ['shadow render off', () => { sun.shadow.autoUpdate = false; }, () => { sun.shadow.autoUpdate = true; }],
     ['1.0x res', () => renderer.setPixelRatio(1), () => renderer.setPixelRatio(dpr)],
@@ -1297,6 +1301,7 @@ async function gpuBisect() {
     const gpu0 = perf.gpu;
     await wait(3000);
     const st = perfStats(3000);
+    if (!st) { rows.push({ step: name + ' (page hidden: no data)', fps: 0, low1: 0, worst: 0, gpu: null, js: 0, submit: 0 }); off(); continue; }
     rows.push({ step: name, fps: +st.avgFps.toFixed(1), low1: +st.lowFps1.toFixed(0), worst: Math.round(st.worstMs), gpu: perf.gpu != null ? +perf.gpu.toFixed(1) : null, js: +st.avgJs.toFixed(1), submit: +st.avgSubmit.toFixed(1), was: gpu0 });
     off();
     await wait(1500);
