@@ -31,6 +31,13 @@ import { Army } from './army.js';
 import { Minimap } from './minimap.js';
 import { P2, News, residents, quietDirector, quietEvents, quietChains, quietRivals } from './phase2.js';
 
+// ?bisect: always the same scene, so runs compare (the menu's town and camera are otherwise whatever the player last
+// picked, with more or less lawn): Suburbia, seed 4242, morning, a fixed camera over lawns, road and houses
+if (/[?&]bisect\b/.test(location.search) && !/[?&]view=/.test(location.search)) {
+  location.replace(`${location.pathname}?fps&bisect&mood=suburbia&seed=4242&time=morning&view=-95,0,45,0.3`);
+  await new Promise(() => {}); // (stop here: the page is being replaced)
+}
+
 const $ = (id) => document.getElementById(id);
 const renderer = await createRenderer($('c'));
 const look = createScene();
@@ -1292,7 +1299,7 @@ async function gpuBisect() {
     ['no post at all', () => { post.enabled = false; }, () => { post.enabled = true; }],
   ];
   const rows = [];
-  fpsEl.dataset.bisect = 'running… (about 70 s)';
+  fpsEl.dataset.bisect = 'running… (about 90 s: keep this tab in front)';
   post.paused = true;
   await wait(4000);
   for (const [name, on, off] of steps) {
