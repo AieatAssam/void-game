@@ -308,7 +308,7 @@ $('load').hidden = true;
 $('menu').hidden = false;
 $('screen').classList.remove('loading');
 clearInterval(tipTimer);
-window.__game = () => ({ hole, city, state, renderer, director, rivals, events, chains, powerups, camera, scene, grass, THREE });
+window.__game = () => ({ hole, city, state, renderer, director, rivals, events, chains, powerups, camera, scene, grass, post, THREE });
 window.__abil = () => abilities;
 window.__info = () => { const r = renderer.info.render; return { calls: r.drawCalls, tris: r.triangles, frameCalls: r.frameCalls }; };
 if (location.search.includes('bot')) installBot();
@@ -1277,7 +1277,8 @@ async function gpuBisect() {
     ['AO off', () => { o.ao = false; rebuild(); }, () => { o.ao = true; rebuild(); }],
     ['bloom off', () => { o.bloom = false; rebuild(); }, () => { o.bloom = true; rebuild(); }],
     ['grass off', () => { grass.group.visible = false; }, () => { grass.group.visible = true; }],
-    ['shadows off', () => { sun.castShadow = false; }, () => { sun.castShadow = true; }],
+    // (not castShadow: toggling it at runtime crashes three's ShadowNode and every frame after it renders nothing)
+    ['shadow render off', () => { sun.shadow.autoUpdate = false; }, () => { sun.shadow.autoUpdate = true; }],
     ['1.0x res', () => renderer.setPixelRatio(1), () => renderer.setPixelRatio(dpr)],
     ['0.75x res', () => renderer.setPixelRatio(0.75), () => renderer.setPixelRatio(dpr)],
     ['no post at all', () => { post.enabled = false; }, () => { post.enabled = true; }],
