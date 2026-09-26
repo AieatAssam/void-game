@@ -1276,7 +1276,7 @@ async function gpuBisect() {
     ['baseline', () => {}, () => {}],
     ['AO off', () => { o.ao = false; rebuild(); }, () => { o.ao = true; rebuild(); }],
     ['bloom off', () => { o.bloom = false; rebuild(); }, () => { o.bloom = true; rebuild(); }],
-    ['grass off', () => { grass.group.visible = false; }, () => { grass.group.visible = true; }],
+    ['grass off', () => { grass.hidden = true; }, () => { grass.hidden = false; }],
     // (not castShadow: toggling it at runtime crashes three's ShadowNode and every frame after it renders nothing)
     ['shadow render off', () => { sun.shadow.autoUpdate = false; }, () => { sun.shadow.autoUpdate = true; }],
     ['1.0x res', () => renderer.setPixelRatio(1), () => renderer.setPixelRatio(dpr)],

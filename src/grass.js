@@ -282,7 +282,7 @@ export class Grass {
       l.count = Math.round(u.activeN * u.perPatch * (lowSpec ? 0.5 : 1) * k);
       if (!u.activeN) l.count = 0;
     }
-    this.group.visible = this.zoomFade.value > 0.01;
+    this.group.visible = !this.hidden && this.zoomFade.value > 0.01; // (hidden: the GPU bisect's grass step)
   }
 
   dispose() {
