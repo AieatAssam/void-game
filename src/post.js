@@ -52,7 +52,7 @@ export class Post {
     this.good = 0;
     this.grade = uniform(new THREE.Vector3(1, 1, 1));
     this.opts = { ao: Q.ao && !q.has('noao'), aoRes: Q.aoRes, aoSamples: Q.aoSamples, bloom: Q.bloom, aa: Q.aa, grain: Q.grain,
-      shafts: Q.tier === 'high' && !q.has('noshafts'), lut: !q.has('nolut') };
+      shafts: Q.tier === 'high' && !q.has('noshafts'), lut: !q.has('nolut'), shadowEvery: Q.shadowEvery };
     this.lutTex = new THREE.Data3DTexture(new Uint8Array(LUT ** 3 * 4), LUT, LUT, LUT);
     this.lutTex.minFilter = this.lutTex.magFilter = THREE.LinearFilter;
     this.lutTex.wrapS = this.lutTex.wrapT = this.lutTex.wrapR = THREE.ClampToEdgeWrapping;
@@ -250,7 +250,8 @@ export class Post {
       if ((this.cool = (this.cool || 0) - 1) > 0) return; // one feature step per 3 s at most
       this.cool = 3;
       let step;
-      if (o.shafts) { o.shafts = false; step = 'shafts off'; }
+      if (o.shadowEvery < 3) { o.shadowEvery++; step = `shadows every ${o.shadowEvery} frames`; } // (first: no rebuild, no freeze)
+      else if (o.shafts) { o.shafts = false; step = 'shafts off'; }
       else if (o.ao && o.aoRes > 0.3) { o.aoRes = 0.3; o.aoSamples = 6; step = 'AO 0.3x'; }
       else if (!this.lowSpec) { this.lowSpec = true; step = 'half grass, no LOD0'; }
       else if (o.ao) { o.ao = false; step = 'AO off'; }
@@ -258,7 +259,7 @@ export class Post {
       else return;
       this.steps = [...(this.steps || []), step];
       console.info(`low fps (${fps.toFixed(0)}): ${step}`);
-      if (step !== 'half grass, no LOD0') this.build();
+      if (step !== 'half grass, no LOD0' && !step.startsWith('shadows every')) this.build();
       return;
     }
     if (fps >= 57 && pr < maxPR - 0.01 && ++this.good >= 3) { // steady: take some sharpness back

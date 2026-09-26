@@ -42,6 +42,10 @@ const $ = (id) => document.getElementById(id);
 const renderer = await createRenderer($('c'));
 const look = createScene();
 const { scene, sun } = look;
+// the shadow map is re-rendered every Nth frame (post.opts.shadowEvery; Safari starts at 3): Safari paid half its frame
+// for the shadow pass (30 fps, 57 without it). Its camera moves only on those frames, so shadows never swim.
+sun.shadow.autoUpdate = false;
+let shadowTick = 0;
 sun.shadow.camera.layers.enable(SHADOW_LAYER); // shadow-only stand-ins (city.js shadowProxies)
 // Longer lens: less perspective distortion on tall props and a truer miniature/tilt-shift read.
 const FOV = 26, LENS = Math.tan(THREE.MathUtils.degToRad(19)) / Math.tan(THREE.MathUtils.degToRad(FOV / 2));
@@ -1278,7 +1282,7 @@ function perfStats(win = 10000) {
  */
 async function gpuBisect() {
   const o = post.opts, wait = (ms) => new Promise((r) => setTimeout(r, ms)), dpr = renderer.getPixelRatio();
-  Object.assign(o, { ao: Q.ao, aoRes: Q.aoRes, aoSamples: Q.aoSamples, bloom: Q.bloom, aoDenoise: true }); // (start from the tier, even if the watchdog trimmed it)
+  Object.assign(o, { ao: Q.ao, aoRes: Q.aoRes, aoSamples: Q.aoSamples, bloom: Q.bloom, aoDenoise: true, shadowEvery: 1 }); // (start from the tier, even if the watchdog trimmed it)
   post.lowSpec = false;
   post.build();
   const sun = look.sun, rebuild = () => post.enabled && post.build();
@@ -1293,7 +1297,8 @@ async function gpuBisect() {
     ['grass, no shadows', () => { for (const l of grass.layers) { l.receiveShadow = false; l.material.needsUpdate = true; } }, () => { for (const l of grass.layers) { l.receiveShadow = true; l.material.needsUpdate = true; } }],
     ['grass half', () => { post.lowSpec = true; }, () => { post.lowSpec = false; }],
     // (not castShadow: toggling it at runtime crashes three's ShadowNode and every frame after it renders nothing)
-    ['shadow render off', () => { sun.shadow.autoUpdate = false; }, () => { sun.shadow.autoUpdate = true; }],
+    ['shadow render off', () => { o.shadowEvery = 1e9; }, () => { o.shadowEvery = 1; }],
+    ['shadows every 3rd', () => { o.shadowEvery = 3; }, () => { o.shadowEvery = 1; }],
     ['1.0x res', () => renderer.setPixelRatio(1), () => renderer.setPixelRatio(dpr)],
     ['0.75x res', () => renderer.setPixelRatio(0.75), () => renderer.setPixelRatio(dpr)],
     ['no post at all', () => { post.enabled = false; }, () => { post.enabled = true; }],
@@ -1708,7 +1713,7 @@ function frame(dt) {
   const low = post.lowSpec || LOW_FX;
   surfaceOn.value = 1; // low tiers use the lite (single-projection) shader instead of losing detail
   city.budget(camera, hole.r, low);
-  followSun(sun, camTarget);
+  if (shadowTick++ % Math.max(1, post.opts?.shadowEvery || 1) === 0) { followSun(sun, camTarget); sun.shadow.needsUpdate = true; }
   city.shadowCam = sun.shadow.camera; // the batched landmarks pack only what the shadow map can see
   city.cullTraffic(camera); // city-wide traffic: only what the camera or the shadow map sees
   grass.update(camTarget, camDist / LENS, low, camera);
