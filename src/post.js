@@ -143,6 +143,13 @@ export class Post {
 
   setSize() {}
 
+  /** Pulled-back views (Phase 2): contact AO reaches as far as things are big on screen. k = viewScale (1 in town). */
+  setViewScale(k) {
+    if (!this.aoPass) return;
+    this.aoPass.radius.value = 1.6 * k;
+    this.aoPass.thickness.value = 1.5 * k;
+  }
+
   /**
    * Watch the frame rate while playing and shed the least visible cost first, one notch per slow stretch:
    * resolution -> AO resolution -> grass density / LOD0 -> AO -> bloom. Stops once it holds 45+ fps.

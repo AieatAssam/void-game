@@ -16,6 +16,9 @@ import { MAX_HOLES } from './hole.js';
 
 export const surfaceTime = uniform(0); // legacy tick (kept for callers); shaders use it for hole pulses
 export const surfaceOn = uniform(1); // 0 on low-spec devices (set by the fps watchdog)
+// how far the camera has pulled back relative to the town view (1 up to ~130 m): detail fades and AO reach scale with it,
+// so a Phase 2 view hundreds of metres up keeps its scanned relief and contact shadows instead of going flat
+export const viewScale = uniform(1);
 export const glow = uniform(1.4); // emissive strength (time of day)
 // Shared world state: player hole (x, z, r, vacuum), night amount, edible-glow colour.
 export const world = { hole: uniform(new THREE.Vector4()), night: uniform(0), edCol: uniform(new THREE.Color(0xb58cff)) };
@@ -127,7 +130,7 @@ function buildToy(mat, { ground = false, holes = null, seed = float(instanceInde
   const layer = int(layerF);
   const water = info.x.greaterThan(15.5);
   const dist = length(positionView);
-  const fade = smoothstep(160, 30, dist).mul(surfaceOn);
+  const fade = smoothstep(viewScale.mul(160), viewScale.mul(30), dist).mul(surfaceOn);
   const n = ground ? normalWorldGeometry : normalize(normalGeometry);
   // steel keeps the tread-plate scan only where it is a floor or a cart bed (faces pointing up); elsewhere it's brushed
   const plateOK = ground ? float(1).greaterThan(0) : sw.notEqual(SW.steel).or(n.y.greaterThan(0.7));

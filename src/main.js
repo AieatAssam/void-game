@@ -20,7 +20,7 @@ import { UPGRADES, ECON, save, persist, level, buy, todaySeed } from './meta.js'
 import * as sfx from './sfx.js';
 import { Post } from './post.js';
 import { Sparks, Debris, SMOKE, Wisps } from './fx.js';
-import { surfaceTime, surfaceOn, world, lightsTime, lightsPulse } from './surface.js';
+import { surfaceTime, surfaceOn, world, lightsTime, lightsPulse, viewScale } from './surface.js';
 import { Grass } from './grass.js';
 import { Q } from './quality.js';
 import { PERKS, DRAFT_AT, offerPerks, modsFor } from './perks.js';
@@ -1454,11 +1454,13 @@ function frame(dt) {
   // chimney + street-food smoke near the camera
   if (!LOW_FX && !post.lowSpec) for (const e of city.smokers ??= city.entities.filter((q) => SMOKE[q.name])) {
     if (!e.alive || e.falling || (e.smokeT = (e.smokeT ?? Math.random()) - dt) > 0) continue;
-    e.smokeT = 0.35 + Math.random() * 0.3;
+    const [lx, ly, lz, c, k = 1] = SMOKE[e.name], cs = Math.cos(e.rot), sn = Math.sin(e.rot), q = Math.sqrt(k);
+    e.smokeT = (0.35 + Math.random() * 0.3) * (k > 3 ? q / 2 : 1); // big plumes: fewer, bigger puffs
     if (Math.abs(e.x - camTarget.x) > camDist * 0.8 || Math.abs(e.z - camTarget.z) > camDist * 0.8) continue;
-    const [lx, ly, lz, c, k = 1] = SMOKE[e.name], cs = Math.cos(e.rot), sn = Math.sin(e.rot);
-    debris.puff(e.x + lx * cs + lz * sn, ly + e.y, e.z - lx * sn + lz * cs, 0.25 + Math.random() * 0.2, 0.8 + Math.random() * 0.4,
-      (Math.random() - 0.5) * 0.2, 0.3 * k, 0.7 * k, 2.6 * Math.sqrt(k), smokeCol.set(c), 0.4 + 0.1 * (k - 1));
+    const gs = e.gs || 1, big = k > 3; // (e.gy: Phase 2 ground height)
+    debris.puff(e.x + (lx * cs + lz * sn) * gs, ly * gs + e.y + (e.gy || 0), e.z + (-lx * sn + lz * cs) * gs, (0.25 + Math.random() * 0.2) * (big ? q : 1),
+      (0.8 + Math.random() * 0.4) * (big ? q * 0.6 : 1), (Math.random() - 0.5) * 0.2 * (big ? q : 1), 0.3 * k, 0.7 * k * (big ? 0.35 : 1), 2.6 * q * (big ? 1.3 : 1),
+      smokeCol.set(c), Math.min(big ? 0.55 : 0.8, 0.4 + 0.1 * (k - 1)));
   }
   city.mixers.forEach((m) => m.update(dt));
   city.syncBatches();
@@ -1495,6 +1497,8 @@ function frame(dt) {
   city.cullTraffic(camera); // city-wide traffic: only what the camera or the shadow map sees
   grass.update(camTarget, camDist / LENS, low, camera);
   setFogRange(camDist);
+  viewScale.value = Math.max(1, camDist / 130);
+  post.setViewScale(viewScale.value);
   const sc = sun.shadow.camera, ext = Math.max(25, (camDist / LENS) * 0.9);
   if (sc.right !== ext) { sc.left = sc.bottom = -ext; sc.right = sc.top = ext; sc.updateProjectionMatrix(); }
 

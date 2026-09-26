@@ -74,7 +74,7 @@ export class Sparks {
 }
 
 // ---------- debris: collapse chunks + swallow confetti (one instanced draw), dust/smoke puffs (one points draw) ----------
-const CHUNKS = 260, PUFFS = 520;
+const CHUNKS = 260, PUFFS = 900;
 const _m4 = new THREE.Matrix4(), _q4 = new THREE.Quaternion(), _e4 = new THREE.Euler(), _p4 = new THREE.Vector3(), _s4 = new THREE.Vector3();
 const COLLAPSE = [0xf3e6cf, 0xd9d2c4, 0xc86b4f, 0x9fb7c9, 0xe8d5b0, 0x8a8f99].map((c) => new THREE.Color(c));
 const BALLOONS = [0xff4f6d, 0xffd166, 0x5ec8ff, 0x9dff7a, 0xc38bff, 0xff9f43].map((c) => new THREE.Color(c).multiplyScalar(1.6));
@@ -209,7 +209,11 @@ export class Debris {
 // chimney / cooking-pot smoke sources in model space (three.js: x, up, z)
 // optional 5th value: puff scale (the loco's steam is heavier and lingers)
 export const SMOKE = { house: [-1.0, 5.9, -1.6, 0xd8d8d8], noodle_stall: [-0.4, 1.4, 0, 0xffffff], hotdog_cart: [0, 1.25, 0, 0xffffff],
-  locomotive: [5.3, 4.2, 0, 0xe9e6e0, 2.4] };
+  locomotive: [5.3, 4.2, 0, 0xe9e6e0, 2.4],
+  // Phase 2: village chimneys, mill smoke and power-station steam (big plumes read as scale from the air)
+  cottage: [-1.5, 6.3, -1.9, 0xd8d8d8, 1.3], farmhouse: [0, 9.6, -4.2, 0xd8d8d8, 1.4], village_inn: [0.3, 9.8, -4.8, 0xd8d8d8, 1.4],
+  townhouse_row: [0, 11.6, 0, 0xcfcfcf, 1.5], townhouse_row_b: [0, 11.6, 0, 0xcfcfcf, 1.5],
+  chimney_stack: [0, 46, 0, 0x57524d, 8], cooling_tower: [0, 55, 0, 0xf6f6f6, 20] };
 
 // ---------- Phase 2 scale cues: low cloud wisps sliding between the camera and the ground ----------
 const WISPS = 22, PER = 4;

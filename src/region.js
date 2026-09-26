@@ -108,7 +108,14 @@ export class Region extends City {
     t('plan', t0);
     await step('Surveying the country…');
     t0 = performance.now();
-    g.terrain = new Terrain(from.terrainSeed, g.half, { beach: g.beach, farm: !!g.mood.county, region: { bound: g.bound, pads: g.pads, roads: g.roads.map((r) => r.pts) }, holes: holeField, defer: true });
+    // trodden earth painted into the land: farmyards, the castle bailey, the lane round each village green
+    const dirt = [];
+    for (const q of g.settlements) {
+      if (q.kind === 'farm') dirt.push({ x: q.x, z: q.z, r: 26 });
+      if (q.kind === 'castle') dirt.push({ x: q.x, z: q.z, r: 34 });
+      if (q.kind === 'village') dirt.push({ x: q.x, z: q.z, r: 20, w: 3.5, ring: true }, { x: q.x, z: q.z, r: 44, w: 3, ring: true });
+    }
+    g.terrain = new Terrain(from.terrainSeed, g.half, { beach: g.beach, farm: !!g.mood.county, region: { bound: g.bound, pads: g.pads, roads: g.roads.map((r) => r.pts), dirt }, holes: holeField, defer: true });
     await run(g.terrain.buildGen(), slice);
     t('terrain', t0);
     await step('Raising the villages…');
@@ -270,7 +277,8 @@ export class Region extends City {
       P('barn', 20, -18, Math.PI / 2);
       P('grain_silo', -16, 22, r() * 6.28);
       for (let k = 0; k < 5; k++) P('cow', r.range(-30, 30), r.range(-34, -18), r() * 6.28);
-      trees(6, 22, 36);
+      for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) P('tree_small', 24 + i * 5.5 + r.range(-0.6, 0.6), 6 + j * 6 + r.range(-0.6, 0.6), r() * 6.28); // orchard rows
+      trees(6, 30, 38);
     } else if (s.kind === 'village') {
       P('village_church', 0, -30, Math.PI / 2);
       P('village_inn', 24, 14, face(24, 14));
@@ -499,7 +507,7 @@ export class Region extends City {
     const pos = [], uvs = [], idx = [];
     // palette swatch centres (ground material: asphalt, paving, concrete and dirt scans by swatch - surface.js GROUND)
     const UV = { asphalt: [6.5 / 8, 0.5 / 6], white: [1.5 / 8, 0.5 / 6], butter: [5.5 / 8, 1.5 / 6], pave: [0.5 / 8, 0.5 / 6], pave2: [4.5 / 8, 0.5 / 6],
-      concrete: [4.5 / 8, 2.5 / 6], dirt: [5.5 / 8, 5.5 / 6] };
+      concrete: [4.5 / 8, 2.5 / 6], dirt: [5.5 / 8, 5.5 / 6], asphalt_lt: [7.5 / 8, 0.5 / 6] };
     // a continuous strip along a smoothed, resampled centre line (mitred: no overlapping quads to z-fight at bends),
     // flat across its width and lifted clear of the land under either edge
     const strip = (pts, off0, off1, lift, sw, dash = 0) => {
@@ -548,10 +556,8 @@ export class Region extends City {
         rect(q, -6, 6, -110, 110, 'asphalt', 0.1);
         rect(q, -24, 24, 24, 56, 'pave', 0.1); // market square
       } else if (q.kind === 'industry') {
-        rect(q, -125, 125, -95, 95, 'concrete', 0.05);
+        rect(q, -125, 125, -95, 95, 'asphalt_lt', 0.05); // tarmac yards
         rect(q, -125, 125, -6, 6, 'asphalt', 0.1);
-      } else if (q.kind === 'castle') {
-        rect(q, -24, 24, -24, 24, 'dirt', 0.05); // the bailey
       }
     }
     const insideTown = (x, z) => Math.max(Math.abs(x), Math.abs(z)) < this.half - 1;
@@ -585,6 +591,16 @@ export class Region extends City {
       return cache.get(k);
     };
     let n = 0;
+    const t = this.terrain, deep = (x, z) => [[0, 0], [9, 0], [-9, 0], [0, 9], [0, -9]].every(([a, b]) => t.heightAt(x + a, z + b) < t.water - 1.2);
+    for (let k = 0, boats = 0; k < 1500 && boats < 26; k++) { // sailboats and rowboats on the lakes (they float: not grounded)
+      const x = this.r.range(-this.bound, this.bound), z = this.r.range(-this.bound, this.bound);
+      if (Math.max(Math.abs(x), Math.abs(z)) < this.half + 40 || !deep(x, z)) continue;
+      const name = this.r() < 0.6 ? 'sailboat' : 'rowboat';
+      if (!this.assets[name]) continue;
+      boats++;
+      this.entities.push(makeEntity({ name, meta: metaS(name, 1), x, z, y: t.water - 0.05, rot: this.r() * 6.28, s: 1, gs: 1, alive: true, grounded: false,
+        mover: { type: 'still', crumb: true } }));
+    }
     for (const it of await run(this.terrain.scatterGen(this.assets), slice)) {
       if (Math.max(Math.abs(it.x), Math.abs(it.z)) < this.half + 4) continue; // not on the hometown's tiles
       if (it.name === 'barn' || it.name === 'windmill') { this.add(it.name, it.x, it.z, it.rot); continue; } // real buildings

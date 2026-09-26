@@ -11,7 +11,7 @@ import {
 } from 'three/tsl';
 import { pbrCol, pbrNrm, pbrRha, L, triplanar, waterGrad, macro } from './pbr.js';
 import { positionGeometry, normalGeometry } from 'three/tsl';
-import { surfaceOn } from './surface.js';
+import { surfaceOn, viewScale } from './surface.js';
 import { Q } from './quality.js';
 import { MAX_HOLES } from './hole.js';
 
@@ -111,7 +111,7 @@ export class Terrain {
   /** Farm patchwork: rotated rectangles in a band around town. */
   layoutFields(r) {
     const out = [];
-    const [tries, want, spread] = this.region ? [900, 170, this.region.bound - this.half - 120] : this.farm ? [140, 44, 200] : [60, 26, 260];
+    const [tries, want, spread] = this.region ? [1500, 280, this.region.bound - this.half - 120] : this.farm ? [140, 44, 200] : [60, 26, 260];
     for (let k = 0; k < tries && out.length < want; k++) {
       const a = r() * Math.PI * 2, d = this.half + 55 + r() * spread;
       const x = Math.cos(a) * d, z = Math.sin(a) * d;
@@ -256,7 +256,12 @@ export class Terrain {
         if (Math.abs(x) < under && Math.abs(z) < under) continue; // under the town: nothing to paint
         const fa = this.fieldAt(x, z);
         // splat: x forest floor, y field (crop id + 1) / 4, z dirt tracks/erosion, w wet shore
-        const dirt = Math.max(0, this.nz.fbm(x / 60 - 3, z / 60 + 5, 3) - 0.28) * 3 + (fa && fa.edge < 2.5 ? 0.6 : 0);
+        let dirt = Math.max(0, this.nz.fbm(x / 60 - 3, z / 60 + 5, 3) - 0.28) * 3 + (fa && fa.edge < 2.5 ? 0.6 : 0);
+        // Phase 2: trodden earth - farmyards, the castle bailey, village lanes (region.js marks them)
+        if (this.region?.dirt) for (const d of this.region.dirt) {
+          const dd = Math.hypot(x - d.x, z - d.z);
+          dirt += d.ring ? Math.max(0, 1 - Math.abs(dd - d.r) / d.w) * 1.2 : Math.max(0, 1 - dd / d.r) * 1.6;
+        }
         // topographic moisture: hollows collect water (lush, dark), crests dry out; wildflower drifts in meadows
         const o = Math.max(1, Math.round(9 / Math.max(1, cx(i + 1) - x)));
         const avg = (at(i + o, j) + at(i - o, j) + at(i, j + o) + at(i, j - o)) / 4;
@@ -376,14 +381,14 @@ export class Terrain {
           if (Math.abs(k - gap) < 3) continue; // a gate
           const t = k / steps;
           const [x, z] = at((u0 + (u1 - u0) * t) * (f.w / 2 + 1), (v0 + (v1 - v0) * t) * (f.h / 2 + 1));
-          if (r() < 0.9) put('bush', x + (r() - 0.5) * 0.6, z + (r() - 0.5) * 0.6, 0.9 + r() * 0.9);
+          if (r() < (this.region ? 0.7 : 0.9)) put('bush', x + (r() - 0.5) * 0.6, z + (r() - 0.5) * 0.6, 0.9 + r() * 0.9);
           if (r() < 0.06) put(r() < 0.5 ? 'tree_big' : 'tree_small', x, z, 0.9 + r() * 0.4);
         }
       }
       if (f.crop === 0) for (let k = 0; k < 4; k++) { const [x, z] = at((r() - 0.5) * f.w * 0.8, (r() - 0.5) * f.h * 0.8); put('cow', x, z, 1, r() * 6.28, 0); }
     }
     // forests, meadow trees, bushes and rocks
-    const tries = 16000 * Q.trees * (g ? ((2 * R) / (2 * (this.half + 420))) ** 2 * 0.5 : 1);
+    const tries = 16000 * Q.trees * (g ? ((2 * R) / (2 * (this.half + 420))) ** 2 * 0.62 : 1);
     for (let k = 0; k < tries; k++) {
       if (k % 400 === 399) yield;
       const x = (r() * 2 - 1) * R, z = (r() * 2 - 1) * R;
@@ -392,15 +397,19 @@ export class Terrain {
       if (this.fieldAt(x, z)) continue;
       const fo = this.forest(x, z);
       const slope = 1 - this.normalAt(x, z).y;
-      const far = g ? 0.4 : smooth(250, 420, d);
+      const far = g ? 0 : smooth(250, 420, d);
+      const near = g || d < 220; // (the region's meadows are dressed everywhere, not only round the town)
+      // Phase 2: boulder fields on noise patches - a few of them big enough to be a meal on their own
+      const rocky = g ? this.nz.fbm(x / 130 + 21.7, z / 130 - 8.3, 3) : -1;
       if (r() < fo * 1.6 * (1 - far * 0.5)) {
         const pine = this.nz.noise(x / 90, z / 90) > -0.05;
         put(pine ? 'tree_pine' : r() < 0.6 ? 'tree_big' : 'tree_small', x, z, 0.8 + r() * 0.55);
-        if (r() < 0.3) put('bush', x + (r() - 0.5) * 4, z + (r() - 0.5) * 4, 0.9 + r() * 0.8);
+        if (r() < (g ? 0.5 : 0.3)) put('bush', x + (r() - 0.5) * 4, z + (r() - 0.5) * 4, 0.9 + r() * 0.8); // undergrowth
       } else if (slope > 0.22 && r() < 0.35) put('rock', x, z, 0.6 + r() * 2.4, r() * 6.28, 0.35);
-      else if (d < 220 && r() < 0.035) put(r() < 0.5 ? 'tree_big' : 'tree_small', x, z, 0.85 + r() * 0.5);
-      else if (d < 200 && r() < 0.05) put('bush', x, z, 0.8 + r() * 1.2);
-      else if (d < 200 && r() < 0.012) put('rock', x, z, 0.4 + r() * 1.0, r() * 6.28, 0.3);
+      else if (rocky > 0.28 && r() < 0.5) put('rock', x, z, r() < 0.08 ? 5 + r() * 5 : 1 + r() * 3, r() * 6.28, 0.4);
+      else if (near && r() < 0.035) put(r() < 0.5 ? 'tree_big' : 'tree_small', x, z, 0.85 + r() * 0.5);
+      else if (near && r() < 0.05) put('bush', x, z, 0.8 + r() * 1.2);
+      else if (near && r() < 0.012) put('rock', x, z, 0.4 + r() * 1.0, r() * 6.28, 0.3);
     }
     // river banks: reeds of bushes and stones
     if (this.river) for (let k = 0; k < (g ? 3000 : 700); k++) {
@@ -438,7 +447,7 @@ function terrainMaterial(waterLevel, holeField = null) {
   const nW = normalWorldGeometry;
   const slope = clamp(float(1).sub(nW.y).mul(3.2), 0, 1);
   const dist = length(positionView);
-  const fade = smoothstep(260, 40, dist).mul(surfaceOn);
+  const fade = smoothstep(viewScale.mul(260), viewScale.mul(40), dist).mul(surfaceOn);
   const lite = Q.surface === 'lite';
   const G = planar(pw, L.grass, 0.28), Gf = lite ? G : planar(pw, L.grass, 0.045); // near + far scale kills tiling
   // mobile: one scan, tinted per layer (the same texture reads serve every layer)
@@ -470,7 +479,7 @@ function terrainMaterial(waterLevel, holeField = null) {
     }
     // grass: scanned lawn pushed toward a lush meadow green, far sample mixed in with distance
     // meadow: the scan's luminance detail on a living green that drifts between lush and sun-dried patches
-    const gscan = mix(G.c, Gf.c, smoothstep(30, 140, dist).mul(0.6));
+    const gscan = mix(G.c, Gf.c, smoothstep(viewScale.mul(30), viewScale.mul(140), dist).mul(0.6));
     const gl = gscan.dot(vec3(0.3, 0.59, 0.11)).div(0.14);
     const dry = smoothstep(0.5, 0.85, macro(pw, 0.011)), hue = macro(pw, 0.05);
     const meadow = mix(mix(vec3(0.05, 0.12, 0.022), vec3(0.075, 0.14, 0.03), hue), vec3(0.15, 0.15, 0.055), dry.mul(0.7));
@@ -493,6 +502,9 @@ function terrainMaterial(waterLevel, holeField = null) {
     // wet dark band at the waterline, macro brightness breakup
     col.mulAssign(mix(1, 0.55, smoothstep(0.6, 0.0, h)));
     col.mulAssign(mix(0.85, 1.12, macro(pw, 0.03)));
+    // snow on the high peaks past the region's edge (drifts, thinner on steep faces)
+    const snow = smoothstep(60, 80, pw.y.add(macro(pw, 0.02).mul(16))).mul(float(1).sub(smoothstep(0.5, 0.85, slope)));
+    col.assign(mix(col, vec3(0.82, 0.85, 0.9).mul(mix(0.92, 1.05, macro(pw, 0.3))), snow));
     return vec4(col, 1);
   })();
   // vegetation and soil are near-perfectly rough; only wet banks and bare rock get any sheen
