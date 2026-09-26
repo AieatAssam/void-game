@@ -29,7 +29,7 @@ import { today as todaysContracts, streak, scoreContracts } from './contracts.js
 import { Region, slicer } from './region.js';
 import { Army } from './army.js';
 import { Minimap } from './minimap.js';
-import { P2, News, residents, quietDirector, quietEvents, quietChains, quietPowerups, quietRivals } from './phase2.js';
+import { P2, News, residents, quietDirector, quietEvents, quietChains, quietRivals } from './phase2.js';
 
 const $ = (id) => document.getElementById(id);
 const renderer = await createRenderer($('c'));
@@ -67,6 +67,11 @@ const DEAD_R = 0.26;
 const MAX_HIT = 0.25; // rule 3: no single hit takes more than 25%
 
 // Loading: files are ~80% of the bar, then building the first city and compiling its shaders (each stage paints first).
+// compile pipelines up front, but never wait on it forever: three's WebGL backend polls parallel compiles with
+// requestAnimationFrame, which never fires in a background tab (the load used to stall at 90% there)
+async function precompile() {
+  try { await Promise.race([renderer.compileAsync(scene, camera), new Promise((r) => setTimeout(r, 8000))]); } catch (e) { console.warn('precompile skipped', e); }
+}
 const nextPaint = () => new Promise((r) => (document.hidden ? setTimeout(r, 0) : requestAnimationFrame(() => setTimeout(r, 0)))); // (no rAF in a background tab)
 let lastLabel = '';
 const TIPS = ['Swallow what fits. Everything bigger waits until you grow.', 'Clear the town and the hole breaks out across the island.',
@@ -299,7 +304,7 @@ newRun(firstSeed, false, 'none', runMood(firstSeed, false), MUTATORS[new URLSear
 // compile every pipeline now, behind the loading screen, instead of stuttering through the first seconds of play
 setLoad('Warming up shaders…', 0.9);
 await nextPaint();
-try { await renderer.compileAsync(scene, camera); } catch (e) { console.warn('precompile skipped', e); }
+await precompile();
 setLoad('Opening the ground…', 0.98);
 await nextPaint();
 $('load').hidden = true;
@@ -826,7 +831,7 @@ async function start(seed, daily, mutator = null, mode = 'city') {
         newRun(s, daily, card, mood, mutator, heat, mode);
         setLoad('Warming up shaders…', 1);
         await nextPaint();
-        try { await renderer.compileAsync(scene, camera); } catch (e) { console.warn('precompile skipped', e); }
+        await precompile();
       } finally {
         starting = false;
         $('load').hidden = true;
@@ -1064,7 +1069,13 @@ async function breakout(quick = false) {
   grass.dispose();
   city = reg;
   city.capital = city.settlements.find((q) => q.kind === 'capital');
-  events = quietEvents(); chains = quietChains(); powerups = quietPowerups();
+  // the hometown's emptied blocks keep what didn't fit down the hole
+  for (const t of old.tiles) if (!/beach|runway|rail|canal|plaza/.test(t.type)) rubble.scatter(t.cx, t.cz, 13, 6, (x, z) => city.groundY(x, z));
+  events = quietEvents(); chains = quietChains();
+  powerups = new Powerups(assets, city, field, state.seed, save.skin || 'void', {
+    flash: (t) => flash(t, false), star: () => { sfx.star(); sfx.whoosh(); }, slotTaken: (i) => i <= rivals.list.length,
+    took: () => { state.stats.capsules++; },
+  });
   rivals = /[?&]norivals\b/.test(location.search) || state.card === 'lonely' ? quietRivals() : new Rivals(assets, field, city, scene, 2, save.skin || 'void', (t) => news.say(t));
   for (const rv of rivals.list) rv.respawn = 40 + rivals.list.indexOf(rv) * 50; // let the country settle before company arrives
   director = /[?&]noarmy\b/.test(location.search) ? quietDirector() : new Army(city, scene, {
@@ -1402,6 +1413,7 @@ function frame(dt) {
         sfx.levelUp();
         flash(`${q.name} is gone`, false);
         news.say(`${q.name} swallowed whole${q.kind === 'capital' ? ' — the capital has fallen' : ''}`);
+        if (q.kind !== 'farm' && q.kind !== 'capital') { state.draftsDue++; if (BOT) openDraft(); else setTimeout(openDraft, 1100); } // a real settlement: the void mutates
       }
     }
   } else if (state.sealing > 0) {
@@ -1459,7 +1471,7 @@ function frame(dt) {
       state.pop += residents(e.name, e.meta.tier);
       if (e.mover?.crumb || e.meta.tier < hole.r * 0.12) { // crumbs (trees, hedges, cars at this size): no fanfare each
         const before = hole.area;
-        hole.grow(e.meta.tier, growthShare(e.meta.tier, hole.r) * P2.growth * (e.mover?.crumb ? (state.starved2 ? 1 : P2.crumbGrowth) : 1)); // (starved2: no dead ends, below)
+        hole.grow(e.meta.tier, growthShare(e.meta.tier, hole.r) * P2.growth * (e.mover?.crumb ? (state.starved2 ? P2.stuckGrowth : P2.crumbGrowth) : 1)); // (starved2: no dead ends, below)
         state.belly = Math.min(1, state.belly + (hole.area - before) / (before * P2.meal) + P2.crumb);
         state.eaten++;
         state.score += Math.PI * e.meta.tier ** 2;

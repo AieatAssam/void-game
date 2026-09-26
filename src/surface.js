@@ -163,6 +163,7 @@ function buildToy(mat, { ground = false, holes = null, seed = float(instanceInde
       // lawns: a living green (the scan's detail on it), keeping each swatch's relative brightness
       const lawn = vec3(0.07, 0.15, 0.03).mul(luminance(tri.col).div(max(luminance(mean), 0.02))).mul(luminance(pal.rgb).div(0.5).add(0.35));
       c.assign(select(info.x.equal(L.grass), mix(c, lawn, k.mul(0.85)), c));
+      c.assign(mix(c, crackCol, rimCracks(positionWorld).mul(0.85)));
       // large-scale variation so repeats never read as a grid: patches of lusher/drier grass, worn asphalt
       const m = macro(positionWorld, 0.05), m2 = macro(positionWorld, 0.37);
       c.mulAssign(mix(0.82, 1.14, m).mul(mix(0.93, 1.05, m2)));
@@ -273,6 +274,21 @@ function buildToy(mat, { ground = false, holes = null, seed = float(instanceInde
  * re-packed every frame (only what's in view gets drawn), so it carries a stable seed attribute instead.
  */
 const seedOf = (seeded) => (seeded ? attribute('iseed', 'float') : float(instanceIndex));
+
+/**
+ * Rim cracks (docs/PHASE2.md §9): around a big hole the ground breaks - radial fissures and concentric slab edges in a band
+ * just outside the rim, fading out by 1.4 r. Returns 0..1 (how much crack); callers darken toward a void violet.
+ */
+export function rimCracks(pw) {
+  const h = world.hole, r = h.z, dx = pw.x.sub(h.x), dz = pw.z.sub(h.y), d = length(vec3(dx, 0, dz));
+  const band = smoothstep(r.mul(1.4).add(3), r.add(0.3), d).mul(smoothstep(3, 6, r));
+  const u = d.sub(r), a = atan(dz, dx);
+  const t = a.div(6.2832).mul(26).add(sin(u.mul(0.35).add(a.mul(3))).mul(0.2));
+  const radial = smoothstep(0.05, 0.012, abs(fract(t).sub(0.5))).mul(smoothstep(r.mul(0.4).add(2), 0, u).mul(0.6).add(0.4));
+  const ring = smoothstep(0.08, 0.025, abs(fract(u.mul(0.22).add(sin(a.mul(9)).mul(0.25))).sub(0.5)));
+  return max(radial, ring.mul(0.7)).mul(band);
+}
+export const crackCol = vec3(0.045, 0.02, 0.08);
 
 /**
  * See-through: anything standing between the camera and the hole (inside a cone from the eye to just past the rim, above

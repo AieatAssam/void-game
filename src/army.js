@@ -375,6 +375,7 @@ export class Army {
       h.x += (dx / d) * Math.min(d, 90 * dt); h.z += (dz / d) * Math.min(d, 90 * dt);
       h.rot = -Math.atan2(dz, dx);
       if (s.state === 'in' && d < 20) s.state = 'hover';
+      h.y += ((s.state === 'hover' ? this.ground(hole.x, hole.z) + 22 + R * 0.7 : 55) - h.y) * Math.min(1, dt * 1.5); // (low over the hole: the lid reads as right above you)
       s.left = Math.max(0, P2.sealTime - s.t);
       s.ring.position.set(hole.x, this.ground(hole.x, hole.z) + 0.6, hole.z);
       s.ring.scale.setScalar(R);

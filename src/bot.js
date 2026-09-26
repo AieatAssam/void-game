@@ -16,6 +16,21 @@ export function installBot() {
       const s = e.meta.mass / (d + 3);
       if (s > score) { score = s; best = e; }
     }
+    if (state.starved2 && !sloppy && city.crumbGrid) { // Phase 2, nothing standing fits: do what the hint says, go to the woods
+      if (!(state.time < (window.__woodsT || 0))) {
+        window.__woodsT = state.time + 2;
+        let bestN = 0;
+        window.__woods = null;
+        for (const [k, list] of city.crumbGrid) {
+          const cx = Math.floor(k / 4096 + 0.5), x = cx * 64 + 32, z = (k - cx * 4096) * 64 + 32, d = Math.hypot(x - hole.x, z - hole.z);
+          if (d > 500) continue;
+          const n = list.filter((e) => e.alive && e.meta.tier < hole.r * 0.9).length / (1 + d / 150);
+          if (n > bestN) { bestN = n; window.__woods = [x, z]; }
+        }
+      }
+      const w = window.__woods;
+      if (w && Math.hypot(w[0] - hole.x, w[1] - hole.z) > hole.r * 0.5) best = { x: w[0], z: w[1] };
+    }
     const pu = !sloppy && window.__game().powerups?.nearest(hole.x, hole.z, 20); // grab capsules on the way
     if (pu) best = pu;
     window.__botTarget = best;

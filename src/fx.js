@@ -325,7 +325,7 @@ export class Birds {
  */
 export class Rubble {
   constructor(n = 700) {
-    const geo = new THREE.IcosahedronGeometry(1, 0).scale(1, 0.55, 0.85).toNonIndexed();
+    const geo = new THREE.IcosahedronGeometry(1, 0).scale(1, 0.55, 0.85);
     geo.computeVertexNormals();
     this.mesh = new THREE.InstancedMesh(geo, new THREE.MeshStandardNodeMaterial({ roughness: 0.95, flatShading: true }), n);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -361,6 +361,23 @@ export class Rubble {
       this.m.compose(new THREE.Vector3(b.x, groundY(b.x, b.z) + s * 0.2, b.z), this.q, new THREE.Vector3(s, s, s));
       this.mesh.setMatrixAt(i, this.m);
       this.mesh.setColorAt(i, this.c.set(Math.random() < 0.7 ? tint : 0x8c877f).multiplyScalar(0.8 + Math.random() * 0.35));
+      this.mesh.count = Math.max(this.mesh.count, i + 1);
+    }
+    this.mesh.instanceMatrix.needsUpdate = true;
+    this.mesh.instanceColor.needsUpdate = true;
+  }
+
+  /** Loose rubble over a square lot (the hometown's emptied blocks after the breakout). */
+  scatter(x, z, half, n, groundY) {
+    for (let k = 0; k < n; k++) {
+      const i = this.next, b = this.bits[i];
+      this.next = (i + 1) % this.bits.length;
+      const s = 0.8 + Math.random() * 1.8, px = x + (Math.random() * 2 - 1) * half, pz = z + (Math.random() * 2 - 1) * half;
+      Object.assign(b, { live: true, x: px, z: pz, s });
+      this.q.setFromEuler(this.e.set(Math.random() * 0.6, Math.random() * 6.28, Math.random() * 0.6));
+      this.m.compose(new THREE.Vector3(px, groundY(px, pz) + s * 0.2, pz), this.q, new THREE.Vector3(s, s, s));
+      this.mesh.setMatrixAt(i, this.m);
+      this.mesh.setColorAt(i, this.c.set([0xa89f92, 0xb0604a, 0xcdb48c, 0x7a7166][k % 4]).multiplyScalar(0.8 + Math.random() * 0.35));
       this.mesh.count = Math.max(this.mesh.count, i + 1);
     }
     this.mesh.instanceMatrix.needsUpdate = true;

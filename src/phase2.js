@@ -1,5 +1,5 @@
 // Phase 2 (docs/PHASE2.md) support for main.js: tuning, the news ticker, and quiet stand-ins for the Phase 1
-// systems that only make sense inside a town (police heat, city events, capsules, rivals) until their regional
+// systems that only make sense inside a town (police heat, city events, chain reactions) until their regional
 // versions arrive.
 
 /** Phase 2 tuning (starting values; bot balance in docs/BALANCE.md). */
@@ -12,6 +12,7 @@ export const P2 = {
   growth: 0.6, // every bite grows you 60% of a town bite: the whole country has to be eaten
   capitalGrowth: 0.9, // ... except the capital: the climax pays out (enough to fit the stadium, its last and biggest piece)
   crumbGrowth: 0.3, // ... and grows you at 30% of a normal bite (the settlements are what grow you)
+  stuckGrowth: 0.6, // ... or 60% when nothing standing fits you (no dead ends, but a careless player can still lose)
   decayFed: 0.002, // area fraction lost per second while fed (travel legs between settlements are long)
   decayStarving: 0.015, // ... while starving
   dead: 7.5, // below this the army's lid drops at once (army.js seal)
@@ -28,7 +29,6 @@ export const quietDirector = () => ({
 });
 export const quietEvents = () => ({ live: false, kind: null, focus: null, update() {}, dispose() {} });
 export const quietChains = () => ({ reach: 1, fireNoto: 1, onFall() {}, update() {}, dispose() {} });
-export const quietPowerups = () => ({ active: {}, twin: null, items: [], gapK: 1, chips: () => [], nearest: () => null, update: () => [], dispose() {} });
 export const quietRivals = () => ({ list: [], holes: [], sizeK: 1, hungerK: 1, update: () => [], labels() {}, hideLabels() {}, fed() {}, dispose() {} });
 
 /** The lower-third news ticker: carries the scale in words ("Ashby swallowed - 420 evacuated"). */

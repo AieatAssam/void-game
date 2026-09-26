@@ -11,7 +11,7 @@ import {
 } from 'three/tsl';
 import { pbrCol, pbrNrm, pbrRha, L, triplanar, waterGrad, macro } from './pbr.js';
 import { positionGeometry, normalGeometry } from 'three/tsl';
-import { surfaceOn, viewScale } from './surface.js';
+import { surfaceOn, viewScale, rimCracks, crackCol } from './surface.js';
 import { Q } from './quality.js';
 import { MAX_HOLES } from './hole.js';
 
@@ -597,6 +597,7 @@ function terrainMaterial(waterLevel, holeField = null) {
     // snow on the high peaks past the region's edge (drifts, thinner on steep faces)
     const snow = smoothstep(60, 80, pw.y.add(macro(pw, 0.02).mul(16))).mul(float(1).sub(smoothstep(0.5, 0.85, slope)));
     col.assign(mix(col, vec3(0.82, 0.85, 0.9).mul(mix(0.92, 1.05, macro(pw, 0.3))), snow));
+    col.assign(mix(col, crackCol, rimCracks(pw).mul(0.85)));
     return vec4(col, 1);
   })();
   // vegetation and soil are near-perfectly rough; only wet banks and bare rock get any sheen
