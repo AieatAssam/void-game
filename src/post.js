@@ -217,7 +217,7 @@ export class Post {
    * resolution -> AO resolution -> grass density / LOD0 -> AO -> bloom. Stops once it holds 45+ fps.
    */
   watch() {
-    if (!this.enabled || NOWATCH) return;
+    if (!this.enabled || NOWATCH || this.paused) return; // (paused: the GPU bisect is measuring)
     // real frame time (the game's dt is clamped and slowed by hit-stop, so it can't be trusted for this)
     const now = performance.now(), ft = this.lastT ? now - this.lastT : 16.7;
     this.lastT = now;

@@ -1265,6 +1265,46 @@ function perfStats(win = 10000) {
   return { frames: d.length, avgFps: (1000 * d.length) / sum, lowFps1: 1000 / p99, minFps: 1000 / worst, maxFps: 1000 / best, worstMs: worst,
     avgJs: js / d.length, avgSubmit: sb / d.length, over33: d.filter((v) => v > 33.4).length, over50: d.filter((v) => v > 50).length, over100: d.filter((v) => v > 100).length };
 }
+/**
+ * ?fps&bisect: what the GPU is paying for, measured on the player's own browser. After a settle, each step switches one
+ * feature off (the rest back on), lets it settle, then measures 3 s; the table lands in the overlay and the console.
+ */
+async function gpuBisect() {
+  const o = post.opts, wait = (ms) => new Promise((r) => setTimeout(r, ms)), dpr = renderer.getPixelRatio();
+  const sun = look.sun, rebuild = () => post.enabled && post.build();
+  const steps = [
+    ['baseline', () => {}, () => {}],
+    ['AO off', () => { o.ao = false; rebuild(); }, () => { o.ao = true; rebuild(); }],
+    ['bloom off', () => { o.bloom = false; rebuild(); }, () => { o.bloom = true; rebuild(); }],
+    ['grass off', () => { grass.group.visible = false; }, () => { grass.group.visible = true; }],
+    ['shadows off', () => { sun.castShadow = false; }, () => { sun.castShadow = true; }],
+    ['1.0x res', () => renderer.setPixelRatio(1), () => renderer.setPixelRatio(dpr)],
+    ['0.75x res', () => renderer.setPixelRatio(0.75), () => renderer.setPixelRatio(dpr)],
+    ['no post at all', () => { post.enabled = false; }, () => { post.enabled = true; }],
+  ];
+  const rows = [];
+  fpsEl.dataset.bisect = 'running… (about 70 s)';
+  post.paused = true;
+  await wait(4000);
+  for (const [name, on, off] of steps) {
+    on();
+    await wait(2500); // (settle: pipelines rebuilt, frames steady)
+    const gpu0 = perf.gpu;
+    await wait(3000);
+    const st = perfStats(3000);
+    rows.push({ step: name, fps: +st.avgFps.toFixed(1), low1: +st.lowFps1.toFixed(0), worst: Math.round(st.worstMs), gpu: perf.gpu != null ? +perf.gpu.toFixed(1) : null, js: +st.avgJs.toFixed(1), submit: +st.avgSubmit.toFixed(1), was: gpu0 });
+    off();
+    await wait(1500);
+    fpsEl.dataset.bisect = rows.map((r) => `${r.step.padEnd(15)} ${String(r.fps).padStart(5)} fps · 1% low ${r.low1} · worst ${r.worst} ms · GPU~${r.gpu ?? 'n/a'}`).join('\n');
+  }
+  post.paused = false;
+  console.table(rows);
+  window.__bisectResult = rows;
+  fpsEl.dataset.bisect = `GPU bisect (${navigator.userAgent.match(/(Safari|Chrome|Firefox)\/[\d.]+/g)?.join(' ')})\n` + fpsEl.dataset.bisect;
+}
+if (fpsEl && /[?&]bisect\b/.test(location.search)) setTimeout(() => gpuBisect().catch((e) => { fpsEl.dataset.bisect = 'bisect failed: ' + e.message; }), 1000);
+window.__bisect = gpuBisect;
+
 window.__perf = (reset = false) => {
   const out = { hidden: document.hidden, hiddenRecently: performance.now() - (perf.hiddenT || -1e9) < 10000, last10s: perfStats(), last1s: perfStats(1000), worstEverMs: perf.worstEver, hitches: perf.hitches.slice(), since: ((performance.now() - perf.since) / 1000).toFixed(0) + 's' };
   if (reset) Object.assign(perf, { hitches: [], worstEver: 0, since: performance.now(), n: 0, i: 0 });
@@ -1304,7 +1344,8 @@ function perfOverlay(jsMs, subMs) {
     + `${r.drawCalls} draws · ${tris} tris · ${perfTag()}\n`
     + `${Q.tier} · ${renderer.backend.isWebGPUBackend ? 'WebGPU' : 'WebGL2'} · ${renderer.getPixelRatio()}x · ${renderer.domElement.width}×${renderer.domElement.height}\n`
     + `AO ${o.ao ? `${o.aoRes}x` : 'off'} · bloom ${o.bloom ? 'on' : 'off'} · grass ${grass.layers.length ? (post.lowSpec ? 'half' : 'on') : 'off'}`
-    + (post.steps ? `\nfallback: ${post.steps.join(' → ')}` : '');
+    + (post.steps ? `\nfallback: ${post.steps.join(' → ')}` : '')
+    + (fpsEl.dataset.bisect ? `\n\n${fpsEl.dataset.bisect}` : '');
   // graph: the last 10 s of frame times (green under 16.7 ms, amber to 33, red above), guide lines at 60 and 30 fps
   const g = fpsGraph.getContext('2d'), W = fpsGraph.width, H = fpsGraph.height, y = (ms) => H - Math.min(H, (ms / 100) * H);
   g.clearRect(0, 0, W, H);
@@ -1685,7 +1726,7 @@ function frame(dt) {
   news.update(dt, state.pop, state.playing && state.phase === 2);
   if (state.phase === 2) minimap.update(dt, { hole, rivals: rivals.holes, boss: director.boss?.alive ? director.boss : null, heli: director.seal?.heli });
   if (!window.__headless) {
-    if (state.playing && document.visibilityState === 'visible') post.watch(dt);
+    if (document.visibilityState === 'visible' && !starting) post.watch(dt); // (the menu too: it's the first impression)
     const ts = fpsEl && performance.now();
     post.render(look.grade || [1, 1, 1]);
     if (fpsEl) perf.sub += performance.now() - ts;
