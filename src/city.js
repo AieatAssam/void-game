@@ -1180,9 +1180,10 @@ export class City {
       _cm.multiplyMatrices(sc.projectionMatrix, sc.matrixWorldInverse);
       _fs.setFromProjectionMatrix(_cm, sc.coordinateSystem);
     }
+    this.cullCrumbs(sc);
     for (const m of this.meshes) {
       const u = m.userData, c = u.cull;
-      if (!c || !m.visible) continue;
+      if (!c || !m.visible || u.crumb) continue;
       const casts = !!(sc && u.proxy?.visible);
       const out = m.instanceMatrix.array, seeds = c.seed.array, list = u.list;
       let k = 0;
@@ -1194,6 +1195,51 @@ export class City {
         if (!_fv.intersectsSphere(_sph) && !(casts && _fs.intersectsSphere(_sph))) continue;
         out.set(c.src.subarray(i * 16, i * 16 + 16), k * 16);
         seeds[k++] = i;
+      }
+      m.count = k;
+      if (u.proxy) u.proxy.count = k;
+      m.instanceMatrix.needsUpdate = true;
+      c.seed.needsUpdate = true;
+    }
+  }
+
+  /**
+   * Phase 2 crumbs (tens of thousands of static trees, hedges, rocks): bucketed once into 128 m cells; each frame only
+   * the cells in the view or shadow frustum are tested and packed (per-instance tests were 2+ ms a frame).
+   */
+  cullCrumbs(sc) {
+    const groups = this.meshes.filter((m) => m.userData.crumb && m.userData.cull);
+    if (!groups.length) return;
+    if (!this.crumbCells) {
+      const cells = new Map(), C = 128;
+      for (const m of groups) {
+        m.userData.list.forEach((e, i) => {
+          const k = Math.floor(e.x / C) * 4096 + Math.floor(e.z / C);
+          let cell = cells.get(k);
+          if (!cell) cells.set(k, (cell = { box: new THREE.Box3(new THREE.Vector3(Math.floor(e.x / C) * C, Infinity, Math.floor(e.z / C) * C), new THREE.Vector3(Math.floor(e.x / C) * C + C, -Infinity, Math.floor(e.z / C) * C + C)), lists: new Map() }));
+          cell.box.min.y = Math.min(cell.box.min.y, e.gy - 2);
+          cell.box.max.y = Math.max(cell.box.max.y, e.gy + (e.meta.height || 5) + 2);
+          if (!cell.lists.has(m)) cell.lists.set(m, []);
+          cell.lists.get(m).push(i);
+        });
+      }
+      for (const cell of cells.values()) cell.box.expandByScalar(4);
+      this.crumbCells = [...cells.values()];
+    }
+    const vis = this.crumbCells.filter((cell) => _fv.intersectsBox(cell.box) || (sc && _fs.intersectsBox(cell.box)));
+    for (const m of groups) {
+      if (!m.visible) { m.count = 0; continue; }
+      const u = m.userData, c = u.cull, out = m.instanceMatrix.array, seeds = c.seed.array, list = u.list;
+      let k = 0;
+      for (const cell of vis) {
+        const idx = cell.lists.get(m);
+        if (!idx) continue;
+        for (const i of idx) {
+          const e = list[i];
+          if (!e.alive || !e.s) continue;
+          out.set(c.src.subarray(i * 16, i * 16 + 16), k * 16);
+          seeds[k++] = i;
+        }
       }
       m.count = k;
       if (u.proxy) u.proxy.count = k;
@@ -1584,9 +1630,11 @@ export class City {
         }
       }
     }
+    const ccx = this.camPos?.x ?? 0, ccz = this.camPos?.z ?? 0; // (clouds wrap round the view: Phase 2 goes far from town)
     for (const c of this.cloudList) {
       c.x += c.v * dt;
-      if (c.x > 700) c.x = -700;
+      if (c.x - ccx > 700) c.x -= 1400; else if (c.x - ccx < -700) c.x += 1400;
+      if (c.z - ccz > 700) c.z -= 1400; else if (c.z - ccz < -700) c.z += 1400;
       this.place(c);
     }
     for (const mesh of this.dirty) mesh.instanceMatrix.needsUpdate = true;

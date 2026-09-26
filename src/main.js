@@ -19,7 +19,7 @@ import { installBot } from './bot.js';
 import { UPGRADES, ECON, save, persist, level, buy, todaySeed } from './meta.js';
 import * as sfx from './sfx.js';
 import { Post } from './post.js';
-import { Sparks, Debris, SMOKE } from './fx.js';
+import { Sparks, Debris, SMOKE, Wisps } from './fx.js';
 import { surfaceTime, surfaceOn, world, lightsTime, lightsPulse } from './surface.js';
 import { Grass } from './grass.js';
 import { Q } from './quality.js';
@@ -44,6 +44,8 @@ const sparks = new Sparks();
 scene.add(sparks.points);
 const debris = new Debris();
 scene.add(debris.group);
+const wisps = new Wisps(); // Phase 2: low cloud between the camera and the land
+scene.add(wisps.sprite);
 const LOW_FX = /[?&]low\b/.test(location.search); // ?low: skip extra particles and smoke
 // debug framing for screenshots: ?view=x,z,dist[,yaw,pitch]
 const VIEW = new URLSearchParams(location.search).get('view')?.split(',').map(Number);
@@ -1438,7 +1440,9 @@ function frame(dt) {
   // attract mode: slow orbit behind the menu; snaps back to north-up for play (steering is screen-relative)
   camYaw = state.finale > 0 ? camYaw + dt * 0.3 : state.playing || state.over ? Math.atan2(Math.sin(camYaw), Math.cos(camYaw)) * Math.max(0, 1 - dt * 4) : camYaw + dt * 0.06;
   if (VIEW) { camTarget.set(VIEW[0], 0, VIEW[1]); camDist = VIEW[2]; camYaw = VIEW[3] || 0; }
-  const pitch = VIEW?.[4] ? THREE.MathUtils.degToRad(VIEW[4]) : PITCH;
+  // the finale (breakout, victory) drops to a lower, kaiju angle as it orbits and climbs
+  state.lowK = THREE.MathUtils.lerp(state.lowK || 0, state.finale > 0 ? 1 : 0, Math.min(1, dt * 1.5));
+  const pitch = VIEW?.[4] ? THREE.MathUtils.degToRad(VIEW[4]) : PITCH - state.lowK * 0.22;
   const camD = camDist * (1 - state.punch * 0.07); // punch-in on big bites
   const horiz = Math.cos(pitch) * camD;
   camera.position.set(camTarget.x + Math.sin(camYaw) * horiz + (Math.random() - 0.5) * sh, Math.sin(pitch) * camD,
@@ -1460,6 +1464,7 @@ function frame(dt) {
 
   sparks.update(dt);
   debris.update(dt);
+  wisps.update(dt, camTarget, camDist, look.sun.color);
   chains.update(dt, hole, director);
   for (const s of bubbles) {
     if (s.t <= 0) continue;

@@ -210,3 +210,49 @@ export class Debris {
 // optional 5th value: puff scale (the loco's steam is heavier and lingers)
 export const SMOKE = { house: [-1.0, 5.9, -1.6, 0xd8d8d8], noodle_stall: [-0.4, 1.4, 0, 0xffffff], hotdog_cart: [0, 1.25, 0, 0xffffff],
   locomotive: [5.3, 4.2, 0, 0xe9e6e0, 2.4] };
+
+// ---------- Phase 2 scale cues: low cloud wisps sliding between the camera and the ground ----------
+const WISPS = 22, PER = 4;
+const _wc = new THREE.Color();
+/**
+ * Soft cloud wisps at 35-65% of the camera's height, drifting on the wind and wrapping round the view. They only fade
+ * in once the camera is high (a big hole): parallax against the ground far below is the strongest height cue there is.
+ */
+export class Wisps {
+  constructor() {
+    this.cloud = spriteCloud(WISPS * PER, { additive: false, world: true });
+    this.sprite = this.cloud.sprite;
+    this.sprite.renderOrder = 5;
+    this.w = Array.from({ length: WISPS }, () => ({ u: Math.random() * 2 - 1, v: Math.random() * 2 - 1, h: 0.35 + Math.random() * 0.3, s: 0.7 + Math.random() * 0.6,
+      parts: Array.from({ length: PER }, () => [(Math.random() - 0.5) * 1.6, (Math.random() - 0.5) * 0.25, (Math.random() - 0.5) * 0.9, 0.5 + Math.random() * 0.6]) }));
+    this.drift = 0;
+  }
+
+  update(dt, target, camDist, sun) {
+    const k = THREE.MathUtils.smoothstep(camDist, 260, 520); // invisible for a town-sized hole
+    this.sprite.visible = k > 0.01;
+    if (!this.sprite.visible) return;
+    this.drift += dt * 6;
+    const span = camDist * 1.1, camH = camDist * 0.82;
+    _wc.copy(sun).multiplyScalar(0.25).addScalar(0.78);
+    let i = 0;
+    for (const w of this.w) {
+      // position in a box that travels with the view; wrap on the wind axis
+      let u = w.u * span + this.drift;
+      u = ((u + span) % (2 * span) + 2 * span) % (2 * span) - span;
+      const edge = 1 - Math.abs(u) / span; // fade at the wrap
+      // keep the middle of the view clear: the hole and what it's about to eat must always read
+      const off = Math.hypot(u, w.v * span) / span, clearMid = THREE.MathUtils.smoothstep(off, 0.45, 0.75);
+      const size = camDist * 0.18 * w.s;
+      for (const [px, py, pz, ps] of w.parts) {
+        this.cloud.pos.array.set([target.x + u + px * size, camH * w.h + py * size, target.z + w.v * span + pz * size], i * 3);
+        this.cloud.size.array[i] = size * ps;
+        this.cloud.alpha.array[i] = 0.16 * k * Math.min(1, edge * 4) * clearMid;
+        _wc.toArray(this.cloud.col.array, i * 3);
+        i++;
+      }
+    }
+    const c = this.cloud;
+    c.pos.needsUpdate = c.size.needsUpdate = c.alpha.needsUpdate = c.col.needsUpdate = true;
+  }
+}
