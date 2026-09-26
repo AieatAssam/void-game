@@ -66,7 +66,7 @@ export class Army {
     // threat 1: roadblocks on the roads ahead of the hole
     if (stars >= 1 && this.cool.block <= 0) { this.cool.block = 14; this.roadblock(hole, view); }
     // threat 2: artillery on high ground, a salvo every few seconds
-    if (stars >= 2 && this.cool.battery <= 0 && this.batteries.filter((q) => q.guns.some((g) => g.alive)).length < 2) { this.cool.battery = 25; this.battery(hole, view); }
+    if (stars >= 2 && this.cool.battery <= 0 && !this.batteries.some((q) => q.guns.some((g) => g.alive))) { this.cool.battery = 30; this.battery(hole, view); }
     // threat 3: strike jets along a line
     if (stars >= 3 && this.cool.jet <= 0) { this.cool.jet = 16 + Math.random() * 6; this.jetStrike(hole); }
     // threat 4: heavy-lift lids
@@ -120,8 +120,8 @@ export class Army {
   updateBlocks(dt, hole) {
     for (const e of this.blocks) {
       if (!e.alive || e.falling) continue;
-      e.toll = Math.max(0, e.toll - dt);
-      if (!e.toll && Math.hypot(hole.x - e.x, hole.z - e.z) < hole.r + e.meta.tier * 0.8) { e.toll = 1.5; this.hooks.toll(); }
+      // one toll per roadblock: a dent and a stumble, never a wall (rule 1)
+      if (!e.toll && Math.hypot(hole.x - e.x, hole.z - e.z) < hole.r + e.meta.tier * 0.8) { e.toll = 1; this.hooks.toll(); }
     }
     this.blocks = this.blocks.filter((e) => e.alive);
   }
@@ -154,7 +154,7 @@ export class Army {
       const alive = b.guns.filter((g) => g.alive && !g.falling);
       if (!alive.length) continue;
       if ((b.cool -= dt) > 0) continue;
-      b.cool = 5.5;
+      b.cool = 8;
       const R = Math.max(6, hole.r * 0.45);
       alive.forEach((g, i) => {
         const lead = 1.6 + i * 0.3, spread = hole.r * 0.9;
@@ -162,7 +162,7 @@ export class Army {
         g.rot = -Math.atan2(tz - g.z, tx - g.x);
         g.actions?.fire?.reset().setLoop(THREE.LoopOnce).play();
         this.city.place(g);
-        this.shell(new THREE.Vector3(g.x, g.gy + 4 * g.gs, g.z), tx, tz, R, 2.2 + i * 0.25, 0.1, 'Shelled!', R * 0.12);
+        this.shell(new THREE.Vector3(g.x, g.gy + 4 * g.gs, g.z), tx, tz, R, 2.2 + i * 0.25, 0.07, 'Shelled!', R * 0.12);
       });
       this.hooks.boom();
     }
@@ -346,7 +346,8 @@ export class Army {
   capper(dt, hole, state) {
     const C = this.city, cap = C.capital;
     if (!cap) return;
-    if (!this.boss && (Math.hypot(hole.x - cap.x, hole.z - cap.z) < cap.r + 260 || hole.r > 26)) { // it rolls out of the capital
+    // it rolls out of the capital to meet a hole that has come to take it
+    if (!this.boss && hole.r >= 18 && Math.hypot(hole.x - cap.x, hole.z - cap.z) < cap.r + 280) {
       const a = Math.atan2(hole.z - cap.z, hole.x - cap.x);
       this.boss = C.spawn('capper', cap.x + Math.cos(a) * cap.r * 0.5, cap.z + Math.sin(a) * cap.r * 0.5, -a, { noSwallow: true });
       this.boss.capT = 0;

@@ -174,14 +174,21 @@ export class Region extends City {
       let from = nodes[0], bd = Infinity;
       for (const n of nodes) { const d = Math.hypot(n.x - s.x, n.z - s.z); if (d < bd) { bd = d; from = n; } }
       let ax = from.x, az = from.z;
+      if (!from.home) { // leave a settlement from the edge of its pad, not through its middle
+        const d = Math.hypot(s.x - from.x, s.z - from.z);
+        ax = from.x + ((s.x - from.x) / d) * from.r * 0.95;
+        az = from.z + ((s.z - from.z) / d) * from.r * 0.95;
+      }
       if (from.home) { // leave town at the edge of the square, on a street line
         const ang = Math.atan2(s.z, s.x), h = this.half;
         const k = h / Math.max(Math.abs(Math.cos(ang)), Math.abs(Math.sin(ang)));
         ax = Math.cos(ang) * k; az = Math.sin(ang) * k;
         if (Math.abs(ax) >= h - 1) az = Math.round((az + h) / TILE) * TILE - h; else ax = Math.round((ax + h) / TILE) * TILE - h;
       }
-      s.a = Math.atan2(az - s.z, ax - s.x); // the main street runs along the road in
-      this.roads.push({ pts: this.meander(ax, az, s.x, s.z), a: from, b: s });
+      s.a = Math.atan2(az - s.z, ax - s.x); // the main street runs along the road in (local +u points back up it)
+      // the castle's road stops at its gate; everywhere else it runs into the middle (the main street)
+      const stop = s.kind === 'castle' ? s.r * 0.85 : 0;
+      this.roads.push({ pts: this.meander(ax, az, s.x + Math.cos(s.a) * stop, s.z + Math.sin(s.a) * stop), a: from, b: s });
       nodes.push(s);
     }
     // a ring road round the capital's outskirts joins it to its neighbours
@@ -257,16 +264,16 @@ export class Region extends City {
     } else if (s.kind === 'castle') {
       const S = 23; // half side: corner towers, a wall each side of the middle, the gate facing the road (-u)
       for (const [cu, cv] of [[-S, -S], [S, -S], [S, S], [-S, S]]) F('castle_tower', cu, cv, 0);
-      const sides = [[-1, 0], [0, 1], [1, 0], [0, -1]]; // outward normals (u, v)
+      const sides = [[1, 0], [0, 1], [-1, 0], [0, -1]]; // outward normals (u, v); the first faces the road in
       sides.forEach(([nu, nv], i) => {
         const phi = Math.atan2(nv, nu);
         for (const t of i === 0 ? [-14.5, 14.5] : [-11.5, 11.5]) F('castle_wall', nu * S - nv * t, nv * S + nu * t, phi, true); // (clear of the gate's drums)
-        if (i === 0) F('castle_gate', -S - 1, 0, Math.PI);
+        if (i === 0) F('castle_gate', S + 1, 0, 0);
         else F('castle_tower', nu * S, nv * S, 0);
       });
-      F('castle_keep', 4, 0, Math.PI);
-      for (let k = 0; k < 6; k++) P('pavilion', r.range(-62, -40), r.range(-40, 40), r() * 6.28);
-      for (let k = 0; k < 3; k++) P('cannon', -36 + r.range(-3, 3), -14 + k * 14, Math.PI, { type: 'still', role: 'cannon' });
+      F('castle_keep', -4, 0, 0);
+      for (let k = 0; k < 6; k++) P('pavilion', r.range(40, 62), (r() < 0.5 ? -1 : 1) * r.range(14, 42), r() * 6.28);
+      for (let k = 0; k < 3; k++) P('cannon', 36 + r.range(-3, 3), -14 + k * 14, 0, { type: 'still', role: 'cannon' });
       trees(10, 45, 60);
     } else if (s.kind === 'town') {
       // main street along u, a cross street along v; terraces face the streets, a market square off the crossing
@@ -571,6 +578,23 @@ export class Region extends City {
     return this.terrain.sampleH(x, z);
   }
 
+  /**
+   * What the ground under the hole does to it (docs/PHASE2.md §6): roads are fast lanes, soft farmland a little quicker,
+   * woods and marsh slower, open water much slower (the hole drains it). Returns a speed factor; .surface names it.
+   */
+  surfaceSpeed(x, z) {
+    const t = this.terrain;
+    let k = 1, name = null;
+    if (Math.max(Math.abs(x), Math.abs(z)) < this.half) return 1; // the hometown
+    if (t.roadDist(x, z) < 7) { k = 1.35; name = 'Road: full speed'; }
+    else if (this.groundY(x, z) < t.water + 0.2) { k = 0.55; name = 'Draining the water: slow'; }
+    else if (t.river && t.riverDist(x, z) < 14) { k = 0.7; name = 'Marsh: slow'; }
+    else if (t.forest(x, z) > 0.5) { k = 0.88; name = 'Woodland'; }
+    else if (t.fieldAt(x, z)) { k = 1.1; name = 'Soft farmland'; }
+    this.surface = name;
+    return k;
+  }
+
   /** LOD and shadow distances grow with the hole: the camera is hundreds of metres up. */
   lodScale(holeR) { return Math.max(1, holeR / 3); }
 
@@ -584,6 +608,25 @@ export class Region extends City {
       for (const h of this.holeField.value) if (h.z > 0 && (h.x - sp.center.x) ** 2 + (h.y - sp.center.z) ** 2 < (sp.radius + h.z + 2) ** 2) { cut = true; break; }
       m.material = cut ? t.cutMat : t.solidMat;
     }
+  }
+
+  /**
+   * Where a hole should head next (the HUD marker, the bot): the settlement with the most growth it can eat now, per
+   * metre of travel. Settlements with nothing it can eat yet don't count.
+   */
+  target(hole) {
+    let best = null, bs = 0;
+    for (const q of this.settlements) {
+      let v = 0;
+      for (const e of q.list) {
+        if (!e.alive || e.meta.tier >= hole.r * 0.9) continue;
+        v += e.meta.tier * e.meta.tier * (0.06 + 0.94 * smooth(0.1, 0.5, e.meta.tier / hole.r));
+      }
+      if (!v) continue;
+      const sc = v / (Math.max(0, Math.hypot(q.x - hole.x, q.z - hole.z) - q.r) + 250);
+      if (sc > bs) { bs = sc; best = q; }
+    }
+    return best;
   }
 
   buildingsLeft() {

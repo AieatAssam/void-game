@@ -475,7 +475,7 @@ function hud() {
   abilityHud();
   if (state.phase === 2) {
     const q = nextSettlement();
-    const ok = q && q.big <= hole.r * 0.95;
+    const ok = q && q.list.some((e) => e.alive && e.meta.tier < hole.r * 0.95); // something there fits now
     edgeArrow('town', q && Math.hypot(q.x - hole.x, q.z - hole.z) > q.r * 0.6 && [q.x, q.z], q ? `${q.name}${ok ? '' : ` · ${(q.big / 0.95).toFixed(0)} m`}` : '', ok ? '#9ed9bf' : '#ff8a3d');
   } else edgeArrow('town', null);
   const ef = events.focus;
@@ -488,6 +488,7 @@ function hud() {
   const limit = state.mode === 'blitz' ? BLITZ : state.hm.limit;
   if (limit) st.unshift(`⏱ ${clock(Math.max(0, limit - state.time))}`);
   if (state.happy > 0) st.unshift(`🍹 Happy Hour ${Math.ceil(state.happy)}s`);
+  if (state.phase === 2 && city.surface) st.push(city.surface);
   $('status').textContent = st.join(' · ');
   $('status').classList.toggle('good', state.happy > 0 || (!!limit && st.length === 1));
 }
@@ -1049,16 +1050,16 @@ function prebuildRegion() {
     .catch((e) => { if (!state.slice?.cancelled) console.warn('region prebuild failed', e); return null; });
 }
 
-/** The settlement to head for: the nearest one with buildings left, preferring ones you can already eat. */
+/** The settlement to head for: the best meal per metre of travel; if nothing is edible yet, the nearest one left. */
 function nextSettlement() {
-  let best = null, bs = Infinity;
-  for (const q of city.settlements) {
-    if (!(q.left ?? q.total)) continue;
-    const d = Math.hypot(q.x - hole.x, q.z - hole.z) - q.r;
-    const s = Math.max(0, d) * (q.big > hole.r * 0.95 * 1.6 ? 2.5 : 1); // far too big for now: less attractive
-    if (s < bs) { bs = s; best = q; }
+  if ((state.targetT = (state.targetT || 0) - 1) > 0 && state.target?.left) return state.target;
+  state.targetT = 20; // (re-chosen every 20 frames)
+  let best = city.target(hole);
+  if (!best) {
+    let bd = Infinity;
+    for (const q of city.settlements) { const d = Math.hypot(q.x - hole.x, q.z - hole.z); if ((q.left ?? q.total) && d < bd) { bd = d; best = q; } }
   }
-  return best;
+  return (state.target = best);
 }
 
 /** Ends a run. won = every building swallowed; why = how a lost run ended. */
@@ -1363,7 +1364,7 @@ function frame(dt) {
       if (e.mover?.crumb || e.meta.tier < hole.r * 0.12) { // crumbs (trees, hedges, cars at this size): no fanfare each
         const before = hole.area;
         hole.grow(e.meta.tier, growthShare(e.meta.tier, hole.r));
-        state.belly = Math.min(1, state.belly + (hole.area - before) / (before * P2.meal));
+        state.belly = Math.min(1, state.belly + (hole.area - before) / (before * P2.meal) + P2.crumb);
         state.eaten++;
         state.score += Math.PI * e.meta.tier ** 2;
         if ((state.crumbT = (state.crumbT || 0) - 1) <= 0) { state.crumbT = 6; sfx.gulp(e.meta.tier); sparks.burst(hole.x, hole.z, hole.r, 0.5); }

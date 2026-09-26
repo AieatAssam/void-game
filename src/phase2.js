@@ -6,10 +6,11 @@
 export const P2 = {
   surge: 1.25, // breakout: the hole's radius jumps by this
   slowmo: 0.3, // world speed during the breakout cinematic
-  bellyDrain: 1 / 10, // a full belly lasts 10 s
+  bellyDrain: 1 / 16, // a full belly lasts 16 s (settlements are a few hundred metres apart)
   meal: 0.08, // eating this fraction of the hole's area fills the belly
-  decayFed: 0.006, // area fraction lost per second while fed
-  decayStarving: 0.04, // ... while starving
+  crumb: 0.018, // each crumb (a tree, a hedge, a cow) tops the belly up this much: woods feed you, they don't grow you
+  decayFed: 0.003, // area fraction lost per second while fed
+  decayStarving: 0.025, // ... while starving
   dead: 6, // below this radius the ground seals
   speed: (r) => Math.min(40, 18 + r * 0.5), // sub-linear: big feels heavy, the map stays crossable
   turn: (r) => 0.1 + Math.min(0.35, r / 170), // steering smoothing time constant (s): heavier as it grows
@@ -21,7 +22,7 @@ export const quietDirector = () => ({
 });
 export const quietEvents = () => ({ live: false, kind: null, focus: null, update() {}, dispose() {} });
 export const quietChains = () => ({ reach: 1, fireNoto: 1, onFall() {}, update() {}, dispose() {} });
-export const quietPowerups = () => ({ active: {}, twin: null, items: [], gapK: 1, chips: () => [], update: () => [], dispose() {} });
+export const quietPowerups = () => ({ active: {}, twin: null, items: [], gapK: 1, chips: () => [], nearest: () => null, update: () => [], dispose() {} });
 export const quietRivals = () => ({ list: [], holes: [], sizeK: 1, hungerK: 1, update: () => [], labels() {}, hideLabels() {}, fed() {}, dispose() {} });
 
 /** The lower-third news ticker: carries the scale in words ("Ashby swallowed - 420 evacuated"). */

@@ -7,8 +7,11 @@ export function installBot() {
     const sloppy = window.__sloppy;
     if (sloppy && state.time % 10 < 1.5) return [0, 0]; // gets distracted
     let best = null, score = 0;
+    // Phase 2: head for the nearest settlement that has something edible, like a player following the marker
+    const town = city.target?.(hole) ?? null;
     for (const e of city.entities) {
       if (!e.alive || e.falling || e.flying || e.noSwallow || (!sloppy && e.meta.kind === 'poison') || e.meta.tier >= hole.r * 0.9) continue;
+      if (town && e.home !== town && Math.hypot(e.x - hole.x, e.z - hole.z) > hole.r * 3) continue;
       const d = Math.hypot(e.x - hole.x, e.z - hole.z);
       const s = e.meta.mass / (d + 3);
       if (s > score) { score = s; best = e; }
