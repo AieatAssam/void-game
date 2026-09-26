@@ -112,10 +112,10 @@ Results (final tuning):
 
 | Seed | Greedy bot | Notes |
 |---|---|---|
-| 4242 | wins 5:12 | town → capital |
+| 4242 | wins 4:07 | market town, castle, then the capital from 18 m |
 | 99 | wins 4:04 | stalled at 16–20 m before the Capper change; now climbs through the industrial valley |
 | 2024 | wins 4:18 | |
-| 7 | wins 3:51 | |
+| 7 | wins 3:48 | farms, then the capital from 13 m via its glass towers |
 | 4242, careless bot | dies 13:30 | no dodging: 23 shells, 7 cannonballs |
 
 Region dust is 90–160 on top of the town's (meals and combos at half rate from the region's score, plus 8 per settlement

@@ -32,7 +32,7 @@ Built and playable end to end. Try it with `?region` (straight into Phase 2 at 1
 
 **Measured** (Apple Silicon, Chrome, WebGPU, visible window): 58–60 fps (vsync) everywhere in the region on high,
 100–120 draws and 0.5–1.5M triangles; low tier on the WebGL2 fallback 51–54 fps. The breakout's worst frame is ~200 ms
-(was 1.2 s). Greedy bot: wins in 3:51–5:12 on four seeds; the careless bot dies (docs/BALANCE.md, docs/PERFORMANCE.md).
+(was 1.2 s). Greedy bot: wins in 3:48–4:18 on four seeds; the careless bot dies (docs/BALANCE.md, docs/PERFORMANCE.md).
 
 **Fidelity pass (so the look doesn't drop when the camera climbs):** surface detail, terrain relief and AO reach scale
 with the camera distance; meadows are dressed across the whole region (trees, bushes, boulder fields), forests at full
