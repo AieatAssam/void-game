@@ -1349,7 +1349,15 @@ function frame(dt) {
       if (!save.hinted && director.stars === 1) setTimeout(() => hint('Red rings = something is about to land. Move!'), 1500);
     }
     state.stars = director.stars;
-    if ((state.leftTimer = (state.leftTimer || 0) - dt) <= 0) { state.leftTimer = 0.5; state.left = city.buildingsLeft(); }
+    if ((state.leftTimer = (state.leftTimer || 0) - dt) <= 0) {
+      state.leftTimer = 0.5;
+      state.left = city.buildingsLeft();
+      if (state.phase === 2) { // no dead ends (PLAN rule 2): if nothing standing fits, the countryside grows you at full rate
+        const was = state.starved2;
+        state.starved2 = !city.settlements.some((q) => q.list.some((e) => e.alive && !e.noSwallow && e.meta.tier < hole.r * 0.95));
+        if (state.starved2 && !was) hint('Nothing in town fits: feast on the woods and herds to grow');
+      }
+    }
     const rv = rivals.update(dt, hole, true, state.time, powerups);
     if (rv === 'eaten') endRun(false, `Eaten — by ${rivals.list.find((q) => !q.dead && q.hole.r > hole.r)?.name || 'a rival'}`);
     else for (const q of rv) {
@@ -1451,7 +1459,7 @@ function frame(dt) {
       state.pop += residents(e.name, e.meta.tier);
       if (e.mover?.crumb || e.meta.tier < hole.r * 0.12) { // crumbs (trees, hedges, cars at this size): no fanfare each
         const before = hole.area;
-        hole.grow(e.meta.tier, growthShare(e.meta.tier, hole.r) * P2.growth * (e.mover?.crumb ? P2.crumbGrowth : 1));
+        hole.grow(e.meta.tier, growthShare(e.meta.tier, hole.r) * P2.growth * (e.mover?.crumb ? (state.starved2 ? 1 : P2.crumbGrowth) : 1)); // (starved2: no dead ends, below)
         state.belly = Math.min(1, state.belly + (hole.area - before) / (before * P2.meal) + P2.crumb);
         state.eaten++;
         state.score += Math.PI * e.meta.tier ** 2;
@@ -1547,8 +1555,8 @@ function frame(dt) {
   city.cullTraffic(camera); // city-wide traffic: only what the camera or the shadow map sees
   grass.update(camTarget, camDist / LENS, low, camera);
   setFogRange(camDist);
-  viewScale.value = Math.max(1, camDist / 130);
-  post.setViewScale(viewScale.value);
+  viewScale.value = Math.max(1, camDist / 45); // surface detail must reach the ground at every size, or the town goes flat and milky
+  post.setViewScale(Math.max(1, camDist / 130)); // (AO reach: only once the camera is really high)
   const sc = sun.shadow.camera, ext = Math.max(25, (camDist / LENS) * 0.9);
   if (sc.right !== ext) { sc.left = sc.bottom = -ext; sc.right = sc.top = ext; sc.updateProjectionMatrix(); }
 

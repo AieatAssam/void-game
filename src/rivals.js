@@ -91,6 +91,7 @@ export class Rivals {
         rv.think = 0.5;
         for (const e of this.city.entities) {
           if (!e.alive || e.falling || e.flying || e.noSwallow || e.meta.kind === 'poison' || e.meta.tier >= h.r * 0.9) continue;
+          if (this.region && e.meta.tier >= player.r * 0.5) continue; // (city.js: scraps only)
           const dx = e.x - h.x, dz = e.z - h.z;
           if (Math.abs(dx) > reach || Math.abs(dz) > reach) continue;
           const s = (e.meta.tier * e.meta.tier) / (Math.hypot(dx, dz) + 3);
@@ -99,7 +100,7 @@ export class Rivals {
         rv.goal = best;
         if (best) { const dx = best.x - h.x, dz = best.z - h.z, d = Math.hypot(dx, dz) || 1; tx = dx / d; tz = dz / d; }
         else if (this.region) { // nothing near: head for the nearest settlement with food that fits
-          const q = this.city.settlements.filter((s) => s.left > 0 && s.list.some((e) => e.alive && e.meta.tier < h.r * 0.9))
+          const q = this.city.settlements.filter((s) => s.left > 0 && s.list.some((e) => e.alive && e.meta.tier < Math.min(h.r * 0.9, player.r * 0.5)))
             .sort((a, b) => Math.hypot(a.x - h.x, a.z - h.z) - Math.hypot(b.x - h.x, b.z - h.z))[0];
           if (q) { const dx = q.x - h.x, dz = q.z - h.z, d = Math.hypot(dx, dz) || 1; tx = dx / d; tz = dz / d; }
         } else { tx = -h.x / (Math.hypot(h.x, h.z) || 1); tz = -h.z / (Math.hypot(h.x, h.z) || 1); }

@@ -1616,6 +1616,7 @@ export class City {
       for (let h = 0; h < holes.length; h++) {
         const q = holes[h];
         if (q.hidden || (h === 0 && jammed) || (e.flying && q.r < tier * 1.6)) continue;
+        if (h > 0 && this.settlements && tier >= holes[0].r * 0.5) continue; // Phase 2 rivals take scraps, never your ladder
         const dx = e.x - q.x, dz = e.z - q.z;
         // fits, and its centre is well inside the rim (a quarter of its footprint may still overhang)
         if (tier < q.r * 0.95 && dx * dx + dz * dz < (q.r * (q.pull || 1) - tier * 0.25) ** 2) {

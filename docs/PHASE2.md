@@ -18,6 +18,9 @@ Built and playable end to end. Try it with `?region` (straight into Phase 2 at 1
 | ![The castle on its hill: the road stops at the gatehouse, festival pavilions and cannons outside the walls](screens/phase2-castle.jpg) | ![The market town: terraces along the main street, the cathedral beyond](screens/phase2-town.jpg) |
 | ![A capital city block crumbling: roof slabs and walls break away into the hole](screens/phase2-crumble.jpg) | ![The Capper rolls out of the capital to seal the hole](screens/phase2-capper.jpg) |
 | ![A 40 m hole at the edge of the capital: stadium, avenues, lake and forests](screens/phase2-big-hole.jpg) | ![The capital's avenues and Haussmann blocks](screens/phase2-capital.jpg) |
+| ![The island's coast: the map edge, with a beach and shelving sea](screens/phase2-coast.jpg) | ![The snowy range walls off one stretch; the hole stops at the foothills](screens/phase2-mountains.jpg) |
+| ![A rival hole breaks out of a far settlement](screens/phase2-rival.jpg) | ![Rubble spills over the rim when a building crumbles](screens/phase2-rubble.jpg) |
+| ![Too weak: the sealing lid hangs over the hole](screens/phase2-seal.jpg) | ![Minimap: coast, range, roads, settlements, the next target ringed](screens/phase2-minimap.jpg) |
 
 | Area | What's in | Where |
 |---|---|---|
@@ -28,6 +31,11 @@ Built and playable end to end. Try it with `?region` (straight into Phase 2 at 1
 | Army | threat 1-4: roadblocks, artillery, the castle's cannons, strike jets, heavy-lift Void Lids, and the Capper at the capital | `army.js` |
 | Human response | evacuation (cars queue out, crowds run), church bells and air-raid sirens, news ticker with a population counter | `region.js` `evacuate`, `phase2.js` `News`, `sfx.js` |
 | Surfaces | roads x1.35, farmland x1.1, woods x0.88, marsh x0.7, water x0.55 (shown in the status line) | `region.js` `surfaceSpeed` |
+| Island | the coast (an irregular ring, `coastR`) is the map edge and shelves into the sea; a snowy range walls one stretch (`mountain` mask; the hole and rivals slide along its foothills, settlements and the wind farm stay clear); rolling relief with the rim lying on the slope and uphill/downhill speed (x0.62–1.2); big forest tracts outside the town | `terrain.js` `coastR`/`mountain`/`island`, `main.js` |
+| Sealed | the scripted loss: below 9 m the army flies a Void Lid in and hangs it over the hole (warning, countdown in the status line); grow past 9.6 m within 14 s or it drops (at once below 7.5 m). Why: a hole only gets small enough to cap when it starves, and the army has been trying all along. Every run then restarts from a fresh town | `army.js` `sealWatch`, `phase2.js` `P2` |
+| Rivals | two other breakout holes appear after 40 s / 90 s at far settlements (80% of your size), hunt food and settlements, chase a smaller player and flee a bigger one, respect the coast and mountains, and are capped by the army if they starve (news bulletins) | `rivals.js` region mode |
+| Rubble | crumbling buildings spill 4–12 chunks over the rim on their side; one instanced draw, 700-piece ring buffer; holes swallow them as they pass | `fx.js` `Rubble` |
+| Minimap | round HUD map, baked a few rows per frame after the swap: coast, shallows, woods, rock, snow, roads, settlements (warm = standing, dark = cleared, orange = capital, ringed = next), the hole, rivals, the Capper and the sealing chopper | `minimap.js` |
 | Scale cues | camera pull-back and far/near planes that follow it, cloud shadows over the whole region, low cloud wisps at the edges of the view once the hole is big, people and cars stay visible as specks, slower collapses for bigger buildings | `fx.js` `Wisps`, `city.js` |
 
 **Measured** (Apple Silicon, Chrome, WebGPU, visible window): 58–60 fps (vsync) everywhere in the region on high,
@@ -41,8 +49,9 @@ the lakes, snow on the peaks, chimney smoke, mill smoke and cooling-tower steam,
 town's exact land (lakes, fields, woods don't move under the dust).
 
 **Changed from the plan above:** the stadium is tier 39 (not 44) to keep the ladder at 1.3x, so the capital needs a ~41 m
-hole and the run peaks around 50-65 m. The region is 3 km across (not 3.6). Rivals, the settlement perk draft, the minimap,
-birds, the rim crack ring, dams and bridges are not built yet; the town's powerups and events are quiet in Phase 2.
+hole and the run peaks around 50-65 m. The region is an island ~3 km across (not a 3.6 km square). Losing is the army's
+seal (above), not the Phase 1 "ground seals" at 6 m. The settlement perk draft, the rim crack ring, dams and bridges are
+not built yet; the town's powerups and events are quiet in Phase 2.
 
 ---
 
@@ -105,7 +114,8 @@ are simply eaten by the surge.
   countryside (forests, farms, convoys) keeps you alive but not growing much: you *need* the towns.
 - **Speed/weight:** top speed `6.5 + r·1.8` becomes `min(40, 18 + r·0.5)` in Phase 2 (sub-linear: big feels heavy, the
   map is still crossable in ~1 min), steering smoothing `kv` goes from ~0.1 s to ~0.45 s at 60 m.
-- **Losing:** shrinking below 6 m seals the ground (as Phase 1). Rule 3 still holds: no hit > 25%.
+- **Losing:** the army seals a starving hole (see Status: Sealed); every run then starts over from a fresh town. Rule 3
+  still holds: no hit > 25%.
 - **Length:** ~6–8 min for Phase 2 on top of the 3–5 min city.
 - **Growth arithmetic:** a half-size bite adds ~4% area; 10 → 60 m is ×36 area ≈ 90 such bites. Each settlement
   therefore carries plenty of mass in the 0.3r–0.5r band for the hole size it's meant for (checked by the bot).
