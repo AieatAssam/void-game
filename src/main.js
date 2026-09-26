@@ -15,7 +15,7 @@ import { Powerups, POWERS } from './powerups.js';
 import { Abilities, ABILITIES, owned, slots, buyAbility, equip } from './abilities.js';
 import { thisWeek, recordWeek, MUTATORS } from './mutators.js';
 import { newStats, scoreRun, renderPicker, unlocked, totalStars, LANDMARK } from './progress.js';
-import { installBot } from './bot.js';
+import { installBot, installHumanRun } from './bot.js';
 import { UPGRADES, ECON, save, persist, level, buy, todaySeed } from './meta.js';
 import * as sfx from './sfx.js';
 import { Post } from './post.js';
@@ -70,7 +70,7 @@ const dustCol = new THREE.Color(0xb3a28c);
 
 // ---------- starvation tuning (PLAN.md: keep moving or the ground seals) ----------
 const BELLY_DRAIN = 1 / 8; // a full belly lasts 8s (at the start: the void gets hungrier as the run goes on)
-const HUNGER_RAMP = 240; // seconds for the belly to drain twice as fast
+const HUNGER_RAMP = 600; // seconds for the belly to drain twice as fast (capped at 1.6x: falling behind must stay recoverable)
 const MEAL = 0.15; // eating this fraction of the hole's own area fills the belly
 const DECAY_FED = 0.016; // area fraction lost per second while the belly has food
 const DECAY_STARVING = 0.09; // ... while it is empty
@@ -321,8 +321,10 @@ $('screen').classList.remove('loading');
 clearInterval(tipTimer);
 window.__game = () => ({ hole, city, state, renderer, director, rivals, events, chains, powerups, camera, scene, grass, post, THREE });
 window.__abil = () => abilities;
+window.__BUILDINGS = BUILDINGS;
+window.__assist = (x, z) => rimMagnet(x, z); // (the human-like bot steers through the same aids a player gets)
 window.__info = () => { const r = renderer.info.render; return { calls: r.drawCalls, tris: r.triangles, frameCalls: r.frameCalls }; };
-if (location.search.includes('bot')) installBot();
+if (location.search.includes('bot')) { installBot(); installHumanRun(); }
 
 // ---------- input: steer toward pointer / drag / keys ----------
 const input = { keys: new Set(), drag: null, mouse: null };
@@ -511,7 +513,23 @@ function hud() {
     const q = nextSettlement();
     const ok = q && q.list.some((e) => e.alive && e.meta.tier < hole.r * 0.95); // something there fits now
     edgeArrow('town', q && Math.hypot(q.x - hole.x, q.z - hole.z) > q.r * 0.6 && [q.x, q.z], q ? `${q.name}${ok ? '' : ` · ${(q.big / 0.95).toFixed(0)} m`}` : '', ok ? '#9ed9bf' : '#ff8a3d');
-  } else edgeArrow('town', null);
+  } else if (state.left > 0 && state.left <= Math.max(8, Math.round((state.leftStart || 0) * 0.25))) {
+    // the last few buildings end up scattered: point at the nearest (a human only sees what's on screen; the human-like
+    // bot stalled with 1-17 small buildings left and a hole big enough for all of them)
+    if (!(state.lastT > state.time) || !state.lastB?.alive) {
+      state.lastT = state.time + 0.5;
+      let bd = Infinity;
+      state.lastB = null;
+      for (const e of city.entities) {
+        if (!e.alive || !BUILDINGS.has(e.name)) continue;
+        const d = Math.hypot(e.x - hole.x, e.z - hole.z);
+        if (d < bd) { bd = d; state.lastB = e; }
+      }
+    }
+    const b = state.lastB, ok = !b || b.meta.tier < hole.r * 0.95;
+    window.__lastBuilding = b;
+    edgeArrow('town', b && Math.hypot(b.x - hole.x, b.z - hole.z) > hole.r * 3 + 12 && [b.x, b.z], `${state.left} left${ok ? '' : ` · ${(b.meta.tier / 0.95).toFixed(1)} m`}`, ok ? '#9ed9bf' : '#ff8a3d');
+  } else { edgeArrow('town', null); window.__lastBuilding = null; }
   const ef = events.focus;
   edgeArrow('event', ef, { parade: '🎺', marathon: '🏃', carshow: '🏎️', ufo: '🛸' }[events.kind], '#ffd166');
   const st = [state.reverse > 0 && 'Controls reversed', state.jam > 0 && (director.seal?.state === 'drop' ? 'The lid is coming down' : 'Jammed'), state.wet > 0 ? 'Wet concrete! Get out' : state.slow > 0 && 'Slowed', state.flooded && 'Tide! Slow + hungry',
@@ -1179,6 +1197,7 @@ function bankTown(cleared) {
 function endRun(won, why) {
   if (!state.playing) return;
   state.playing = false;
+  state.why = why || (won ? 'cleared' : 'starved');
   rivals.hideLabels();
   minimap.stop();
   for (const el of Object.values(edgeArrows)) el.hidden = true;
@@ -1467,8 +1486,15 @@ function frame(dt) {
     if (!state.comboT) state.combo = 0;
     const tide = state.flooded ? 2 : 1;
     state.wet = Math.max(0, state.wet - dt);
-    const ramp = 1 + state.time / HUNGER_RAMP; // the void gets hungrier the longer the run goes on
-    const drain = state.phase === 2 ? P2.bellyDrain : BELLY_DRAIN * ramp * Math.min(1, 0.3 + state.time / 25); // (gentle first 20 s)
+    const ramp = Math.min(1.6, 1 + state.time / HUNGER_RAMP); // the void gets hungrier the longer the run goes on
+    // (gentle first 20 s; and a small hole's belly drains at 60%: its meals are small and moving, see the decay below)
+    const small = THREE.MathUtils.smoothstep(hole.r, 0.6, 3);
+    // the last few buildings: the town's food is gone and they're scattered, so the hunt for them isn't starved (the
+    // human-like bot shrank below the size of the last building while looking for it and could never finish)
+    state.leftStart = Math.max(state.leftStart || 0, state.left || 0);
+    const huntAt = Math.max(8, Math.round(state.leftStart * 0.25)); // (the last quarter of the town, or the last 8)
+    const hunt = state.phase === 1 && state.left > 0 && state.left <= huntAt;
+    const drain = state.phase === 2 ? P2.bellyDrain : hunt ? 0 : BELLY_DRAIN * ramp * Math.min(1, 0.3 + state.time / 25) * (0.6 + 0.4 * small);
     state.belly = Math.max(0, state.belly - drain * state.mods.hunger * state.hm.hunger * tide * dt);
     cravings(dt);
     const [sx, sz] = window.__bot ? window.__bot(hole, city) : steer();
@@ -1508,8 +1534,12 @@ function frame(dt) {
     hole.vz = (hole.z - pz) / dt;
 
     const slower = (1 - level('appetite') * 0.06) * (state.card === 'lonely' ? 1.3 : 1);
-    const fed = state.phase === 2 ? P2.decayFed : DECAY_FED / (1 + hole.r * 0.1); // big holes need proportionally bigger meals already
-    hole.area *= 1 - (state.belly > 0 ? fed : state.phase === 2 ? P2.decayStarving : DECAY_STARVING) * slower * dt;
+    // big holes need proportionally bigger meals already; a small one starts at a quarter of the decay (a human landing a
+    // person-sized bite every few seconds couldn't outgrow it and shrank while fed: human-like bot, docs/BALANCE.md)
+    const early = 0.25 + 0.75 * small;
+    const fed = state.phase === 2 ? P2.decayFed : DECAY_FED * early / (1 + hole.r * 0.1);
+    if (!hunt) hole.area *= 1 - (state.belly > 0 ? fed : state.phase === 2 ? P2.decayStarving : DECAY_STARVING * (0.4 + 0.6 * small)) * slower * dt;
+    if (hunt && !state.saidHunt) { state.saidHunt = true; flash('The last buildings! The void holds its hunger: find them', false); }
     director.update(dt, hole, state);
     events.update(dt, hole, state);
     city.alarm = director.stars; // at high heat the city evacuates: people hide indoors
