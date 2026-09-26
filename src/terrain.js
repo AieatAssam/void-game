@@ -208,6 +208,7 @@ export class Terrain {
   }
 
   heightAt(x, z) {
+    if (this.H && this.region) return this.sampleH(x, z); // (built: the slope-limited grid is the ground)
     const h = this.rawHeight(x, z);
     const g = this.region;
     if (!g) return h;
@@ -255,6 +256,39 @@ export class Terrain {
     if (this.beach) h = h * (1 - smooth(this.half - 30, this.half + 5, z)) - smooth(this.half, this.half + 90, z) * 9;
     if (this.region) h = this.island(x, z, h);
     return h * w - 0.08;
+  }
+
+  /**
+   * Region: no hillside steeper than `max` (rise per metre). Any node standing more than max x distance above a
+   * neighbour is lowered, repeatedly, until nothing moves (it only ever lowers, so basins and coasts keep their shape).
+   * The rolling land is untouched (median slope 0.14, 90th percentile 0.33); what goes are the 3% of cliffs up to 1.9 that
+   * a 20-60 m hole's rim hung in the air over. Exempt: the town and its surrounds (the breakout must not move a thing),
+   * the mountains (a wall on purpose) and the settlement pads (level by design).
+   */
+  *limitSlopes(H, cs, max) {
+    // per-node limit: exempt nodes never move; round the town the limit eases in over 140 m (a hard edge left steps)
+    const n = cs.length, g = this.region, lim = new Float32Array(n * n);
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      if (i === 0 && j % 24 === 0) yield;
+      const x = cs[i], z = cs[j], d = Math.max(Math.abs(x), Math.abs(z)) - this.half;
+      lim[j * n + i] = d < 420 || this.mountain(x, z) > 0.15 || g.pads.some((p) => Math.hypot(x - p.x, z - p.z) < p.r + 12)
+        ? Infinity : max + 3 * (1 - smooth(420, 560, d));
+    }
+    for (let pass = 0; pass < 40; pass++) {
+      let moved = 0;
+      for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+        const k = j * n + i, m = lim[k];
+        if (m === Infinity) continue;
+        let h = H[k];
+        if (i > 0) h = Math.min(h, H[k - 1] + m * (cs[i] - cs[i - 1]));
+        if (i < n - 1) h = Math.min(h, H[k + 1] + m * (cs[i + 1] - cs[i]));
+        if (j > 0) h = Math.min(h, H[k - n] + m * (cs[j] - cs[j - 1]));
+        if (j < n - 1) h = Math.min(h, H[k + n] + m * (cs[j + 1] - cs[j]));
+        if (h < H[k] - 1e-4) { H[k] = h; moved++; }
+      }
+      yield;
+      if (!moved) break;
+    }
   }
 
   /** Height from the built mesh grid (bilinear): cheap enough for every mover every frame, and matches what's drawn. */
@@ -306,6 +340,7 @@ export class Terrain {
       }
       if (j % 2 === 1) yield;
     }
+    if (this.region) yield* this.limitSlopes(H, cs, 0.4);
     this.cs = cs;
     this.H = H;
     // pass 2: normals and moisture straight from the grid (no extra noise evaluations)
