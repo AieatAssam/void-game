@@ -250,3 +250,7 @@ button.ghost { background: #fff8ee22; color: var(--cream); box-shadow: none; fon
 #tip.in { animation: tipIn .6s ease; }
 @keyframes tipIn { from { opacity: 0; transform: translateY(6px); } }
 @media (prefers-reduced-motion: reduce) { #vortex b, #vortex s, #vortex s::after, #tip.in, #screen.loading h1 { animation: none; } }
+#minimap { position: fixed; left: 14px; bottom: 64px; width: 172px; height: 172px; border-radius: 50%; pointer-events: none;
+  box-shadow: 0 0 0 3px #fff8eecc, 0 0 0 6px #1a0f3a88, 0 6px 18px #0006; }
+#minimap[hidden] { display: none; }
+@media (max-width: 600px) { #minimap { width: 112px; height: 112px; left: 10px; bottom: 60px; } }

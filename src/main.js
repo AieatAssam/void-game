@@ -28,6 +28,7 @@ import { HEAT, heatMods, heatPay, heatMax, heatBest, recordHeat } from './heat.j
 import { today as todaysContracts, streak, scoreContracts } from './contracts.js';
 import { Region, slicer } from './region.js';
 import { Army } from './army.js';
+import { Minimap } from './minimap.js';
 import { P2, News, residents, quietDirector, quietEvents, quietChains, quietPowerups, quietRivals } from './phase2.js';
 
 const $ = (id) => document.getElementById(id);
@@ -47,6 +48,7 @@ scene.add(debris.group);
 const wisps = new Wisps(); // Phase 2: low cloud between the camera and the land
 scene.add(wisps.sprite);
 const birds = new Birds(); // Phase 2: flocks over the countryside
+const minimap = new Minimap(); // Phase 2
 scene.add(birds.sprite);
 const LOW_FX = /[?&]low\b/.test(location.search); // ?low: skip extra particles and smoke
 // debug framing for screenshots: ?view=x,z,dist[,yaw,pitch]
@@ -164,6 +166,7 @@ const URL_HEAT = Math.min(HEAT.length, +new URLSearchParams(location.search).get
 let pickedHeat = URL_HEAT;
 const pickedMode = new URLSearchParams(location.search).get('mode') === 'blitz' ? 'blitz' : 'city';
 function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null, mutator = null, heat = 0, mode = 'city') {
+  minimap.stop();
   const hm = heatMods(heat);
   if (state?.slice) { // a region was being prebuilt for the last run: drop it
     state.slice.cancelled = true;
@@ -1077,6 +1080,7 @@ async function breakout(quick = false) {
   if (quick) state.slowmo = 1;
   else setTimeout(() => { state.slowmo = 1; }, 1600); // the slow climb continues over the new world
   $('where').textContent = `${city.mood.name} countryside · ${city.settlements.length} settlements`;
+  minimap.start(city);
   news.say(`${city.capital?.name || 'The capital'} on alert as the hole heads for the countryside`);
   if (!quick) {
     levelEl.innerHTML = `<small>Breakout · ${hole.r.toFixed(1)} m</small><b>The whole country is on the menu</b>`;
@@ -1143,6 +1147,7 @@ function endRun(won, why) {
   if (!state.playing) return;
   state.playing = false;
   rivals.hideLabels();
+  minimap.stop();
   for (const el of Object.values(edgeArrows)) el.hidden = true;
   state.draft = null;
   draftEl.hidden = true;
@@ -1563,6 +1568,7 @@ function frame(dt) {
   if (tw) tw.update(dt, state.time, 0, city.groundSpan(tw.x, tw.z, tw.r));
   if (state.playing) { hud(); rivals.labels(camera); }
   news.update(dt, state.pop, state.playing && state.phase === 2);
+  if (state.phase === 2) minimap.update(dt, { hole, rivals: rivals.holes, boss: director.boss?.alive ? director.boss : null, heli: director.seal?.heli });
   if (!window.__headless) {
     if (state.playing && document.visibilityState === 'visible') post.watch(dt);
     const ts = fpsEl && performance.now();
