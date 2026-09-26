@@ -2,6 +2,10 @@
 
 **You are a hole in a toy town.** Swallow anything smaller than you, grow until skyscrapers fit, and keep eating — or the ground seals over you.
 The city fights back as you grow: police barricades, cement trucks, helicopters dropping concrete, and tanks.
+Clear the town and the hole **breaks out** across a whole island of villages, castles, towns and a capital, with the army trying to cap it for good.
+
+Inspired by [Hole.io](https://hole-io.com/) (Voodoo): the swallow-what-fits core loop is theirs; the toy-town look, hunger, heat, rivals and the
+island-scale second phase are this project's own spin on it.
 
 **▶ Play in your browser:** https://aieatassam.github.io/void-game/
 
@@ -16,6 +20,9 @@ The city fights back as you grow: police barricades, cement trucks, helicopters 
 | ![City event: the parade — cake floats and drummer blocks](docs/screens/parade.jpg) | ![Airport City: the airliner, the largest meal in the game](docs/screens/airport.jpg) |
 | ![Railway Town: the station platform and level crossings](docs/screens/railway-station.jpg) | ![Breakout: the hole escapes into the countryside and the capital's blocks crumble](docs/screens/phase2-crumble.jpg) |
 | ![Breakout: the castle on its hill, festival cannons at the gate](docs/screens/phase2-castle.jpg) | ![Breakout: a 40 m hole at the edge of the capital](docs/screens/phase2-big-hole.jpg) |
+| ![The island: its coast is the edge of the map](docs/screens/phase2-coast.jpg) | ![The snowy range walls off one stretch of the island](docs/screens/phase2-mountains.jpg) |
+| ![A rival hole (Rusty) breaks out and eats the same country](docs/screens/phase2-rival.jpg) | ![Rubble spills over the rim when a building crumbles](docs/screens/phase2-rubble.jpg) |
+| ![Too weak: a heavy-lift chopper hangs the Void Lid over the hole](docs/screens/phase2-seal.jpg) | ![The minimap: coast, range, roads, settlements, the next target ringed](docs/screens/phase2-minimap.jpg) |
 
 ## The game
 - **Grow:** everything has a size. Swallow what fits; each bite widens the hole by a share of the object's footprint —
@@ -32,6 +39,10 @@ The city fights back as you grow: police barricades, cement trucks, helicopters 
   are the meal: farmsteads, villages, a castle on its hill, a market town, an industrial valley and the capital. Buildings
   crumble into the hole, roads are the fast lanes, towns evacuate, and the army answers with roadblocks, artillery, strike
   jets and heavy-lift choppers dropping Void Lids, until the Capper rolls out of the capital. Swallow the capital to win.
+  The country is an **island**: the coast is the map edge and a snowy range walls off one side; the land rolls, and the hole
+  is slower uphill. Two **rival holes** break out of far settlements, and a minimap shows the whole island.
+- **Sealed:** starve back toward town size (under 9 m) and the army flies a Void Lid in. Grow past 9.6 m in 14 seconds or
+  it drops and the run is over: a weak hole is the only kind small enough to cap. Every new run starts from a fresh town.
 - **Challenge cards:** pick one rule twist per run (Car Crusher, Rush Hour, Glass Cannon, Crowded…) for a dust multiplier.
 - **Collection book:** every type of thing gets a page the first time you swallow it. Rare golden variants are hiding.
 - **Progress:** void dust is scarce — a strong clear pays ~200 before its card multiplier, a defeat keeps half of its meal and combo dust.
@@ -93,7 +104,7 @@ Debug URL flags: `?webgl` (WebGL2 backend), `?seed=7`, `?time=golden|noon|mornin
 `?q=low|medium|high`, `?fps`, `?nopost`, `?noao`, `?low`, `?event=parade|marathon|carshow|ufo&eventAt=5` (force the run's event),
 `?mutator=lowgrav|ducks|mini|night|rush`, `?abil=quake,dash,vortex` (equip abilities), `?allcities`, `?tone=agx`,
 `?noshafts`, `?nolut`, `?off=glass,cav,jit,brush,sheen` (disable new material terms), `?region` (start in Phase 2; with `?r=`
-for the size), `?nophase2` (win at the town clear), `?noarmy`. In the dev server, `__snap('name')` saves the graded frame to
+for the size), `?nophase2` (win at the town clear), `?noarmy`, `?norivals`. In the dev server, `__snap('name')` saves the graded frame to
 `.shots/name.jpg` even when the window is in the background. `test.html?mat=trees|grass|toy|ground`
 renders materials in isolation; `node tools/shot.mjs out.png "?seed=7&webgl"` captures a frame headlessly.
 Rebuild art (Blender with the MCP add-on running): run `blender/build_all.py` inside Blender, then `npm run optimize`.
