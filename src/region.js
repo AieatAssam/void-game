@@ -60,6 +60,27 @@ export function slicer(budget = 3) {
   return s;
 }
 
+/** A road's centre line with its corners rounded (Chaikin x2) and resampled every ~5 m: ribbons and traffic share it. */
+function smoothPath(pts) {
+  let q = pts;
+  for (let it = 0; it < 2; it++) { // Chaikin: round the corners
+    const o = [q[0]];
+    for (let i = 0; i < q.length - 1; i++) {
+      const [ax, az] = q[i], [bx, bz] = q[i + 1];
+      o.push([ax * 0.75 + bx * 0.25, az * 0.75 + bz * 0.25], [ax * 0.25 + bx * 0.75, az * 0.25 + bz * 0.75]);
+    }
+    o.push(q.at(-1));
+    q = o;
+  }
+  const out = [q[0]];
+  for (let i = 1; i < q.length; i++) {
+    const [ax, az] = out.at(-1), [bx, bz] = q[i], L = Math.hypot(bx - ax, bz - az), n = Math.floor(L / 5);
+    for (let k = 1; k <= n; k++) out.push([ax + ((bx - ax) * k) / (n + 1), az + ((bz - az) * k) / (n + 1)]);
+    out.push([bx, bz]);
+  }
+  return out;
+}
+
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 export class Region extends City {
@@ -364,8 +385,9 @@ export class Region extends City {
   /** Arc-length tables so traffic can ride the roads. */
   roadTables() {
     for (const rd of this.roads) {
-      const L = [0];
-      for (let i = 1; i < rd.pts.length; i++) L.push(L[i - 1] + Math.hypot(rd.pts[i][0] - rd.pts[i - 1][0], rd.pts[i][1] - rd.pts[i - 1][1]));
+      rd.path = smoothPath(rd.pts);
+      const P = rd.path, L = [0];
+      for (let i = 1; i < P.length; i++) L.push(L[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]));
       rd.len = L;
       rd.total = L.at(-1);
     }
@@ -375,9 +397,10 @@ export class Region extends City {
   roadAt(rd, s) {
     const L = rd.len;
     s = Math.max(0, Math.min(rd.total - 1e-3, s));
-    let i = 1;
-    while (L[i] < s) i++;
-    const [x0, z0] = rd.pts[i - 1], [x1, z1] = rd.pts[i], t = (s - L[i - 1]) / (L[i] - L[i - 1] || 1);
+    let lo = 1, hi = L.length - 1; // first index with L[i] >= s
+    while (lo < hi) { const m = (lo + hi) >> 1; if (L[m] < s) lo = m + 1; else hi = m; }
+    const i = lo;
+    const [x0, z0] = rd.path[i - 1], [x1, z1] = rd.path[i], t = (s - L[i - 1]) / (L[i] - L[i - 1] || 1);
     return [x0 + (x1 - x0) * t, z0 + (z1 - z0) * t, Math.atan2(z1 - z0, x1 - x0)];
   }
 
@@ -473,24 +496,21 @@ export class Region extends City {
     // palette swatch centres (ground material: asphalt, paving, concrete and dirt scans by swatch - surface.js GROUND)
     const UV = { asphalt: [6.5 / 8, 0.5 / 6], white: [1.5 / 8, 0.5 / 6], butter: [5.5 / 8, 1.5 / 6], pave: [0.5 / 8, 0.5 / 6], pave2: [4.5 / 8, 0.5 / 6],
       concrete: [4.5 / 8, 2.5 / 6], dirt: [5.5 / 8, 5.5 / 6] };
+    // a continuous strip along a smoothed, resampled centre line (mitred: no overlapping quads to z-fight at bends),
+    // flat across its width and lifted clear of the land under either edge
     const strip = (pts, off0, off1, lift, sw, dash = 0) => {
-      let run = 0;
-      for (let i = 0; i < pts.length - 1; i++) {
-        const [x0, z0] = pts[i], [x1, z1] = pts[i + 1];
-        const L = Math.hypot(x1 - x0, z1 - z0), nx = -(z1 - z0) / L, nz = (x1 - x0) / L;
-        const steps = Math.max(1, Math.round(L / 6));
-        for (let k = 0; k < steps; k++) {
-          const t0 = k / steps, t1 = (k + 1) / steps;
-          run += L / steps;
-          if (dash && Math.floor(run / dash) % 2) continue;
-          const q = [[t0, off0], [t0, off1], [t1, off0], [t1, off1]].map(([t, o]) => {
-            const x = x0 + (x1 - x0) * t + nx * o, z = z0 + (z1 - z0) * t + nz * o;
-            return [x, this.groundY(x, z) + lift, z];
-          });
-          const b = pos.length / 3;
-          for (const p of q) { pos.push(...p); uvs.push(...UV[sw]); }
-          idx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3);
-        }
+      let run = 0, prev = -1;
+      for (let i = 0; i < pts.length; i++) {
+        const [x, z] = pts[i], [ax, az] = pts[Math.max(0, i - 1)], [bx, bz] = pts[Math.min(pts.length - 1, i + 1)];
+        const L = Math.hypot(bx - ax, bz - az) || 1, nx = -(bz - az) / L, nz = (bx - ax) / L;
+        if (i) run += Math.hypot(x - pts[i - 1][0], z - pts[i - 1][1]);
+        const y = Math.max(this.groundY(x + nx * 5.5, z + nz * 5.5), this.groundY(x, z), this.groundY(x - nx * 5.5, z - nz * 5.5)) + lift;
+        const b = pos.length / 3;
+        pos.push(x + nx * off0, y, z + nz * off0, x + nx * off1, y, z + nz * off1);
+        uvs.push(...UV[sw], ...UV[sw]);
+        const on = !dash || Math.floor(run / dash) % 2 === 0;
+        if (prev >= 0 && on) idx.push(prev, b, prev + 1, prev + 1, b, b + 1);
+        prev = b;
       }
     };
     // settlement paving in each settlement's own frame: [u0, u1, v0, v1, swatch, lift]
@@ -518,8 +538,8 @@ export class Region extends City {
           }
         }
       } else if (q.kind === 'town') {
-        rect(q, -110, 110, -30, 30, 'pave2', 0.05);
-        rect(q, -30, 30, -110, 110, 'pave2', 0.05);
+        rect(q, -110, 110, -30, 30, 'concrete', 0.05);
+        rect(q, -30, 30, -110, 110, 'concrete', 0.05);
         rect(q, -110, 110, -6, 6, 'asphalt', 0.1);
         rect(q, -6, 6, -110, 110, 'asphalt', 0.1);
         rect(q, -24, 24, 24, 56, 'pave', 0.1); // market square
@@ -532,11 +552,11 @@ export class Region extends City {
     }
     const insideTown = (x, z) => Math.max(Math.abs(x), Math.abs(z)) < this.half - 1;
     for (const rd of this.roads) {
-      const pts = rd.pts.filter(([x, z]) => !insideTown(x, z));
-      strip(pts, -5.5, 5.5, 0.12, 'asphalt');
-      strip(pts, -5.0, -4.7, 0.15, 'white');
-      strip(pts, 4.7, 5.0, 0.15, 'white');
-      strip(pts, -0.15, 0.15, 0.15, 'butter', 4);
+      const pts = rd.path.filter(([x, z]) => !insideTown(x, z));
+      strip(pts, -5.5, 5.5, 0.2, 'asphalt');
+      strip(pts, -5.0, -4.7, 0.24, 'white');
+      strip(pts, 4.7, 5.0, 0.24, 'white');
+      strip(pts, -0.15, 0.15, 0.24, 'butter', 4);
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
