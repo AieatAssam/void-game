@@ -128,3 +128,23 @@ export function whoosh() {
 export function drums() {
   for (let i = 0; i < 8; i++) tone('triangle', 180, 120, 0.06, 0.12, i * 0.09);
 }
+
+let lastRaid = 0;
+/** Phase 2: an air-raid siren winding up and down over the countryside (throttled). */
+export function airRaid() {
+  if (!ctx || muted || ctx.currentTime - lastRaid < 6) return;
+  lastRaid = ctx.currentTime;
+  tone('sawtooth', 180, 620, 1.6, 0.05);
+  tone('sawtooth', 620, 240, 1.8, 0.05, 1.6);
+  tone('sine', 182, 624, 1.6, 0.06);
+  tone('sine', 624, 242, 1.8, 0.06, 1.6);
+}
+
+/** A village church peal: a falling ring of bells (the village has seen the hole). */
+export function bells() {
+  if (!ctx || muted) return;
+  [784, 698, 659, 587, 523, 494, 440, 392].forEach((f, i) => {
+    tone('sine', f, f, 1.4, 0.07, i * 0.28);
+    tone('triangle', f * 2.01, f * 2.01, 0.6, 0.02, i * 0.28);
+  });
+}

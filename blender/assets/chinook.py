@@ -1,5 +1,6 @@
-"""Region pack (army): a twin-rotor heavy-lift helicopter carrying a giant void lid on four cables (the lid is
-the game's concrete plug, scaled). Two rotor clips ('rotorF', 'rotorB'). Flies in, drops its lid ahead of the hole."""
+"""Region pack (army): a twin-rotor heavy-lift helicopter with a cargo hook and four sling cables. It carries a giant
+void lid (the game hangs a scaled concrete plug from the hook) and drops it ahead of the hole. Two rotor clips
+('rotorF', 'rotorB')."""
 from kit import *
 from heli import rotor
 
@@ -24,15 +25,8 @@ def build():
             p.append(box(f'win{s}{k}', (0.5, 0.06, 0.45), loc=(-3.0 + k * 1.3, s * 1.41, 4.0), color='gloss_black', bev=0.03, seg=1))
     for sx in (-1, 1):  # hook + cables to the lid
         for sy in (-1, 1):
-            p.append(tube(f'cable{sx}{sy}', (0, 0, 2.0), (sx * 3.2, sy * 3.2, -3.4), r=0.05, color='ink', seg=4))
+            p.append(tube(f'cable{sx}{sy}', (0, 0, 2.0), (sx * 2.4, sy * 2.4, -2.6), r=0.05, color='ink', seg=4))
     p.append(box('hook', (0.5, 0.5, 0.6), loc=(0, 0, 1.8), color='hazard', bev=0.1))
-    # the lid it carries: a hazard-striped concrete disc
-    p += [cyl('lid', 5.0, 1.2, loc=(0, 0, -4.6), color='concrete', seg=32, bev=0.3),
-          cyl('lidband', 5.05, 0.4, loc=(0, 0, -4.2), color='hazard', seg=32, bev=0.05),
-          box('lidlug', (1.0, 1.0, 0.6), loc=(0, 0, -3.3), color='ink', bev=0.1)]
-    for k in range(8):
-        a = k * math.tau / 8
-        p.append(box(f'chev{k}', (0.6, 1.4, 0.42), loc=(math.cos(a) * 5.02, math.sin(a) * 5.02, -4.2), color='ink', bev=0, seg=1, rot=(0, 0, a)))
     root = join(p, 'chinook')
     for v in root.data.vertices:  # everything hangs from the rotors: lift it so the lid clears the ground
         v.co.z += 4.8

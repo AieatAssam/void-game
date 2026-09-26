@@ -246,14 +246,14 @@
  "chinook": {
   "pack": "region",
   "tier": 8,
-  "mass": 1422.205,
+  "mass": 1192.518,
   "kind": "fx",
-  "height": 12.2,
+  "height": 10.23,
   "unit": "chinook",
-  "tris": 13080,
-  "lodTris": 3270,
-  "lod2Tris": 1044,
-  "bytes": 96252,
+  "tris": 13468,
+  "lodTris": 3366,
+  "lod2Tris": 1074,
+  "bytes": 80008,
   "clips": [
    "rotorB",
    "rotorF"

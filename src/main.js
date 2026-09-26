@@ -27,6 +27,7 @@ import { PERKS, DRAFT_AT, offerPerks, modsFor } from './perks.js';
 import { HEAT, heatMods, heatPay, heatMax, heatBest, recordHeat } from './heat.js';
 import { today as todaysContracts, streak, scoreContracts } from './contracts.js';
 import { Region, slicer } from './region.js';
+import { Army } from './army.js';
 import { P2, News, residents, quietDirector, quietEvents, quietChains, quietPowerups, quietRivals } from './phase2.js';
 
 const $ = (id) => document.getElementById(id);
@@ -444,7 +445,7 @@ function hud() {
   $('eaten').querySelector('b').textContent = state.eaten;
   $('hunger').style.width = `${state.belly * 100}%`;
   $('hunger').parentElement.classList.toggle('low', state.belly < 0.3);
-  $('stars').firstChild.textContent = '★'.repeat(director.stars) + '☆'.repeat(4 - director.stars);
+  $('stars').firstChild.textContent = '★'.repeat(director.stars) + '☆'.repeat(Math.max(0, (director.max ?? 4) - director.stars));
   $('noto').style.width = `${director.noto}%`; // notoriety: how hard the city is looking for you
   const cr = state.crave;
   $('crave').hidden = !cr;
@@ -670,6 +671,7 @@ function poison(effect) {
   if (effect === 'shrink') hurt(0.12, 'Gas can! Shrunk');
   if (effect === 'reverse') { state.reverse = 3; flash('Toxic! Controls reversed'); }
   if (effect === 'jam') { state.jam = 2; flash('Spiky art! Jammed'); }
+  if (effect === 'zap') { state.jam = 1; state.shake = 0.4; sparks.burst(hole.x, hole.z, hole.r, 6); flash('Zapped! Power lines'); sfx.hurt(); }
 }
 
 // ---------- growth, notoriety, cravings ----------
@@ -1012,7 +1014,11 @@ async function breakout(quick = false) {
   grass.dispose();
   city = reg;
   city.capital = city.settlements.find((q) => q.kind === 'capital');
-  director = quietDirector(); events = quietEvents(); chains = quietChains(); powerups = quietPowerups(); rivals = quietRivals();
+  events = quietEvents(); chains = quietChains(); powerups = quietPowerups(); rivals = quietRivals();
+  director = /[?&]noarmy\b/.test(location.search) ? quietDirector() : new Army(city, scene, {
+    hurt, toll, drain, warn: (t) => flash(t, false), news: (t) => news.say(t), boom: sfx.boom, siren: sfx.airRaid,
+    jam: (s) => { state.jam = Math.max(state.jam, s); }, kick: (dx, dz) => { state.kick = { x: dx * 60, z: dz * 60 }; }, shake: (k) => { state.shake = Math.max(state.shake, k); },
+  }, debris, sparks);
   grass = new Grass(renderer, city.groundMeshes, Math.min(city.bound, 700), field, { density: +(new URLSearchParams(location.search).get('grass') ?? Q.grass) * 0.6, far: Q.grassFar, lawns: [] });
   scene.add(city.group, grass.group);
   try { await renderer.compileAsync(city.group, camera, scene); } catch (e) { console.warn('region precompile skipped', e); }
@@ -1254,7 +1260,7 @@ function frame(dt) {
     }
     if (director.stars > state.stars) {
       sfx.star();
-      flash('★'.repeat(director.stars) + ' The city fights back', false);
+      flash('★'.repeat(director.stars) + (state.phase === 2 ? ' The army closes in' : ' The city fights back'), false);
       if (!save.hinted && director.stars === 1) setTimeout(() => hint('Red rings = something is about to land. Move!'), 1500);
     }
     state.stars = director.stars;
@@ -1286,6 +1292,14 @@ function frame(dt) {
       flash('🍹 Happy Hour! Everything grows you 50% more', false);
     }
     state.happy = Math.max(0, state.happy - dt);
+    if (state.phase === 2) for (const q of city.settlements) { // the hole comes near: bells, sirens, the roads fill
+      if (!q.alarmed && Math.hypot(q.x - hole.x, q.z - hole.z) < q.r + 180 + hole.r * 4) {
+        q.alarmed = true;
+        if (q.kind === 'village' || q.kind === 'farm') sfx.bells(); else sfx.airRaid();
+        news.say(`${q.name} evacuates as the hole approaches`);
+        city.evacuate?.(q);
+      }
+    }
     if (state.phase === 2) for (const q of city.settlements) { // a settlement falls
       if (q.left === 0 && !q.gone) {
         q.gone = true;

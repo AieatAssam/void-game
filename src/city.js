@@ -1155,7 +1155,7 @@ export class City {
         this.caster(m, u.geos, lodOf(d), d < castD);
         continue;
       }
-      m.visible = u.tier >= holeR * 0.03 && (!u.list || u.list.some((e) => e.alive)); // idle pools and eaten groups cost nothing
+      m.visible = u.tier >= holeR * (this.tinyK ?? 0.03) && (!u.list || u.list.some((e) => e.alive)); // idle pools and eaten groups cost nothing
       // roaming traffic spans the whole city, so it can't be distance-LOD'd per instance: mid detail, low when zoomed out
       const d = u.crumb ? (holeR > 16 ? 999 : 30 * K) : u.roams ? (holeR > 4 ? 999 : 30) : camera.position.distanceTo(m.boundingSphere.center) - m.boundingSphere.radius;
       m.geometry = u.geos[lodOf(d)];
@@ -1417,7 +1417,8 @@ export class City {
         } else if (m.type === 'wander') {
           if (scared) m.h = Math.atan2(-fdz, fdx) + Math.sin(m.t * 3) * 0.3; // run from the hole
           else m.h += Math.sin(m.t * 0.7 + e.x) * dt * 0.6;
-          if (Math.abs(e.x) > H - 4 || Math.abs(e.z) > H - 4) m.h = Math.atan2(e.z, -e.x); // steer back to town
+          const WB = this.bound || H; // (Phase 2: the whole region)
+          if (Math.abs(e.x) > WB - 4 || Math.abs(e.z) > WB - 4) m.h = Math.atan2(e.z, -e.x); // steer back to town
           const nx = e.x + Math.cos(m.h) * m.v * dt, nz = e.z - Math.sin(m.h) * m.v * dt;
           if (this.blocked(nx, nz, e.meta.tier)) m.h += Math.PI * (0.5 + this.r() * 0.5); // bounce off walls, never walk through
           else { e.x = nx; e.z = nz; }

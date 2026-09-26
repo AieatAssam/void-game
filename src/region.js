@@ -75,6 +75,7 @@ export class Region extends City {
     Object.assign(g, { N: from.N, half: from.half, mood: from.mood, beach: from.beach, runwayRow: -1, railRow: -1, tiles: from.tiles });
     g.bound = REGION_BOUND;
     g.chunk = 400; // one instanced mesh per model per settlement (first-sight shader builds: PERFORMANCE.md)
+    g.tinyK = 0.012; // people stay visible as specks much longer: crowds and convoys carry the scale
     g.tileEntities = from.tileEntities.slice();
     g.sceneryList = [];
     g.terrainSeed = from.terrainSeed;
@@ -375,6 +376,7 @@ export class Region extends City {
 
   traffic() {
     this.roadTables();
+    this.evacuees();
     const r = this.r;
     for (const [ri, rd] of this.roads.entries()) {
       const n = Math.round(rd.total / 90);
@@ -384,6 +386,52 @@ export class Region extends City {
         const [x, z] = this.roadAt(rd, s);
         this.entities.push(makeEntity({ name, meta: this.metaOf(name), x, z, y: 0, rot: 0, s: 1, gs: 1, alive: true, grounded: true,
           mover: { type: 'road', road: ri, s, dir, v: r.range(9, 15), t: r() * 10 } }));
+      }
+    }
+  }
+
+  /** Dormant evacuees per settlement: cars on its road out and a crowd, woken by evacuate(). */
+  evacuees() {
+    const r = this.r, PEOPLE = ['ped_business', 'ped_granny', 'ped_kid', 'ped_tourist', 'ped_worker', 'ped_student', 'ped_jogger', 'ped_chef'];
+    for (const q of this.settlements) {
+      q.evac = [];
+      const ri = this.roads.findIndex((rd) => rd.b === q);
+      if (ri >= 0) for (let k = 0; k < (q.kind === 'farm' ? 3 : 12); k++) {
+        const name = r.pick(['car', 'car_b', 'car_c', 'taxi', 'bus', 'car', 'icecream_van']);
+        const e = makeEntity({ name, meta: this.metaOf(name), x: q.x, z: q.z, y: 0, rot: 0, s: 0, gs: 1, alive: false, grounded: true,
+          mover: { type: 'road', road: ri, s: 0, dir: -1, v: r.range(11, 17), t: r() * 10, evac: true } });
+        this.entities.push(e);
+        q.evac.push(e);
+      }
+      const n = { farm: 6, village: 40, castle: 30, town: 60, industry: 30, capital: 90 }[q.kind];
+      for (let k = 0; k < n; k++) {
+        const name = r.pick(PEOPLE);
+        const e = makeEntity({ name, meta: this.metaOf(name), x: q.x, z: q.z, y: 0, rot: 0, s: 0, gs: 1, alive: false, grounded: true,
+          mover: { type: 'wander', h: 0, v: 0, t: r() * 10, reserve: true } });
+        this.entities.push(e);
+        q.evac.push(e);
+      }
+    }
+  }
+
+  /** The hole is coming: cars pour out along the road, people stream out of the houses and run. */
+  evacuate(q) {
+    const rd = this.roads.find((x) => x.b === q);
+    let k = 0;
+    for (const e of q.evac || []) {
+      const m = e.mover;
+      if (m.type === 'road') {
+        m.s = Math.max(2, rd.total - 12 - k++ * 16); // queued out of town
+        m.dir = -1;
+        Object.assign(e, { alive: true, s: 1 });
+        this.place(e);
+      } else {
+        const b = this.r() * 6.28, d = this.r() * q.r * 0.8;
+        Object.assign(e, { x: q.x + Math.cos(b) * d, z: q.z + Math.sin(b) * d, alive: true, s: 1 });
+        m.h = b; // outward
+        m.v = this.r.range(2.2, 3.4);
+        e.panic = 6;
+        this.place(e);
       }
     }
   }
