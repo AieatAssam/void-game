@@ -199,7 +199,7 @@ export class Region extends City {
       used.add(name);
       this.settlements.push({ kind, name, x: best.x, z: best.z, r: K.r, a: 0 });
     }
-    this.pads = this.settlements.map((s) => ({ x: s.x, z: s.z, r: s.r }));
+    this.pads = this.settlements.map((s) => ({ x: s.x, z: s.z, r: s.r * 1.15 })); // (a square street grid reaches past its circle at the corners: level ground under the corner lots too)
     // roads: a tree grown outward from the hometown, each settlement joined to the nearest node already on it
     const nodes = [{ x: 0, z: 0, home: true }];
     this.roads = [];
