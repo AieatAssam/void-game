@@ -10,6 +10,7 @@ import { planEvent } from './events.js';
 import { MAX_HOLES } from './hole.js';
 import { Collider } from './collide.js';
 import { makeEntity } from './entity.js';
+import { Q } from './quality.js';
 
 export const TILE = 40;
 
@@ -1032,7 +1033,7 @@ export class City {
         mat = crumbleMat ??= crumbleMaterial();
       }
       const mesh = new THREE.InstancedMesh(full, mat, g.list.length);
-      mesh.castShadow = !g.ground;
+      mesh.castShadow = !g.ground && !(a.meta.tier < Q.minCasterTier); // (roaming groups never pass through caster())
       mesh.receiveShadow = true;
       // list: groups whose members can all be asleep or gone (snack reserves, dormant event crowds, eaten props) are
       // skipped entirely - zero-scale instances still cost their triangles and a shadow pass
@@ -1262,6 +1263,7 @@ export class City {
    * silhouette at shadow-map resolution, a quarter of the triangles in the shadow pass. Farther LODs cast as drawn.
    */
   caster(m, geos, lod, cast) {
+    if (m.userData.tier < Q.minCasterTier) cast = false; // (Safari: small props don't cast; AO grounds them. Its shadow pass is dear)
     const p = m.userData.proxy;
     if (!p) { m.castShadow = cast; return; }
     m.castShadow = false;

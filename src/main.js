@@ -1282,7 +1282,7 @@ function perfStats(win = 10000) {
  */
 async function gpuBisect() {
   const o = post.opts, wait = (ms) => new Promise((r) => setTimeout(r, ms)), dpr = renderer.getPixelRatio();
-  Object.assign(o, { ao: Q.ao, aoRes: Q.aoRes, aoSamples: Q.aoSamples, bloom: Q.bloom, aoDenoise: true, shadowEvery: 1 }); // (start from the tier, even if the watchdog trimmed it)
+  Object.assign(o, { ao: Q.ao, aoRes: Q.aoRes, aoSamples: Q.aoSamples, bloom: Q.bloom, aoDenoise: true, shadowEvery: Q.shadowEvery }); // (start from the tier, even if the watchdog trimmed it)
   post.lowSpec = false;
   post.build();
   const sun = look.sun, rebuild = () => post.enabled && post.build();
@@ -1297,8 +1297,8 @@ async function gpuBisect() {
     ['grass, no shadows', () => { for (const l of grass.layers) { l.receiveShadow = false; l.material.needsUpdate = true; } }, () => { for (const l of grass.layers) { l.receiveShadow = true; l.material.needsUpdate = true; } }],
     ['grass half', () => { post.lowSpec = true; }, () => { post.lowSpec = false; }],
     // (not castShadow: toggling it at runtime crashes three's ShadowNode and every frame after it renders nothing)
-    ['shadow render off', () => { o.shadowEvery = 1e9; }, () => { o.shadowEvery = 1; }],
-    ['shadows every 3rd', () => { o.shadowEvery = 3; }, () => { o.shadowEvery = 1; }],
+    ['shadow render off', () => { o.shadowEvery = 1e9; }, () => {}],
+    ['shadows every frame', () => { o.shadowEvery = 1; }, () => {}],
     ['1.0x res', () => renderer.setPixelRatio(1), () => renderer.setPixelRatio(dpr)],
     ['0.75x res', () => renderer.setPixelRatio(0.75), () => renderer.setPixelRatio(dpr)],
     ['no post at all', () => { post.enabled = false; }, () => { post.enabled = true; }],
