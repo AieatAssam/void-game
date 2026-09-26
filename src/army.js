@@ -78,6 +78,7 @@ export class Army {
     this.updateLifts(dt, hole);
     this.updateDrops(dt, hole, state);
     this.capper(dt, hole, state);
+    for (const u of this.units) u.stunT = Math.max(0, (u.stunT || 0) - dt); // Quake (abilities.js) stuns the crews
     this.units = this.units.filter((u) => u.alive);
   }
 
@@ -151,7 +152,7 @@ export class Army {
 
   fireBatteries(dt, hole) {
     for (const b of this.batteries) {
-      const alive = b.guns.filter((g) => g.alive && !g.falling);
+      const alive = b.guns.filter((g) => g.alive && !g.falling && !(g.stunT > 0));
       if (!alive.length) continue;
       if ((b.cool -= dt) > 0) continue;
       b.cool = 8;

@@ -710,6 +710,7 @@ const CRAVES = [
   { label: 'buildings', need: 2, test: (n) => BUILDINGS.has(n) },
 ];
 function cravings(dt) {
+  if (state.phase === 2) { state.crave = null; return; } // (town cravings: the region is fed by whole settlements)
   const c = state.crave;
   if (c) {
     c.t -= dt;
@@ -755,6 +756,16 @@ function craveEat(e) {
 /** Dust for a finished run, itemised. Scarce on purpose (meta.js ECON). */
 function runDust(won) {
   const e = ECON;
+  if (state.phase === 2) { // the region pays on top of the town (banked at the breakout): meals at half rate, whole settlements
+    const k = won ? 1 : e.lossShare;
+    const parts = {
+      meals: e.perScore * Math.sqrt(Math.max(0, state.score - state.townScore)) * 0.5 * k,
+      combos: e.comboDust * Math.sqrt(Math.max(0, state.bonus - state.townBonus)) * 0.5 * k,
+      country: city.settlements.filter((q) => q.left === 0).length * e.settlement + (city.capital?.left === 0 ? e.capital : 0),
+    };
+    const mult = +(CARDS[state.card].mult * heatPay(state.heat)).toFixed(2);
+    return { parts, mult, total: Math.floor(Object.values(parts).reduce((a, b) => a + b, 0) * mult) };
+  }
   const parts = {
     meals: e.perScore * Math.sqrt(state.score) * (won ? 1 : e.lossShare),
     combos: e.comboDust * Math.sqrt(state.bonus) * (won ? 1 : e.lossShare),
@@ -763,8 +774,6 @@ function runDust(won) {
     rivals: state.rivalsEaten * e.rival,
     win: won ? e.winBonus : 0,
     speed: won ? e.speedBonus * THREE.MathUtils.clamp((720 - (state.cityTime ?? state.time)) / 420, 0, 1) : 0,
-    // Phase 2: every settlement swallowed, and the capital
-    country: state.phase === 2 ? city.settlements.filter((q) => q.left === 0).length * e.settlement + (city.capital?.left === 0 ? e.capital : 0) : 0,
     daily: won && state.daily && !save.daily[state.seed]?.clear ? e.dailyFirstClear : 0,
   };
   const mult = +(CARDS[state.card].mult * heatPay(state.heat)).toFixed(2);
@@ -979,7 +988,13 @@ const news = new News();
 async function breakout(quick = false) {
   if (state.breaking || state.phase === 2) return;
   state.breaking = true;
-  state.cityTime = state.time; // Phase 1 is banked as a clear (endRun)
+  state.cityTime = state.time;
+  state.townScore = state.score;
+  state.townBonus = state.bonus;
+  if (!quick) { // the town is cleared: bank it now (records, stars, contracts, dust), so leaving mid-region loses nothing
+    state.bank = bankTown(true);
+    flash(`${state.mood} cleared in ${clock(state.time)} · +${state.bank.pay.total} dust`, false);
+  } else state.bank = { pay: { total: 0, parts: {}, mult: 1 }, stars: { list: [], opened: [] }, deals: { completed: [] }, heatUp: false, heatOpen: false, skinsBefore: 0 }; // (?region: no town)
   const hold = quick ? 0 : 1300; // the swap waits for the dust to cover the town
   if (!quick) {
     state.slowmo = P2.slowmo;
@@ -1044,10 +1059,11 @@ async function breakout(quick = false) {
   }
 }
 window.__breakout = () => breakout(true);
+const phase2Run = () => PHASE2 && state.mode === 'city' && !state.mutator;
 
 /** Start building the region between frames while the town is still being eaten (3 ms a slice). */
 function prebuildRegion() {
-  state.slice = slicer(3);
+  state.slice = slicer(3, () => post.fps > 0 && post.fps < 55); // (pauses while the game is below 55 fps)
   state.regionJob = loadPacks(assets, ['region']).then(() => Region.create(assets, city, field, state.slice, false))
     .catch((e) => { if (!state.slice?.cancelled) console.warn('region prebuild failed', e); return null; });
 }
@@ -1062,6 +1078,36 @@ function nextSettlement() {
     for (const q of city.settlements) { const d = Math.hypot(q.x - hole.x, q.z - hole.z); if ((q.left ?? q.total) && d < bd) { bd = d; best = q; } }
   }
   return (state.target = best);
+}
+
+/**
+ * The town's results: clear time, daily/weekly records, stars, contracts, Heat and its dust. Called by endRun, or at the
+ * breakout (Phase 2 banks the town at once, so leaving mid-region never loses a clear).
+ */
+function bankTown(cleared) {
+  const clearT = state.cityTime ?? state.time;
+  if (state.phase === 1 && !state.cityTime) { state.townScore = state.score; state.townBonus = state.bonus; }
+  const pay = runDust(cleared);
+  save.dust += pay.total;
+  save.best = Math.max(save.best, state.best);
+  if (cleared) save.fastest = Math.min(save.fastest || Infinity, clearT);
+  if (state.mutator) recordWeek(thisWeek().key, state.best, cleared && clearT);
+  if (state.daily) {
+    const d = { r: 0, ...save.daily[state.seed] };
+    d.r = Math.max(d.r, state.best);
+    if (cleared) d.clear = Math.min(d.clear || Infinity, clearT);
+    save.daily[state.seed] = d;
+  }
+  const skinsBefore = Object.values(SKINS).filter((k) => k.stars && totalStars() >= k.stars).length;
+  state.stats.eventLive = events.live ? events.kind : null;
+  const clearedBefore = !!save.cleared?.[state.mood];
+  const stars = scoreRun(state.mood, state.stats, cleared, clearT);
+  Object.assign(state.stats, { cravings: state.cravings, rivals: state.rivalsEaten, rares: state.rares, best: state.best });
+  const deals = BOT ? { completed: [], dust: 0 } : scoreContracts(state.stats, { won: cleared, time: clearT, heat: state.heat, mode: state.mode });
+  const heatUp = cleared && state.heat > 0 && recordHeat(state.mood, state.heat);
+  const heatOpen = cleared && !clearedBefore; // first clear: Heat unlocks for this city
+  persist();
+  return { pay, stars, deals, heatUp, heatOpen, skinsBefore };
 }
 
 /** Ends a run. won = every building swallowed; why = how a lost run ended. */
@@ -1082,27 +1128,14 @@ function endRun(won, why) {
   ensurePacks(runMood(nextSeed, false), () => {}).catch((e) => console.warn('pack preload failed', e));
   if (won) { sfx.star(); state.finale = 3.4; }
   else { state.sealing = 1.2; sfx.seal(); }
-  // Phase 2: the town was cleared at breakout (its clock stopped then); everything town-side counts as a clear
-  const region = state.phase === 2, cleared = won || region, clearT = state.cityTime ?? state.time;
-  const pay = runDust(cleared), dust = pay.total, mult = pay.mult;
-  save.dust += dust;
+  // Phase 2: the town was banked at the breakout (bankTown); this run adds the region's pay on top
+  const region = state.phase === 2, clearT = state.cityTime ?? state.time;
+  const bank = state.bank ?? bankTown(won);
+  const pay = region ? runDust(won) : bank.pay, dust = pay.total + (region ? bank.pay.total : 0), mult = pay.mult;
+  if (region) save.dust += pay.total;
   save.best = Math.max(save.best, state.best);
-  if (cleared) save.fastest = Math.min(save.fastest || Infinity, clearT);
-  if (state.mutator) recordWeek(thisWeek().key, state.best, cleared && clearT);
-  if (state.daily) {
-    const d = { r: 0, ...save.daily[state.seed] };
-    d.r = Math.max(d.r, state.best);
-    if (cleared) d.clear = Math.min(d.clear || Infinity, clearT);
-    save.daily[state.seed] = d;
-  }
-  const skinsBefore = Object.values(SKINS).filter((k) => k.stars && totalStars() >= k.stars).length;
-  state.stats.eventLive = events.live ? events.kind : null;
-  const clearedBefore = !!save.cleared?.[state.mood];
-  const stars = scoreRun(state.mood, state.stats, cleared, clearT);
-  Object.assign(state.stats, { cravings: state.cravings, rivals: state.rivalsEaten, rares: state.rares, best: state.best });
-  const deals = BOT ? { completed: [], dust: 0 } : scoreContracts(state.stats, { won: cleared, time: clearT, heat: state.heat, mode: state.mode });
-  const heatUp = cleared && state.heat > 0 && recordHeat(state.mood, state.heat);
-  const heatOpen = cleared && !clearedBefore; // first clear: Heat unlocks for this city
+  if (state.daily) save.daily[state.seed] = { ...save.daily[state.seed], r: Math.max(save.daily[state.seed]?.r || 0, state.best) };
+  const { stars, deals, heatUp, heatOpen, skinsBefore } = bank;
   const towns = region ? city.settlements.filter((q) => q.left === 0).length : 0;
   let blitzBest = false;
   if (state.mode === 'blitz') {
@@ -1126,6 +1159,7 @@ function endRun(won, why) {
       : `You swallowed <b>${state.eaten}</b> things and grew to <b>${state.best.toFixed(1)} m</b>${state.daily ? ' in today\'s city' : ''}. <b>${state.left}</b> buildings still stand.`)
       + (state.bite ? `<span class="bite"><img alt="" src="${state.bite}"><small>Biggest bite · ${title(state.biteName)}</small></span>` : '<br>')
       + `+<b>${dust}</b> void dust${mult > 1 ? ` (×${mult}${state.card !== 'none' ? ` ${CARDS[state.card].name}` : ''}${state.heat ? ` 🔥${state.heat}` : ''})` : ''} · best ever <b>${save.best.toFixed(1)} m</b>`
+      + (region ? `<small class="pay">town ${bank.pay.total} · country ${pay.total}</small>` : '')
       + `<small class="pay">${Object.entries(pay.parts).filter(([, v]) => v >= 0.5).map(([k, v]) => `${k} ${Math.round(v)}`).join(' · ')}</small>`
       + `<span class="goals"><small>${state.mood} stars</small>${stars.list.map((c, i) => `<i class="${c.done ? 'done' : ''}${c.fresh ? ' fresh' : ''}" style="--d:${i * 0.25}s">${c.done ? '★' : '☆'} ${c.text}</i>`).join('')}</span>`
       + stars.opened.map((m) => `<span class="unlock">🔓 New city: <b>${m}</b></span>`).join('')
@@ -1282,10 +1316,12 @@ function frame(dt) {
     if (!state.playing) { /* eaten above */ }
     else if (hole.r < (state.phase === 2 ? P2.dead : DEAD_R)) endRun(false);
     else if (state.phase === 2 && city.capital?.left === 0) endRun(true, 'capital');
-    else if (state.left === 0 && state.phase === 1) { if (PHASE2 && state.mode === 'city') breakout(); else endRun(true); }
-    if (PHASE2 && state.mode === 'city' && state.phase === 1 && !state.regionJob && state.time > 6) prebuildRegion();
-    else if (state.card === 'rush' && state.time > 300) endRun(false, 'Too slow — Rush Hour over');
-    else if (state.hm.limit && state.time > state.hm.limit) endRun(false, 'Too slow — Against the Clock');
+    // Phase 2 follows a normal town clear (not Blitz, not the weekly mutator runs: their twist is the whole run)
+    else if (state.left === 0 && state.phase === 1) { if (phase2Run()) breakout(); else endRun(true); }
+    if (phase2Run() && state.phase === 1 && !state.regionJob && state.time > 6) prebuildRegion();
+    // (time limits are for the town: after the breakout the clock is the town's clear time)
+    else if (state.phase === 1 && state.card === 'rush' && state.time > 300) endRun(false, 'Too slow — Rush Hour over');
+    else if (state.phase === 1 && state.hm.limit && state.time > state.hm.limit) endRun(false, 'Too slow — Against the Clock');
     else if (state.mode === 'blitz' && state.time >= BLITZ) endRun(false, 'Time! — Blitz over');
     if (state.playing && state.time >= state.happyAt) { // Happy Hour starts
       state.happyAt = Infinity;

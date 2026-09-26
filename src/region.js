@@ -45,15 +45,18 @@ async function run(gen, slice) {
 }
 
 /**
- * A time slicer for building in the background: work runs until `budget` ms have passed, then waits for the next
- * frame. Set `.budget` higher when the result is needed now; set `.cancelled` to abandon the build.
+ * A time slicer for building in the background: at most one slice of `budget` ms per animation frame (so it never
+ * stacks several between two frames), and none while `hold()` says the game is struggling (the fps watchdog must not
+ * blame the GPU for our work). Set `.budget` higher when the result is needed now; set `.cancelled` to abandon it.
  */
-export function slicer(budget = 3) {
+export function slicer(budget = 3, hold = () => false) {
   let t0 = performance.now();
+  const nextFrame = () => new Promise((r) => (document.hidden ? setTimeout(r, 0) : requestAnimationFrame(() => r())));
   const s = async () => {
     if (s.cancelled) throw new Error('region build cancelled');
     if (performance.now() - t0 < s.budget) return;
-    await new Promise((r) => setTimeout(r, 0));
+    await nextFrame();
+    while (s.budget < 20 && hold() && !s.cancelled) await nextFrame();
     t0 = performance.now();
   };
   s.budget = budget;
@@ -92,7 +95,8 @@ export class Region extends City {
     const step = slice;
     const times = {}, t = (k, t0) => { times[k] = Math.round(performance.now() - t0); };
     let t0 = performance.now();
-    const g = new Region(assets, from.terrainSeed ^ 0x2e61, holeField, { defer: true, mood: from.mood.name, mutator: from.mutator });
+    // (the weekly mutator stays in town: ducks, miniature twins and low gravity aren't built for the region's ladder)
+    const g = new Region(assets, from.terrainSeed ^ 0x2e61, holeField, { defer: true, mood: from.mood.name, mutator: null });
     Object.assign(g, { N: from.N, half: from.half, mood: from.mood, beach: from.beach, runwayRow: -1, railRow: -1, tiles: from.tiles });
     g.bound = REGION_BOUND;
     g.chunk = 400; // one instanced mesh per model per settlement (first-sight shader builds: PERFORMANCE.md)
