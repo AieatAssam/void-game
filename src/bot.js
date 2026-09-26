@@ -44,4 +44,21 @@ export function installBot() {
     log.push('hits: ' + JSON.stringify(hits.reduce((m, h) => ({ ...m, [h]: (m[h] || 0) + 1 }), {})));
     return log;
   };
+
+  /** Phase 2 balance: from the Phase 2 start (?region&bot), run the greedy bot for up to `seconds` of game time. */
+  window.__regionBot = (seconds = 720, dt = 1 / 30) => {
+    const log = [];
+    window.__headless = true;
+    for (let t = 0; t < seconds; t += dt) {
+      window.__tick(dt);
+      const { hole, state, director, city } = window.__game();
+      if (Math.abs(t % 60) < dt) log.push(`${t.toFixed(0)}s r=${hole.r.toFixed(1)} ★${director.stars} cleared=${city.settlements.filter((q) => q.left === 0).map((q) => q.kind[0]).join('')} hits=${state.hits.length}`);
+      if (state.over) { log.push(`${city.capital?.left === 0 ? 'WON' : 'DIED'} at ${t.toFixed(0)}s best r=${state.best.toFixed(1)}`); break; }
+    }
+    window.__headless = false;
+    const { state } = window.__game();
+    log.push('hits: ' + JSON.stringify(state.hits.reduce((m, h) => ({ ...m, [h]: (m[h] || 0) + 1 }), {})));
+    log.push('dust: ' + JSON.stringify(window.__econ?.()));
+    return log;
+  };
 }

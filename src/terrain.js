@@ -405,8 +405,8 @@ export class Terrain {
         const pine = this.nz.noise(x / 90, z / 90) > -0.05;
         put(pine ? 'tree_pine' : r() < 0.6 ? 'tree_big' : 'tree_small', x, z, 0.8 + r() * 0.55);
         if (r() < (g ? 0.5 : 0.3)) put('bush', x + (r() - 0.5) * 4, z + (r() - 0.5) * 4, 0.9 + r() * 0.8); // undergrowth
-      } else if (slope > 0.22 && r() < 0.35) put('rock', x, z, 0.6 + r() * 2.4, r() * 6.28, 0.35);
-      else if (rocky > 0.28 && r() < 0.5) put('rock', x, z, r() < 0.08 ? 5 + r() * 5 : 1 + r() * 3, r() * 6.28, 0.4);
+      } else if (slope > 0.22 && r() < 0.35 && !(g && this.heightAt(x, z) < this.water + 0.4)) put('rock', x, z, 0.6 + r() * 2.4, r() * 6.28, 0.35);
+      else if (rocky > 0.28 && r() < 0.5 && this.heightAt(x, z) > this.water + 0.4) put('rock', x, z, r() < 0.08 ? 5 + r() * 5 : 1 + r() * 3, r() * 6.28, 0.4);
       else if (near && r() < 0.035) put(r() < 0.5 ? 'tree_big' : 'tree_small', x, z, 0.85 + r() * 0.5);
       else if (near && r() < 0.05) put('bush', x, z, 0.8 + r() * 1.2);
       else if (near && r() < 0.012) put('rock', x, z, 0.4 + r() * 1.0, r() * 6.28, 0.3);

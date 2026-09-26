@@ -23,7 +23,8 @@ def build():
     top = 106.0
     for k in range(12):
         a = k * math.tau / 12
-        p.append(box(f'crown{k}', (0.6, 3.0, 8.0), loc=(math.cos(a) * 6.5, math.sin(a) * 6.5, top + 4.0), color='glow_white', bev=0.1, seg=1, rot=(0, 0, a)))
+        p.append(box(f'crown{k}', (0.6, 3.0, 8.0), loc=(math.cos(a) * 6.5, math.sin(a) * 6.5, top + 4.0), color='white', bev=0.1, seg=1, rot=(0, 0, a)))
+        p.append(box(f'crownL{k}', (0.62, 0.3, 7.0), loc=(math.cos(a) * 6.5, math.sin(a) * 6.5, top + 4.0), color='glow', bev=0.02, seg=1, rot=(0, 0, a)))
     p += [cyl('pad', 7.0, 0.6, loc=(0, 0, top), color='asphalt', seg=32, bev=0.1),
           torus('padring', 5.0, 0.15, loc=(0, 0, top + 0.62), color='hazard', seg=32, rseg=4),
           box('H1', (0.5, 3.0, 0.1), loc=(-1.0, 0, top + 0.62), color='white', bev=0, seg=1),

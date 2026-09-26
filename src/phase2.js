@@ -9,8 +9,11 @@ export const P2 = {
   bellyDrain: 1 / 16, // a full belly lasts 16 s (settlements are a few hundred metres apart)
   meal: 0.08, // eating this fraction of the hole's area fills the belly
   crumb: 0.018, // each crumb (a tree, a hedge, a cow) tops the belly up this much: woods feed you, they don't grow you
-  decayFed: 0.003, // area fraction lost per second while fed
-  decayStarving: 0.025, // ... while starving
+  growth: 0.6, // every bite grows you 60% of a town bite: the whole country has to be eaten
+  capitalGrowth: 0.9, // ... except the capital: the climax pays out (enough to fit the stadium, its last and biggest piece)
+  crumbGrowth: 0.3, // ... and grows you at 30% of a normal bite (the settlements are what grow you)
+  decayFed: 0.002, // area fraction lost per second while fed (travel legs between settlements are long)
+  decayStarving: 0.015, // ... while starving
   dead: 6, // below this radius the ground seals
   speed: (r) => Math.min(40, 18 + r * 0.5), // sub-linear: big feels heavy, the map stays crossable
   turn: (r) => 0.1 + Math.min(0.35, r / 170), // steering smoothing time constant (s): heavier as it grows

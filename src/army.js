@@ -64,13 +64,13 @@ export class Army {
     const C = this.city, view = (14 + hole.r * 8) * 1.5;
     if (!state.playing) return;
     // threat 1: roadblocks on the roads ahead of the hole
-    if (stars >= 1 && this.cool.block <= 0) { this.cool.block = 14; this.roadblock(hole, view); }
+    if (stars >= 1 && this.cool.block <= 0 && this.blocks.filter((e) => !e.toll).length < 2) { this.cool.block = 24; this.roadblock(hole, view); }
     // threat 2: artillery on high ground, a salvo every few seconds
     if (stars >= 2 && this.cool.battery <= 0 && !this.batteries.some((q) => q.guns.some((g) => g.alive))) { this.cool.battery = 30; this.battery(hole, view); }
     // threat 3: strike jets along a line
-    if (stars >= 3 && this.cool.jet <= 0) { this.cool.jet = 16 + Math.random() * 6; this.jetStrike(hole); }
+    if (stars >= 3 && this.cool.jet <= 0) { this.cool.jet = 22 + Math.random() * 8; this.jetStrike(hole); }
     // threat 4: heavy-lift lids
-    if (stars >= 4 && this.cool.lift <= 0) { this.cool.lift = 20; this.lift(hole, view); }
+    if (stars >= 4 && this.cool.lift <= 0) { this.cool.lift = 30; this.lift(hole, view); }
     this.fireBatteries(dt, hole);
     this.fireCannons(dt, hole);
     this.updateBlocks(dt, hole);
@@ -155,15 +155,15 @@ export class Army {
       const alive = b.guns.filter((g) => g.alive && !g.falling && !(g.stunT > 0));
       if (!alive.length) continue;
       if ((b.cool -= dt) > 0) continue;
-      b.cool = 8;
+      b.cool = 11;
       const R = Math.max(6, hole.r * 0.45);
-      alive.forEach((g, i) => {
-        const lead = 1.6 + i * 0.3, spread = hole.r * 0.9;
+      alive.slice(0, 2).forEach((g, i) => { // two guns a salvo: readable, dodgeable
+        const lead = 1.6 + i * 0.3, spread = hole.r * 1.3;
         const tx = hole.x + hole.vx * lead + (Math.random() - 0.5) * spread, tz = hole.z + hole.vz * lead + (Math.random() - 0.5) * spread;
         g.rot = -Math.atan2(tz - g.z, tx - g.x);
         g.actions?.fire?.reset().setLoop(THREE.LoopOnce).play();
         this.city.place(g);
-        this.shell(new THREE.Vector3(g.x, g.gy + 4 * g.gs, g.z), tx, tz, R, 2.2 + i * 0.25, 0.07, 'Shelled!', R * 0.12);
+        this.shell(new THREE.Vector3(g.x, g.gy + 4 * g.gs, g.z), tx, tz, R, 2.2 + i * 0.25, 0.05, 'Shelled!', R * 0.12);
       });
       this.hooks.boom();
     }
@@ -174,13 +174,13 @@ export class Army {
     for (const c of this.cannons) {
       if (!c.alive || c.falling) continue;
       const d = Math.hypot(hole.x - c.x, hole.z - c.z);
-      if (d > 170 || d < hole.r + 2) continue;
+      if (d > 120 || d < hole.r + 2) continue;
       if ((c.cool = (c.cool ?? Math.random() * 3) - dt) > 0) continue;
-      c.cool = 3.2 + Math.random();
+      c.cool = 4.5 + Math.random() * 1.5;
       c.rot = -Math.atan2(hole.z - c.z, hole.x - c.x);
       this.city.place(c);
       const tx = hole.x + hole.vx * 1.4, tz = hole.z + hole.vz * 1.4;
-      this.shell(new THREE.Vector3(c.x, c.gy + 1.2, c.z), tx, tz, Math.max(4, hole.r * 0.3), 1.4, 0.05, 'Cannonball!', 0.7);
+      this.shell(new THREE.Vector3(c.x, c.gy + 1.2, c.z), tx, tz, Math.max(4, hole.r * 0.3), 1.6, 0.035, 'Cannonball!', 0.7);
       this.debris.puff(c.x, c.gy + 1.2, c.z, 0, 1, 0, 2, 3, 1.2, boom, 0.6);
       this.once('cannon', 'Castle re-enactors open fire on the hole');
     }
@@ -330,11 +330,11 @@ export class Army {
           this.hooks.boom();
           if (Math.hypot(hole.x - d.x, hole.z - d.z) < d.R * 0.8 + hole.r * 0.3) { this.hooks.hurt(0.18, 'Void Lid slammed down!'); this.hooks.jam?.(1.2); }
         }
-      } else if (d.t < d.T + 14) {
-        if (Math.hypot(hole.x - d.x, hole.z - d.z) < d.R * 0.8 + hole.r * 0.3) this.hooks.drain(dt);
+      } else if (d.t < d.T + 8) { // setting: slows you and nibbles while you sit in it (get out)
+        if (Math.hypot(hole.x - d.x, hole.z - d.z) < d.R * 0.8 + hole.r * 0.3) this.hooks.drain(dt * 0.35);
       } else {
         e.y -= dt * 3;
-        if (d.t > d.T + 16) { d.gone = true; this.city.remove(e); }
+        if (d.t > d.T + 10) { d.gone = true; this.city.remove(e); }
       }
       this.city.place(e);
       d.ring.visible = !d.landed;
@@ -348,7 +348,7 @@ export class Army {
     const C = this.city, cap = C.capital;
     if (!cap) return;
     // it rolls out of the capital to meet a hole that has come to take it
-    if (!this.boss && hole.r >= 18 && Math.hypot(hole.x - cap.x, hole.z - cap.z) < cap.r + 280) {
+    if (!this.boss && hole.r >= 20 && Math.hypot(hole.x - cap.x, hole.z - cap.z) < cap.r + 280) { // (20 m: the blocks fit - the climax)
       const a = Math.atan2(hole.z - cap.z, hole.x - cap.x);
       this.boss = C.spawn('capper', cap.x + Math.cos(a) * cap.r * 0.5, cap.z + Math.sin(a) * cap.r * 0.5, -a, { noSwallow: true });
       this.boss.capT = 0;
@@ -367,7 +367,7 @@ export class Army {
       return;
     }
     const dx = hole.x - b.x, dz = hole.z - b.z, d = Math.hypot(dx, dz) || 1;
-    const sp = Math.min(d, (10 + hole.r * 0.3) * dt); // slow but relentless
+    const sp = Math.min(d, (8 + hole.r * 0.25) * dt); // slow but relentless
     b.x += (dx / d) * sp; b.z += (dz / d) * sp;
     b.rot += (Math.atan2(Math.sin(-Math.atan2(dz, dx) - b.rot), Math.cos(-Math.atan2(dz, dx) - b.rot))) * Math.min(1, dt * 0.8);
     b.t = (b.t || 0) + dt;
@@ -386,8 +386,8 @@ export class Army {
       this.capRing.material.opacity = 0.4 + 0.3 * Math.sin(b.capT * (8 + b.capT * 10));
       if (b.capT > 2) {
         b.capT = 0;
-        b.cool = 6;
-        this.hooks.hurt(0.22, 'CAPPED!');
+        b.cool = 10;
+        this.hooks.hurt(0.15, 'CAPPED!');
         this.hooks.kick?.(dx / d, dz / d);
         this.debris.dustRing(hole.x, this.ground(hole.x, hole.z), hole.z, hole.r, hole.r, 24, hole.r * 0.6, 2.5, boom);
         this.hooks.boom();

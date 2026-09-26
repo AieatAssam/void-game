@@ -1401,7 +1401,7 @@ function frame(dt) {
       state.pop += residents(e.name, e.meta.tier);
       if (e.mover?.crumb || e.meta.tier < hole.r * 0.12) { // crumbs (trees, hedges, cars at this size): no fanfare each
         const before = hole.area;
-        hole.grow(e.meta.tier, growthShare(e.meta.tier, hole.r));
+        hole.grow(e.meta.tier, growthShare(e.meta.tier, hole.r) * P2.growth * (e.mover?.crumb ? P2.crumbGrowth : 1));
         state.belly = Math.min(1, state.belly + (hole.area - before) / (before * P2.meal) + P2.crumb);
         state.eaten++;
         state.score += Math.PI * e.meta.tier ** 2;
@@ -1428,7 +1428,7 @@ function frame(dt) {
     const mult = (state.card === 'vehicles' ? (VEHICLES.has(e.name) ? 1.5 : 0.25) : state.card === 'glass' ? 1.5 : 1) * kind * (state.happy > 0 ? 1.5 : 1);
     if (BUILDINGS.has(e.name)) st.buildings++;
     if (e.meta.event) st.eventMeals++;
-    hole.grow(e.meta.tier, mult * growthShare(e.meta.tier, hole.r));
+    hole.grow(e.meta.tier, mult * growthShare(e.meta.tier, hole.r) * (state.phase === 2 ? (e.home?.kind === 'capital' ? P2.capitalGrowth : P2.growth) : 1));
     // a full meal is MEAL of the hole's area, capped at a 6 m hole's worth so late game stays feedable
     const meal = (state.phase === 2 ? P2.meal : MEAL) * (1 + level('appetite') * 0.04);
     state.belly = Math.min(1, state.belly + (hole.area - before) / ((state.phase === 2 ? before : Math.min(before, Math.PI * 36)) * meal));

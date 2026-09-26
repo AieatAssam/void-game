@@ -488,10 +488,10 @@
   "mass": 42572.158,
   "kind": "prop",
   "height": 116.7,
-  "tris": 8440,
-  "lodTris": 5466,
-  "lod2Tris": 5434,
-  "bytes": 103044,
+  "tris": 8968,
+  "lodTris": 5994,
+  "lod2Tris": 5962,
+  "bytes": 111776,
   "clips": []
  },
  "grain_silo": {

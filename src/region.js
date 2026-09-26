@@ -350,10 +350,7 @@ export class Region extends City {
       for (const [u, v] of lots) {
         const dist = Math.hypot(u, v);
         if (dist > 205) continue;
-        if (dist < 120 && r() < 0.28) { // a lot of mid-size towers: the ladder's 6-10 m band inside the capital
-          for (const [du, dv] of [[-9, -9], [9, -9], [-9, 9], [9, 9]]) P(r.pick(['skyscraper', 'office', 'hotel', 'apartment']), u + du, v + dv, r.pick([0, Math.PI]));
-          continue;
-        }
+        // (no small towers here: the capital is the final meal and opens at ~16 m - the towns on the way feed you up to it)
         P(u + v > 0 ? 'city_block' : 'city_block_b', u, v, r.pick([0, Math.PI / 2, Math.PI, -Math.PI / 2]));
       }
       for (let k = 0; k < 24; k++) P(r.pick(['car', 'car_b', 'car_c', 'taxi', 'bus']), (r() < 0.5 ? r.range(-190, 190) : Math.round(r.range(-4, 4)) * 50 + 3), (r() < 0.5 ? Math.round(r.range(-4, 4)) * 50 - 3 : r.range(-190, 190)), r() * 6.28);
