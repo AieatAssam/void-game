@@ -1,9 +1,9 @@
 // Swallow sparks: lilac/white motes that burst out of the rim, sized by the bite. One Points draw call.
 import * as THREE from 'three/webgpu';
-import { instancedBufferAttribute, vec4, uv, length, smoothstep, cameraProjectionMatrix, float, pow } from 'three/tsl';
+import { instancedBufferAttribute, vec4, uv, length, smoothstep, cameraProjectionMatrix, float, pow, abs } from 'three/tsl';
 
 /** Camera-facing instanced sprites (WebGPU has no sized points): position/colour/size/alpha per instance. */
-function spriteCloud(n, { additive, world }) {
+function spriteCloud(n, { additive, world, bird = false }) {
   const pos = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage);
   const col = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage);
   const size = new THREE.InstancedBufferAttribute(new Float32Array(n).fill(0.3), 1).setUsage(THREE.DynamicDrawUsage);
@@ -15,9 +15,12 @@ function spriteCloud(n, { additive, world }) {
   mat.sizeNode = world ? s.mul(cameraProjectionMatrix.element(1).element(1)) : s;
   const d = length(uv().sub(0.5));
   const a = instancedBufferAttribute(alpha);
+  // bird: a soft wing "V" instead of a round puff
+  const q = uv().sub(0.5), wing = abs(q.y.add(abs(q.x).mul(0.7)).sub(0.08));
+  const shape = bird ? smoothstep(0.09, 0.03, wing).mul(smoothstep(0.48, 0.38, abs(q.x))) : smoothstep(0.5, 0.15, d);
   mat.colorNode = additive
     ? vec4(instancedBufferAttribute(col).mul(pow(smoothstep(0.5, 0.0, d), float(1.5))).mul(2.2), 1)
-    : vec4(instancedBufferAttribute(col), a.mul(smoothstep(0.5, 0.15, d)));
+    : vec4(instancedBufferAttribute(col), a.mul(shape));
   const sprite = new THREE.Sprite(mat);
   sprite.count = n;
   sprite.frustumCulled = false;
@@ -256,6 +259,59 @@ export class Wisps {
         i++;
       }
     }
+    const c = this.cloud;
+    c.pos.needsUpdate = c.size.needsUpdate = c.alpha.needsUpdate = c.col.needsUpdate = true;
+  }
+}
+
+// ---------- Phase 2 ambient life: flocks of birds over the countryside ----------
+const FLOCKS = 4, PERF = 14;
+const _bc = new THREE.Color(0x2a2a30);
+/**
+ * Loose flocks wheeling over the land near the view, wings flickering (sprite size); they scatter up and away when
+ * the hole passes under them. Dark specks against the fields: another thing to measure the drop against.
+ */
+export class Birds {
+  constructor() {
+    this.cloud = spriteCloud(FLOCKS * PERF, { additive: false, world: true, bird: true });
+    this.sprite = this.cloud.sprite;
+    this.sprite.visible = false;
+    this.flocks = Array.from({ length: FLOCKS }, (_, i) => ({ x: 0, z: 0, y: 40, h: Math.random() * 6.28, t: Math.random() * 10, panic: 0, i,
+      birds: Array.from({ length: PERF }, () => [(Math.random() - 0.5) * 30, (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 30, Math.random() * 6.28]) }));
+    this.placed = false;
+  }
+
+  update(dt, on, target, camDist, hole) {
+    this.sprite.visible = on;
+    if (!on) { this.placed = false; return; }
+    const span = camDist * 0.9;
+    let i = 0;
+    for (const f of this.flocks) {
+      if (!this.placed || Math.hypot(f.x - target.x, f.z - target.z) > span * 1.6) { // (re)enter at the edge of the view
+        const a = Math.random() * 6.28;
+        f.x = target.x + Math.cos(a) * span; f.z = target.z + Math.sin(a) * span; f.h = a + Math.PI + (Math.random() - 0.5);
+        f.y = camDist * (0.12 + Math.random() * 0.1);
+      }
+      f.t += dt;
+      const dh = Math.hypot(hole.x - f.x, hole.z - f.z);
+      if (dh < hole.r * 3 + 30) f.panic = 3; // the ground opens below: scatter
+      f.panic = Math.max(0, f.panic - dt);
+      f.h += Math.sin(f.t * 0.3 + f.i) * dt * 0.25 + (f.panic ? Math.sign(Math.sin(f.h - Math.atan2(f.z - hole.z, f.x - hole.x))) * dt : 0);
+      const v = (9 + camDist * 0.02) * (f.panic ? 2 : 1);
+      f.x += Math.cos(f.h) * v * dt; f.z += Math.sin(f.h) * v * dt;
+      f.y += ((f.panic ? camDist * 0.3 : camDist * 0.15) - f.y) * dt * 0.3;
+      const size = Math.max(1.6, camDist * 0.008);
+      for (const b of f.birds) {
+        const flap = 0.7 + 0.3 * Math.abs(Math.sin(f.t * 9 + b[3]));
+        const sp = f.panic ? 1.8 : 1;
+        this.cloud.pos.array.set([f.x + b[0] * sp + Math.sin(f.t * 0.7 + b[3]) * 3, f.y + b[1], f.z + b[2] * sp + Math.cos(f.t * 0.6 + b[3]) * 3], i * 3);
+        this.cloud.size.array[i] = size * flap;
+        this.cloud.alpha.array[i] = 0.75;
+        _bc.toArray(this.cloud.col.array, i * 3);
+        i++;
+      }
+    }
+    this.placed = true;
     const c = this.cloud;
     c.pos.needsUpdate = c.size.needsUpdate = c.alpha.needsUpdate = c.col.needsUpdate = true;
   }

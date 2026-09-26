@@ -19,7 +19,7 @@ import { installBot } from './bot.js';
 import { UPGRADES, ECON, save, persist, level, buy, todaySeed } from './meta.js';
 import * as sfx from './sfx.js';
 import { Post } from './post.js';
-import { Sparks, Debris, SMOKE, Wisps } from './fx.js';
+import { Sparks, Debris, SMOKE, Wisps, Birds } from './fx.js';
 import { surfaceTime, surfaceOn, world, lightsTime, lightsPulse, viewScale } from './surface.js';
 import { Grass } from './grass.js';
 import { Q } from './quality.js';
@@ -46,6 +46,8 @@ const debris = new Debris();
 scene.add(debris.group);
 const wisps = new Wisps(); // Phase 2: low cloud between the camera and the land
 scene.add(wisps.sprite);
+const birds = new Birds(); // Phase 2: flocks over the countryside
+scene.add(birds.sprite);
 const LOW_FX = /[?&]low\b/.test(location.search); // ?low: skip extra particles and smoke
 // debug framing for screenshots: ?view=x,z,dist[,yaw,pitch]
 const VIEW = new URLSearchParams(location.search).get('view')?.split(',').map(Number);
@@ -1505,6 +1507,7 @@ function frame(dt) {
   sparks.update(dt);
   debris.update(dt);
   wisps.update(dt, camTarget, camDist, look.sun.color);
+  birds.update(dt, state.phase === 2 && world.night.value < 0.5, camTarget, camDist, hole); // (no birds at night)
   chains.update(dt, hole, director);
   for (const s of bubbles) {
     if (s.t <= 0) continue;
