@@ -107,3 +107,50 @@ Visible window, Apple Silicon, Chrome, high tier, 1627×1071 at 1.5x:
 
 Loading: ~3–4 s to the menu on WebGPU, ~20 s on WebGL2 (shader compiles; the precompile wait is capped at 8 s so a
 background tab can't stall it, since three's WebGL backend polls compiles with requestAnimationFrame).
+
+### Frame-time analysis and the breakout stall (`?fps`)
+
+The `?fps` overlay now records every frame:
+- **Numbers:** now, 10 s average, 1% low, min and max fps, worst frame (10 s and since load).
+- **Hitch counts:** frames over 33, 50 and 100 ms.
+- **Graph:** a 10 s frame-time graph.
+- **Hitch log:** every frame over 50 ms, with its JS time, render-submit time and what the game was doing (phase,
+  breakout, region reveal).
+- **API:** `__perf()` returns all of it, and `__perf(true)` resets it.
+- **Hidden pages:** frames while the page is hidden are skipped, because the browser throttles them (a sleeping laptop
+  screen counts as hidden).
+
+Measure with `nowatch`, or the quality watchdog changes resolution under you. A/B the steady state only on a quiet
+machine; the pane inside the desktop app varies by ±10 fps between identical runs. Stalls over ~150 ms are unambiguous.
+
+**What the stats found (seed 4242, visible window):**
+- **One shader program per instanced mesh.** Below the uniform-buffer limit three.js reads instance matrices from a
+  uniform array whose block it names per mesh. The island then needed 862 vertex programs for 311 meshes. WebGL
+  compiles each program on the main thread: about 650 ms, measured with a long-task observer, even through
+  `compileAsync`. That caused a 4.6 s frame at the swap and 200–600 ms frames as the island revealed.
+- **The fix:** `getUniformBufferLimit` returns 0 (`look.js`), so instance matrices are always vertex attributes and
+  meshes share programs. The island went from 862 programs to 58. Steady state is unchanged: WebGL 59–60 fps with the
+  worst frame about 20 ms; WebGPU 54–57 fps with the worst about 22 ms.
+- **The precompile built the wrong variants.** It used `renderer.compileAsync(scene, camera)` on the canvas, but the
+  game draws through the post pipeline's scene pass (its own target and MRT), so the first real draw compiled again.
+  `post.precompile()` now compiles in the pass's context:
+  - Loading on WebGL: one mesh per material and geometry layout (every program exists before play); each mesh's own
+    ~25 ms node build happens as it comes into view.
+  - Loading on WebGPU: on-screen only (queueing all 1,261 town meshes cost 8 s of load and a stuttery first minute).
+  - At the breakout: the island's meshes, one per frame. three's own loop ran the builds back to back and dropped
+    the cinematic to 10 fps. Instanced meshes at count 0 (culled traffic, crumbs) are included.
+- **Culled instance buffers** upload only the drawn prefix (`upload()` in city.js).
+- **The reveal** slows to one mesh per frame while frames run long.
+- **WebGL loading** dropped from 20 s to about 4 s.
+
+| Breakout (town, switch, island) | Before | After |
+|---|---|---|
+| WebGL: swap frame | 4.0–4.6 s | 1.3–1.4 s |
+| WebGL: reveal | ~15 frames of 200–600 ms | 3–7 frames of 90–160 ms |
+| WebGL: steady island | 59 fps | 60 fps, worst frame 20 ms |
+| WebGPU: swap frame | ~300 ms | 340 ms |
+| WebGPU: cinematic | smooth | smooth (a few 90–130 ms frames) |
+| WebGPU: reveal | 7–10 frames of 100–140 ms | 6 frames of 80–145 ms |
+
+**Still open:** the swap frame compiles about 7 programs that exist only once the switch happens (probably the new
+systems: army units, rival holes, capsules), and shadow-pass shaders aren't covered by any precompile.

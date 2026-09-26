@@ -67,11 +67,8 @@ const DEAD_R = 0.26;
 const MAX_HIT = 0.25; // rule 3: no single hit takes more than 25%
 
 // Loading: files are ~80% of the bar, then building the first city and compiling its shaders (each stage paints first).
-// compile pipelines up front, but never wait on it forever: three's WebGL backend polls parallel compiles with
-// requestAnimationFrame, which never fires in a background tab (the load used to stall at 90% there)
-async function precompile() {
-  try { await Promise.race([renderer.compileAsync(scene, camera), new Promise((r) => setTimeout(r, 8000))]); } catch (e) { console.warn('precompile skipped', e); }
-}
+// compile every pipeline up front, in the post pipeline's real context (post.precompile), hidden meshes included
+const precompile = () => post.precompile();
 const nextPaint = () => new Promise((r) => (document.hidden ? setTimeout(r, 0) : requestAnimationFrame(() => setTimeout(r, 0)))); // (no rAF in a background tab)
 let lastLabel = '';
 const TIPS = ['Swallow what fits. Everything bigger waits until you grow.', 'Clear the town and the hole breaks out across the island.',
@@ -1049,13 +1046,23 @@ async function breakout(quick = false) {
   // normally prebuilt in the background during the town (prebuildRegion); if not, finish it now in bigger slices
   if (!state.regionJob) prebuildRegion();
   state.slice.budget = quick ? 1000 : 40; // (?region: nothing to show meanwhile, just build it)
-  const [reg] = await Promise.all([state.regionJob, new Promise((r) => setTimeout(r, hold))]);
+  // while the cinematic plays: build the region's meshes and compile every pipeline they need in the background, so the
+  // swap and the reveal don't compile on first draw (WebGL: 4 s at the swap, then 200-400 ms per few meshes)
+  const ready = state.regionJob.then(async (g) => {
+    if (!g) return null;
+    await nextPaint();
+    g.finish();
+    await nextPaint();
+    await post.precompile(g.group, quick ? 20000 : 12000);
+    return g;
+  });
+  const [reg] = await Promise.all([ready, new Promise((r) => setTimeout(r, hold))]);
   if (!reg) { state.breaking = false; state.slowmo = 1; endRun(true); return; }
-  reg.finish();
   await nextPaint(); // (finish and the grass mask render in separate frames)
   // the grass mask renders now (off-screen); the region's meshes reveal a few per frame after the swap (Region.budget):
   // compiling them all up front, or drawing them all at once, both froze the game for a second or more
   const grass2 = new Grass(renderer, reg.groundMeshes, Math.min(reg.bound, 700), field, { density: +(new URLSearchParams(location.search).get('grass') ?? Q.grass) * 0.6, far: Q.grassFar, lawns: [] });
+  await post.precompile(grass2.group, quick ? 8000 : 4000); // (its blades and the grass mask: the swap frame compiled them)
   reg.reveal = 0;
   // swap under a fresh wave of dust: the new world goes in, the old systems go out
   if (!quick) {
@@ -1105,7 +1112,7 @@ async function breakout(quick = false) {
     bannerUntil = performance.now() + 2600;
   }
 }
-window.__breakout = () => breakout(true);
+window.__breakout = (quick = true) => breakout(quick); // (dev: __breakout(false) plays the real cinematic)
 const phase2Run = () => PHASE2 && state.mode === 'city' && !state.mutator;
 
 /** Start building the region between frames while the town is still being eaten (3 ms a slice). */
@@ -1227,38 +1234,94 @@ const camTarget = new THREE.Vector3(hole.x, 0, hole.z);
 const _v = new THREE.Vector3();
 let camDist = 14 * LENS, camYaw = 0;
 
-// ?fps: live performance overlay (frame rate, frame time, draw calls, triangles, tier and any quality steps taken)
+// ?fps: live performance overlay. Every frame is recorded (interval, JS game time, render submit time); the overlay shows
+// now / 10 s average / 1% low / worst, a 10 s frame-time graph and hitch counts, and every hitch (>50 ms) is logged with
+// what the game was doing (phase, breakout, region reveal). __perf() returns the numbers, __perf(true) resets them.
 const fpsEl = new URLSearchParams(location.search).has('fps') ? Object.assign(document.createElement('div'), { id: 'fps' }) : null;
+const fpsTxt = fpsEl && fpsEl.appendChild(document.createElement('pre'));
+const fpsGraph = fpsEl && fpsEl.appendChild(Object.assign(document.createElement('canvas'), { width: 300, height: 60 }));
 if (fpsEl) document.body.append(fpsEl);
-const perf = { t0: performance.now(), n: 0, worst: 0, last: performance.now(), cpu: 0, sub: 0, gpu: null, gpuN: 0, gpuBusy: false };
-function perfOverlay() {
-  const now = performance.now();
-  perf.worst = Math.max(perf.worst, now - perf.last);
+const HIST = 2400; // frames kept (10 s at up to 240 Hz)
+const perf = {
+  last: performance.now(), shown: 0, cpu: 0, sub: 0, gpu: null, gpuN: 0, gpuBusy: false,
+  at: new Float64Array(HIST), dt: new Float32Array(HIST), js: new Float32Array(HIST), sb: new Float32Array(HIST), i: 0, n: 0,
+  hitches: [], since: performance.now(), worstEver: 0,
+};
+function perfTag() {
+  return [`p${state?.phase ?? 1}`, state?.breaking && 'breakout', city?.reveal != null && city.meshes && city.reveal < city.meshes.length && `reveal ${city.reveal}/${city.meshes.length}`,
+    state?.draft && 'draft', !state?.playing && 'menu'].filter(Boolean).join(' ');
+}
+function perfStats(win = 10000) {
+  const now = performance.now(), d = [];
+  let js = 0, sb = 0;
+  for (let k = 0; k < Math.min(perf.n, HIST); k++) {
+    const j = (perf.i - 1 - k + HIST) % HIST;
+    if (now - perf.at[j] > win) break;
+    d.push(perf.dt[j]); js += perf.js[j]; sb += perf.sb[j];
+  }
+  if (!d.length) return null;
+  const sum = d.reduce((a, b) => a + b, 0), sorted = [...d].sort((a, b) => b - a);
+  const p99 = sorted[Math.floor(sorted.length * 0.01)], worst = sorted[0], best = sorted[sorted.length - 1];
+  return { frames: d.length, avgFps: (1000 * d.length) / sum, lowFps1: 1000 / p99, minFps: 1000 / worst, maxFps: 1000 / best, worstMs: worst,
+    avgJs: js / d.length, avgSubmit: sb / d.length, over33: d.filter((v) => v > 33.4).length, over50: d.filter((v) => v > 50).length, over100: d.filter((v) => v > 100).length };
+}
+window.__perf = (reset = false) => {
+  const out = { hidden: document.hidden, hiddenRecently: performance.now() - (perf.hiddenT || -1e9) < 10000, last10s: perfStats(), last1s: perfStats(1000), worstEverMs: perf.worstEver, hitches: perf.hitches.slice(), since: ((performance.now() - perf.since) / 1000).toFixed(0) + 's' };
+  if (reset) Object.assign(perf, { hitches: [], worstEver: 0, since: performance.now(), n: 0, i: 0 });
+  return out;
+};
+function perfOverlay(jsMs, subMs) {
+  const now = performance.now(), dt = now - perf.last;
   perf.last = now;
-  perf.n++;
-  // GPU time per frame (WebGPU timestamp queries; resolved every frame, so the total covers about one frame)
+  // a hidden page is throttled by the browser: those frames say nothing about the game, so they aren't recorded
+  if (document.hidden) { perf.hiddenT = now; return; }
+  if (now - (perf.hiddenT || 0) < 500) return; // (and the first frames back are catch-up)
+  perf.at[perf.i] = now; perf.dt[perf.i] = dt; perf.js[perf.i] = jsMs; perf.sb[perf.i] = subMs;
+  perf.i = (perf.i + 1) % HIST; perf.n++;
+  if (perf.n > 30) { // (skip the first frames after load)
+    perf.worstEver = Math.max(perf.worstEver, dt);
+    if (dt > 50) { perf.hitches.push({ t: +((now - perf.since) / 1000).toFixed(1), ms: Math.round(dt), js: +jsMs.toFixed(1), submit: +subMs.toFixed(1), tag: perfTag() }); if (perf.hitches.length > 200) perf.hitches.shift(); }
+  }
+  // GPU time per frame (WebGPU timestamp queries)
   perf.gpuN++;
   if (renderer.backend.trackTimestamp && !perf.gpuBusy) {
     perf.gpuBusy = true;
     const frames = perf.gpuN;
     perf.gpuN = 0;
-    renderer.resolveTimestampsAsync('render').then((ms) => { if (ms > 0) perf.gpu = ms / Math.max(1, frames); }).catch(() => {}).finally(() => { perf.gpuBusy = false; });
+    renderer.resolveTimestampsAsync('render').then((ms) => { if (ms > 0 && ms < 1000) perf.gpu = ms / Math.max(1, frames); }).catch(() => {}).finally(() => { perf.gpuBusy = false; });
   }
-  if (now - perf.t0 < 500) return;
-  const fps = (perf.n * 1000) / (now - perf.t0), r = renderer.info.render, o = post.opts || {};
+  if (now - perf.shown < 250) return;
+  perf.shown = now;
+  const a = perfStats(), b = perfStats(1000), r = renderer.info.render, o = post.opts || {};
+  if (!a || !b) return;
   const tris = r.triangles > 1e6 ? `${(r.triangles / 1e6).toFixed(2)}M` : `${Math.round(r.triangles / 1e3)}k`;
-  fpsEl.textContent = `${fps.toFixed(0)} fps · ${(1000 / fps).toFixed(1)} ms (worst ${perf.worst.toFixed(0)})\n`
-    + `CPU ${(perf.cpu / perf.n).toFixed(1)} ms (game ${((perf.cpu - perf.sub) / perf.n).toFixed(1)} · render submit ${(perf.sub / perf.n).toFixed(1)}) · GPU ${renderer.backend.trackTimestamp ? (perf.gpu == null ? '…' : `${perf.gpu.toFixed(1)} ms`) : 'n/a'}\n`
-    + `${r.drawCalls} draws · ${tris} tris\n`
+  const lastHitch = perf.hitches.at(-1);
+  fpsTxt.textContent = `now ${b.avgFps.toFixed(0)} fps · 10s avg ${a.avgFps.toFixed(0)} · 1% low ${a.lowFps1.toFixed(0)} · min ${a.minFps.toFixed(0)} · max ${a.maxFps.toFixed(0)}\n`
+    + `frame worst ${a.worstMs.toFixed(0)} ms (10s) · ${perf.worstEver.toFixed(0)} ms (since ${((now - perf.since) / 1000).toFixed(0)}s)\n`
+    + `hitches 10s: >33ms ${a.over33} · >50ms ${a.over50} · >100ms ${a.over100} · total ${perf.hitches.length}\n`
+    + (lastHitch ? `last hitch ${lastHitch.ms} ms at ${lastHitch.t}s (js ${lastHitch.js} · submit ${lastHitch.submit}) ${lastHitch.tag}\n` : '')
+    + `CPU js ${a.avgJs.toFixed(1)} ms · submit ${a.avgSubmit.toFixed(1)} ms · GPU ${renderer.backend.trackTimestamp ? (perf.gpu == null ? '…' : `${perf.gpu.toFixed(1)} ms`) : 'n/a'}\n`
+    + `${r.drawCalls} draws · ${tris} tris · ${perfTag()}\n`
     + `${Q.tier} · ${renderer.backend.isWebGPUBackend ? 'WebGPU' : 'WebGL2'} · ${renderer.getPixelRatio()}x · ${renderer.domElement.width}×${renderer.domElement.height}\n`
     + `AO ${o.ao ? `${o.aoRes}x` : 'off'} · bloom ${o.bloom ? 'on' : 'off'} · grass ${grass.layers.length ? (post.lowSpec ? 'half' : 'on') : 'off'}`
     + (post.steps ? `\nfallback: ${post.steps.join(' → ')}` : '');
-  Object.assign(perf, { t0: now, n: 0, worst: 0, cpu: 0, sub: 0 });
+  // graph: the last 10 s of frame times (green under 16.7 ms, amber to 33, red above), guide lines at 60 and 30 fps
+  const g = fpsGraph.getContext('2d'), W = fpsGraph.width, H = fpsGraph.height, y = (ms) => H - Math.min(H, (ms / 100) * H);
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = '#ffffff22'; g.fillRect(0, y(16.7), W, 1); g.fillRect(0, y(33.3), W, 1);
+  for (let k = 0; k < Math.min(perf.n, HIST); k++) {
+    const j = (perf.i - 1 - k + HIST) % HIST, age = now - perf.at[j];
+    if (age > 10000) break;
+    const x = W - (age / 10000) * W, v = perf.dt[j];
+    g.fillStyle = v > 33.4 ? '#ff5d5d' : v > 17.5 ? '#ffc84a' : '#7be38f';
+    g.fillRect(x, y(v), Math.max(1, W / 600), H - y(v));
+  }
 }
 renderer.setAnimationLoop(() => {
   const t0 = fpsEl && performance.now();
+  if (fpsEl) perf.sub = 0;
   frame(Math.min(timer.getDelta(), 1 / 20));
-  if (fpsEl) { perf.cpu += performance.now() - t0; perfOverlay(); }
+  if (fpsEl) { const all = performance.now() - t0; perfOverlay(all - perf.sub, perf.sub); }
 });
 // (stepping outside the animation loop: advance three's frame counter too, or per-frame passes won't re-render)
 window.__tick = (dt = 1 / 60, n = 1) => {

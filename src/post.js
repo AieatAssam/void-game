@@ -143,6 +143,68 @@ export class Post {
 
   setSize() {}
 
+  /**
+   * Compile what `root` will draw (default: the scene) in the scene pass's own render context (its target and MRT:
+   * renderer.compileAsync on the canvas built different variants, so the first real draw compiled again).
+   * - WebGL compiles on the main thread at first draw, so everything is compiled up front, hidden or not.
+   * - WebGPU builds pipelines in the background; queueing all 1,200+ town meshes cost 8 s of load and a stuttery first
+   *   minute there, so only what's on screen (plus a root about to appear) is compiled.
+   * A root is compiled one mesh per frame: three's own loop runs the builds back to back (~24 ms each) and starved
+   * rendering (the breakout cinematic dropped to 10 fps). The wait gives up after `timeout` ms: three's WebGL backend
+   * polls with requestAnimationFrame, which never fires in a background tab.
+   */
+  async precompile(root = null, timeout = 8000) {
+    const r = this.renderer, sp = this.scenePass, scene = this.scene, cam = this.camera;
+    const withPass = (fn) => { // (collect synchronously in the scene pass's context, then put the renderer back)
+      if (!sp) return fn();
+      const rt = r.getRenderTarget(), mrt = r.getMRT();
+      try { r.setRenderTarget(sp.renderTarget); r.setMRT(sp.getMRT()); return fn(); } finally { r.setRenderTarget(rt); r.setMRT(mrt); }
+    };
+    const race = (p, ms) => Promise.race([p, new Promise((res) => setTimeout(res, ms))]).catch((e) => console.warn('precompile skipped', e));
+    if (!root) { // the whole scene at once, behind the loading screen
+      // WebGL: one representative per material + geometry layout, so every program exists before play (each costs
+      // ~650 ms on the main thread); each mesh's own node build (~25 ms) happens as it first comes into view
+      const flip = [], seen = new Set();
+      if (!r.backend.isWebGPUBackend) scene.traverse((o) => {
+        if (!o.isMesh) return;
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        const key = mats.map((m) => m?.uuid).join() + '|' + Object.keys(o.geometry?.attributes || {}).sort().join() + '|' + o.receiveShadow + o.isInstancedMesh;
+        const rep = !seen.has(key);
+        seen.add(key);
+        if (rep === o.visible && !rep) return;
+        for (let q = o; q; q = q.parent) if (rep && !q.visible) { flip.push([q, q.visible, q.frustumCulled]); q.visible = true; }
+        flip.push([o, o.visible, o.frustumCulled]);
+        o.visible = rep;
+        if (rep) o.frustumCulled = false;
+      });
+      const p = withPass(() => r.compileAsync(scene, cam));
+      for (const [o, v, f] of flip.reverse()) { o.visible = v; o.frustumCulled = f; } // (reverse: parents may be listed twice)
+      return race(p, timeout);
+    }
+    const t0 = performance.now(), reps = [], rest = [], seen = new Set();
+    root.traverse((o) => {
+      if (!(o.isMesh || o.isPoints || o.isLine || o.isSprite)) return;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      const key = mats.map((m) => m?.uuid).join() + '|' + Object.keys(o.geometry?.attributes || {}).sort().join() + '|' + o.receiveShadow + o.isInstancedMesh;
+      (seen.has(key) ? rest : reps).push(o);
+      seen.add(key);
+    });
+    const meshes = [...reps, ...rest]; // (one per program first: on WebGL a missing program costs ~650 ms at first draw)
+    for (const o of meshes) {
+      if (performance.now() - t0 > timeout) break;
+      const v = o.visible, f = o.frustumCulled, parents = [];
+      for (let q = o; q; q = q.parent) { parents.push([q, q.visible]); q.visible = true; }
+      o.frustumCulled = false;
+      const n = o.count;
+      if (o.isInstancedMesh && !n) o.count = 1; // (culled traffic and crumbs sit at 0 until the first cull: three skips them)
+      const p = withPass(() => r.compileAsync(o, cam, scene));
+      for (const [q, pv] of parents) q.visible = pv;
+      o.visible = v; o.frustumCulled = f; o.count = n;
+      await race(p, 1000);
+      await new Promise((res) => (document.hidden ? setTimeout(res, 0) : requestAnimationFrame(() => res())));
+    }
+  }
+
   /** Pulled-back views (Phase 2): contact AO reaches as far as things are big on screen. k = viewScale (1 in town). */
   setViewScale(k) {
     if (!this.aoPass) return;

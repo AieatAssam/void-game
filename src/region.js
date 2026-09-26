@@ -654,7 +654,10 @@ export class Region extends City {
     super.budget(camera, holeR, lowSpec);
     // just swapped in: new meshes join a few per frame, so their first-sight shader builds spread out under the dust
     if (this.reveal !== undefined && this.reveal < this.meshes.length) {
-      this.reveal += 5;
+      // (5 a frame, down to 1 while frames run long: shadow-pass builds aren't covered by the precompile)
+      const now = performance.now(), slow = now - (this.revealT || now) > 30;
+      this.revealT = now;
+      this.reveal += slow ? 1 : 5;
       for (let i = this.reveal; i < this.meshes.length; i++) {
         const m = this.meshes[i];
         if (m.userData.ground) continue; // (the town's own ground stays: no holes in it)

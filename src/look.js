@@ -45,6 +45,12 @@ export async function createRenderer(canvas) {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   await renderer.init();
+  // Instanced meshes read their matrices as vertex attributes, not a uniform array. On the uniform path three names
+  // every mesh's block uniquely, so each mesh was its own shader program: 862 of them once the region appeared (58 on this
+  // path). WebGL compiles each on the main thread (~650 ms measured, even through compileAsync): the breakout froze for
+  // 4.6 s, then 200-600 ms at a time as the region revealed. WebGPU creates each pipeline at first draw too.
+  // (Only instancing, skinning and draw ranges read this limit.)
+  renderer.backend.capabilities.getUniformBufferLimit = () => 0;
   console.info(`renderer: ${renderer.backend.isWebGPUBackend ? 'WebGPU' : 'WebGL2 fallback'}`);
   return renderer;
 }

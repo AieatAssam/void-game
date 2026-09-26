@@ -12,6 +12,15 @@ import { Collider } from './collide.js';
 import { makeEntity } from './entity.js';
 
 export const TILE = 40;
+
+/** Mark only the first `n` floats of a per-frame re-packed instance buffer for upload (not the whole capacity: WebGL
+ * re-uploads the full array otherwise, into a buffer the GPU may still be reading). */
+function upload(attr, n) {
+  if (!n) return; // (nothing drawn: nothing to send; an empty range list would mean the whole array)
+  attr.clearUpdateRanges();
+  attr.addUpdateRange(0, n);
+  attr.needsUpdate = true;
+}
 export const SHADOW_LAYER = 1; // shadow-only stand-in meshes: the sun's shadow camera sees this layer, the view camera doesn't
 const CHUNK = 40;
 const LOD_DIST = [15, 60]; // metres from camera to chunk edge: beyond [0] draw LOD1, beyond [1] LOD2
@@ -1198,8 +1207,8 @@ export class City {
       }
       m.count = k;
       if (u.proxy) u.proxy.count = k;
-      m.instanceMatrix.needsUpdate = true;
-      c.seed.needsUpdate = true;
+      upload(m.instanceMatrix, k * 16);
+      upload(c.seed, k);
     }
   }
 
@@ -1243,8 +1252,8 @@ export class City {
       }
       m.count = k;
       if (u.proxy) u.proxy.count = k;
-      m.instanceMatrix.needsUpdate = true;
-      c.seed.needsUpdate = true;
+      upload(m.instanceMatrix, k * 16);
+      upload(c.seed, k);
     }
   }
 
