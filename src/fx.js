@@ -1,6 +1,6 @@
 // Swallow sparks: lilac/white motes that burst out of the rim, sized by the bite. One Points draw call.
 import * as THREE from 'three/webgpu';
-import { instancedBufferAttribute, vec4, uv, length, smoothstep, cameraProjectionMatrix, float, pow, abs } from 'three/tsl';
+import { instancedBufferAttribute, vec4, uv, length, smoothstep, cameraProjectionMatrix, float, pow, abs, clamp, mix, atan, sin } from 'three/tsl';
 
 /** Camera-facing instanced sprites (WebGPU has no sized points): position/colour/size/alpha per instance. */
 function spriteCloud(n, { additive, world, bird = false }) {
@@ -17,10 +17,13 @@ function spriteCloud(n, { additive, world, bird = false }) {
   const a = instancedBufferAttribute(alpha);
   // bird: a soft wing "V" instead of a round puff
   const q = uv().sub(0.5), wing = abs(q.y.add(abs(q.x).mul(0.7)).sub(0.08));
-  const shape = bird ? smoothstep(0.09, 0.03, wing).mul(smoothstep(0.48, 0.38, abs(q.x))) : smoothstep(0.5, 0.15, d);
+  // puff: no flat opaque core (that reads as milk), a lumpy rim, and lit from above so it has volume
+  const lump = sin(atan(q.y, q.x).mul(5).add(instancedBufferAttribute(pos).x.mul(0.37))).mul(0.06);
+  const shape = bird ? smoothstep(0.09, 0.03, wing).mul(smoothstep(0.48, 0.38, abs(q.x))) : pow(clamp(float(1).sub(d.add(lump).mul(2.1)), 0, 1), float(1.7));
+  const shade = bird ? float(1) : mix(float(0.68), float(1.08), uv().y);
   mat.colorNode = additive
     ? vec4(instancedBufferAttribute(col).mul(pow(smoothstep(0.5, 0.0, d), float(1.5))).mul(2.2), 1)
-    : vec4(instancedBufferAttribute(col), a.mul(shape));
+    : vec4(instancedBufferAttribute(col).mul(shade), a.mul(shape));
   const sprite = new THREE.Sprite(mat);
   sprite.count = n;
   sprite.frustumCulled = false;
@@ -140,12 +143,12 @@ export class Debris {
     for (let k = 0; k < (low ? 6 : 18); k++) {
       const a = (k / 18) * Math.PI * 2 + Math.random() * 0.3, r = t * (0.7 + Math.random() * 0.4);
       this.puff(e.x + Math.cos(a) * r, 0.4, e.z + Math.sin(a) * r, Math.cos(a) * (1 + t * 0.4), 0.6 + Math.random(), Math.sin(a) * (1 + t * 0.4),
-        t * 0.9, t * 1.1, 1.8 + Math.random(), dust, 0.7);
+        t * 0.8, t * 0.8, 1.6 + Math.random(), dust, 0.55);
     }
   }
 
   /** A ring of dust rolling outward from (x, z): the ground giving way (Phase 2 breakout, collapses at scale). */
-  dustRing(x, y, z, r0, speed, n, size, life, color, alpha = 0.75) {
+  dustRing(x, y, z, r0, speed, n, size, life, color, alpha = 0.6) {
     for (let k = 0; k < n; k++) {
       const a = (k / n) * Math.PI * 2 + Math.random() * 0.2, v = speed * (0.8 + Math.random() * 0.4);
       // (centred well above the ground: a big soft sprite cutting into the pavement shows a hard edge)
@@ -216,7 +219,7 @@ export const SMOKE = { house: [-1.0, 5.9, -1.6, 0xd8d8d8], noodle_stall: [-0.4, 
   // Phase 2: village chimneys, mill smoke and power-station steam (big plumes read as scale from the air)
   cottage: [-1.5, 6.3, -1.9, 0xd8d8d8, 1.3], farmhouse: [0, 9.6, -4.2, 0xd8d8d8, 1.4], village_inn: [0.3, 9.8, -4.8, 0xd8d8d8, 1.4],
   townhouse_row: [0, 11.6, 0, 0xcfcfcf, 1.5], townhouse_row_b: [0, 11.6, 0, 0xcfcfcf, 1.5],
-  chimney_stack: [0, 46, 0, 0x57524d, 8], cooling_tower: [0, 55, 0, 0xf6f6f6, 20] };
+  chimney_stack: [0, 46, 0, 0x57524d, 6], cooling_tower: [0, 55, 0, 0xe4e6ea, 11] };
 
 // ---------- Phase 2 scale cues: low cloud wisps sliding between the camera and the ground ----------
 const WISPS = 22, PER = 4;

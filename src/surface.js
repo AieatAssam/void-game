@@ -7,7 +7,7 @@ import {
   Fn, uniform, uniformArray, texture, uv, vec3, vec4, float, int, floor, clamp, mix, smoothstep, max, dot, pow,
   normalize, positionGeometry, normalGeometry, positionWorld, normalWorldGeometry, normalViewGeometry, positionView,
   positionLocal, attribute, instanceIndex, sin, cos, abs, sign, step, length, Discard, If, luminance, select, fract,
-  time, oneMinus, hash, atan, cameraPosition, dFdx, dFdy, min,
+  time, oneMinus, hash, atan, cameraPosition, dFdx, dFdy, min, screenCoordinate,
 } from 'three/tsl';
 import { triplanar, layerMean, waterGrad, macro, L, brushedGrad, pomOffset } from './pbr.js';
 import { sunDir, sunCol } from './look.js';
@@ -21,7 +21,7 @@ export const surfaceOn = uniform(1); // 0 on low-spec devices (set by the fps wa
 export const viewScale = uniform(1);
 export const glow = uniform(1.4); // emissive strength (time of day)
 // Shared world state: player hole (x, z, r, vacuum), night amount, edible-glow colour.
-export const world = { hole: uniform(new THREE.Vector4()), night: uniform(0), edCol: uniform(new THREE.Color(0xb58cff)) };
+export const world = { hole: uniform(new THREE.Vector4()), holeY: uniform(0), night: uniform(0), edCol: uniform(new THREE.Color(0xb58cff)) };
 export const pedTime = uniform(0);
 // show lights: one clock + a gentle breathing pulse shared by every chase (ferris rims, carousel, festoons, runway)
 export const lightsTime = uniform(0);
@@ -274,6 +274,22 @@ function buildToy(mat, { ground = false, holes = null, seed = float(instanceInde
  */
 const seedOf = (seeded) => (seeded ? attribute('iseed', 'float') : float(instanceIndex));
 
+/**
+ * See-through: anything standing between the camera and the hole (inside a cone from the eye to just past the rim, above
+ * street level) is screen-door dithered away, so a tower never hides the player. Stipple edge, no sorting, no blending.
+ */
+function seeThrough(m) {
+  const h = world.hole, H = vec3(h.x, world.holeY.add(0.5), h.y), C = cameraPosition, P = positionWorld;
+  const ax = H.sub(C), t = dot(P.sub(C), ax).div(max(dot(ax, ax), 1e-3));
+  const d = length(P.sub(C.add(ax.mul(t))));
+  const R = t.mul(h.z.mul(1.25).add(2.5)), edge = hash(floor(screenCoordinate.x).add(floor(screenCoordinate.y).mul(1731.0)));
+  const cut = h.z.greaterThan(0).and(t.greaterThan(0.05)).and(t.lessThan(0.97)).and(P.y.greaterThan(world.holeY.add(1.2)))
+    .and(length(P.xz.sub(H.xz)).greaterThan(h.z.mul(1.05))) // (what's going in stays in view)
+    .and(d.lessThan(R.mul(edge.mul(0.16).add(0.84))));
+  m.maskNode = cut.not();
+  return m;
+}
+
 /** The shared prop material (one pipeline for every static/moving prop). seeded: the variant for culled traffic. */
 export function toyMaterial({ seeded = false } = {}) {
   const m = new ToyNodeMaterial();
@@ -282,7 +298,7 @@ export function toyMaterial({ seeded = false } = {}) {
   const amp = select(isFabric, smoothstep(2.0, 4.5, pg.y).mul(0.035), float(0));
   const ph = time.mul(6.5).add(pg.x.mul(2.3)).add(pg.z.mul(1.9));
   m.preInstanceNode = pg.add(vec3(sin(ph), sin(ph.mul(1.3)).mul(0.3), cos(ph.mul(0.8))).mul(amp));
-  return buildToy(m, { seed: seedOf(seeded) });
+  return seeThrough(buildToy(m, { seed: seedOf(seeded) }));
 }
 
 /**
@@ -315,7 +331,7 @@ export function crumbleMaterial() {
     });
     return p;
   })();
-  return buildToy(m, { seed: seedOf(false) });
+  return seeThrough(buildToy(m, { seed: seedOf(false) }));
 }
 
 /** People walk: arms/legs carry _swing (+-1 legs, +-2 arms, sign = side) and _pivot (hip/shoulder height). */

@@ -1510,7 +1510,7 @@ function frame(dt) {
     const gs = e.gs || 1, big = k > 3; // (e.gy: Phase 2 ground height)
     debris.puff(e.x + (lx * cs + lz * sn) * gs, ly * gs + e.y + (e.gy || 0), e.z + (-lx * sn + lz * cs) * gs, (0.25 + Math.random() * 0.2) * (big ? q : 1),
       (0.8 + Math.random() * 0.4) * (big ? q * 0.6 : 1), (Math.random() - 0.5) * 0.2 * (big ? q : 1), 0.3 * k, 0.7 * k * (big ? 0.35 : 1), 2.6 * q * (big ? 1.3 : 1),
-      smokeCol.set(c), Math.min(big ? 0.55 : 0.8, 0.4 + 0.1 * (k - 1)));
+      smokeCol.set(c), Math.min(big ? 0.4 : 0.5, 0.35 + 0.05 * (k - 1)));
   }
   city.mixers.forEach((m) => m.update(dt));
   city.syncBatches();
@@ -1565,6 +1565,7 @@ function frame(dt) {
     s.b.style.transform = `translate(${(_v.x * 0.5 + 0.5) * innerWidth}px, ${(-_v.y * 0.5 + 0.5) * innerHeight}px) translate(-10%, -100%)`;
   }
   world.hole.value.set(hole.x, hole.z, hole.hidden || !state.playing ? 0 : hole.r, hole.vac || 0);
+  world.holeY.value = hole.ry ?? 0;
   pedTime.value += dt;
   lightsTime.value += dt;
   lightsPulse.value = 0.85 + 0.15 * Math.sin(lightsTime.value * 2.2);
