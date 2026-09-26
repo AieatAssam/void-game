@@ -55,7 +55,8 @@ export class Terrain {
     const r = this.nz.rnd;
     // river: meanders past one side of town (not on the coast side)
     this.river = beach ? null : { side: Math.floor(r() * 4), off: half + 70 + r() * 50, amp: 30 + r() * 30, freq: 1 / (110 + r() * 80), ph: r() * 6.28 };
-    this.fields = this.layoutFields(r);
+    this.rng = r;
+    if (!defer) this.fields = this.layoutFields(r); // (defer: buildGen lays the fields out in slices first)
     if (region) this.prepRegion();
     this.group = new THREE.Group();
     if (!noMesh && !defer) this.build(); // (noMesh: a height probe for planning; defer: the caller runs buildGen in slices)
@@ -110,32 +111,56 @@ export class Terrain {
 
   /** Farm patchwork: rotated rectangles in a band around town. */
   layoutFields(r) {
-    const out = [];
-    const pass = (tries, want, spread, avoidPads) => {
+    const it = this.fieldsGen(r);
+    let step;
+    while (!(step = it.next()).done);
+    return step.value;
+  }
+
+  *fieldsGen(r) {
+    const out = [], self = this;
+    const pass = function* (tries, want, spread, avoidPads) {
       for (let k = 0; k < tries && out.length < want; k++) {
-        const a = r() * Math.PI * 2, d = this.half + 55 + r() * spread;
+        if (k % 60 === 59) yield;
+        const a = r() * Math.PI * 2, d = self.half + 55 + r() * spread;
         const x = Math.cos(a) * d, z = Math.sin(a) * d;
-        if (this.beach && z > this.half - 20) continue;
+        if (self.beach && z > self.half - 20) continue;
         const f = { x, z, w: 30 + r() * 45, h: 25 + r() * 40, rot: Math.round(a / (Math.PI / 2)) * Math.PI / 2 + (r() - 0.5) * 0.35, crop: Math.floor(r() * 4) };
         if (out.some((o) => Math.hypot(o.x - x, o.z - z) < (o.w + f.w) * 0.55)) continue;
-        if (this.riverDist(x, z) < Math.max(f.w, f.h) * 0.6 + 12) continue;
-        if (avoidPads && this.region.pads.some((p) => Math.hypot(p.x - x, p.z - z) < p.r + Math.max(f.w, f.h) * 0.6 + 10)) continue;
-        if (avoidPads && Math.max(Math.abs(x), Math.abs(z)) - Math.max(f.w, f.h) * 0.6 < this.half + 440) continue; // (the town's land stays as it was)
+        if (self.riverDist(x, z) < Math.max(f.w, f.h) * 0.6 + 12) continue;
+        if (avoidPads && self.region.pads.some((p) => Math.hypot(p.x - x, p.z - z) < p.r + Math.max(f.w, f.h) * 0.6 + 10)) continue;
+        if (avoidPads && Math.max(Math.abs(x), Math.abs(z)) - Math.max(f.w, f.h) * 0.6 < self.half + 440) continue; // (the town's land stays as it was)
         if ([[0, 0], [f.w / 2, f.h / 2], [-f.w / 2, f.h / 2], [f.w / 2, -f.h / 2], [-f.w / 2, -f.h / 2]]
-          .some(([u, v]) => this.nz.fbm((x + u) / 210 - 9.4, (z + v) / 210 + 2.2, 3) > 0.06)) continue; // no fields in lakes
+          .some(([u, v]) => self.nz.fbm((x + u) / 210 - 9.4, (z + v) / 210 + 2.2, 3) > 0.06)) continue; // no fields in lakes
         out.push(f);
       }
     };
     // the town's own fields first, with the same draws, so the region grows the very land the town sat in
-    pass(...(this.farm ? [140, 44, 200] : [60, 26, 260]), false);
+    yield* pass(...(this.farm ? [140, 44, 200] : [60, 26, 260]), false);
     this.baseFields = out.length;
-    if (this.region) pass(1500, 280 + out.length, this.region.bound - this.half - 120, true);
+    if (this.region) yield* pass(1500, 280 + out.length, this.region.bound - this.half - 120, true);
     return out;
   }
 
   /** Which field (if any) covers (x, z), with the local coordinates inside it. */
   fieldAt(x, z) {
-    for (const f of this.fields) {
+    if (!this.fields) return null; // (a deferred terrain before its fields are laid out; a planning probe)
+    // 64 m bucket grid over the fields (rebuilt if the list changes): heights, splats and scatter all ask this
+    if (this.fieldGridN !== this.fields.length) {
+      this.fieldGridN = this.fields.length;
+      this.fieldGrid = new Map();
+      for (const f of this.fields) {
+        const R = Math.hypot(f.w, f.h) / 2 + 1;
+        for (let i = Math.floor((f.x - R) / 64); i <= Math.floor((f.x + R) / 64); i++) for (let j = Math.floor((f.z - R) / 64); j <= Math.floor((f.z + R) / 64); j++) {
+          const k = i * 4096 + j;
+          if (!this.fieldGrid.has(k)) this.fieldGrid.set(k, []);
+          this.fieldGrid.get(k).push(f);
+        }
+      }
+    }
+    const list = this.fieldGrid.get(Math.floor(x / 64) * 4096 + Math.floor(z / 64));
+    if (!list) return null;
+    for (const f of list) {
       const c = Math.cos(f.rot), s = Math.sin(f.rot), dx = x - f.x, dz = z - f.z;
       const u = dx * c + dz * s, v = -dx * s + dz * c;
       if (Math.abs(u) < f.w / 2 && Math.abs(v) < f.h / 2) return { f, u, v, edge: Math.min(f.w / 2 - Math.abs(u), f.h / 2 - Math.abs(v)) };
@@ -239,6 +264,7 @@ export class Terrain {
 
   /** The mesh build as a generator: it yields every few rows so Phase 2 can build the region between frames. */
   *buildGen() {
+    if (!this.fields) this.fields = yield* this.fieldsGen(this.rng); // (deferred construction)
     const cs = this.axisCoords(), n = cs.length;
     const pos = new Float32Array(n * n * 3), nrm = new Float32Array(n * n * 3), splat = new Float32Array(n * n * 4), extra = new Float32Array(n * n * 2);
     // pass 1: heights (vertices buried under the town skip the noise entirely)
@@ -248,7 +274,7 @@ export class Terrain {
         const x = cs[i], z = cs[j];
         H[j * n + i] = Math.abs(x) < under && Math.abs(z) < under ? -0.08 : this.heightAt(x, z);
       }
-      if (j % 8 === 7) yield;
+      if (j % 2 === 1) yield;
     }
     this.cs = cs;
     this.H = H;
@@ -278,7 +304,7 @@ export class Terrain {
         extra.set([Math.max(-1, Math.min(1, (avg - y) * 0.6)), Math.max(0, this.nz.fbm(x / 25 + 40, z / 25 - 17, 3) - 0.12) * 4], k * 2);
         splat.set([this.forest(x, z), fa ? (fa.f.crop + 1) / 4 : 0, Math.min(1, dirt), 1 - smooth(0.1, 0.75, y - this.water)], k * 4);
       }
-      if (j % 8 === 7) yield;
+      if (j % 3 === 2) yield;
     }
     const idx = [];
     const h = this.half - 0.5;
@@ -289,7 +315,9 @@ export class Terrain {
         const a = j * n + i, b = a + 1, c = a + n, d = c + 1;
         idx.push(a, c, b, b, c, d);
       }
+      if (j % 16 === 15) yield;
     }
+    yield;
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
@@ -297,8 +325,10 @@ export class Terrain {
     g.setAttribute('aExtra', new THREE.BufferAttribute(extra, 2));
     g.setIndex(new THREE.BufferAttribute(n * n > 65535 ? new Uint32Array(idx) : new Uint16Array(idx), 1));
     g.computeBoundingSphere();
+    yield;
     const mat = terrainMaterial(this.water);
     // region: the hole goes everywhere, so the land needs the cut too (switched per sector like the town's ground)
+    yield;
     this.cutMat = this.holes ? terrainMaterial(this.water, this.holes) : null;
     this.solidMat = mat;
     // the whole countryside as one mesh: only the grass mask pass (a single top-down render at load) draws it
@@ -308,7 +338,9 @@ export class Terrain {
     // the shadow map (which only ever see a small part of the land) frustum-cull the rest. Detail is untouched.
     this.sectors = [];
     const S = this.region ? 192 : 96, buckets = new Map();
+    yield;
     for (let t = 0; t < idx.length; t += 6) {
+      if (t % 120000 === 119994) yield;
       const a0 = idx[t], d0 = idx[t + 5];
       const mx = (pos[a0 * 3] + pos[d0 * 3]) / 2, mz = (pos[a0 * 3 + 2] + pos[d0 * 3 + 2]) / 2;
       const k = `${Math.floor(mx / S)},${Math.floor(mz / S)}`;
@@ -406,7 +438,7 @@ export class Terrain {
     // forests, meadow trees, bushes and rocks. town: the town's rules; otherwise the region's (outside the town's square)
     const woodsPass = function* (R, tries, town) {
       for (let k = 0; k < tries; k++) {
-        if (k % 400 === 399) yield;
+        if (k % 120 === 119) yield;
         const x = (r() * 2 - 1) * R, z = (r() * 2 - 1) * R;
         const d = self.outside(x, z);
         if (d < 8 || (!town && (Math.max(Math.abs(x), Math.abs(z)) < TR || !clear(x, z)))) continue;

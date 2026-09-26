@@ -120,9 +120,10 @@ export class Region extends City {
     t('terrain', t0);
     await step('Raising the villages…');
     t0 = performance.now();
-    for (const s of g.settlements) g.settle(s);
+    for (const s of g.settlements) { g.settle(s); await slice(); }
     g.windFarm();
     g.pylonLine();
+    await slice();
     g.traffic();
     t('settle', t0);
     await step('Planting the forests…');
@@ -165,7 +166,7 @@ export class Region extends City {
     const r = this.r, B = this.bound;
     this.settlements = [];
     // the land before levelling: same noise the region terrain will use, no mesh
-    const probe = new Terrain(this.terrainSeed, this.half, { beach: this.beach, farm: !!this.mood.county, region: { bound: B, pads: [], roads: [] }, noMesh: true });
+    const probe = new Terrain(this.terrainSeed, this.half, { beach: this.beach, farm: !!this.mood.county, region: { bound: B, pads: [], roads: [] }, noMesh: true, defer: true });
     this.probe = probe;
     const used = new Set();
     for (const kind of PLAN) {
@@ -598,7 +599,9 @@ export class Region extends City {
       this.entities.push(makeEntity({ name, meta: metaS(name, 1), x, z, y: t.water - 0.05, rot: this.r() * 6.28, s: 1, gs: 1, alive: true, grounded: false,
         mover: { type: 'still', crumb: true } }));
     }
+    let i = 0;
     for (const it of await run(this.terrain.scatterGen(this.assets), slice)) {
+      if (++i % 800 === 0) await slice();
       if (Math.max(Math.abs(it.x), Math.abs(it.z)) < this.half + 4) continue; // not on the hometown's tiles
       if (it.name === 'barn' || it.name === 'windmill') { this.add(it.name, it.x, it.z, it.rot); continue; } // real buildings
       const s = Math.round(it.s * 20) / 20;
@@ -637,6 +640,16 @@ export class Region extends City {
 
   budget(camera, holeR, lowSpec) {
     super.budget(camera, holeR, lowSpec);
+    // just swapped in: new meshes join a few per frame, so their first-sight shader builds spread out under the dust
+    if (this.reveal !== undefined && this.reveal < this.meshes.length) {
+      this.reveal += 5;
+      for (let i = this.reveal; i < this.meshes.length; i++) {
+        const m = this.meshes[i];
+        if (m.userData.ground) continue; // (the town's own ground stays: no holes in it)
+        m.visible = false;
+        if (m.userData.proxy) m.userData.proxy.visible = false;
+      }
+    }
     // the land: the cutting material only on sectors an open hole overlaps (tile GPUs keep hidden-surface removal elsewhere)
     const t = this.terrain;
     for (const m of t.sectors) {

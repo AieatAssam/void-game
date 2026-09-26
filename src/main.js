@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { createRenderer, createScene, followSun, applyTime, setFogRange, TIMES } from './look.js';
-import { loadAll, loadPacks, packReady, pedTime, glow } from './assets.js';
+import { loadAll, loadPack, loadPacks, packReady, pedTime, glow } from './assets.js';
 import { City, rng, BUILDINGS, PEOPLE, moodFor, forcedMood, SHADOW_LAYER } from './city.js';
 import { packsFor, PACK_LABEL, MOOD_PACKS } from './packs.js';
 import { Hole, holeField } from './hole.js';
@@ -1008,7 +1008,8 @@ async function breakout(quick = false) {
     flash('The ground gives way!', false);
     // the town's ground breaks up: rings of dust roll out from the hole to the city limits and beyond
     const dust = new THREE.Color(0xb8a58a), dark = new THREE.Color(0x8c7a64), hx = hole.x, hz = hole.z, H = city.half;
-    const rings = [[0, hole.r, 25, 40, 10, 3.5, dust], [350, hole.r * 2, 45, 48, 18, 4, dark], [800, H * 0.5, 70, 56, 30, 5, dust], [1150, H * 0.9, 90, 64, 42, 6, dark]];
+    // (sizes and counts kept in check: huge overlapping sprites make the breakout fill-rate bound)
+    const rings = [[0, hole.r, 25, 32, 10, 3.5, dust], [350, hole.r * 2, 45, 32, 16, 4, dark], [800, H * 0.5, 70, 32, 24, 5, dust], [1150, H * 0.9, 90, 32, 30, 6, dark]];
     for (const [ms, r0, v, n, size, life, col] of rings) setTimeout(() => {
       if (!state.breaking) return;
       debris.dustRing(hx, 1, hz, r0, v, LOW_FX ? n / 2 : n, size, life, col);
@@ -1027,7 +1028,17 @@ async function breakout(quick = false) {
   const [reg] = await Promise.all([state.regionJob, new Promise((r) => setTimeout(r, hold))]);
   if (!reg) { state.breaking = false; state.slowmo = 1; endRun(true); return; }
   reg.finish();
-  // swap under the dust: the new world goes in, the old systems go out
+  await nextPaint(); // (finish and the grass mask render in separate frames)
+  // the grass mask renders now (off-screen); the region's meshes reveal a few per frame after the swap (Region.budget):
+  // compiling them all up front, or drawing them all at once, both froze the game for a second or more
+  const grass2 = new Grass(renderer, reg.groundMeshes, Math.min(reg.bound, 700), field, { density: +(new URLSearchParams(location.search).get('grass') ?? Q.grass) * 0.6, far: Q.grassFar, lawns: [] });
+  reg.reveal = 0;
+  // swap under a fresh wave of dust: the new world goes in, the old systems go out
+  if (!quick) {
+    debris.dustRing(hole.x, 1, hole.z, hole.r * 1.5, 60, LOW_FX ? 14 : 24, 30, 5, new THREE.Color(0xb8a58a), 0.8);
+    hole.shockwave();
+    sfx.boom?.();
+  }
   scene.remove(old.group, grass.group);
   for (const o of [director, events, chains, powerups, rivals]) o.dispose();
   old.dispose();
@@ -1039,9 +1050,8 @@ async function breakout(quick = false) {
     hurt, toll, drain, warn: (t) => flash(t, false), news: (t) => news.say(t), boom: sfx.boom, siren: sfx.airRaid,
     jam: (s) => { state.jam = Math.max(state.jam, s); }, kick: (dx, dz) => { state.kick = { x: dx * 60, z: dz * 60 }; }, shake: (k) => { state.shake = Math.max(state.shake, k); },
   }, debris, sparks);
-  grass = new Grass(renderer, city.groundMeshes, Math.min(city.bound, 700), field, { density: +(new URLSearchParams(location.search).get('grass') ?? Q.grass) * 0.6, far: Q.grassFar, lawns: [] });
+  grass = grass2;
   scene.add(city.group, grass.group);
-  try { await renderer.compileAsync(city.group, camera, scene); } catch (e) { console.warn('region precompile skipped', e); }
   console.info(`[phase2] region ready in ${((performance.now() - t0) / 1000).toFixed(1)}s: ${city.settlements.length} settlements, ${city.entities.length} entities, ${city.crumbs.length} crumbs`, city.times);
   if (!quick) state.surgeTo = hole.area * P2.surge ** 2; // grows over the next second or so (frame)
   state.phase = 2;
@@ -1066,7 +1076,7 @@ const phase2Run = () => PHASE2 && state.mode === 'city' && !state.mutator;
 /** Start building the region between frames while the town is still being eaten (3 ms a slice). */
 function prebuildRegion() {
   state.slice = slicer(3, () => post.fps > 0 && post.fps < 55); // (pauses while the game is below 55 fps)
-  state.regionJob = loadPacks(assets, ['region']).then(() => Region.create(assets, city, field, state.slice, false))
+  state.regionJob = loadPack(assets, 'region', null, { gentle: true }).then(() => Region.create(assets, city, field, state.slice, false))
     .catch((e) => { if (!state.slice?.cancelled) console.warn('region prebuild failed', e); return null; });
 }
 
