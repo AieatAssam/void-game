@@ -8,6 +8,36 @@ hole and the horizon, joined by roads. The hole grows from ~10 m to ~60 m. The a
 This document is the design: transition, loop, size ladder, settlements, adversaries, human response, the crumble,
 terrain, scale, performance, then the build order. Numbers are starting values for the bot balance pass.
 
+## Status (branch `feature/phase-two`)
+
+Built and playable end to end. Try it with `?region` (straight into Phase 2 at 10 m) or clear any town normally.
+
+| Screens | |
+|---|---|
+| ![The breakout: dust fronts roll out of the emptied town as the ground gives way](screens/phase2-breakout.jpg) | ![A village: cottages round the green, the church, the inn, a windmill, farms and hedgerows](screens/phase2-village.jpg) |
+| ![The castle on its hill: the road stops at the gatehouse, festival pavilions and cannons outside the walls](screens/phase2-castle.jpg) | ![The market town: terraces along the main street, the cathedral beyond](screens/phase2-town.jpg) |
+| ![A capital city block crumbling: roof slabs and walls break away into the hole](screens/phase2-crumble.jpg) | ![The Capper rolls out of the capital to seal the hole](screens/phase2-capper.jpg) |
+| ![A 40 m hole at the edge of the capital: stadium, avenues, lake and forests](screens/phase2-big-hole.jpg) | ![The capital's avenues and Haussmann blocks](screens/phase2-capital.jpg) |
+
+| Area | What's in | Where |
+|---|---|---|
+| Models | 36 new models, sized to the ladder (§4); `npm run check` passes with the region pack | `blender/assets/*.py` (REGION in build_all.py), pack `region` |
+| Breakout | bank the town, slow-mo lift with a lower kaiju angle, four dust fronts rolling out to the city limits, surge; the region is prebuilt in 3 ms slices while the town is being eaten, so the swap under the dust takes ~1.7 s with no long tasks | `main.js` `breakout()`, `prebuildRegion()` |
+| Region | 10 settlements (4 farmsteads, 2 villages, castle, market town, industrial valley, capital) on levelled pads, a road tree with traffic, a wind farm, a pylon line; terrain to ±1.5 km with mountains beyond; 34k trees, hedges, rocks and cows as edible crumbs | `region.js`, `terrain.js` region mode |
+| Crumble | parts break away in a staggered pancake toward the hole (per-vertex part centres, per-instance progress, no new pipelines); dust fronts sized to the building; applies to the town's buildings too | `surface.js` `crumbleMaterial`, `city.js` `startCrumble` |
+| Army | threat 1-4: roadblocks, artillery, the castle's cannons, strike jets, heavy-lift Void Lids, and the Capper at the capital | `army.js` |
+| Human response | evacuation (cars queue out, crowds run), church bells and air-raid sirens, news ticker with a population counter | `region.js` `evacuate`, `phase2.js` `News`, `sfx.js` |
+| Surfaces | roads x1.35, farmland x1.1, woods x0.88, marsh x0.7, water x0.55 (shown in the status line) | `region.js` `surfaceSpeed` |
+| Scale cues | camera pull-back and far/near planes that follow it, cloud shadows over the whole region, low cloud wisps at the edges of the view once the hole is big, people and cars stay visible as specks, slower collapses for bigger buildings | `fx.js` `Wisps`, `city.js` |
+
+**Measured** (Apple Silicon, WebGPU, high tier): about 100 draw calls and 0.4-1.2M triangles a frame at a village, a town
+and the capital (r = 12-40); CPU ~7-8 ms a frame including render submission. Greedy bot, seed 4242: 10 m -> 49 m, the
+capital swallowed at 4:36, 29 army hits taken; eating everything in size order can take a 12.5 m hole past 60 m.
+
+**Changed from the plan above:** the stadium is tier 39 (not 44) to keep the ladder at 1.3x, so the capital needs a ~41 m
+hole and the run peaks around 50-65 m. The region is 3 km across (not 3.6). Rivals, the settlement perk draft, the minimap,
+birds, the rim crack ring, dams and bridges are not built yet; the town's powerups and events are quiet in Phase 2.
+
 ---
 
 ## 1. What the research says about scale (and what we take from it)

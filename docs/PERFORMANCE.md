@@ -40,6 +40,19 @@ slow frames; grass costs little. The "Multiple instances of Three.js" warning is
 the production build loads one copy. The overlay's GPU ms is not trustworthy on this setup (it reads 30–90 ms while
 holding 60 fps): judge GPU headroom by fps with features toggled (`?noao`, `?noshafts`, `?grass=0`, `?q=`).
 
+## Phase 2 (the region)
+
+The region is 3 km of land with ten settlements, ~500 buildings and 34k trees, hedges and rocks, seen from up to ~700 m.
+
+| Risk | What was done | Result |
+|---|---|---|
+| **Building the region stalls the game.** Terrain (1.3 s) and the forest scatter (2.6 s) were single long tasks. | The terrain build and scatter are generators run in 3 ms slices in the background while the town is still being eaten; the scatter's overlap test is a hash grid (it scanned every earlier placement: also speeds up every town load). Only the unsliceable part (instanced meshes, roads) runs at the breakout, under the slow-motion camera lift. | Breakout swap ~1.7 s, no long tasks |
+| **First-sight shader builds** (one per InstancedMesh, see above). | Region chunks are 400 m (one mesh per model per settlement); the new meshes compile during the breakout. | ~80 new meshes instead of ~800 |
+| **LOD and shadows in fixed metres** (15/60 m LOD, 35 m shadows) with a camera 150-700 m away. | Both scale with the hole (`lodScale`); tiny things hide by their share of the hole, people and cars stay visible as specks for longer. | ~100 draws, 0.4-1.2M tris at r = 12-40 |
+| **34k crumbs culled one by one** (2.3 ms a frame). | Crumbs are bucketed once into 128 m cells; each frame only cells in the view or shadow frustum are packed. They are also out of the per-entity update loop: only grid cells under a hole are tested. | 0.13 ms a frame |
+| **Depth precision** at 700 m (roads and paving are stacked a few cm apart). | The near plane follows the camera distance (2%); far plane = 4x the distance. | no z-fighting |
+| **The crumble** would need its own material per building type. | The buildings' own instanced meshes carry per-vertex part centres and a per-instance progress slot; one crumble variant of the toy material. | no extra pipelines |
+
 ## Measuring on the target machine
 
 - `?fps`: frame rate, CPU split (game logic / render submission), GPU time, draws, triangles, tier, dynamic-resolution steps.

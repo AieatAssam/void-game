@@ -88,3 +88,9 @@ Measured before: greedy bot cleared a city in 96 s and a win paid ~38,000 dust (
 - **Balance:** docs/BALANCE.md (baseline, per-mood, A/B, abilities). No-dead-end rules hold: blasts, floods and events never hurt
   or wall off the player, capsules never block, parade floats pass through traffic and are edible.
 Model notes and design deviations: [HANDOVER-FEEDBACK.md](HANDOVER-FEEDBACK.md).
+
+## Stage 12 — Phase 2: Breakout ([docs/PHASE2.md](docs/PHASE2.md))
+Clearing the town breaks the hole out into the countryside: a region of farmsteads, villages, a castle, a market town, an
+industrial valley and the capital, joined by roads. 36 new models (region pack), buildings crumble part by part, the army
+answers (roadblocks, artillery, jets, heavy-lift lids, the Capper boss), settlements evacuate, surfaces change how the hole
+moves. `?region` starts straight in Phase 2; `?nophase2` keeps the old ending (bot balance runs keep it by default).

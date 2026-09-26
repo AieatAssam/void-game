@@ -61,6 +61,8 @@ Poison props = hazard yellow + toxic green glow.
 | Stage 11 after batching (high, grass off, `tools/perf.mjs`) | same budget | start of a run over 4 seeds: base build 1.7–2.5M / 132–149, Stage 11 1.7–2.7M (mean 2.08M vs 2.10M) / 133–179; Fun Fair worst seed 2.7M / 212 (was 3.0M / 246 before batching); Railway Town 1.7–2.4M / 152–198; low tier Fun Fair (same seed) 1.9M / 244 → 1.9M / 212 after batching |
 | Stage 11 after the shadow-pass work (same seeds) | same budget | Old Town 4-seed mean 2.08M → 1.83M tris (worst 2.66M → 2.14M), draws unchanged; Fun Fair worst 212 / 2.70M → 198 / 2.30M on high, 212 → 197 draws on low; Railway 2.45M → 2.12M; the visible pass is identical (88 draws / 1.11M on the Fun Fair frame) |
 
+| Phase 2 region pack (36 models) | 3-25k LOD0 | village and castle pieces 3-18k, capital landmarks 8-25k (parliament 25k, city block 22k); in the region the camera is 150-700 m away, so they mostly draw at LOD1/LOD2 |
+
 How this compares with the usual three.js techniques, and what's still open: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 LOD0 is built with a detail multiplier (`Q` in blender/lib.py, 1.6). Every model ships LOD1 (~25%) and
