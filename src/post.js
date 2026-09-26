@@ -89,8 +89,13 @@ export class Post {
       aoPass.samples.value = opts.aoSamples;
       let aoTex = aoPass.getTextureNode();
       if (opts.aoDenoise !== false) { // (the bisect measures without it)
-        aoTex = denoise(aoTex, depth, null, camera);
-        aoTex.radius.value = 4;
+        // denoised once at the AO's own resolution and upsampled: inline at full resolution the 16 depth-aware taps per
+        // pixel were most of AO's cost (a measured 5 of AO's 7 fps on a laptop GPU)
+        const dn = denoise(aoTex, depth, null, camera);
+        dn.radius.value = 4;
+        aoTex = convertToTexture(dn);
+        aoTex.setResolutionScale(opts.aoRes);
+        this.rtts.push(aoTex);
       }
       lit = lit.mul(mix(float(1), pow(aoTex.r, 1.6), 0.9));
       // the denoise is inline (16 depth-aware taps per pixel), and bloom, shafts and the composite each evaluate
