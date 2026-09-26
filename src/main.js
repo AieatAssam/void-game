@@ -19,7 +19,7 @@ import { installBot } from './bot.js';
 import { UPGRADES, ECON, save, persist, level, buy, todaySeed } from './meta.js';
 import * as sfx from './sfx.js';
 import { Post } from './post.js';
-import { Sparks, Debris, SMOKE, Wisps, Birds } from './fx.js';
+import { Sparks, Debris, SMOKE, Wisps, Birds, Rubble } from './fx.js';
 import { surfaceTime, surfaceOn, world, lightsTime, lightsPulse, viewScale } from './surface.js';
 import { Grass } from './grass.js';
 import { Q } from './quality.js';
@@ -48,8 +48,9 @@ scene.add(debris.group);
 const wisps = new Wisps(); // Phase 2: low cloud between the camera and the land
 scene.add(wisps.sprite);
 const birds = new Birds(); // Phase 2: flocks over the countryside
+const rubble = new Rubble(); // Phase 2: what spills over the rim
 const minimap = new Minimap(); // Phase 2
-scene.add(birds.sprite);
+scene.add(birds.sprite, rubble.mesh);
 const LOW_FX = /[?&]low\b/.test(location.search); // ?low: skip extra particles and smoke
 // debug framing for screenshots: ?view=x,z,dist[,yaw,pitch]
 const VIEW = new URLSearchParams(location.search).get('view')?.split(',').map(Number);
@@ -167,6 +168,7 @@ let pickedHeat = URL_HEAT;
 const pickedMode = new URLSearchParams(location.search).get('mode') === 'blitz' ? 'blitz' : 'city';
 function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null, mutator = null, heat = 0, mode = 'city') {
   minimap.stop();
+  rubble.clear();
   const hm = heatMods(heat);
   if (state?.slice) { // a region was being prebuilt for the last run: drop it
     state.slice.cancelled = true;
@@ -1404,11 +1406,13 @@ function frame(dt) {
   abilities.hold(hole);
   if (powerups.active.boost && state.playing) surgeFx(dt);
   const eaten = city.update(dt, [hole, ...rivals.holes, ...twins], state.jam > 0 || !state.playing);
+  if (state.phase === 2) rubble.update([hole, ...rivals.holes]);
   for (const ev of city.events) {
     if (ev.type === 'fall') {
       const e = ev.e, t = e.meta.tier, mine = e.eater === hole && state.playing;
       if (t >= 2.5) {
         debris.collapse(e, e.eater || hole, LOW_FX || post.lowSpec);
+        if (state.phase === 2 && t >= 3 && e.mesh?.userData.crumble) rubble.spill(e, e.eater || hole, (x, z) => city.groundY(x, z));
         // big buildings: a dust front rolls out across the streets, sized to the building (scale reads in the dust)
         if (t >= 5 && !ev.crumb) debris.dustRing(e.x, e.gy || 0, e.z, t * 0.7, t * 0.45, LOW_FX || post.lowSpec ? 8 : 16, t * 0.8, 3.2 + t * 0.03, dustCol);
         if (mine) state.shake = Math.max(state.shake, Math.min(0.5, t * 0.04));

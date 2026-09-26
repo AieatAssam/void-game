@@ -316,3 +316,73 @@ export class Birds {
     c.pos.needsUpdate = c.size.needsUpdate = c.alpha.needsUpdate = c.col.needsUpdate = true;
   }
 }
+
+/**
+ * Phase 2 rubble: when a building crumbles, chunks spill over the rim and lie there (concrete, brick, sandstone) until a
+ * hole passes over them. One instanced draw; a ring buffer recycles the oldest pieces.
+ */
+export class Rubble {
+  constructor(n = 700) {
+    const geo = new THREE.IcosahedronGeometry(1, 0).scale(1, 0.55, 0.85).toNonIndexed();
+    geo.computeVertexNormals();
+    this.mesh = new THREE.InstancedMesh(geo, new THREE.MeshStandardNodeMaterial({ roughness: 0.95, flatShading: true }), n);
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.mesh.receiveShadow = true;
+    this.mesh.frustumCulled = false;
+    this.bits = Array.from({ length: n }, () => ({ live: false, x: 0, z: 0, s: 0 }));
+    this.next = 0;
+    this.m = new THREE.Matrix4();
+    this.q = new THREE.Quaternion();
+    this.e = new THREE.Euler();
+    this.c = new THREE.Color();
+    this.clear();
+  }
+
+  clear() {
+    this.m.makeScale(0, 0, 0);
+    for (let i = 0; i < this.bits.length; i++) { this.bits[i].live = false; this.mesh.setMatrixAt(i, this.m); this.mesh.setColorAt(i, this.c.set(0x999999)); }
+    this.mesh.instanceMatrix.needsUpdate = true;
+    this.mesh.instanceColor.needsUpdate = true;
+    this.mesh.count = 0; // (nothing to draw until the first spill)
+  }
+
+  /** Building e crumbles into hole q: spill chunks over the rim on its side. groundY(x, z) for the land height. */
+  spill(e, q, groundY) {
+    const t = e.meta.tier, n = Math.min(12, 4 + Math.floor(t * 0.4)), a0 = Math.atan2(e.z - q.z, e.x - q.x);
+    const tint = [0xa89f92, 0xb0604a, 0xcdb48c, 0x7a7166][Math.floor(Math.random() * 4)];
+    for (let k = 0; k < n; k++) {
+      const i = this.next, b = this.bits[i];
+      this.next = (i + 1) % this.bits.length;
+      const s = Math.min(q.r * 0.14, t * (0.1 + Math.random() * 0.14)), a = a0 + (Math.random() - 0.5) * 1.1, d = q.r * (1.04 + Math.random() * 0.3) + s;
+      Object.assign(b, { live: true, x: q.x + Math.cos(a) * d, z: q.z + Math.sin(a) * d, s });
+      this.q.setFromEuler(this.e.set(Math.random() * 0.6, Math.random() * 6.28, Math.random() * 0.6));
+      this.m.compose(new THREE.Vector3(b.x, groundY(b.x, b.z) + s * 0.2, b.z), this.q, new THREE.Vector3(s, s, s));
+      this.mesh.setMatrixAt(i, this.m);
+      this.mesh.setColorAt(i, this.c.set(Math.random() < 0.7 ? tint : 0x8c877f).multiplyScalar(0.8 + Math.random() * 0.35));
+      this.mesh.count = Math.max(this.mesh.count, i + 1);
+    }
+    this.mesh.instanceMatrix.needsUpdate = true;
+    this.mesh.instanceColor.needsUpdate = true;
+  }
+
+  /** Chunks under a hole go in with everything else. */
+  update(holes) {
+    let dirty = false;
+    for (let i = 0; i < this.mesh.count; i++) {
+      const b = this.bits[i];
+      if (!b.live) continue;
+      for (const h of holes) {
+        if (h.hidden) continue;
+        const dx = b.x - h.x, dz = b.z - h.z;
+        if (dx * dx + dz * dz < (h.r * 0.95 - b.s) ** 2) {
+          b.live = false;
+          this.m.makeScale(0, 0, 0);
+          this.mesh.setMatrixAt(i, this.m);
+          dirty = true;
+          break;
+        }
+      }
+    }
+    if (dirty) this.mesh.instanceMatrix.needsUpdate = true;
+  }
+}
