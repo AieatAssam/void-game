@@ -23,6 +23,9 @@ export const P2 = {
   // strikes and lids took 4-8x what they took from the greedy bot, 2-3 min there)
   jetEvery: 32, // + up to 10 s
   liftEvery: 44,
+  // their hits (were 0.12 and 0.18: 2 human-paced runs in 6 lost 3500+ m2 to each before the lid sealed them, 11-13 min in)
+  jetHit: 0.08,
+  lidHit: 0.12,
   capperHit: 0.1, // the Capper's slam (was 0.15 every 10 s: 11 hits ground a human-paced player down near the capital)
   capperCool: 14,
   speed: (r) => Math.min(40, 18 + r * 0.5), // sub-linear: big feels heavy, the map stays crossable

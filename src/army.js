@@ -251,7 +251,7 @@ export class Army {
         }
         // the hole under the line when the jets pass over it
         const along = (hole.x - s.cx) * s.ux + (hole.z - s.cz) * s.uz, across = Math.abs(-(hole.x - s.cx) * s.uz + (hole.z - s.cz) * s.ux);
-        if (!s.hit && Math.abs(along - u) < 25 && across < s.W / 2 + hole.r * 0.5) { s.hit = true; this.hooks.hurt(0.12, 'Air strike!'); }
+        if (!s.hit && Math.abs(along - u) < 25 && across < s.W / 2 + hole.r * 0.5) { s.hit = true; this.hooks.hurt(P2.jetHit, 'Air strike!'); }
         if (u > s.L / 2 + 80) { s.done = true; for (const jet of s.jets) C.remove(jet); }
       }
     }
@@ -331,7 +331,7 @@ export class Army {
           e.y = this.ground(d.x, d.z);
           this.debris.dustRing(d.x, e.y, d.z, d.R, d.R * 0.8, 20, d.R * 0.5, 2.5, boom);
           this.hooks.boom();
-          if (Math.hypot(hole.x - d.x, hole.z - d.z) < d.R * 0.8 + hole.r * 0.3) { this.hooks.hurt(0.18, 'Void Lid slammed down!'); this.hooks.jam?.(1.2); }
+          if (Math.hypot(hole.x - d.x, hole.z - d.z) < d.R * 0.8 + hole.r * 0.3) { this.hooks.hurt(P2.lidHit, 'Void Lid slammed down!'); this.hooks.jam?.(1.2); }
         }
       } else if (d.t < d.T + 8) { // setting: slows you and nibbles while you sit in it (get out)
         if (Math.hypot(hole.x - d.x, hole.z - d.z) < d.R * 0.8 + hole.r * 0.3) this.hooks.drain(dt * 0.35);

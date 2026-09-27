@@ -171,9 +171,10 @@ export class Region extends City {
     const used = new Set();
     for (const kind of PLAN) {
       const K = KINDS[kind];
-      let best = null;
+      let best = null, fallback = null;
       for (let t = 0; t < 160; t++) {
-        const a = r() * Math.PI * 2, d = r.range(K.d[0], K.d[1]);
+        const cap = this.settlements[0], near = (kind === 'town' || kind === 'industry') && cap; // (see below)
+        const a = near ? Math.atan2(cap.z, cap.x) + (r() - 0.5) * (t < 120 ? 2.1 : 6.28) : r() * Math.PI * 2, d = r.range(K.d[0], K.d[1]);
         const x = Math.cos(a) * d, z = Math.sin(a) * d;
         if (probe.coastR(x, z) - Math.hypot(x, z) < K.r + 150 || [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].some(([u, v]) => probe.mountain(x + u * (K.r + 60), z + v * (K.r + 60)) > 0.05)) continue; // well inland, clear of the mountains
         if (this.beach && z > this.half - K.r - 40) continue; // the sea is that way
@@ -189,10 +190,14 @@ export class Region extends City {
         if (hi > 34 || hi - lo > (K.hill ? 26 : 16)) continue; // not up in the mountains, not on a cliff
         if (probe.river && probe.riverDist(x, z) < K.r + 35) continue;
         if (wet > 1) continue;
+        // the town and the industry feed a hole up to the capital's size: on its side of the island (seed 4242 put both
+        // 1900 m from it, past a belly's range, and every bot starved on the trek back)
+        if (near && Math.hypot(cap.x - x, cap.z - z) > 1100) { fallback ??= { x, z, score: 0 }; continue; }
         const score = (K.hill ? hsum : 0) + r() * 5;
         if (!best || score > best.score) best = { x, z, score };
         if (!K.hill) break;
       }
+      best ??= fallback;
       if (!best) continue;
       let name = r.pick(K.names);
       for (let k = 0; used.has(name) && k < 20; k++) name = r.pick(K.names);
