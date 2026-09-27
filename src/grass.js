@@ -1,4 +1,4 @@
-// GPU grass: lawns and meadows get real blades that bend in travelling gusts and lean into the hole.
+// GPU grass: lawns and meadows get short, static real blades (they sink into the hole).
 // A one-off top-down "mask" pass records where grass grows (R), the ground height (G) and how wild it is
 // (B: 0 mown lawn, 1 meadow). Blades are procedural: position, height, facing and tint all come from hashes
 // of instanceIndex inside camera-snapped patches, so there are no per-blade buffers at all.
@@ -9,7 +9,7 @@ import {
 } from 'three/tsl';
 import { world } from './surface.js';
 import { MAX_HOLES } from './hole.js';
-import { gust, wind } from './vegetation.js';
+import { wind } from './vegetation.js';
 
 const PATCH = 12; // metres per patch
 const MASK_RES = 2048;
@@ -73,8 +73,9 @@ export class Grass {
     const near = [], far = [];
     for (let i = -6; i <= 8; i++) for (let j = -6; j <= 8; j++) near.push(new THREE.Vector2(i, j));
     for (let i = -5; i <= 5; i++) for (let j = -5; j <= 5; j++) if (Math.abs(i) > 2 || Math.abs(j) > 2) far.push(new THREE.Vector2(i, j));
-    this.layers = density <= 0 ? [] : [this.layer(near, Math.round(4 * 4 * 85 * density), 1, holes, 4)];
-    if (density > 0 && withFar) this.layers.push(this.layer(far, Math.round(PATCH * PATCH * 16 * density), 2.3, holes, PATCH, 1));
+    // (short blades need far fewer to read as a lawn: 35 per m2 near, was 85; the far ring 7, was 16)
+    this.layers = density <= 0 ? [] : [this.layer(near, Math.round(4 * 4 * 35 * density), 1, holes, 4)];
+    if (density > 0 && withFar) this.layers.push(this.layer(far, Math.round(PATCH * PATCH * 7 * density), 2.3, holes, PATCH, 1));
   }
 
   /**
@@ -162,7 +163,9 @@ export class Grass {
     // interleaved: consecutive instances cycle through the patches, so lowering mesh.count thins every patch evenly
     const np = int(active);
     const patch = int(instanceIndex).mod(np);
-    const j = int(instanceIndex).div(np);
+    // ...and within a patch the slots are visited in a scrambled order (x 2749, a prime, mod side^2): a lower count drops
+    // blades all over the patch, not its last rows (that left lawns half bare, cut off along a straight edge)
+    const j = int(instanceIndex).div(np).mul(2749).mod(int(side * side));
     const gx = float(j.mod(int(side))), gz = float(j.div(int(side)));
     const h1 = hash(id.mul(8).add(1)), h2 = hash(id.mul(8).add(2)), h3 = hash(id.mul(8).add(3));
     const h4 = hash(id.mul(8).add(4)), h5 = hash(id.mul(8).add(5));
@@ -174,23 +177,18 @@ export class Grass {
     const wild = m.b;
     const fade = smoothstep(fadeFar, fadeFar.mul(0.72), length(wxz.sub(fadeCentre))).mul(zoomFade);
     const keep = h3.lessThan(m.r.mul(0.98));
-    const bladeH = mix(mix(0.2, 0.32, clump), mix(0.4, 0.8, h4), wild).mul(h4.mul(0.5).add(0.75)).mul(fade).mul(keep.select(1, 0));
+    // (half the old height: long blades read as a shag carpet)
+    const bladeH = mix(mix(0.1, 0.16, clump), mix(0.2, 0.4, h4), wild).mul(h4.mul(0.5).add(0.75)).mul(fade).mul(keep.select(1, 0));
     const ang = h5.mul(6.2832);
     const facing = vec2(cos(ang), sin(ang));
-    // wind + hole suction: bend grows with y^2 along the blade
-    const g = gust(wxz);
-    const hole = world.hole;
-    const toHole = hole.xy.sub(wxz);
-    const hd = length(toHole);
-    const suck = smoothstep(hole.z.mul(2.2).add(2), hole.z, hd).mul(hole.z.greaterThan(0).select(1, 0)).mul(hole.w.mul(0.8).add(0.35));
+    // static blades: no wind and no pull toward the hole (that per-vertex noise and animation over a million vertices a
+    // frame was most of grass's cost, and it's worth more as frame rate than as motion); only sinking into a hole stays
     let inHole = float(0);
     for (let i = 0; i < MAX_HOLES; i++) {
       const q = holes.element(i);
       inHole = max(inHole, q.z.greaterThan(0).and(length(wxz.sub(q.xy)).lessThan(q.z.add(0.05))).select(1, 0));
     }
-    const lean = vec2(wind.dir).mul(g.mul(0.55).add(0.12).add(sin(time.mul(2.3).add(h1.mul(6.3))).mul(0.05)))
-      .add(normalize(toHole.add(1e-4)).mul(suck.mul(1.4)))
-      .add(facing.mul(h2.sub(0.5).mul(0.5)));
+    const lean = vec2(wind.dir).mul(0.12).add(facing.mul(h2.sub(0.5).mul(0.5))); // (a fixed, varied lean)
     const y = positionGeometry.y;
     const bend = y.mul(y);
     const width = mix(0.05, 0.065, wild).mul(widthScale).mul(this.widen).mul(h1.mul(0.5).add(0.75));
@@ -282,7 +280,7 @@ export class Grass {
       l.count = Math.round(u.activeN * u.perPatch * (lowSpec ? 0.5 : 1) * k);
       if (!u.activeN) l.count = 0;
     }
-    this.group.visible = this.zoomFade.value > 0.01;
+    this.group.visible = !this.hidden && this.zoomFade.value > 0.01; // (hidden: the GPU bisect's grass step)
   }
 
   dispose() {

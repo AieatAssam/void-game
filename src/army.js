@@ -70,9 +70,9 @@ export class Army {
     // threat 2: artillery on high ground, a salvo every few seconds
     if (stars >= 2 && this.cool.battery <= 0 && !this.batteries.some((q) => q.guns.some((g) => g.alive))) { this.cool.battery = 30; this.battery(hole, view); }
     // threat 3: strike jets along a line
-    if (stars >= 3 && this.cool.jet <= 0) { this.cool.jet = 22 + Math.random() * 8; this.jetStrike(hole); }
+    if (stars >= 3 && this.cool.jet <= 0) { this.cool.jet = P2.jetEvery + Math.random() * 10; this.jetStrike(hole); }
     // threat 4: heavy-lift lids
-    if (stars >= 4 && this.cool.lift <= 0) { this.cool.lift = 30; this.lift(hole, view); }
+    if (stars >= 4 && this.cool.lift <= 0) { this.cool.lift = P2.liftEvery; this.lift(hole, view); }
     this.fireBatteries(dt, hole);
     this.fireCannons(dt, hole);
     this.updateBlocks(dt, hole);
@@ -251,7 +251,7 @@ export class Army {
         }
         // the hole under the line when the jets pass over it
         const along = (hole.x - s.cx) * s.ux + (hole.z - s.cz) * s.uz, across = Math.abs(-(hole.x - s.cx) * s.uz + (hole.z - s.cz) * s.ux);
-        if (!s.hit && Math.abs(along - u) < 25 && across < s.W / 2 + hole.r * 0.5) { s.hit = true; this.hooks.hurt(0.12, 'Air strike!'); }
+        if (!s.hit && Math.abs(along - u) < 25 && across < s.W / 2 + hole.r * 0.5) { s.hit = true; this.hooks.hurt(P2.jetHit, 'Air strike!'); }
         if (u > s.L / 2 + 80) { s.done = true; for (const jet of s.jets) C.remove(jet); }
       }
     }
@@ -331,7 +331,7 @@ export class Army {
           e.y = this.ground(d.x, d.z);
           this.debris.dustRing(d.x, e.y, d.z, d.R, d.R * 0.8, 20, d.R * 0.5, 2.5, boom);
           this.hooks.boom();
-          if (Math.hypot(hole.x - d.x, hole.z - d.z) < d.R * 0.8 + hole.r * 0.3) { this.hooks.hurt(0.18, 'Void Lid slammed down!'); this.hooks.jam?.(1.2); }
+          if (Math.hypot(hole.x - d.x, hole.z - d.z) < d.R * 0.8 + hole.r * 0.3) { this.hooks.hurt(P2.lidHit, 'Void Lid slammed down!'); this.hooks.jam?.(1.2); }
         }
       } else if (d.t < d.T + 8) { // setting: slows you and nibbles while you sit in it (get out)
         if (Math.hypot(hole.x - d.x, hole.z - d.z) < d.R * 0.8 + hole.r * 0.3) this.hooks.drain(dt * 0.35);
@@ -457,8 +457,8 @@ export class Army {
       this.capRing.material.opacity = 0.4 + 0.3 * Math.sin(b.capT * (8 + b.capT * 10));
       if (b.capT > 2) {
         b.capT = 0;
-        b.cool = 10;
-        this.hooks.hurt(0.15, 'CAPPED!');
+        b.cool = P2.capperCool;
+        this.hooks.hurt(P2.capperHit, 'CAPPED!');
         this.hooks.kick?.(dx / d, dz / d);
         this.debris.dustRing(hole.x, this.ground(hole.x, hole.z), hole.z, hole.r, hole.r, 24, hole.r * 0.6, 2.5, boom);
         this.hooks.boom();

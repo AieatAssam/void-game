@@ -35,8 +35,9 @@ export async function createRenderer(canvas) {
   // ?fps: time the GPU work too (WebGPU timestamp queries, where the browser offers them) for the overlay
   const renderer = new THREE.WebGPURenderer({ canvas, antialias: false, powerPreference: 'high-performance', forceWebGL: forceGL,
     trackTimestamp: /[?&]fps\b/.test(location.search) });
-  // start a notch under the tier's ceiling: post.js's dynamic resolution climbs back up if frames hold 60
-  renderer.setPixelRatio(Math.min(devicePixelRatio, Q.dpr, 1.5));
+  // start at 1x: post.js's dynamic resolution climbs toward the tier's ceiling while frames hold 60 (a laptop GPU measured
+  // 28 fps at 1.5x and 41 at 1x behind the menu: starting high meant a stuttery first impression while it stepped down)
+  renderer.setPixelRatio(Math.min(devicePixelRatio, Q.dpr, 1));
   // Unreal-style filmic curve: rich toe, soft highlight shoulder. AgX was evaluated per time of day (?tone=agx):
   // it greys out the saturated toy paint in the brights, so ACES stays for every preset (the LUTs do the rest).
   const agx = typeof location !== 'undefined' && location.search.includes('tone=agx');

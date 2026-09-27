@@ -6,19 +6,28 @@
 export const P2 = {
   surge: 1.25, // breakout: the hole's radius jumps by this
   slowmo: 0.3, // world speed during the breakout cinematic
-  bellyDrain: 1 / 16, // a full belly lasts 16 s (settlements are a few hundred metres apart)
+  bellyDrain: 1 / 24, // a full belly lasts 24 s: a leg between settlements takes a human-paced player ~30 s (human-like bot)
   meal: 0.08, // eating this fraction of the hole's area fills the belly
-  crumb: 0.018, // each crumb (a tree, a hedge, a cow) tops the belly up this much: woods feed you, they don't grow you
-  growth: 0.6, // every bite grows you 60% of a town bite: the whole country has to be eaten
+  crumb: 0.025, // each crumb (a tree, a hedge, a cow) tops the belly up this much: woods feed you, they don't grow you
+  growth: 0.8, // every bite grows you 80% of a town bite (60% left a human-paced player unable to climb the ladder)
   capitalGrowth: 0.9, // ... except the capital: the climax pays out (enough to fit the stadium, its last and biggest piece)
-  crumbGrowth: 0.3, // ... and grows you at 30% of a normal bite (the settlements are what grow you)
+  crumbGrowth: 0.4, // ... and grows you at 40% of a normal bite (the settlements are what grow you)
   stuckGrowth: 0.6, // ... or 60% when nothing standing fits you (no dead ends, but a careless player can still lose)
-  decayFed: 0.002, // area fraction lost per second while fed (travel legs between settlements are long)
-  decayStarving: 0.015, // ... while starving
+  decayFed: 0.0012, // area fraction lost per second while fed (travel legs between settlements are long)
+  decayStarving: 0.01, // ... while starving (a long leg costs size, not the run)
   dead: 7.5, // below this the army's lid drops at once (army.js seal)
   critical: 9, // below this (back toward town scale) the army moves in to seal the hole: grow back past recover or be capped
   recover: 9.6,
   sealTime: 14, // seconds to recover before the lid drops
+  // the army's cadence at threat 3-4 (was every 22-30 s and 30 s: a human-paced run spends 8-15 min on the island, and
+  // strikes and lids took 4-8x what they took from the greedy bot, 2-3 min there)
+  jetEvery: 32, // + up to 10 s
+  liftEvery: 44,
+  // their hits (were 0.12 and 0.18: 2 human-paced runs in 6 lost 3500+ m2 to each before the lid sealed them, 11-13 min in)
+  jetHit: 0.08,
+  lidHit: 0.12,
+  capperHit: 0.1, // the Capper's slam (was 0.15 every 10 s: 11 hits ground a human-paced player down near the capital)
+  capperCool: 14,
   speed: (r) => Math.min(40, 18 + r * 0.5), // sub-linear: big feels heavy, the map stays crossable
   turn: (r) => 0.1 + Math.min(0.35, r / 170), // steering smoothing time constant (s): heavier as it grows
 };
