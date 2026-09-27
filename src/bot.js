@@ -94,6 +94,7 @@ export function humanBot() {
   return (hole, city) => {
     const { director, state, camera, THREE } = window.__game();
     const t = state.time;
+    const dbg = (window.__botDbg ??= { boss: 0, rival: 0, ring: 0, marker: 0, explore: 0 }); // (why a bot stalls: which push fired, per frame)
     if (t < s.idleUntil) return [0, 0];
     if (t >= s.next) { // re-plan from what's on screen
       s.next = t + 0.45 + Math.random() * 0.55;
@@ -136,7 +137,7 @@ export function humanBot() {
       const q = window.__lastBuilding ?? window.__nextSettlement?.() ?? city.target?.(hole); // follow the edge marker: a building to hunt (town, or inside a settlement), else the next settlement
       // at a settlement's middle with nothing on screen: look around it rather than park on the marker (it starved there)
       const parked = q && !q.meta && Math.hypot(q.x - hole.x, q.z - hole.z) < (q.r || 0) * 0.5;
-      if (q && !parked) { tx = q.x; tz = q.z; } else { // nothing in view: go exploring like a player would (a heading that drifts,
+      if (q && !parked) { dbg.marker++; tx = q.x; tz = q.z; } else { dbg.explore++; // nothing in view: go exploring like a player would (a heading that drifts,
         // turned back toward the middle near the edge of the town)
         s.head = (s.head ?? Math.random() * 6.28) + (Math.random() - 0.5) * 0.08;
         const lim = (city.half || 100) * 0.8;
@@ -153,22 +154,28 @@ export function humanBot() {
     const boss = director.boss;
     if (boss?.alive && boss.noSwallow) {
       const dx = hole.x - boss.x, dz = hole.z - boss.z, dist = Math.hypot(dx, dz);
-      if (dist < hole.r + 60) { x += (dx / (dist || 1)) * 2; z += (dz / (dist || 1)) * 2; }
+      if (dist < hole.r + 60) { dbg.boss++; x += (dx / (dist || 1)) * 2; z += (dz / (dist || 1)) * 2; }
     }
     // a bigger rival close by (and on screen): keep away from it, the way a player would
     for (const rv of window.__game().rivals?.list || []) {
       const h = rv.hole;
       if (rv.dead || h.r < hole.r * 1.05) continue;
       const dx = hole.x - h.x, dz = hole.z - h.z, dist = Math.hypot(dx, dz);
-      if (dist < h.r + hole.r + 6 + h.r * 2) { x += (dx / (dist || 1)) * 1.5; z += (dz / (dist || 1)) * 1.5; }
+      if (dist < h.r + hole.r + 6 + h.r * 2) { dbg.rival++; x += (dx / (dist || 1)) * 1.5; z += (dz / (dist || 1)) * 1.5; }
     }
-    // warning rings: seen after a reaction, dodged 3 times in 4
+    // warning rings: seen after a reaction, dodged 3 times in 4, by a sidestep that keeps the heading (backing straight
+    // off every ring kept it 200 m outside the capital for minutes, the army dropping ring after ring on it)
+    const hx = x, hz = z;
     for (const d of director.drops || []) {
       if (!s.seenRing.has(d)) s.seenRing.set(d, { at: t + 0.35 + Math.random() * 0.2, dodge: Math.random() < 0.75 });
       const r = s.seenRing.get(d);
       if (t < r.at || !r.dodge) continue;
       const dx = hole.x - d.x, dz = hole.z - d.z, dist = Math.hypot(dx, dz);
-      if (dist < d.R + hole.r + 2) { x += (dx / (dist || 1)) * 2; z += (dz / (dist || 1)) * 2; }
+      if (dist < d.R + hole.r + 2) {
+        dbg.ring++;
+        const side = Math.sign(-hz * dx + hx * dz) || 1; // (the side of the heading the ring isn't on)
+        x += -hz * side * 2 + (dx / (dist || 1)) * 0.4; z += hx * side * 2 + (dz / (dist || 1)) * 0.4;
+      }
     }
     const l2 = Math.hypot(x, z);
     if (l2 < 1e-3) return [0, 0];

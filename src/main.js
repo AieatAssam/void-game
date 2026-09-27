@@ -515,7 +515,7 @@ function hud() {
   if (state.phase === 2) {
     const q = nextSettlement();
     const ok = q && q.list.some((e) => e.alive && e.meta.tier < hole.r * 0.95); // something there fits now
-    const inside = q && Math.hypot(q.x - hole.x, q.z - hole.z) <= q.r * 0.6;
+    const inside = q && Math.hypot(q.x - hole.x, q.z - hole.z) <= q.r + 100; // (at its edge too: the last capital pieces were off screen, 200 m out)
     window.__lastBuilding = null;
     if (inside && ok) { // in town: point at its nearest building that fits (players parked in the middle, lost, with food at the edges)
       let b = null, bd = Infinity;
