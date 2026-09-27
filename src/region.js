@@ -682,18 +682,22 @@ export class Region extends City {
   target(hole) {
     let best = null, bs = 0;
     for (const q of this.settlements) {
-      let v = 0;
-      for (const e of q.list) {
-        if (!e.alive || e.meta.tier >= hole.r * 0.9) continue;
-        v += e.meta.tier * e.meta.tier * (0.06 + 0.94 * smooth(0.1, 0.5, e.meta.tier / hole.r));
-      }
-      if (!v) continue;
-      // distance counts for more than the size of the meal: a belly lasts ~600 m of travel at a human pace, and the
-      // arrow sent players (and the human-like bot) 900 m to a big town past two villages, starving on the way
-      const sc = v / (Math.max(0, Math.hypot(q.x - hole.x, q.z - hole.z) - q.r) + 120) ** 1.5;
+      const sc = this.targetScore(q, hole);
       if (sc > bs) { bs = sc; best = q; }
     }
     return best;
+  }
+
+  /** How worth heading for a settlement is: what fits there now, over the distance (0 when nothing fits). */
+  targetScore(q, hole) {
+    let v = 0;
+    for (const e of q.list) {
+      if (!e.alive || e.meta.tier >= hole.r * 0.9) continue;
+      v += e.meta.tier * e.meta.tier * (0.06 + 0.94 * smooth(0.1, 0.5, e.meta.tier / hole.r));
+    }
+    // distance counts for more than the size of the meal: a belly lasts ~600 m of travel at a human pace, and the
+    // arrow sent players (and the human-like bot) 900 m to a big town past two villages, starving on the way
+    return v && v / (Math.max(0, Math.hypot(q.x - hole.x, q.z - hole.z) - q.r) + 120) ** 1.5;
   }
 
   buildingsLeft() {

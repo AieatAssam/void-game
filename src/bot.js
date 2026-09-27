@@ -99,8 +99,8 @@ export function humanBot() {
       s.next = t + 0.45 + Math.random() * 0.55;
       if (Math.random() < 0.05) { s.idleUntil = t + 0.3 + Math.random() * 0.5; return [0, 0]; }
       const v = new THREE.Vector3(), cands = [];
-      const q0 = city.target?.(hole), qd = q0 && Math.hypot(q0.x - hole.x, q0.z - hole.z);
-      const goal = q0 && qd > q0.r ? { x: (q0.x - hole.x) / qd, z: (q0.z - hole.z) / qd, far: qd > q0.r + 150 } : null;
+      const q0 = window.__nextSettlement?.() ?? city.target?.(hole), qd = q0 && Math.hypot(q0.x - hole.x, q0.z - hole.z);
+      const goal = q0 && qd > q0.r ? { q: q0, x: (q0.x - hole.x) / qd, z: (q0.z - hole.z) / qd, far: qd > q0.r + 150 } : null;
       // (Phase 2: the woods, hedges and herds are edible too, and a player sees them: the nearby ones join the scan)
       const near = city.crumbs ? city.crumbs.filter((e) => Math.abs(e.x - hole.x) < 250 && Math.abs(e.z - hole.z) < 250) : [];
       for (const e of near.length ? [...city.entities, ...near] : city.entities) {
@@ -115,9 +115,12 @@ export function humanBot() {
         if (goal) { // Phase 2: heading for the marked settlement, a player eats what's on the way and doesn't graze off course
           const along = (dx * goal.x + dz * goal.z) / (d || 1);
           sc *= 0.25 + 0.75 * Math.max(0, along);
-          if (e.mover?.crumb) sc *= 0.25; // (a town ahead beats the wood beside you: it loitered at a town's edge eating pines)
-          // travelling: only what's close to the route (a player doesn't circle a wood with a town to reach)
+          // a town ahead beats the wood beside you: woods only when they're on the way (it loitered 240 m from a town eating
+          // pines, the town's houses off screen), and anything off the route while the town is still far
+          if (e.mover?.crumb && (along < 0.85 || d > hole.r * 3)) continue;
           if (goal.far && (along < 0.8 || d > hole.r * 4)) continue;
+          // close to the marked settlement: its own buildings first (it ate barns and windmills round the capital's edge)
+          if (!goal.far) sc *= e.home === goal.q ? 4 : 0.3;
         }
         cands.push([sc, e]);
       }
@@ -130,12 +133,15 @@ export function humanBot() {
     let tx, tz;
     if (s.target && s.target.alive && !s.target.falling) { tx = s.target.x; tz = s.target.z; }
     else {
-      const q = window.__lastBuilding ?? city.target?.(hole); // follow the edge marker: a building to hunt (town, or inside a settlement), else the next settlement
-      if (q) { tx = q.x; tz = q.z; } else { // nothing in view: go exploring like a player would (a heading that drifts,
+      const q = window.__lastBuilding ?? window.__nextSettlement?.() ?? city.target?.(hole); // follow the edge marker: a building to hunt (town, or inside a settlement), else the next settlement
+      // at a settlement's middle with nothing on screen: look around it rather than park on the marker (it starved there)
+      const parked = q && !q.meta && Math.hypot(q.x - hole.x, q.z - hole.z) < (q.r || 0) * 0.5;
+      if (q && !parked) { tx = q.x; tz = q.z; } else { // nothing in view: go exploring like a player would (a heading that drifts,
         // turned back toward the middle near the edge of the town)
         s.head = (s.head ?? Math.random() * 6.28) + (Math.random() - 0.5) * 0.08;
         const lim = (city.half || 100) * 0.8;
-        if (Math.abs(hole.x) > lim || Math.abs(hole.z) > lim) s.head = Math.atan2(-hole.z, -hole.x) + (Math.random() - 0.5) * 0.8;
+        if (parked) { if (Math.hypot(q.x - hole.x, q.z - hole.z) > q.r * 0.4) s.head = Math.atan2(q.z - hole.z, q.x - hole.x) + 1.2; } // (circle it)
+        else if (Math.abs(hole.x) > lim || Math.abs(hole.z) > lim) s.head = Math.atan2(-hole.z, -hole.x) + (Math.random() - 0.5) * 0.8;
         tx = hole.x + Math.cos(s.head) * 20; tz = hole.z + Math.sin(s.head) * 20;
       }
     }
@@ -230,3 +236,37 @@ window.__humanSuite = async (n = 6, seconds = 600, who = 'human', dt = 1 / 30) =
   return out;
 };
 window.__humanBot = humanBot; // (Phase 2: window.__bot = __humanBot(); __regionBot(900))
+
+/**
+ * `await __regionSuite(4, 1200, 'human')`: Phase 2 runs back to back (?region&r=16&bot), one line each with the growth
+ * ledger: m2 gained from settlement buildings and from crumbs, m2 lost to fed decay, starving and each kind of hit, and
+ * the share of time spent travelling. 'greedy' runs the greedy bot (the upper bound); 'sloppy' the careless one.
+ */
+window.__regionSuite = async (n = 4, seconds = 1200, who = 'human', dt = 1 / 30, seeds = [4242, 77, 5, 99, 2024, 7, 31, 555]) => {
+  const out = [], f = (v) => Math.round(v);
+  for (let k = 0; k < n; k++) {
+    window.__setNextSeed?.(seeds[k % seeds.length]);
+    window.__sloppy = who === 'sloppy';
+    if (who === 'human') window.__bot = humanBot(); else installBot();
+    document.getElementById('play').click();
+    for (let i = 0; i < 50 && window.__game().state.over; i++) await new Promise((r) => setTimeout(r, 100)); // (a run read the last one's result)
+    for (let i = 0; i < 400 && window.__game().state.phase !== 2; i++) { window.__tick?.(dt); await new Promise((r) => setTimeout(r, 100)); }
+    if (who === 'human') window.__bot = humanBot();
+    window.__headless = true;
+    const { state } = window.__game();
+    let t = 0;
+    for (; t < seconds && !state.over; t += dt) {
+      window.__tick(dt);
+      if (Math.abs(t % 20) < dt) await new Promise((r) => setTimeout(r, 0));
+    }
+    window.__headless = false;
+    const { city } = window.__game(), L = state.ledger || { hit: {} };
+    const cleared = city.settlements.filter((q) => q.left === 0).map((q) => q.kind[0]).join('') || '-';
+    const hits = Object.entries(L.hit).filter(([, v]) => v < -1).map(([k2, v]) => `${k2} ${f(v)}`).join(', ');
+    out.push(`${seeds[k % seeds.length]} ${who} ${(state.over ? (city.capital?.left === 0 ? 'WON' : 'DIED') : 'time up').padEnd(7)} ${f(t)}s best ${state.best.toFixed(1)} cleared ${cleared} | +build ${f(L.build)} +crumb ${f(L.crumb)} fed ${f(L.fed)} starve ${f(L.starve)} | ${hits} | travel ${f(100 * L.travel / ((L.travel + L.town) || 1))}%${state.why ? ' | ' + state.why : ''}`);
+    if (!state.over) state.playing = false;
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  window.__sloppy = false;
+  return out;
+};

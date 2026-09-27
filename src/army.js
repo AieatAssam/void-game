@@ -70,9 +70,9 @@ export class Army {
     // threat 2: artillery on high ground, a salvo every few seconds
     if (stars >= 2 && this.cool.battery <= 0 && !this.batteries.some((q) => q.guns.some((g) => g.alive))) { this.cool.battery = 30; this.battery(hole, view); }
     // threat 3: strike jets along a line
-    if (stars >= 3 && this.cool.jet <= 0) { this.cool.jet = 22 + Math.random() * 8; this.jetStrike(hole); }
+    if (stars >= 3 && this.cool.jet <= 0) { this.cool.jet = P2.jetEvery + Math.random() * 10; this.jetStrike(hole); }
     // threat 4: heavy-lift lids
-    if (stars >= 4 && this.cool.lift <= 0) { this.cool.lift = 30; this.lift(hole, view); }
+    if (stars >= 4 && this.cool.lift <= 0) { this.cool.lift = P2.liftEvery; this.lift(hole, view); }
     this.fireBatteries(dt, hole);
     this.fireCannons(dt, hole);
     this.updateBlocks(dt, hole);
@@ -457,8 +457,8 @@ export class Army {
       this.capRing.material.opacity = 0.4 + 0.3 * Math.sin(b.capT * (8 + b.capT * 10));
       if (b.capT > 2) {
         b.capT = 0;
-        b.cool = 14; // (15% every 10 s ground a human-paced player down near the capital: 11 hits in one run)
-        this.hooks.hurt(0.1, 'CAPPED!');
+        b.cool = P2.capperCool;
+        this.hooks.hurt(P2.capperHit, 'CAPPED!');
         this.hooks.kick?.(dx / d, dz / d);
         this.debris.dustRing(hole.x, this.ground(hole.x, hole.z), hole.z, hole.r, hole.r, 24, hole.r * 0.6, 2.5, boom);
         this.hooks.boom();

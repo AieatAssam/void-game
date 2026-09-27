@@ -321,6 +321,9 @@ $('screen').classList.remove('loading');
 clearInterval(tipTimer);
 window.__game = () => ({ hole, city, state, renderer, director, rivals, events, chains, powerups, camera, scene, grass, post, THREE });
 window.__abil = () => abilities;
+window.__P2 = P2;
+window.__setNextSeed = (sd) => { nextSeed = sd; }; // (bot suites replay the same islands, so runs compare)
+window.__nextSettlement = () => (state.phase === 2 ? nextSettlement() : null); // (what the arrow shows: the human-like bot follows it) // (runtime balance tuning between suite runs: no file edits, no hot reloads)
 window.__BUILDINGS = BUILDINGS;
 window.__assist = (x, z) => rimMagnet(x, z); // (the human-like bot steers through the same aids a player gets)
 window.__info = () => { const r = renderer.info.render; return { calls: r.drawCalls, tris: r.triangles, frameCalls: r.frameCalls }; };
@@ -663,10 +666,16 @@ function hint(text) {
 }
 
 // ---------- damage (PLAN.md rule 3: capped, never chained) ----------
+/** Where the hole's area came from and went (balance ledger, m2): __regionSuite and __humanSuite print it. */
+function ledger(key, dA) {
+  const L = (state.ledger ??= { build: 0, crumb: 0, fed: 0, starve: 0, hit: {}, travel: 0, town: 0 });
+  if (key in L && typeof L[key] === 'number') L[key] += dA; else L.hit[key] = (L.hit[key] || 0) + dA;
+}
 function hurt(frac, why) {
   if (!state.playing || state.invuln > 0) return;
-  const glass = state.card === 'glass' ? 2 : 1;
+  const glass = state.card === 'glass' ? 2 : 1, a0 = hole.area;
   hole.area *= 1 - Math.min(frac * glass * (1 - level('hardhat') * 0.1) * state.mods.hurt * state.hm.hurt, MAX_HIT * glass);
+  ledger(why.replace(/[!—].*$/, '').trim() || why, hole.area - a0);
   state.hits.push(why);
   if (why.startsWith('Concrete')) state.stats.concrete++;
   state.invuln = 1.2;
@@ -685,6 +694,7 @@ function toll() {
 /** Standing in wet concrete: slow, and it sets around you (steady shrink; never blocks movement, rule 1). */
 function drain(dt) {
   if (!state.playing) return;
+  ledger('wet concrete', -hole.area * 0.05 * dt);
   hole.area *= 1 - 0.05 * dt;
   state.slow = Math.max(state.slow, 0.15);
   state.wet = 0.2;
@@ -1167,6 +1177,10 @@ function nextSettlement() {
   if ((state.targetT = (state.targetT || 0) - 1) > 0 && state.target?.left) return state.target;
   state.targetT = 20; // (re-chosen every 20 frames)
   let best = city.target(hole);
+  // stick with the settlement you're heading for while it still has something that fits, unless another is clearly better:
+  // re-scored from the moving hole, the pick flip-flopped between two and players (and the human-like bot) went nowhere
+  const cur = state.target, cs = cur && city.targetScore(cur, hole);
+  if (cs && best !== cur && city.targetScore(best, hole) < cs * 1.5) best = cur;
   if (!best) {
     let bd = Infinity;
     for (const q of city.settlements) { const d = Math.hypot(q.x - hole.x, q.z - hole.z); if ((q.left ?? q.total) && d < bd) { bd = d; best = q; } }
@@ -1504,8 +1518,12 @@ function frame(dt) {
     // human-like bot shrank below the size of the last building while looking for it and could never finish)
     state.leftStart = Math.max(state.leftStart || 0, state.left || 0);
     const huntAt = Math.max(8, Math.round(state.leftStart * 0.25)); // (the last quarter of the town, or the last 8)
-    const hunt = state.phase === 1 && state.left > 0 && state.left <= huntAt;
-    const drain = state.phase === 2 ? P2.bellyDrain : hunt ? 0 : BELLY_DRAIN * ramp * Math.min(1, 0.3 + state.time / 25) * (0.6 + 0.4 * small);
+    // (Phase 2: the capital's last quarter is the same hunt: its food is eaten and its last pieces scattered over 200 m;
+    // the human-like bot reached 47 m, big enough for all of it, then starved hunting them and was sealed)
+    const cap = state.phase === 2 && city.capital, capLeft = cap && (cap.left ?? cap.total);
+    const hunt = (state.phase === 1 && state.left > 0 && state.left <= huntAt)
+      || (cap && capLeft > 0 && capLeft <= Math.max(6, Math.round((cap.total || capLeft) * 0.25)) && cap.list.some((e) => e.alive && e.meta.tier < hole.r * 0.95));
+    const drain = hunt ? 0 : state.phase === 2 ? P2.bellyDrain : BELLY_DRAIN * ramp * Math.min(1, 0.3 + state.time / 25) * (0.6 + 0.4 * small);
     state.belly = Math.max(0, state.belly - drain * state.mods.hunger * state.hm.hunger * tide * dt);
     cravings(dt);
     const [sx, sz] = window.__bot ? window.__bot(hole, city) : steer();
@@ -1549,8 +1567,13 @@ function frame(dt) {
     // person-sized bite every few seconds couldn't outgrow it and shrank while fed: human-like bot, docs/BALANCE.md)
     const early = 0.25 + 0.75 * small;
     const fed = state.phase === 2 ? P2.decayFed : DECAY_FED * early / (1 + hole.r * 0.1);
-    if (!hunt) hole.area *= 1 - (state.belly > 0 ? fed : state.phase === 2 ? P2.decayStarving : DECAY_STARVING * (0.4 + 0.6 * small)) * slower * dt;
-    if (hunt && !state.saidHunt) { state.saidHunt = true; flash('The last buildings! The void holds its hunger: find them', false); }
+    if (!hunt) {
+      const a0 = hole.area;
+      hole.area *= 1 - (state.belly > 0 ? fed : state.phase === 2 ? P2.decayStarving : DECAY_STARVING * (0.4 + 0.6 * small)) * slower * dt;
+      ledger(state.belly > 0 ? 'fed' : 'starve', hole.area - a0);
+    }
+    if (state.phase === 2) ledger(city.settlements.some((q) => Math.hypot(q.x - hole.x, q.z - hole.z) < q.r) ? 'town' : 'travel', dt);
+    if (hunt && !state.saidHunt) { state.saidHunt = true; flash(state.phase === 2 ? `The last of ${city.capital?.name || 'the capital'}! The void holds its hunger: find them` : 'The last buildings! The void holds its hunger: find them', false); }
     director.update(dt, hole, state);
     events.update(dt, hole, state);
     city.alarm = director.stars; // at high heat the city evacuates: people hide indoors
@@ -1678,7 +1701,9 @@ function frame(dt) {
       state.pop += residents(e.name, e.meta.tier);
       if (e.mover?.crumb || e.meta.tier < hole.r * 0.12) { // crumbs (trees, hedges, cars at this size): no fanfare each
         const before = hole.area;
+        const a0 = hole.area;
         hole.grow(e.meta.tier, growthShare(e.meta.tier, hole.r) * P2.growth * (e.mover?.crumb ? (state.starved2 ? P2.stuckGrowth : P2.crumbGrowth) : 1)); // (starved2: no dead ends, below)
+        ledger(e.mover?.crumb ? 'crumb' : 'build', hole.area - a0);
         state.belly = Math.min(1, state.belly + (hole.area - before) / (before * P2.meal) + P2.crumb);
         state.eaten++;
         state.score += Math.PI * e.meta.tier ** 2;
@@ -1705,7 +1730,9 @@ function frame(dt) {
     const mult = (state.card === 'vehicles' ? (VEHICLES.has(e.name) ? 1.5 : 0.25) : state.card === 'glass' ? 1.5 : 1) * kind * (state.happy > 0 ? 1.5 : 1);
     if (BUILDINGS.has(e.name)) st.buildings++;
     if (e.meta.event) st.eventMeals++;
+    const ga0 = hole.area;
     hole.grow(e.meta.tier, mult * growthShare(e.meta.tier, hole.r) * (state.phase === 2 ? (e.home?.kind === 'capital' ? P2.capitalGrowth : P2.growth) : 1));
+    ledger('build', hole.area - ga0);
     // a full meal is MEAL of the hole's area, capped at a 6 m hole's worth so late game stays feedable
     const meal = (state.phase === 2 ? P2.meal : MEAL) * (1 + level('appetite') * 0.04);
     state.belly = Math.min(1, state.belly + (hole.area - before) / ((state.phase === 2 ? before : Math.min(before, Math.PI * 36)) * meal));

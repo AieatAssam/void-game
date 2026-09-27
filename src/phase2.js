@@ -19,6 +19,12 @@ export const P2 = {
   critical: 9, // below this (back toward town scale) the army moves in to seal the hole: grow back past recover or be capped
   recover: 9.6,
   sealTime: 14, // seconds to recover before the lid drops
+  // the army's cadence at threat 3-4 (was every 22-30 s and 30 s: a human-paced run spends 8-15 min on the island, and
+  // strikes and lids took 4-8x what they took from the greedy bot, 2-3 min there)
+  jetEvery: 32, // + up to 10 s
+  liftEvery: 44,
+  capperHit: 0.1, // the Capper's slam (was 0.15 every 10 s: 11 hits ground a human-paced player down near the capital)
+  capperCool: 14,
   speed: (r) => Math.min(40, 18 + r * 0.5), // sub-linear: big feels heavy, the map stays crossable
   turn: (r) => 0.1 + Math.min(0.35, r / 170), // steering smoothing time constant (s): heavier as it grows
 };
