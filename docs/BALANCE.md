@@ -135,3 +135,34 @@ Results (final tuning):
 
 Region dust is 90–160 on top of the town's (meals and combos at half rate from the region's score, plus 8 per settlement
 and 40 for the capital). A human player takes longer than the greedy bot (it knows every target and path).
+
+## Human-paced pass (branch `perf/safari-gpu`)
+
+Playtest report: "as a human I cannot chase everything fast enough to grow; my hole stays small and keeps shrinking".
+The greedy bot sees the whole map and never misses, so it hid this. New `humanBot()` (bot.js): sees only what's on
+screen, re-plans every 0.45-1 s after a 0.18-0.33 s reaction, picks among its top 4 with a bias, wobbles +-10 degrees,
+dodges 3 rings in 4 by sidestepping, keeps away from bigger rivals and the Capper, explores when nothing's in view and
+follows the same edge arrows a player gets. `__humanSuite(n, secs)` (town), `__regionSuite(n, secs, who)` (island,
+fixed seeds 4242, 77, 5, 99, 2024, 7, 31, 555) print one line per run with a growth ledger (`state.ledger`: m2 from
+buildings and crumbs, lost to fed decay, starving and each kind of hit; share of time travelling).
+`window.__botDbg` counts which push steered the bot, to trace a stall.
+
+| Change | Why (what the human-like bot showed) |
+|---|---|
+| Town: hunger ramps over 10 min (was faster); small holes drain and decay less | It stayed small and shrank. Now clears 8/8 towns in 4:50-9:33. |
+| Hunt mode: last 25% of buildings (town) or of the capital: no drain, no decay, arrow to the nearest | Stalled with 1-17 scattered buildings left, all small enough. |
+| Island: `P2` belly 24 s, growth 0.8x (capital 0.9x), army cadence 32-42 s jets / 44 s lifts, Capper 0.1 every 14 s | Human-paced runs spend 2-3x as long on the island as the greedy bot; hits scaled with time. |
+| Arrow target sticks unless another settlement scores 1.5x; distance weighs more than meal size | Flip-flopped between two settlements and went nowhere; sent 900 m past two villages. |
+| Town and industry placed on the capital's side of the island (within 1100 m, else anywhere) | Seed 4242 put both 1900 m from the capital: greedy and human bots both starved on the trek. |
+| The capital is never skipped (retries 10% nearer the middle) | Seed 31 had no capital: unwinnable. |
+| Air strike 0.12 to 0.08, lid 0.18 to 0.12 (`P2.jetHit`, `P2.lidHit`) | The two losses of six lost 3500+ m2 to each. |
+| Bot sidesteps rings instead of backing off; in-settlement arrow from 100 m past the edge | Hovered 200 m outside the capital for minutes, rings landing on it, the last pieces off screen. |
+
+Island, from `?region&r=16` (8 fixed seeds):
+
+| Bot | Result |
+|---|---|
+| Human-like, before | 0/6 to 3/6 won, stuck at 24-33 m, 77-92% travelling |
+| Human-like, after | 8/8 won in 2:05-6:25 |
+| Greedy (before the last two rows) | 3/4 won in 2:22-3:43 (4242 died: the layout) |
+| Careless (before the last two rows) | 4/4 won in 2:45-5:24: it still sees the whole map, so it's no longer the lower bound; the human-like bot is |
