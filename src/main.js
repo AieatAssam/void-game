@@ -1263,7 +1263,7 @@ function endRun(won, why) {
     $('result').innerHTML = (state.mode === 'blitz' && !won
       ? `Two minutes, <b>${state.eaten}</b> things swallowed, grew to <b>${state.best.toFixed(1)} m</b>. ${blitzBest ? '<b>New Blitz best!</b>' : `Blitz best <b>${(save.blitz[state.mood] || 0).toFixed(1)} m</b>`}`
       : region
-      ? `${state.mood} gone in <b>${clock(clearT)}</b>, then <b>${towns}</b> of ${city.settlements.length} settlements${won ? `, ${city.capital?.name || 'the capital'} last` : ''}. Grew to <b>${state.best.toFixed(1)} m</b>, <b>${Math.round(state.pop).toLocaleString()}</b> people swallowed.${won ? '' : '<br>Too weak to swallow a Void Lid, it was capped for good. Every run starts over from a fresh town.'}`
+      ? `${state.mood} gone in <b>${clock(clearT)}</b>, then <b>${towns}</b> of ${city.settlements?.length ?? 0} settlements${won ? `, ${city.capital?.name || 'the capital'} last` : ''}. Grew to <b>${state.best.toFixed(1)} m</b>, <b>${Math.round(state.pop).toLocaleString()}</b> people swallowed.${won ? '' : '<br>Too weak to swallow a Void Lid, it was capped for good. Every run starts over from a fresh town.'}`
       : won
       ? `Every building gone in <b>${clock(state.time)}</b>${state.daily ? ' — today\'s city' : ''}. Fastest ever <b>${clock(save.fastest)}</b>.`
       : `You swallowed <b>${state.eaten}</b> things and grew to <b>${state.best.toFixed(1)} m</b>${state.daily ? ' in today\'s city' : ''}. <b>${state.left}</b> buildings still stand.`)

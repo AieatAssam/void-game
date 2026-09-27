@@ -172,9 +172,11 @@ export class Region extends City {
     for (const kind of PLAN) {
       const K = KINDS[kind];
       let best = null, fallback = null;
-      for (let t = 0; t < 160; t++) {
-        const cap = this.settlements[0], near = (kind === 'town' || kind === 'industry') && cap; // (see below)
-        const a = near ? Math.atan2(cap.z, cap.x) + (r() - 0.5) * (t < 120 ? 2.1 : 6.28) : r() * Math.PI * 2, d = r.range(K.d[0], K.d[1]);
+      // the capital is the win: never skipped (seed 31's island had no room at its range and the run couldn't be won),
+      // each further 160 tries 10% nearer the middle
+      for (let t = 0; t < (kind === 'capital' ? 800 : 160); t++) {
+        const cap = this.settlements.find((s) => s.kind === 'capital'), near = (kind === 'town' || kind === 'industry') && cap; // (see below)
+        const a = near ? Math.atan2(cap.z, cap.x) + (r() - 0.5) * (t < 120 ? 2.1 : 6.28) : r() * Math.PI * 2, d = r.range(K.d[0], K.d[1]) * (1 - 0.1 * Math.floor(t / 160));
         const x = Math.cos(a) * d, z = Math.sin(a) * d;
         if (probe.coastR(x, z) - Math.hypot(x, z) < K.r + 150 || [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].some(([u, v]) => probe.mountain(x + u * (K.r + 60), z + v * (K.r + 60)) > 0.05)) continue; // well inland, clear of the mountains
         if (this.beach && z > this.half - K.r - 40) continue; // the sea is that way
