@@ -159,7 +159,6 @@ export class Grass {
     const origin = this.origin, fadeCentre = this.fadeCentre, fadeFar = this.fadeFar, zoomFade = this.zoomFade;
 
     // ---- per-blade values (vertex stage)
-    const id = float(instanceIndex);
     // interleaved: consecutive instances cycle through the patches, so lowering mesh.count thins every patch evenly
     const np = int(active);
     const patch = int(instanceIndex).mod(np);
@@ -167,9 +166,13 @@ export class Grass {
     // blades all over the patch, not its last rows (that left lawns half bare, cut off along a straight edge)
     const j = int(instanceIndex).div(np).mul(2749).mod(int(side * side));
     const gx = float(j.mod(int(side))), gz = float(j.div(int(side)));
-    const h1 = hash(id.mul(8).add(1)), h2 = hash(id.mul(8).add(2)), h3 = hash(id.mul(8).add(3));
-    const h4 = hash(id.mul(8).add(4)), h5 = hash(id.mul(8).add(5));
     const cell = offs.element(patch).mul(cellSize).add(origin);
+    // a blade's identity is its patch's place in the world and its slot: the patch list changes as patches enter and
+    // leave the view, and keying the hashes on instanceIndex re-rolled every blade on screen each time (the lawn jumped)
+    const cc = cell.div(cellSize).round();
+    const id = int(cc.x).add(512).mul(1024).add(int(cc.y).add(512)).mul(int(side * side)).add(j).mul(8);
+    const h1 = hash(id.add(1)), h2 = hash(id.add(2)), h3 = hash(id.add(3));
+    const h4 = hash(id.add(4)), h5 = hash(id.add(5));
     const wxz = cell.add(vec2(gx.add(h1), gz.add(h2)).mul(spacing));
     const m = texture(maskTex, wxz.add(e).div(2 * e)).level(0);
     // clumps: blades bunch up and share height, so lawns don't look like carpet

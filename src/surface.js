@@ -57,6 +57,7 @@ const OBJECT = [
   [L.dirt, 0.4, 0.6, 1], [W, 1, 0, 1], [L.foliage, 0.8, 0.4, 1],
 ];
 const SW = { steel: 21, gold: 32, chrome: 33, copper: 34, glass: 35, roseGold: 38 };
+const POM_STEPS = 5; // (10 and 4 render the same at the game's camera angles: the relief is ~3 cm deep and the march ends in a linear refine)
 const OFF = new Set((typeof location !== 'undefined' && new URLSearchParams(location.search).get('off')?.split(',')) || []); // dev: ?off=glass,cav,...
 const PAVE = [L.paving, 0.42, 0.35, 0.9];
 const GRASS = [L.grass, 0.3, 0.3, 1.1];
@@ -110,7 +111,7 @@ const swatchIndex = () => {
  * Build the TSL graph for a palette material.
  * ground: world-space ground table + wear; holes: uniformArray of vec3(x, z, r) cut out of the ground.
  */
-function buildToy(mat, { ground = false, holes = null, seed = float(instanceIndex) } = {}) {
+function buildToy(mat, { ground = false, holes = null, seed = float(instanceIndex), topOnly = false } = {}) {
   const sw = swatchIndex();
   const info = (ground ? GND_TABLE : OBJ_TABLE).element(sw);
   const pal = texture(palTex, uv());
@@ -138,12 +139,12 @@ function buildToy(mat, { ground = false, holes = null, seed = float(instanceInde
   const metal = orm.b.greaterThan(0.5).or(sw.equal(SW.steel).and(plateOK.not()));
   let p = ground ? positionWorld : positionGeometry;
   if (ground && high && !OFF.has('pom')) {
-    // parallax occlusion on flat ground (asphalt, paving, brick, dirt, verges): 10 steps on high, faded with distance
+    // parallax occlusion on flat ground (asphalt, paving, brick, dirt, verges): 5 steps on high, faded with distance
     const flat = n.y.greaterThan(0.7).and(has).and(water.not());
-    const off = pomOffset(positionWorld, layer, scale, 10, strength.mul(0.035).mul(fade));
+    const off = pomOffset(positionWorld, layer, scale, POM_STEPS, strength.mul(0.035).mul(fade));
     p = vec3(positionWorld.x.add(select(flat, off.x, float(0))), positionWorld.y, positionWorld.z.add(select(flat, off.y, float(0))));
   }
-  const tri = triplanar(p, n, layer, scale);
+  const tri = triplanar(p, n, layer, scale, topOnly);
   const mean = layerMean.element(layer);
   const k = select(has, fade, float(0));
   const glass = sw.equal(SW.glass);
@@ -366,9 +367,9 @@ export function pedMaterial({ seeded = false } = {}) {
 }
 
 /** Ground tiles: world-space detail and a cut-out wherever a hole is open. */
-export function groundMaterial(holeField) {
+export function groundMaterial(holeField, topOnly = false) {
   const holes = holeField ? uniformArray(holeField.value, 'vec3') : null;
-  return buildToy(new ToyNodeMaterial(), { ground: true, holes });
+  return buildToy(new ToyNodeMaterial(), { ground: true, holes, topOnly });
 }
 
 

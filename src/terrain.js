@@ -39,6 +39,8 @@ function makeNoise(seed) {
 }
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
+const _wv = new THREE.Vector3();
+
 export class Terrain {
   /**
    * region (Phase 2, docs/PHASE2.md): { bound, pads: [{ x, z, r }], roads: [[[x, z], ...], ...] } - a wider play area
@@ -90,6 +92,30 @@ export class Terrain {
 
   /** Signed distance outside the town square (negative inside). */
   outside(x, z) { return Math.max(Math.abs(x), Math.abs(z)) - this.half; }
+
+  /**
+   * Hide the water plane when no water can be on screen. The plane is huge (always "in view") and its depth fade copies the
+   * whole depth buffer, so a town with no sea in sight still paid ~5% of the frame for it. A grid of view rays is cast at the
+   * water level; the plane stays if any lands on a sector that dips below the water line, beyond the land's edge (open sea),
+   * or misses the plane (above the horizon). Called every frame.
+   */
+  showWater(camera) {
+    const { S, wetKeys, E } = this.wetInfo, cp = camera.position, dry = this.half - 0.3;
+    camera.updateMatrixWorld();
+    let wet = false;
+    for (let i = 0; i <= 16 && !wet; i++) {
+      for (let j = 0; j <= 12; j++) {
+        _wv.set(i / 8 - 1, j / 6 - 1, 1).unproject(camera).sub(cp);
+        if (_wv.y > -1e-3) { wet = true; break; }
+        const t = (this.water - cp.y) / _wv.y, x = cp.x + _wv.x * t, z = cp.z + _wv.z * t;
+        if (Math.abs(x) < dry && Math.abs(z) < dry) continue; // (masked out: the town is dry land)
+        if (Math.abs(x) > E || Math.abs(z) > E) { wet = true; break; }
+        const kx = Math.floor(x / S), kz = Math.floor(z / S);
+        if (wetKeys.has(kx * 4096 + kz) || wetKeys.has((kx + 1) * 4096 + kz) || wetKeys.has((kx - 1) * 4096 + kz) || wetKeys.has(kx * 4096 + kz + 1) || wetKeys.has(kx * 4096 + kz - 1)) { wet = true; break; }
+      }
+    }
+    this.waterMesh.visible = wet;
+  }
 
   /** Region: pad heights (the land they sit on, above water) and road segments for the corridor test. */
   prepRegion() {
@@ -436,6 +462,15 @@ export class Terrain {
     this.waterMesh.position.y = this.water;
     this.waterMesh.renderOrder = 2;
     this.group.add(this.waterMesh);
+    // where water can show (see showWater): the sectors dipping below the water line (not those under the town square, where
+    // the water is masked out) and the land's extent
+    const dry = this.half - 0.3, land = new THREE.Box3(), wetKeys = new Set();
+    for (const m of this.sectors) {
+      const b = m.geometry.boundingBox;
+      land.union(b);
+      if (b.min.y < this.water + 0.1 && !(b.min.x > -dry && b.max.x < dry && b.min.z > -dry && b.max.z < dry)) wetKeys.add(Math.floor((b.min.x + b.max.x) / 2 / S) * 4096 + Math.floor((b.min.z + b.max.z) / 2 / S));
+    }
+    this.wetInfo = { S, wetKeys, E: Math.max(-land.min.x, land.max.x, -land.min.z, land.max.z) };
   }
 
   /** Scenery placements for the city to instance: [{ name, x, y, z, rot, s }]. */
