@@ -110,7 +110,7 @@ const swatchIndex = () => {
  * Build the TSL graph for a palette material.
  * ground: world-space ground table + wear; holes: uniformArray of vec3(x, z, r) cut out of the ground.
  */
-function buildToy(mat, { ground = false, holes = null, seed = float(instanceIndex) } = {}) {
+function buildToy(mat, { ground = false, holes = null, seed = float(instanceIndex), topOnly = false } = {}) {
   const sw = swatchIndex();
   const info = (ground ? GND_TABLE : OBJ_TABLE).element(sw);
   const pal = texture(palTex, uv());
@@ -143,7 +143,7 @@ function buildToy(mat, { ground = false, holes = null, seed = float(instanceInde
     const off = pomOffset(positionWorld, layer, scale, 10, strength.mul(0.035).mul(fade));
     p = vec3(positionWorld.x.add(select(flat, off.x, float(0))), positionWorld.y, positionWorld.z.add(select(flat, off.y, float(0))));
   }
-  const tri = triplanar(p, n, layer, scale);
+  const tri = triplanar(p, n, layer, scale, topOnly);
   const mean = layerMean.element(layer);
   const k = select(has, fade, float(0));
   const glass = sw.equal(SW.glass);
@@ -366,9 +366,9 @@ export function pedMaterial({ seeded = false } = {}) {
 }
 
 /** Ground tiles: world-space detail and a cut-out wherever a hole is open. */
-export function groundMaterial(holeField) {
+export function groundMaterial(holeField, topOnly = false) {
   const holes = holeField ? uniformArray(holeField.value, 'vec3') : null;
-  return buildToy(new ToyNodeMaterial(), { ground: true, holes });
+  return buildToy(new ToyNodeMaterial(), { ground: true, holes, topOnly });
 }
 
 

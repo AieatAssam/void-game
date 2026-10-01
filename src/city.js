@@ -91,6 +91,21 @@ export function flatGeometry(asset, lod = 0, variant = 0) {
   return geo;
 }
 
+/**
+ * Reorder a ground geometry's triangles so those facing straight up (all three vertex normals within ~10 degrees of +y) come
+ * first, and describe the two runs as groups: material 0 (top-down scans) and material 1 (full triplanar). Once per geometry.
+ */
+function splitFlat(geo) {
+  if (geo.userData.flatSplit) return;
+  const n = geo.attributes.normal, idx = geo.index.array, flat = [], rest = [];
+  for (let i = 0; i < idx.length; i += 3) (n.getY(idx[i]) > 0.985 && n.getY(idx[i + 1]) > 0.985 && n.getY(idx[i + 2]) > 0.985 ? flat : rest).push(idx[i], idx[i + 1], idx[i + 2]);
+  geo.setIndex([...flat, ...rest]);
+  geo.clearGroups();
+  geo.addGroup(0, flat.length, 0);
+  geo.addGroup(flat.length, rest.length, 1);
+  geo.userData.flatSplit = true;
+}
+
 // Soft contact shadow blobs: ground every small thing (GTAO handles the rest), one instanced draw call.
 function aoMaterial(holeField) {
   const holes = uniformArray(holeField.value, 'vec3');
@@ -218,6 +233,11 @@ export class City {
     // ...and the same ground without the cut, for every chunk no hole touches: a shader that can discard switches off
     // hidden-surface removal on tile-based GPUs (Apple), and the ground covers most of the screen
     this.groundSolid = groundMaterial(null);
+    // ground triangles that face straight up are drawn by a variant that projects the scans top-down only (3 fetches, not 9:
+    // the ground is most of the screen); each ground mesh draws [top-down, triplanar] by index groups (splitFlat)
+    this.groundFlat = groundMaterial(holeField, true);
+    this.groundFlatSolid = groundMaterial(null, true);
+    this.groundSets = { cut: [this.groundFlat, this.groundMat], solid: [this.groundFlatSolid, this.groundSolid] };
     this.chunk = CHUNK;
     if (opts.defer) return; // Region (Phase 2) lays itself out in stages
     this.layout();
@@ -987,7 +1007,8 @@ export class City {
       if (duck) for (const e of g.list) e.gs = e.meta.tier / duckK;
       const variant = g.v ?? (this.groupCount = (this.groupCount || 0) + 1); // procedural trees differ chunk to chunk
       let full = flatGeometry(src, 0, variant), lod = flatGeometry(src, 1, variant), lod2 = flatGeometry(src, 2, variant);
-      let mat = g.ground ? this.groundMat : src.material;
+      let mat = g.ground ? this.groundSets.cut : src.material;
+      if (g.ground) for (const geo of new Set([full, lod, lod2])) splitFlat(geo);
       // city-wide traffic can't be culled per group (it spans the whole map), so it's culled per instance: every frame
       // only what the camera or the shadow map can see is packed to the front (cullTraffic). A stable seed attribute
       // travels with each instance so its tint jitter and walk phase don't change as it's re-packed.
@@ -1156,7 +1177,7 @@ export class City {
         let cut = false;
         const c = m.boundingSphere.center, R = m.boundingSphere.radius;
         for (const h of this.holeField.value) if (h.z > 0 && (h.x - c.x) ** 2 + (h.y - c.z) ** 2 < (R + h.z + 2) ** 2) { cut = true; break; }
-        m.material = cut ? this.groundMat : this.groundSolid;
+        m.material = cut ? this.groundSets.cut : this.groundSets.solid;
         continue;
       }
       if (u.scenery) {
@@ -1308,8 +1329,7 @@ export class City {
     this.ao.material.dispose();
     this.terrain.dispose();
     for (const mx of this.mixers) mx.stopAllAction();
-    this.groundMat.dispose();
-    this.groundSolid.dispose();
+    for (const m of [this.groundMat, this.groundSolid, this.groundFlat, this.groundFlatSolid]) m.dispose();
   }
 
   /** Write an entity's transform to its instance slot or cloned object. */

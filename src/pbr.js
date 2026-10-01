@@ -152,7 +152,24 @@ const surfaceBasis = () => {
  * layer: int node, scale: repeats per metre. Returns { col, rough, height, ao, grad } where grad is the
  * view-space surface gradient of the layer's relief (subtract it from the normal, scaled by strength).
  */
-export const triplanar = (p, n, layer, scale) => (Q.surface === 'lite' ? dominantPlanar(p, n, layer, scale) : fullTriplanar(p, n, layer, scale));
+export const triplanar = (p, n, layer, scale, topOnly = false) =>
+  (Q.surface === 'lite' ? dominantPlanar(p, n, layer, scale) : topOnly ? topPlanar(p, layer, scale) : fullTriplanar(p, n, layer, scale));
+
+/**
+ * Top-down projection only, for surfaces known to face straight up (ground triangles whose normals are all within ~10 degrees
+ * of +y: the other two projections weigh |n|^4 < 1e-3 there). Same outputs as fullTriplanar for them with 3 fetches, not 9.
+ */
+const topPlanar = (p, layer, scale) => {
+  const uvv = p.mul(scale).xz;
+  const c = texture(pbrCol, uvv).depth(layer).xyz;
+  const nm = texture(pbrNrm, uvv).depth(layer).xyz.mul(2).sub(1);
+  const r = texture(pbrRha, uvv).depth(layer).xyz;
+  const { r1, r2 } = surfaceBasis();
+  const dx = dFdx(p), dy = dFdy(p);
+  const gX = r1.mul(dx.x).add(r2.mul(dy.x)), gZ = r1.mul(dx.z).add(r2.mul(dy.z));
+  const sl = nm.xy.div(max(nm.z, 0.25)).negate();
+  return { col: c, rough: r.x, height: r.y, ao: r.z, grad: gX.mul(sl.x).add(gZ.mul(sl.y)) };
+};
 
 /** Mobile path: one projection on the dominant axis (3 texture reads instead of 9). Same outputs as triplanar. */
 const dominantPlanar = (p, n, layer, scale) => {
