@@ -1212,6 +1212,7 @@ export class City {
       _fs.setFromProjectionMatrix(_cm, sc.coordinateSystem);
     }
     this.cullCrumbs(sc);
+    this.terrain?.showWater?.(camera);
     for (const m of this.meshes) {
       const u = m.userData, c = u.cull;
       if (!c || !m.visible || u.crumb) continue;
