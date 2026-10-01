@@ -75,6 +75,7 @@ export class Post {
     this.aoPass = this.bloomPass = null;
     for (const t of this.rtts || []) t.dispose();
     this.rtts = [];
+    this.rayRtts = null;
     const color = scenePass.getTextureNode('output');
     let lit = color.rgb;
     if (opts.ao) {
@@ -121,6 +122,7 @@ export class Post {
       const raySrc = convertToTexture(src, null, null, half);
       const rays = convertToTexture(radialBlur(raySrc, { center: this.sunUV, weight: 0.85, decay: 0.955, count: 24, exposure: 1.6 }), null, null, half);
       this.rtts.push(raySrc, rays);
+      this.rayRtts = [raySrc, rays]; // (render() stops updating them while the shafts contribute nothing)
       hdr = hdr.add(rays.rgb.mul(sunCol).mul(this.shaftK));
     }
     // grade in scene-linear: per-time white balance, a touch more saturation (ACES desaturates brights)
@@ -282,6 +284,8 @@ export class Post {
       const behind = _sp.z > 1;
       this.sunUV.value.set(_sp.x * 0.5 + 0.5, 0.5 - _sp.y * 0.5);
       this.shaftK.value = behind ? 0 : this.shafts || 0;
+      // morning, noon, night (and the sun behind the camera): the two half-res ray passes would be multiplied by zero
+      if (this.rayRtts) for (const t of this.rayRtts) t.autoUpdate = this.shaftK.value > 0;
     }
     this.pipeline.render();
   }
