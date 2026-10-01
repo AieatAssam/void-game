@@ -71,11 +71,12 @@ export class Post {
   build() {
     const { scenePass, camera, opts } = this;
     this.aoPass?.dispose?.();
+    this.aoK = 0;
     this.bloomPass?.dispose?.();
     this.aoPass = this.bloomPass = null;
     for (const t of this.rtts || []) t.dispose();
     this.rtts = [];
-    this.rayRtts = null;
+    this.rayRtts = this.aoRtt = null;
     const color = scenePass.getTextureNode('output');
     let lit = color.rgb;
     if (opts.ao) {
@@ -96,6 +97,7 @@ export class Post {
         dn.radius.value = 4;
         aoTex = convertToTexture(dn);
         aoTex.setResolutionScale(opts.aoRes);
+        this.aoRtt = aoTex;
         this.rtts.push(aoTex);
       }
       lit = lit.mul(mix(float(1), pow(aoTex.r, 1.6), 0.9));
@@ -279,6 +281,12 @@ export class Post {
   render(grade) {
     if (!this.enabled) { this.renderer.render(this.scene, this.camera); return; }
     this.grade.value.fromArray(grade);
+    // AO resolution is held at opts.aoRes of a CSS pixel: above 1x the extra device pixels add no AO detail (it is soft and
+    // denoised) but its cost grows with them, and retina screens are where the GPU is slowest
+    if (this.aoPass) {
+      const k = this.opts.aoRes / Math.max(1, this.renderer.getPixelRatio());
+      if (k !== this.aoK) { this.aoK = k; this.aoPass.resolutionScale = k; this.aoRtt?.setResolutionScale(k); }
+    }
     if (this.opts.shafts) { // where the sun sits on screen (uv, y down)
       _sp.copy(this.camera.position).addScaledVector(sunDir.value, 1000).project(this.camera);
       const behind = _sp.z > 1;
