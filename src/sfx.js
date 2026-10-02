@@ -296,3 +296,5 @@ export function crackerCharge(dur = 30) { tone('sawtooth', 40, 220, dur, 0.1); t
 export function crackerFire() { noise(0.4, 9000, 0.7); tone('sine', 58, 18, 5, 1.0, 0.1); noise(4, 500, 0.6, 0.15); tone('sawtooth', 80, 22, 3, 0.2, 0.15); boom(1); }
 /** The cracker starved of power: it winds down, then the void swallows the sound. */
 export function fizzle() { tone('sawtooth', 600, 40, 2.4, 0.2); tone('sine', 900, 60, 2.2, 0.15); reverseGulp(); choir(0.8); }
+/** A rocket lifts off: a rising roar that thins out. */
+export function rocket() { noise(2.4, 1400, 0.25); tone('sawtooth', 70, 200, 2.2, 0.06); }

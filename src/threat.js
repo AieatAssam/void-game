@@ -16,6 +16,7 @@ import { makeFleet } from './threat/fleet.js';
 import { makeTsunami, makeVolcano } from './threat/nature.js';
 import { makeAegis } from './threat/aegis.js';
 import { makeCracker } from './threat/cracker.js';
+import { makeExodus, makeStation } from './threat/exodus.js';
 import { smooth, rnd, _Y, v1, v2, v3, v4, v5, v6, qa, C, FIRE, SMOKE0, SMOKE1, ASH, DUST, KMs, tangentAt, sv, aim, vel3, slerp, Ribbon, Pool } from './threat/kit.js';
 
 const qs = new URLSearchParams(location.search);
@@ -89,7 +90,7 @@ export class Threat {
     this.rivals = new Rivals(this); this.register(this.rivals.kind());
     this.register(makeLaser(this));
     this.register(makeFleet(this));
-    this.register(makeTsunami(this)); this.register(makeVolcano(this)); this.register(makeAegis(this)); this.register(makeCracker(this));
+    this.register(makeTsunami(this)); this.register(makeVolcano(this)); this.register(makeAegis(this)); this.register(makeCracker(this)); this.register(makeExodus(this)); this.register(makeStation(this));
     window.__threat = this.api();
     for (const o of [this.glow.sprite, this.smoke.sprite]) o.frustumCulled = false;
     try { await ctx.post.precompile(this.root, 6000, this.game.around); await ctx.post.precompile({ traverse: (f) => { f(this.glow.sprite); f(this.smoke.sprite); } }, 3000, this.game.around); } catch (e) { console.warn('threat precompile', e); }
@@ -222,8 +223,9 @@ export class Threat {
       if (!k.set || k.passive || this.cool[k.name] > 0 || !k.window(r, dc, this) || (k.can && !k.can())) continue;
       if (live === 0 && phase !== 'relax' && !calm && this.spawn(k.name)) return;
     }
+    for (const k of this.K) if (k.friendly && this.cool[k.name] <= 0 && k.window(r, dc, this) && !calm) this.spawn(k.name); // (the sky's own life: rockets, stations; not budgeted)
     if (live >= cap) return;
-    for (const k of this.K) if (!k.set && !k.passive && this.cool[k.name] <= 0 && this.budget >= k.cost && k.window(r, dc, this) && (!k.can || k.can())) cand.push(k);
+    for (const k of this.K) if (!k.set && !k.passive && !k.friendly && this.cool[k.name] <= 0 && this.budget >= k.cost && k.window(r, dc, this) && (!k.can || k.can())) cand.push(k);
     if (!cand.length) return;
     let k = cand[Math.floor(Math.random() * cand.length)];
     if (cand.length > 1 && k.name === this.last) k = cand[(cand.indexOf(k) + 1) % cand.length];
