@@ -129,7 +129,7 @@ export class Rivals {
     const th = this.th, { W, state } = th, o = th._o ??= {};
     th.offsetOf(x.dir, o); const l = Math.hypot(o.x, o.z) || 1;
     x.cd = 12; th.stats.rivalHits++;
-    const f = th.hurt(T3.kinds.rival.hit, `${x.name} bites!`, 'rival', 40, T3.kinds.rival.cap, x.near);
+    const f = th.hurt(T3.kinds.rival.hit, `${x.name} bites!`, 'rival', 40, T3.kinds.rival.cap, x.near, x.dir);
     const kick = state.kick || (state.kick = { x: 0, z: 0 }); kick.x = -o.x / l * 320; kick.z = -o.z / l * 320; // (thrown clear: ~1 r)
     th.glow.spawn(W.hdir.clone().multiplyScalar(R), null, 3 * x.r * 0.15, 6 * x.r * 0.15, 0.5, new THREE.Color(0xff4a33).multiplyScalar(2.5), 1.4, 0);
     th.sfx.rivalBite?.(); th.screenFlash(0.35, '#ff3a2a', 380); th.beat(0.1); th.notice(8);

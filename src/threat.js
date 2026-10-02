@@ -142,28 +142,40 @@ export class Threat {
   /** A bonus (area x (1 + frac)): one place, so the sweep's "bonus" column sees every kind. */
   gain(frac, key) { const { hole, state } = this, a0 = hole.area; hole.area *= 1 + frac * (state.mods?.gulp ?? 1); const d = hole.area - a0, L = state.ledger; L[key] = (L[key] || 0) + d; L.bonus = (L.bonus || 0) + d; return d; }
 
-  /** A damaging hit: capped at 25% of the area, and at 25% in any 30 s (past it a hit is a near miss). Returns the fraction taken. fairAge: seconds the telegraph was visible and fixed. */
-  hurt(frac, why, key, k = 0, cap = 0.25, fairAge = 9) {
+  /** What a hit looks, sounds and feels like (src/pain.js): `from` = the planet-space direction of the cause (null = all around); `cont` = a beam's tick. */
+  painHit(frac, why, from, cont = false) {
+    const p = this.ctx.pain, { hole, state } = this; if (!p) { this.sfx.hurt(); return; }
+    let dx = 0, dz = 0, src = null, l = 0;
+    if (from) { const o = this.offsetOf(from, this._po ??= {}); l = Math.hypot(o.x, o.z); if (l > 0.08 * hole.r) { dx = o.x; dz = o.z; src = from; } else l = 0; }
+    if (cont) { p.cont(frac, { dx: l ? dx / l : 0, dz: l ? dz / l : 0 }); return; }
+    p.hit(frac, { src, dx, dz, why });
+    this.beat(Math.min(0.2, 0.04 + 0.6 * frac), frac >= 0.08 ? 0.55 : 1, 0.45); // (hit-stop and a short slow-mo scale with the damage)
+    const kick = state.kick || (state.kick = { x: 0, z: 0 });
+    if (l && Math.abs(kick.x) + Math.abs(kick.z) < 60) { const kk = Math.min(360, 110 + 1400 * frac); kick.x = -dx / l * kk; kick.z = -dz / l * kk; } // (thrown away from the cause; the callers that know better overwrite it)
+  }
+
+  /** A damaging hit: capped at 25%, and at 25% in any 30 s (past it a hit is a near miss). Returns the fraction taken. fairAge: seconds the telegraph was visible and fixed. from: where it came from (planet direction), for the recoil. */
+  hurt(frac, why, key, k = 0, cap = 0.25, fairAge = 9, from = null) {
     const { hole, state } = this;
     if (k) frac = Math.max(frac, Math.min(cap, k * (state.gRate || 0) / hole.area)); // (seconds of income: A9)
     frac = Math.min(frac, cap) * (state.mods?.hurt ?? 1);
-    if (this.mercySum() + frac > 0.25 + 1e-9) { this.stats.mercy++; this.stats.near++; this.trauma(0.25); this.ctx.hint('Near miss — the world blinks'); return 0; }
+    if (this.mercySum() + frac > 0.25 + 1e-9) { this.stats.mercy++; this.stats.near++; this.trauma(0.25); this.ctx.pain?.nearMiss(); this.ctx.hint('Near miss — the world blinks'); return 0; }
     this.mercyPush(frac); this.fair(fairAge, key);
     const a0 = hole.area; hole.area *= 1 - frac;
     const L = state.ledger; L[key] = (L[key] || 0) + (hole.area - a0); L.dmg = (L.dmg || 0) + (hole.area - a0); this.stats.loss += frac; this.stats.hits++; (this.stats.by ??= {})[key] = (this.stats.by[key] || 0) + 1;
-    this.trauma(0.5);
+    this.trauma(0.2 + 2 * frac);
     this.ctx.flash(why);
-    this.sfx.hurt();
+    this.painHit(frac, why, from);
     return frac;
   }
   /** Damage over time (a beam): `rate` is the fraction per second at least, `k` seconds of income per second; applied every frame, booked into the mercy window every 0.4 s. */
-  hurtCont(rate, dt, why, key, k = 0, fairAge = 9) {
-    const { hole, state } = this, c = this.cont[key] ??= { acc: 0, t: -9, hint: -9 };
+  hurtCont(rate, dt, why, key, k = 0, fairAge = 9, from = null) {
+    const { hole, state } = this, c = this.cont[key] ??= { acc: 0, t: -9, hint: -9, fxAcc: 0 };
     let f = Math.max(rate, k ? k * (state.gRate || 0) / hole.area : 0) * dt * (state.mods?.hurt ?? 1);
-    if (this.mercySum() + c.acc + f > 0.25 + 1e-9) { if (this.t - c.hint > 2) { c.hint = this.t; this.stats.mercy++; this.stats.near++; this.ctx.hint('Near miss — the world blinks'); } return 0; }
-    const a0 = hole.area; hole.area *= 1 - f; c.acc += f; const L = state.ledger; L[key] = (L[key] || 0) + (hole.area - a0); L.dmg = (L.dmg || 0) + (hole.area - a0); this.stats.loss += f;
+    if (this.mercySum() + c.acc + f > 0.25 + 1e-9) { if (this.t - c.hint > 2) { c.hint = this.t; this.stats.mercy++; this.stats.near++; this.ctx.pain?.nearMiss(); this.ctx.hint('Near miss — the world blinks'); } return 0; }
+    const a0 = hole.area; hole.area *= 1 - f; c.acc += f; c.fxAcc += f; const L = state.ledger; L[key] = (L[key] || 0) + (hole.area - a0); L.dmg = (L.dmg || 0) + (hole.area - a0); this.stats.loss += f;
     if (this.t - c.t > 0.4) { this.mercyPush(c.acc); c.acc = 0; c.t = this.t; this.fair(fairAge, key); }
-    if (this.t - (c.fx ?? -9) > 0.9) { c.fx = this.t; this.trauma(0.12); this.sfx.hurt(); this.ctx.flash(why); this.stats.hits++; (this.stats.by ??= {})[key] = (this.stats.by[key] || 0) + 1; }
+    if (this.t - (c.fx ?? -9) > 0.9) { c.fx = this.t; this.trauma(0.12); this.ctx.flash(why); this.stats.hits++; (this.stats.by ??= {})[key] = (this.stats.by[key] || 0) + 1; this.painHit(c.fxAcc, why, from, true); c.fxAcc = 0; }
     return f;
   }
 
@@ -475,7 +487,7 @@ export class Threat {
     this.trauma((n.child ? 0.1 : 0.2) + 0.4 * near);
     if (n.out === 'hit') {
       const M = T3.kinds.mirv, room = n.child ? Math.max(0, M.cap - n.salvo.sum) : 0.25, fa = n.hadZone && n.locked ? this.t - n.lockAt : -1;
-      const got = room > 0.003 ? this.hurt(n.child ? M.hit : T3.nukeHit, n.child ? 'MIRV warhead!' : 'Nuclear airburst!', n.child ? 'mirv' : 'nuke', n.first ? 0 : n.child ? M.k : T3.nukeK, n.first ? T3.firstHit : room, fa) : 0;
+      const got = room > 0.003 ? this.hurt(n.child ? M.hit : T3.nukeHit, n.child ? 'MIRV warhead!' : 'Nuclear airburst!', n.child ? 'mirv' : 'nuke', n.first ? 0 : n.child ? M.k : T3.nukeK, n.first ? T3.firstHit : room, fa, n.to) : 0;
       if (n.child) { n.salvo.sum += got; if (!got) { this.stats.near++; } } this.notice(6); this.news('An ICBM detonates over the void: the blast rim scorches it'); }
     else this.news('An ICBM detonates harmlessly — you slipped the ring');
   }
@@ -613,7 +625,7 @@ export class Threat {
     for (let i = 0; i < 7; i++) { v3.copy(v1).setLength(R + l.elev * W.E + r * (0.2 + i * 0.35)); this.smoke.spawn(v3, vel3(v2.copy(l.to).normalize(), rnd(-0.2, 0.2) * r, rnd(-0.2, 0.2) * r, 0.12 * r, sv), 0.7 * r, 1.4 * r, 5, i < 3 ? SMOKE0 : ASH, 0.5, 0.5); }
     this.scar(l.to, 1.6 * r, 3.0 * r, 14, 1); this.scar(l.to, 0.9 * r, 0.2 * r, 80, 1);
     const near = Math.max(0.12, 1 - dist / (8 * r)); this.sfx.nukeBoom(0.35 + 0.4 * near, Math.min(1.2, dist / (12 * r))); this.screenFlash(0.1 + 0.4 * near, '#fff', 260); this.trauma(0.2 + 0.4 * near);
-    if (l.out === 'hit') { this.hurt(T3.rodHit, 'Orbital strike!', 'rod', T3.rodK, 0.25, l.hadZone && l.locked ? this.t - l.lockAt : -1); this.notice(5); }
+    if (l.out === 'hit') { this.hurt(T3.rodHit, 'Orbital strike!', 'rod', T3.rodK, 0.25, l.hadZone && l.locked ? this.t - l.lockAt : -1, l.to); this.notice(5); }
   }
   eatSat(l) {
     const { hole, state } = this, r = hole.r; l.eaten = 1; l.phase = 'eaten'; l.eatT = l.age; this.stats.sats++;
@@ -670,7 +682,7 @@ export class Threat {
       }
       if (!s.hit) { // the hole under the sweep
         const hd = W.hdir, across = Math.asin(Math.max(-1, Math.min(1, hd.dot(s.n)))) * R, along = Math.atan2(hd.dot(s.e2), hd.dot(s.e1)) * R;
-        if (Math.abs(across) < s.hw && Math.abs(along - head * s.len) < 1.2 * r) { s.hit = true; this.stats.strafeHits++; this.hurt(T3.bomberHit, 'Carpet bombed!', 'bomber', T3.bomberK, 0.25, s.age); this.notice(4); }
+        if (Math.abs(across) < s.hw && Math.abs(along - head * s.len) < 1.2 * r) { s.hit = true; this.stats.strafeHits++; this.hurt(T3.bomberHit, 'Carpet bombed!', 'bomber', T3.bomberK, 0.25, s.age, v1.copy(s.e1).multiplyScalar(Math.cos(head * angPer + 1.6 * r / R)).addScaledVector(s.e2, Math.sin(head * angPer + 1.6 * r / R)).normalize()); this.notice(4); }
       }
     }
     if (s.age > s.tel + s.run + 1.8) this.finishStrafe(s);
@@ -767,6 +779,8 @@ export class Threat {
         for (const m of marks) { let g = 0; while (age() < m && g++ < 4000) window.__tick(1 / 60, 1); await window.__snap(prefix + String(m).replace('.', '_').replace('-', 'm'), 1); out.push([m, +age().toFixed(2), ob.phase, ob.out]); }
         return out;
       },
+      /** Debug: a hit of `frac` of the area from a bearing (deg, 0 = up the screen) with the real feedback (no mercy cap, no ledger). */
+      pain(frac = 0.08, bearing = 90, why = 'Test hit!') { const r = self.hole.r, b = bearing * Math.PI / 180, d = self.W.dirAt(Math.sin(b) * 3 * r, -Math.cos(b) * 3 * r, new THREE.Vector3()); self.hole.area *= 1 - frac; self.painHit(frac, why, bearing === null ? null : d); self.trauma(0.2 + 2 * frac); return 'ok'; },
       hold: (v = true) => { self.eventsHold = v; }, site: () => { self.makeSite(); return self.sites.length; },
     };
   }

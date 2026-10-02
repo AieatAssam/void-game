@@ -5,7 +5,7 @@
 import * as THREE from 'three/webgpu';
 import {
   pass, sample, uniform, vec2, vec3, vec4, float, mix, dot, renderOutput, clamp, max, time, fract, sin, luminance,
-  pow, toneMappingExposure, convertToTexture, texture3D, step, smoothstep,
+  pow, toneMappingExposure, convertToTexture, texture3D, step, smoothstep, exp,
 } from 'three/tsl';
 
 const LUT = 16;
@@ -70,6 +70,9 @@ export class Post {
     bakeLut(this.lutTex, {});
     this.sunUV = uniform(new THREE.Vector2(0.5, -1));
     this.shaftK = uniform(0);
+    this.pk0 = uniform(new THREE.Vector4(0.5, 0.5, 9, 0)); // hit feedback (src/pain.js): hole on screen (uv), seconds since the hit, impact 0..1
+    this.pk1 = uniform(new THREE.Vector4(0, 0, 1, 0)); // wound 0..1, heartbeat pulse, aspect
+    this.fxu = uniform(new THREE.Vector4(0, 0, 0, 0)); // a blast (threat.js): white-out (added in HDR, so bloom bursts), warm grade, bloom boost
     this.aoShare = uniform(1); // AO's share of the picture (suspendAO: 0 on a planet, with no rebuild of the pipeline)
     this.aoOff = false;
     this.lowSpec = false; // set by the watchdog: thins grass, never draws LOD0
@@ -141,21 +144,31 @@ export class Post {
       hdr = hdr.add(rays.rgb.mul(sunCol).mul(this.shaftK));
     }
     // grade in scene-linear: per-time white balance, a touch more saturation (ACES desaturates brights)
-    const wb = hdr.mul(this.grade);
+    hdr = hdr.add(vec3(1, 0.93, 0.78).mul(this.fxu.x.mul(3.2)));
+    const wb = hdr.mul(this.grade).mul(mix(vec3(1), vec3(1.14, 0.95, 0.78), this.fxu.y));
     const graded = mix(vec3(luminance(wb)), wb, 1.12);
     const toned = renderOutput(vec4(max(graded, vec3(0)), 1));
     let mapped = vec4(mix(toned.rgb, toned.rgb.mul(toned.rgb).mul(float(3).sub(toned.rgb.mul(2))), 0.35), 1);
     if (opts.lut) mapped = vec4(lut3D(mapped, texture3D(this.lutTex), LUT, float(1)).rgb, 1); // per-preset grade
     const aa = opts.aa === 'smaa' ? smaa(mapped).getTextureNode() : convertToTexture(fxaa(mapped));
     const grain = opts.grain;
-    this.pipeline.outputNode = sample((uv) => {
+    const pk0 = this.pk0, pk1 = this.pk1;
+    this.pipeline.outputNode = sample((uv0) => {
+      // hit feedback: a shock ring out of the hole (the picture is pushed away along it), a zoom punch, split colour channels, a red vignette and a drained, heartbeat-pulsed picture while wounded
+      const age = pk0.z, amp = pk0.w, wound = pk1.x, heart = pk1.y, asp = pk1.z;
+      const hv = uv0.sub(pk0.xy), hd = hv.mul(vec2(asp, 1)), hr = hd.length().max(1e-4);
+      const imp = amp.mul(exp(age.mul(-1.7)));
+      const ring = exp(pow(hr.sub(age.mul(1.5)).div(0.075), 2).negate()).mul(imp).mul(smoothstep(0, 0.05, age));
+      const uv = uv0.add(hd.div(hr).div(vec2(asp, 1)).mul(ring).mul(0.02)).sub(hv.mul(imp.mul(exp(age.mul(-5))).mul(0.03)));
       const c0 = uv.sub(0.5);
       const r2 = dot(c0, c0);
       let c;
-      if (grain) { // faint chromatic fringe toward the corners
-        const ca = c0.mul(r2).mul(0.012);
-        c = vec3(aa.sample(uv.sub(ca)).r, aa.sample(uv).g, aa.sample(uv.add(ca)).b);
-      } else c = aa.sample(uv).rgb;
+      const caP = hv.mul(imp.mul(0.008)).add(c0.mul(r2).mul(grain ? 0.012 : 0));
+      if (grain) c = vec3(aa.sample(uv.sub(caP)).r, aa.sample(uv).g, aa.sample(uv.add(caP)).b); // faint chromatic fringe toward the corners, and the hit's split
+      else c = aa.sample(uv).rgb;
+      const vig = smoothstep(0.06, 0.5, r2), red = imp.mul(0.8).add(wound.mul(heart.mul(0.4).add(0.25)).mul(0.8));
+      c = mix(c, vec3(luminance(c)), clamp(imp.mul(0.3).add(wound.mul(0.22)), 0, 0.6)); // drained
+      c = c.mul(vec3(1).sub(vec3(0.05, 0.75, 0.8).mul(vig.mul(red).mul(0.8)))).add(vec3(0.5, 0.015, 0.01).mul(vig).mul(vig).mul(red).mul(0.55)); // red at the edges
       c = c.mul(clamp(float(1).sub(r2.mul(0.95)), 0, 1).pow(0.9)); // vignette
       if (grain) {
         const seed = fract(sin(dot(uv.mul(vec2(1920, 1080)).add(fract(time.mul(13.7)).mul(97)), vec2(12.9898, 78.233))).mul(43758.5453));
@@ -320,6 +333,7 @@ export class Post {
   render(grade) {
     if (!this.enabled) { this.renderer.render(this.scene, this.camera); return; }
     this.grade.value.fromArray(grade);
+    if (this.bloomPass) this.bloomPass.strength.value = 0.24 + this.fxu.value.z;
     // AO resolution is held at opts.aoRes of a CSS pixel: above 1x the extra device pixels add no AO detail (it is soft and
     // denoised) but its cost grows with them, and retina screens are where the GPU is slowest
     if (this.aoPass) {

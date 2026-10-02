@@ -173,18 +173,22 @@ export class PlanetGame {
       this.lead.x += ((hole.sx || 0) * 0.025 * camDist - this.lead.x) * kl; this.lead.y += ((hole.sz || 0) * 0.025 * camDist - this.lead.y) * kl; // (the lead pushes the hole down the frame; the aim already put it at ~70%)
       const horiz = Math.cos(pitch) * camDist;
       camera.position.set(this.lead.x, Math.sin(pitch) * camDist, this.lead.y + horiz);
+      const pn = ctx.pain; if (pn && (pn.cx || pn.cz)) { const s3 = camDist * 0.03; camera.position.x += pn.cx * s3; camera.position.z += pn.cz * s3; } // (the shove of a hit: away from the cause, springing back)
       const tr = state.shake, sh = tr * tr * camDist * 0.02, ts = state.time; // (§5.3: trauma is a slow sway, and above 0.3 a roll: never jitter)
       if (sh > 1e-4) { camera.position.x += (Math.sin(ts * 2.9) + 0.5 * Math.sin(ts * 6.3 + 1)) * sh; camera.position.y += Math.sin(ts * 3.7 + 2) * sh * 0.5; camera.position.z += Math.cos(ts * 2.3) * sh * 0.7; }
       camera.lookAt(this.lead.x, 0, this.lead.y - 0.14 * camDist * P3.aim(r) / 4); // (§12.1: aimed above the hole, so the limb and the black sky are in frame from the first second)
       if (tr > 0.3) camera.rotateZ(Math.sin(ts * 5.7) * 0.05 * (tr - 0.3) / 0.7);
+      if (pn && pn.roll) camera.rotateZ(pn.roll);
     }
     const alt = camera.position.y + W.h0, far = Math.max(camDist * 4, 1.2 * Math.sqrt(2 * R * alt + alt * alt), 1.15 * (Math.sqrt(2 * R * alt + alt * alt) + 0.2475 * R)), near = camDist * 0.02; // (far's last term: the atmosphere shell's far wall behind the limb, or the glow is clipped)
     if (Math.abs(camera.far - far) > far * 0.05 || Math.abs(camera.near - near) > near * 0.1) { camera.far = far; camera.near = near; camera.updateProjectionMatrix(); }
     // ---- the world: group placement, patch, bite upload; then the hole itself (it sits on the ground under it)
     const tw = performance.now();
+    W.holeVis = 1 + (ctx.pain?.s || 0); // (hit feedback: the drawn hole springs from the old radius to the new one)
     W.setSunRender(SUN_R); // (the sun rides with the hole: no night side to play on; the far globe still has its terminator)
     W.update(dt, hole, camera, renderer.domElement.height);
     this.cpu.world = performance.now() - tw;
+    this.painFx(ctx, W);
     state.asc?.afterWorld(W, camera);
     this.threat?.post(ctx);
     hole.update(dt, state.time, Math.max(0, 0.5 - state.belly) * 2, W.span, W.tilt);
@@ -205,6 +209,15 @@ export class PlanetGame {
       if (this.map && !qs.get('off')?.includes('map')) this.map.render(); // (after the post pipeline, scissored to its own corner)
       if (ctx.fpsEl) ctx.perf.sub += performance.now() - ts;
     }
+  }
+
+  /** Hit feedback into the shader and the post pass (src/pain.js): the cause's direction as a tangent at the hole, the dent / wound numbers, where the hole is on screen. */
+  painFx(ctx, W) {
+    const pn = ctx.pain; if (!pn) return;
+    const u = W.globe.u;
+    if (pn.hasSrc) { _p.copy(pn.src).addScaledVector(W.hdir, -pn.src.dot(W.hdir)); const l = _p.length(); if (l > 1e-9) { _p.divideScalar(l); u.uPain.value.set(_p.x, _p.y, _p.z, 1); } else u.uPain.value.w = 0; } else u.uPain.value.w = 0;
+    u.uPainP.value.set(pn.age, pn.wound, pn.imp, pn.heart); u.uPainQ.value.x = pn.crack;
+    if (pn.age < 6 || pn.wound > 0) { ctx.camera.updateMatrixWorld(); _s.set(0, 0, 0).project(ctx.camera); pn.setCenter(_s.x * 0.5 + 0.5, 0.5 - _s.y * 0.5); }
   }
 
   /** The camera the game would use now at the hole's radius (the portrait stretch and LENS included): the ascension's plunge ends exactly here. */
@@ -430,6 +443,7 @@ export class PlanetGame {
   checkpoint(ctx) { this.ckpt = { tier: ctx.state.tier, snap: this.world.bite.save(this.ckpt?.snap !== this.snap0 ? this.ckpt?.snap : null), holeQ: this.world.holeQ.clone() }; }
   /** "Retry tier N": back to the tier-up (land as it was, the hole at the tier's floor, belly full). */
   restoreCheckpoint(ctx) {
+    ctx.pain?.clear();
     const W = this.world, { hole, state } = ctx, c = this.ckpt, B = W.bite;
     B.restore(c.snap); B.jobs.length = 0; B.events.length = 0; B.tflag.fill(0); B.nTouched = 0; B.pullAt = 0;
     W.holeQ.copy(c.holeQ).normalize(); W.hdir.set(0, 1, 0).applyQuaternion(W.holeQ); W.h0Set = false; W.job = null; W.patchInfo = null; W.nStamps = 0; W.globe.trailData.fill(0); W.globe.trailTex.needsUpdate = true;
@@ -595,6 +609,7 @@ export class PlanetGame {
       },
       /** Back to the start of the run (bite map, units, hole, ledger, trail): for balance sweeps in one page load. */
       reset() {
+        ctx.pain?.clear();
         W.bite.restore(self.snap0); W.bite.jobs.length = 0; W.bite.events.length = 0; W.bite.tflag.fill(0); W.bite.nTouched = 0; W.bite.pullAt = 0; W.bite.stat = { tears: 0, pulls: 0, parcelTears: 0 }; self.rim = 0; self.dustMoved = 0;
         W.placeAt(W.P.startDir, W.P.city); W.h0Set = false; W.job = null; W.patchInfo = null; W.nStamps = 0; W.globe.trailData.fill(0); W.globe.trailTex.needsUpdate = true;
         W.capMode = false; hole.capMode = false; W.globe.hidePatch?.(); hole.area = Math.PI * self.r0 * self.r0; hole.sx = hole.sz = 0;

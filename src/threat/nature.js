@@ -62,7 +62,7 @@ export function makeTsunami(th) {
     cross(q) {
       th.offsetOf(q.dir, o); const l = Math.hypot(o.x, o.z) || 1, kick = state.kick || (state.kick = { x: 0, z: 0 });
       kick.x = -o.x / l * 300; kick.z = -o.z / l * 300; // (the cause is at (o.x, o.z): pushed away from it, with the water)
-      th.hurt(T.hit, 'Tsunami!', 'tsunami', T.k, 0.25, q.age); th.sfx.surf?.(); th.beat(0.05); th.notice(2);
+      th.hurt(T.hit, 'Tsunami!', 'tsunami', T.k, 0.25, q.age, q.dir); th.sfx.surf?.(); th.beat(0.05); th.notice(2);
     },
     finish(q) { q.on = false; if (q.zone >= 0) th.zoneFree(q.zone); q.zone = -1; q.mk?.remove(); q.mk = null; },
     line(q, pick) {
@@ -154,7 +154,7 @@ export function makeVolcano(th) {
       for (let i = 0; i < 8; i++) { const an = (i / 8) * 6.283; tangentAt(bm.to, an, c); e.copy(a).addScaledVector(c, 0.25 * bm.B); th.smoke.spawn(e, vel3(bm.to, c.x * 0.7 * r, c.y * 0.7 * r, 0.15 * r, f), 0.4 * r, 1.1 * r, 3, SMOKE0, 0.55, 0.6); }
       th.scar(bm.to, 1.4 * bm.B, 0.8 * r, 12, 0); th.scar(bm.to, 0.9 * bm.B, 0.2 * r, 50, 3);
       const near = Math.max(0.1, 1 - dist / (6 * r)); th.sfx.nukeBoom(0.3 + 0.3 * near, Math.min(1, dist / (12 * r))); th.trauma(0.08 + 0.12 * near);
-      if (dist < bm.B) { th.hurt(T.hit, 'Lava bomb!', 'volcano', T.k, 0.25, bm.locked ? th.t - bm.lockAt : -1); th.notice(3); }
+      if (dist < bm.B) { th.hurt(T.hit, 'Lava bomb!', 'volcano', T.k, 0.25, bm.locked ? th.t - bm.lockAt : -1, bm.to); th.notice(3); }
     },
     finish(q) { q.on = false; if (q.zoneAsh >= 0) th.zoneFree(q.zoneAsh); q.zoneAsh = -1; for (const bm of bombs) { bm.on = false; if (bm.zone >= 0) th.zoneFree(bm.zone); bm.zone = -1; bm.mk?.remove(); bm.mk = null; } q.mk?.remove(); q.mk = null; },
     danger(q, out) { for (const bm of bombs) if (bm.on && !bm.boom) { th.offsetOf(bm.to, o); out.push({ kind: 'lava', id: `v${bm.i}`, x: o.x, z: o.z, R: bm.B, inner: 0, eta: bm.T - bm.age, locked: bm.locked, lock: bm.lock }); } },

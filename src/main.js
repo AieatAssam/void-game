@@ -19,6 +19,7 @@ import { installBot, installHumanRun } from './bot.js';
 import { UPGRADES, ECON, save, persist, level, buy, todaySeed } from './meta.js';
 import * as sfx from './sfx.js';
 import { Post } from './post.js';
+import { Pain } from './pain.js';
 import { Sparks, Debris, SMOKE, Wisps, Birds, Rubble } from './fx.js';
 import { surfaceTime, surfaceOn, world, lightsTime, lightsPulse, viewScale } from './surface.js';
 import { Grass } from './grass.js';
@@ -58,6 +59,7 @@ const FOV = 26, LENS = Math.tan(THREE.MathUtils.degToRad(19)) / Math.tan(THREE.M
 const camera = new THREE.PerspectiveCamera(FOV, 1, 0.5, 1600);
 const PITCH = THREE.MathUtils.degToRad(55);
 const post = new Post(renderer, scene, camera);
+const pain = new Pain(sfx).bind(post); // (hit feedback for every phase: src/pain.js)
 const sparks = new Sparks();
 scene.add(sparks.points);
 const debris = new Debris();
@@ -701,7 +703,8 @@ function hurt(frac, why) {
   if (why.startsWith('Concrete')) state.stats.concrete++;
   state.invuln = 1.2;
   state.shake = 0.5;
-  sfx.hurt();
+  const lost = 1 - hole.area / a0; state.hitstop = Math.max(state.hitstop, Math.min(0.18, 0.05 + 0.6 * lost)); // (real pain: src/pain.js; the town has no cap to dent, but the picture, the camera, the chip and the sound recoil)
+  pain.hit(lost, { why });
   flash(why);
 }
 function toll() {
@@ -1083,7 +1086,7 @@ const planetStub = () => ({ // what the shared code touches on `city` once the t
 let planetCtxObj = null;
 const planetCtx = () => planetCtxObj ??= ({
   THREE, Q, renderer, post, camera, scene, look, sun, LENS, baseFov: FOV, sparks, debris, wisps, birds, news, sfx, fpsEl, perf,
-  get hole() { return hole; }, get state() { return state; }, get city() { return city; },
+  get hole() { return hole; }, get state() { return state; }, get city() { return city; }, pain,
   steer, flash, hint, assets, edgeArrow, chips: () => perkChips(),
   /** Phase 3's pay (docs/PHASE3-REVIEW.md A3): 40 + 2 per minute under 30 + 5 per ICBM swallowed. */
   bankPlanet(st) { const pay = Math.round(40 + 2 * Math.max(0, 30 - st.time / 60) + 5 * (st.nukesSwallowed || 0)); save.dust += pay; persist(); return pay; },
@@ -1654,6 +1657,7 @@ function frame(dt) {
   if (state.hitstop > 0) { state.hitstop -= dt; dt *= 0.1; } // hit-stop: the world freezes for a beat on a big bite
   if (state.draft) dt *= 0.04; // perk draft: the world all but stops while you choose
   dt *= state.slowmo; // Phase 2 breakout cinematic
+  pain.update(dt);
   const w = innerWidth, h = innerHeight;
   if (canvas.width !== Math.floor(w * renderer.getPixelRatio())) {
     renderer.setSize(w, h, false);
@@ -1952,6 +1956,8 @@ function frame(dt) {
   camera.position.set(camTarget.x + Math.sin(camYaw) * horiz + (Math.random() - 0.5) * sh, Math.sin(pitch) * camD,
     camTarget.z + Math.cos(camYaw) * horiz + (Math.random() - 0.5) * sh);
   camera.lookAt(camTarget);
+  if (!A && (pain.cx || pain.cz || pain.roll)) { const s3 = camD * 0.03; camera.position.x += pain.cx * s3; camera.position.z += pain.cz * s3; camera.lookAt(camTarget); camera.rotateZ(pain.roll); } // (hit shove)
+  if (pain.age < 6 || pain.wound > 0) { camera.updateMatrixWorld(); _v.set(hole.x, 0, hole.z).project(camera); pain.setCenter(_v.x * 0.5 + 0.5, 0.5 - _v.y * 0.5); }
   if (A) { // (the cinematic's own placement: the sway, the roll and the lens)
     const hz = Math.cos(A.pitch) * A.dist;
     camera.position.set(camTarget.x + Math.sin(A.yaw) * hz + A.jx, Math.sin(A.pitch) * A.dist + A.jy, camTarget.z + Math.cos(A.yaw) * hz + A.jz);

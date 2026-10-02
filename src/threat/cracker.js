@@ -112,7 +112,7 @@ export function makeCracker(th) {
       for (let i = 0; i < 24; i++) { const an = (i / 24) * 6.283; tangentAt(q.to, an, c); e.copy(a).addScaledVector(c, 0.3 * q.B); th.smoke.spawn(e, vel3(q.to, c.x * 1.4 * r, c.y * 1.4 * r, 0.2 * r, f), 0.9 * r, 2.4 * r, 5, i % 2 ? SMOKE0 : ASH, 0.65, 0.5); }
       th.scar(q.to, 2.4 * q.B, 1.6 * r, 16, 0); th.scar(q.to, 1.3 * q.B, 0.3 * r, 120, 0); W.shock(q.to, 0.5 * q.B / R, 6 * r / R, 3, 0.9);
       th.sfx.crackerFire?.(); th.screenFlash(0.95, '#fff4e0', 700); th.trauma(0.8); th.beat(0.2, 0.5, 1.0); th.notice(20);
-      if (dist < q.B) { th.stats.crackerHits++; th.hurt(T.hit, 'THE LAST RESORT!', 'cracker', 45, 0.25, q.locked ? th.t - q.lockAt : -1); } else { th.ctx.hint('The beam missed: you left the ring'); th.news('The Last Resort fires — and hits empty land'); }
+      if (dist < q.B) { th.stats.crackerHits++; th.hurt(T.hit, 'THE LAST RESORT!', 'cracker', 45, 0.25, q.locked ? th.t - q.lockAt : -1, q.to); } else { th.ctx.hint('The beam missed: you left the ring'); th.news('The Last Resort fires — and hits empty land'); }
       th.news('The cracker fires: a crater the size of a province');
     },
     finish(q) { q.on = false; q.phase = 'gone'; q.mod.visible = false; q.core.hide(); q.glow.hide(); q.halo.hide(); if (q.zone >= 0) th.zoneFree(q.zone); q.zone = -1; q.mk?.remove(); q.mk = null; for (const s of q.st) { s.mod.visible = false; s.alive = false; s.feed.hide(); s.mk?.remove(); s.mk = null; } },

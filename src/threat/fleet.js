@@ -119,7 +119,7 @@ export function makeFleet(th) {
       const near = Math.max(0.1, 1 - dist / (6 * r)); th.sfx.nukeBoom(0.3 + 0.3 * near, Math.min(1, dist / (12 * r))); th.trauma(0.08 + 0.12 * near);
       if (m.zone >= 0) { th.zoneFree(m.zone); m.zone = -1; } m.mk?.remove(); m.mk = null;
       if (dist < m.B) {
-        const room = Math.max(0, 0.10 - m.salvo.sum), got = room > 0.003 ? th.hurt(T.hit, 'Cruise missile!', 'fleet', T.k, room, m.locked ? th.t - m.lockAt : -1) : 0; m.salvo.sum += got; th.notice(3);
+        const room = Math.max(0, 0.10 - m.salvo.sum), got = room > 0.003 ? th.hurt(T.hit, 'Cruise missile!', 'fleet', T.k, room, m.locked ? th.t - m.lockAt : -1, m.to) : 0; m.salvo.sum += got; th.notice(3);
       }
     },
     endMissile(m) { m.on = false; m.mod.visible = false; if (m.zone >= 0) th.zoneFree(m.zone); m.zone = -1; m.mk?.remove(); m.mk = null; },

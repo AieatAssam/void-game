@@ -56,7 +56,7 @@ export function makeLaser(th) {
           state.slow = Math.max(state.slow || 0, 0.15); state.slowK = T.jam;
           q.fairT = th.t;
           if (!q.wasIn) { q.wasIn = true; th.stats.laserHits++; th.ctx.hint('IN THE BEAM — run, it is slower than you'); }
-          th.hurtCont(T.rate, dt, 'Laser!', 'laser', T.k, q.age);
+          th.hurtCont(T.rate, dt, 'Laser!', 'laser', T.k, q.age, q.spot);
           th.notice(2 * dt * 10);
         } else q.wasIn = false;
         // sound: a hum, louder near

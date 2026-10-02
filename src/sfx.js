@@ -298,3 +298,20 @@ export function crackerFire() { noise(0.4, 9000, 0.7); tone('sine', 58, 18, 5, 1
 export function fizzle() { tone('sawtooth', 600, 40, 2.4, 0.2); tone('sine', 900, 60, 2.2, 0.15); reverseGulp(); choir(0.8); }
 /** A rocket lifts off: a rising roar that thins out. */
 export function rocket() { noise(2.4, 1400, 0.25); tone('sawtooth', 70, 200, 2.2, 0.06); }
+
+// ---------- real pain (src/pain.js): the hole is hit ----------
+let ringG = null;
+/** The hole is hit (k 0..1, the share of it lost, scaled): a cracked slam, a pitch-dropped body and a sub thump; the world ducks and a tinnitus ring (its own gain, past the duck) fades back over seconds. */
+export function pain(k = 0.5) {
+  if (!ctx || muted) return;
+  const t = ctx.currentTime, kk = Math.min(1, Math.max(0.15, k));
+  noise(0.22 + 0.25 * kk, 3600, 0.5 + 0.3 * kk); tone('sawtooth', 210 - 60 * kk, 34, 0.45, 0.16 + 0.1 * kk);
+  tone('sine', 130 - 50 * kk, 22, 0.8 + 0.8 * kk, 0.9); tone('sine', 54, 19, 1.4 + 1.2 * kk, 0.7 + 0.3 * kk, 0.03); noise(0.9 + kk, 420, 0.4, 0.06);
+  if (kk > 0.25 && master) {
+    master.gain.cancelScheduledValues(t); master.gain.setTargetAtTime(0.35 * (0.6 - 0.35 * kk), t, 0.012); master.gain.setTargetAtTime(0.35, t + 0.3 + 0.5 * kk, 0.45 + 0.5 * kk);
+    if (!ringG) { ringG = ctx.createGain(); ringG.gain.value = 0; ringG.connect(ctx.destination); for (const f of [5400, 7600]) { const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f; o.connect(ringG); o.start(); } }
+    ringG.gain.cancelScheduledValues(t); ringG.gain.setValueAtTime(0, t); ringG.gain.linearRampToValueAtTime(0.012 + 0.03 * kk, t + 0.05); ringG.gain.setTargetAtTime(0, t + 0.4, 0.7 + 1.1 * kk);
+  }
+}
+/** One heartbeat of the wounded hole (k 0..1): two soft low thumps. */
+export function heart(k = 0.5) { tone('sine', 66, 38, 0.16, 0.3 * k + 0.08); tone('sine', 54, 34, 0.18, 0.22 * k + 0.05, 0.2); }

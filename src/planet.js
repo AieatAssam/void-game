@@ -139,7 +139,7 @@ export class PlanetWorld {
     g.u.uClouds.value = 0.5 + 0.5 * SM(8000, 100000, r);
     g.u.uAtmo.value = 0.26 + 0.74 * SM(50000, 450000, r);
     g.u.uAtmoH.value = 0.35 + 0.65 * SM(50000, 450000, r); // (thinner scatter while the camera sits inside the shell, T1: crisp ground)
-    if (cap) g.setHole(0, this.hdir, r / R); else g.setHole(0, this.hdir, 0);
+    if (cap) g.setHole(0, this.hdir, r * (this.holeVis ?? 1) / R); else g.setHole(0, this.hdir, 0);
     // wound depth: the patch's trail sinks ~0.6 r_build; the bite map 3 km (x E applied by the shader's own height)
     const wg = this.patchInfo && !this.capMode ? 0.6 * this.patchInfo.rB : Math.min(60000, Math.max(3000, 0.08 * r)); // (§12.1: while the patch exists tears sink as deep as the swath)
     this.woundG = this.woundG === undefined ? wg : this.woundG + (wg - this.woundG) * Math.min(1, dt * 2);

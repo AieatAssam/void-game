@@ -181,6 +181,10 @@ export function planetUniforms() {
     uShock: Array.from({ length: 4 }, () => uniform(new THREE.Vector4(0, 1, 0, 0))), // shock rings: dir.xyz, start angle (rad)
     uShockP: Array.from({ length: 4 }, () => uniform(new THREE.Vector4(-99, 0, 0, 0))), // start time (uTime), speed (rad/s), life (s), strength
     uRim: uniform(0), // the cap's rim band widens with the credit rate
+    // hit feedback (src/pain.js): the cap's rim dents toward the hit, ripples away from it, flares white-hot and cracks the ground; a wound lingers (ember glow, heartbeat)
+    uPain: uniform(new THREE.Vector4(0, 0, 0, 0)), // unit tangent at the hole toward the cause (planet space), directional 0 / 1
+    uPainP: uniform(new THREE.Vector4(9, 0, 0, 0)), // seconds since the hit, wound 0..1, impact 0..1 (decays), heartbeat pulse
+    uPainQ: uniform(new THREE.Vector4(0, 0, 0, 0)), // cracks 0..1
     // threats (src/threat.js, docs/PHASE3.md §5): scars (a scorch + a racing ring: nuke / rod / swallow), telegraph zones (a danger ring + the swallow circle, fallout) and the bombers' strafe band
     uScar: Array.from({ length: 12 }, () => uniform(new THREE.Vector4(0, 1, 0, 0))), // dir.xyz, ring reach (rad)
     uScarP: Array.from({ length: 12 }, () => uniform(new THREE.Vector4(0, 0, 0, 0))), // start time (uTime), life (s; 0 = unused), ring speed (rad/s), kind (0 nuke, 1 rod, 2 swallow)
@@ -638,8 +642,30 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
         const dd = th.div(th0);
         const hax = select(abs(hu.y).lessThan(0.99), vec3(0, 1, 0), vec3(1, 0, 0));
         const h1 = normalize(cross(hu.xyz, hax)), h2 = cross(hu.xyz, h1);
+        // hit feedback (the player's cap only): the rim dents toward the cause and rebounds, ripples run away from it round the lip, and the hole's own coordinates are warped with it (so the shaft follows the outline)
+        const kW = float(1).toVar(), hotP = float(0).toVar(), crkP = float(0).toVar(), embP = float(0).toVar();
+        if (hi === 0 && !OFF.has('pain')) {
+          const PD = u.uPain, PP = u.uPainP, PQ = u.uPainQ;
+          If(dd.lessThan(2.4).and(PP.y.add(PP.z).add(PQ.x).greaterThan(0.002)), () => {
+            const tp = dir.sub(hu.xyz.mul(c)), az = atan(dot(tp, h2), dot(tp, h1)), ca = cos(az), sa = sin(az), ha = atan(dot(PD.xyz, h2), dot(PD.xyz, h1)), cd = cos(az.sub(ha));
+            const age = PP.x, wound = PP.y, imp = PP.z, heart = PP.w, ang = acos(clamp(cd, -1, 1)).mul(PD.w);
+            const lobe = pow(mix(float(0.5), cd.mul(0.5).add(0.5), PD.w), 2.5), dent = exp(age.mul(-2.5)).mul(cos(age.mul(14)));
+            const wave = sin(ang.mul(5).sub(age.mul(22))).mul(exp(ang.mul(-0.45))).mul(exp(age.mul(-2.4)));
+            const nz = mx_noise_float(vec3(ca.mul(4.5), sa.mul(4.5), age.mul(2.5).add(1.7)));
+            const warp = clamp(imp.mul(0.62).mul(lobe.mul(dent).mul(0.85).add(0.2)).add(imp.mul(0.14).mul(wave)).add(nz.mul(0.045).mul(wound.add(imp))).add(heart.mul(wound).mul(0.012)), -0.2, 0.6);
+            kW.assign(float(1).add(warp));
+            hotP.assign(imp.mul(exp(age.mul(-3.2))).mul(1.4).min(1));
+            embP.assign(wound.mul(heart.mul(0.7).add(0.3)));
+            // the fractures: radial cracks through the lip's band, hot at first (white -> orange -> red), then dull red
+            const dW = dd.mul(kW), band = sstep(0.82, 1.0, dW).mul(sstep(1.95, 1.1, dW));
+            const n1 = mx_noise_float(vec3(ca.mul(4.2), sa.mul(4.2), dW.mul(1.1))), n2 = mx_noise_float(vec3(ca.mul(9), sa.mul(9), dW.mul(3.2).add(3.3)));
+            const ridge = max(sstep(0.93, 0.985, float(1).sub(abs(n1))), sstep(0.945, 0.99, float(1).sub(abs(n2))).mul(0.85));
+            crkP.assign(ridge.mul(band).mul(landMask).mul(PQ.x).mul(float(0.55).add(mix(float(0.35), lobe, PD.w).mul(0.8))).min(1.4));
+          });
+        }
+        const ddW = dd.mul(kW);
         // depth: a real tube. The ray from this pixel goes down along -V; it meets the shaft's wall (a lit, banded crescent on the far side) or the floor (the swirling void)
-        const hq = vec2(dot(dir, h1), dot(dir, h2)).div(max(sin(th0), 1e-5)), vz = max(dot(V, hu.xyz), 0.25);
+        const hq = vec2(dot(dir, h1), dot(dir, h2)).div(max(sin(th0), 1e-5)).mul(kW), vz = max(dot(V, hu.xyz), 0.25);
         const dv = vec2(dot(V, h1), dot(V, h2)).div(vz).negate(), Dd = float(2.0);
         const qa = max(dot(dv, dv), 1e-5), qb = dot(hq, dv), qc = dot(hq, hq).sub(1);
         const tw = qb.negate().add(sqrt(max(qb.mul(qb).sub(qa.mul(qc)), 0))).div(qa), hitWall = tw.lessThan(Dd), tN = clamp(tw.div(Dd), 0, 1);
@@ -648,11 +674,21 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
         const floorCol = mix(vec3(0.1, 0.045, 0.26), vec3(0.008, 0.004, 0.035), sstep(0.95, 0.25, ddP)).add(vec3(0.3, 0.16, 0.7).mul(arms).mul(sstep(0.9, 0.2, ddP)).mul(0.36));
         const wallCol = mix(vec3(0.17, 0.085, 0.065), vec3(0.04, 0.015, 0.1), sstep(0.0, 0.35, tN)).mul(float(1).sub(sstep(0.2, 1.0, tN).mul(0.9))).add(vec3(0.9, 0.38, 0.12).mul(exp(tN.mul(-30))).mul(0.3)).add(vec3(0.3, 0.15, 0.7).mul(exp(tN.sub(0.45).mul(6).pow(2).negate())).mul(0.12));
         const voidCol = select(hitWall, wallCol, floorCol);
-        const inside = sstep(1.0, 0.985, dd);
-        const rim = exp(pow(dd.sub(1).mul(26).div(float(1).add(u.uRim.mul(0.7))), 2).negate());
+        const inside = sstep(1.0, 0.985, ddW);
+        const rim = exp(pow(ddW.sub(1).mul(26).div(float(1).add(u.uRim.mul(0.7)).add(hotP.mul(0.7))), 2).negate());
         col.assign(mix(col, voidCol, inside));
-        capMask.assign(max(capMask, sstep(1.05, 0.98, dd)));
-        col.addAssign((hi === 0 ? vec3(0.62, 0.42, 1.0) : mix(vec3(0.62, 0.42, 1.0), vec3(1.0, 0.2, 0.14), u.uRivalK[Math.min(hi, 4) - 1])).mul(rim).mul(1.9 + (hi ? 0.7 : 0)));
+        capMask.assign(max(capMask, sstep(1.05, 0.98, ddW)));
+        const lil = vec3(0.62, 0.42, 1.0);
+        const rimC = hi === 0 ? mix(mix(lil, vec3(1.0, 0.3, 0.1), u.uPainP.y.mul(1.8).min(0.9)), vec3(1.0, 0.95, 0.86), hotP.mul(1.2).min(1)) : mix(lil, vec3(1.0, 0.2, 0.14), u.uRivalK[Math.min(hi, 4) - 1]);
+        col.addAssign(rimC.mul(rim).mul(hi === 0 ? float(1.9).add(hotP.mul(3.4)).add(embP.mul(1.1)) : float(2.6)));
+        if (hi === 0 && !OFF.has('pain')) { // the cracks glow (hot, then ember) and char the ground beside them
+          const crkC = mix(vec3(1.0, 0.16, 0.04), vec3(1.0, 0.6, 0.26), hotP);
+          col.assign(col.mul(float(1).sub(crkP.mul(0.6).min(0.7))));
+          col.addAssign(vec3(1.0, 0.2, 0.05).mul(exp(pow(ddW.sub(1.05).mul(2.4), 2).negate())).mul(embP.mul(0.9).add(hotP.mul(0.8))).mul(float(1).sub(inside)).mul(landMask.mul(0.7).add(0.3)));
+          const pAge = u.uPainP.x, pImp = u.uPainP.z, rr = float(1.05).add(pAge.mul(2.6)); // the shock ring the hit sends over the ground
+          col.addAssign(vec3(1.0, 0.82, 0.62).mul(exp(pow(ddW.sub(rr).div(float(0.07).add(pAge.mul(0.12))), 2).negate())).mul(pImp.mul(exp(pAge.mul(-2.2))).mul(2.2)).mul(float(1).sub(inside)));
+          col.addAssign(crkC.mul(crkP).mul(float(1.3).add(hotP.mul(1.8)).add(embP.mul(1.2))).mul(float(1).sub(inside)));
+        }
       });
     }
     // ---- haze between camera and surface: a cheap exponential up close (the camera is 10-1000 km away), the real single scatter from ~50 km
