@@ -7,7 +7,7 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, vec2, vec3, vec4, float, int, uniform, texture, attribute, positionGeometry, positionLocal, normalize, dot, cross, length, sqrt, exp,
-  pow, max, min, abs, atan, acos, mix, smoothstep, clamp, select, step, sin, mx_noise_float, mx_noise_vec3,
+  pow, max, min, abs, atan, acos, cos, mix, smoothstep, clamp, select, step, sin, mx_noise_float, mx_noise_vec3,
   mx_fractal_noise_float, mx_worley_noise_float, mx_cell_noise_vec3, instancedBufferAttribute, uv, cameraPosition,
   floor, fract, If, Discard, positionWorld, dFdx, dFdy, fwidth, sign,
 } from 'three/tsl';
@@ -183,8 +183,8 @@ export function planetUniforms() {
     // threats (src/threat.js, docs/PHASE3.md §5): scars (a scorch + a racing ring: nuke / rod / swallow), telegraph zones (a danger ring + the swallow circle, fallout) and the bombers' strafe band
     uScar: Array.from({ length: 8 }, () => uniform(new THREE.Vector4(0, 1, 0, 0))), // dir.xyz, ring reach (rad)
     uScarP: Array.from({ length: 8 }, () => uniform(new THREE.Vector4(0, 0, 0, 0))), // start time (uTime), life (s; 0 = unused), ring speed (rad/s), kind (0 nuke, 1 rod, 2 swallow)
-    uZone: Array.from({ length: 8 }, () => uniform(new THREE.Vector4(0, 1, 0, 0))), // dir.xyz, outer radius (rad)
-    uZoneP: Array.from({ length: 8 }, () => uniform(new THREE.Vector4(0, 0, 0, 0))), // inner (swallow) radius (rad), alpha (0 = unused), lock progress (0 = tracking, then 0..1), kind (0 danger, 1 fallout)
+    uZone: Array.from({ length: 12 }, () => uniform(new THREE.Vector4(0, 1, 0, 0))), // dir.xyz, outer radius (rad)
+    uZoneP: Array.from({ length: 12 }, () => uniform(new THREE.Vector4(0, 0, 0, 0))), // inner (swallow) radius (rad), alpha (0 = unused), lock progress (0 = tracking, then 0..1), kind (0 danger, 1 fallout)
     uStrafe: uniform(new THREE.Vector4(0, 1, 0, 0)), uStrafeA: uniform(new THREE.Vector4(1, 0, 0, 0)), uStrafeP: uniform(new THREE.Vector4(0, 0, 0, 0)), // great-circle band: normal.xyz + half width (rad); start dir.xyz + length (rad); alpha, head (0..1), lock
     uGcellA: uniform(1e4), uGfr: uniform(0), uGroundK: uniform(1), uGroundM: uniform(1), // (K: parcels, hedges, rows, street grids, lakes, rivers = the close ground; M: relief, woods, settlements = the km-scale ground that a landmass keeps)
     // close-ground pattern scale: cells per face unit, octave blend, strength
@@ -585,20 +585,25 @@ export function planetMaterial({ surf, night, bite, trail = null, map = null, gt
           col.addAssign(rc.mul(band.mul(3.2).add(tail.mul(0.1))).mul(rf).mul(select(kind.greaterThan(2.5), float(0), float(1))));
         });
       }
-      for (let i = 0; i < 8; i++) {
+      for (let i = 0; i < 12; i++) {
         const z = u.uZone[i], q = u.uZoneP[i];
-        If(q.y.greaterThan(0.001), () => {
+        If(q.y.greaterThan(0.001).and(dot(dir, z.xyz).greaterThan(cos(min(z.w.mul(1.1).add(1e-4), 3.1)))), () => { // (the cheap rejection: no noise, no trig past the zone's own disc)
           const th = acos(clamp(dot(dir, z.xyz), -1, 1)), A = z.w, lock = q.z, fall = q.w, wd = max(A.mul(0.03), 1e-5);
           const pul = sin(u.uTime.mul(select(lock.greaterThan(0.001), float(15), float(5)))).mul(0.3).add(0.7);
           const edge = exp(pow(th.sub(A).div(wd), 2).negate()), inside = float(1).sub(smoothstep(A.mul(0.985), A, th));
           const ring = (rad, w) => exp(pow(th.sub(rad).div(w), 2).negate());
+          const gz = vec3(0, 0, 0).toVar();
+          If(q.w.greaterThan(1.5), () => { // kind 2: a ripe unit (A5): a lilac dashed ring at its equivalent radius, a faint fill
+            const t1 = normalize(cross(z.xyz, vec3(0.0, 1.0, 0.0)).add(vec3(1e-3, 0, 0))), az = atan(dot(dir, cross(z.xyz, t1)), dot(dir, t1)), dash = smoothstep(-0.25, 0.35, sin(az.mul(20).add(u.uTime.mul(0.7))));
+            gz.assign(vec3(0.8, 0.66, 1.0).mul(ring(A, wd.mul(1.3)).mul(dash).mul(1.5).add(inside.mul(0.5))));
+          }).Else(() => {
           const danger = mix(vec3(1.0, 0.6, 0.12), vec3(1.0, 0.1, 0.06), min(lock.mul(40), 1)), hatch = sin(th.div(A).mul(44).sub(u.uTime.mul(select(lock.greaterThan(0.001), float(3.5), float(1.2))))).mul(0.5).add(0.5);
           const g = danger.mul(edge.mul(2.6).mul(pul).add(inside.mul(hatch.mul(0.16).add(0.05)))).toVar();
           g.addAssign(vec3(1.0, 0.92, 0.8).mul(ring(A.mul(float(1).sub(lock)), wd.mul(0.9))).mul(step(0.001, lock)).mul(2.4)); // the closing countdown ring
           g.addAssign(vec3(0.66, 0.46, 1.0).mul(ring(q.x, max(q.x.mul(0.07), 1e-5)).mul(1.7).add(float(1).sub(smoothstep(q.x.mul(0.96), q.x, th)).mul(0.2))).mul(step(1e-6, q.x))); // the swallow circle
-          const fo = vec3(0.7, 0.85, 0.14).mul(edge.mul(0.7).add(inside.mul(mx_noise_float(dir.mul(float(9).div(A))).mul(0.5).add(0.5).mul(0.2)))); // fallout: a sick, mottled glow
-          const gz = select(fall.greaterThan(0.5), fo, g);
+          If(fall.greaterThan(0.5), () => { gz.assign(vec3(0.7, 0.85, 0.14).mul(edge.mul(0.7).add(inside.mul(mx_noise_float(dir.mul(float(9).div(A))).mul(0.5).add(0.5).mul(0.2))))); /* fallout: a sick, mottled glow */ }).Else(() => { gz.assign(g); });
           col.assign(mix(col, col.mul(vec3(0.82, 0.92, 0.6)), inside.mul(fall).mul(q.y).mul(0.45)));
+          });
           col.addAssign(gz.mul(q.y));
         });
       }

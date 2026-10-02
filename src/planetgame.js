@@ -24,6 +24,9 @@ const portraitK = (aspect) => Math.max(1, 1.2 / aspect) ** 0.45;
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const popStr = (p) => (p >= 1e9 ? `${(p / 1e9).toFixed(p >= 1e10 ? 1 : 2)} B` : p >= 1e6 ? `${(p / 1e6).toFixed(0)} M` : `${(p / 1e3).toFixed(0)} k`);
 const km2Str = (a) => (a >= 1e6 ? `${(a / 1e6).toFixed(a >= 1e7 ? 0 : 1)} M km²` : `${Math.round(a / 1e3)}k km²`);
+const RIPE_CSS = `#ripe{position:fixed;left:0;top:0;z-index:4;pointer-events:none;font:800 12px system-ui,sans-serif;letter-spacing:.06em;color:#e8dcff;background:#2a1260c8;padding:3px 10px;border-radius:999px;box-shadow:0 0 0 1.5px #c9a8ff99;white-space:nowrap}#ripe[hidden]{display:none}
+.gain{position:fixed;left:0;top:0;z-index:5;pointer-events:none;font:900 22px system-ui,sans-serif;color:#fff3dd;text-shadow:0 2px 0 #0008,0 0 14px #8a5cffcc;white-space:nowrap;opacity:0}.gain small{font-size:12px;display:block;opacity:.85;text-align:center}
+#size.pulse b{animation:szpulse .6s ease-out}@keyframes szpulse{40%{transform:scale(1.35);color:#c9a8ff}}`;
 const KINDS = ['province', 'provinces', 'nation', 'nations', 'world']; // the goal chain (§12.3, amended: five nations at T3, continents are a counter)
 
 export class PlanetGame {
@@ -54,11 +57,27 @@ export class PlanetGame {
   }
 
   /** Put the hole at the start (the islet by the coast; ?view=pole, ?at=city debug) and the sun over the left shoulder. */
-  placeStart() {
+  placeStart(r0 = P3.startR) {
     const W = this.world;
     if (qs.get('view') === 'pole') W.placeAt(new THREE.Vector3(0, 1, 0));
     else if (qs.get('at') === 'city') W.placeAt(W.P.city, W.P.startDir); // (debug: the mainland)
-    else W.placeAt(W.P.startDir, W.P.city);
+    else {
+      // the minute-one hook (A11): face the nearest peninsula / isle (a 0.3-0.8 pi r0^2 coastal unit 2-4 r0 away), so the first bite is a tear
+      let face = W.P.city; const lf = W.bite.lf, s = W.P.startDir;
+      if (lf?.ready) {
+        const pi = Math.PI * (r0 / 1000) ** 2; let bd = 9;
+        for (const L of [1, 2]) {
+          const v = lf.lv[L];
+          for (let u = 0; u < v.n; u++) {
+            const a = v.area0[u]; if (!(a > 0.3 * pi && a < 0.8 * pi) || v.coast[u] / v.np[u] <= 0.5) continue;
+            const d = Math.acos(Math.min(1, v.c[u * 3] * s.x + v.c[u * 3 + 1] * s.y + v.c[u * 3 + 2] * s.z)) * R / r0;
+            if (d >= 2 && d <= 4 && d < bd) { bd = d; face = { x: v.c[u * 3], y: v.c[u * 3 + 1], z: v.c[u * 3 + 2] }; }
+          }
+        }
+        this.hook = bd < 9 ? bd : null;
+      }
+      W.placeAt(s, face);
+    }
     W.setSunRender(SUN_R);
   }
 
@@ -80,8 +99,9 @@ export class PlanetGame {
     W.update(0, hole, ctx.camera, innerHeight);
     this.hole = hole; this.ctxRef = ctx;
     if (this.map) { this.map.show(!cinematic); this.map.place(W, hole); } // (the minimap waits for the end of the cinematic)
-    state.sealed = false; state.over = false;
-    state.pop = 0; state.ledger = { land: 0, tear: 0, pull: 0, fed: 0, starve: 0 }; state.tierAt = { 1: 0 }; state.goalDone = []; state.continents = 0; state.won = false; state.shake = 0; state.slowT = 0;
+    state.sealed = false; state.over = false; state.gRate = 0;
+    { const st = document.getElementById('status'); if (st) st.textContent = ''; } ctx.chips?.(); // (A12: no stale Phase 2 line, no Phase 2 perk chips)
+    state.pop = this.world.bite.pop; state.ledger = { land: 0, tear: 0, pull: 0, fed: 0, starve: 0 }; state.tierAt = { 1: 0 }; state.goalDone = []; state.continents = 0; state.won = false; state.shake = 0; state.slowT = 0;
     this.camDist = 0;
     if (!cinematic) this.armRun(ctx, r0);
     this.installDebug(ctx);
@@ -125,6 +145,7 @@ export class PlanetGame {
     const t0 = performance.now(), W = this.world, { state, hole, camera, post, renderer, look, sun } = ctx;
     if (!W) return;
     if (!state.playing || state.asc) ctx.sfx.grind.stop();
+    if (state.asc) state.pop = W.bite.pop; // (the reveal's ticker counts the islet)
     if (state.playing) {
       state.time += dt;
       this.step(dt, ctx);
@@ -146,7 +167,7 @@ export class PlanetGame {
       if (Math.abs(camera.fov - A.fov) > 1e-3) { camera.fov = A.fov; camera.updateProjectionMatrix(); }
     } else {
       const want = this.homeCam(ctx).dist * (fx && fx.pullT < 3.6 ? (fx.pullT += dt, 1 + 0.15 * Math.min(1, fx.pullT / 0.6) * Math.max(0, Math.min(1, (3.6 - fx.pullT) / 1.2))) : 1); // (a continent: the camera backs off 15% for 3 s)
-      this.camDist = this.camDist ? this.camDist + (want - this.camDist) * Math.min(1, dt * 2) : want;
+      this.camDist = this.camDist ? this.camDist + (want - this.camDist) * Math.min(1, dt * (want > this.camDist ? 0.6 : 2)) : want; // (A6: the camera follows growth slowly and settles back fast, so the hole swells on screen before the world rescales)
       camDist = this.camDist; pitch = P3.pitch(r);
       const kl = Math.min(1, dt * 3);
       this.lead.x += ((hole.sx || 0) * 0.025 * camDist - this.lead.x) * kl; this.lead.y += ((hole.sz || 0) * 0.025 * camDist - this.lead.y) * kl; // (the lead pushes the hole down the frame; the aim already put it at ~70%)
@@ -233,7 +254,7 @@ export class PlanetGame {
     // tear-offs and the pull-in (§12.3): the units the disc touched, the remnants within reach; their credit is not land credit under the ocean rule
     const B = W.bite;
     B.tearCheck(W.hdir, r); B.pullCheck(W.hdir, r, state.time, state.mods?.pull ?? 1); B.stepTears(dt);
-    const G = P3.g(r) * P3.feast * (state.fallout ? T3.falloutLand : 1) * (state.surge ? 1.5 : 1), tc = B.cTear * G * (state.mods?.tear ?? 1), pc = B.cPull * G; // (fallout x0.5, Hunger Surge x1.5: threat.js)
+    const G = P3.g(r) * P3.feast * (state.fallout ? T3.falloutLand : 1) * (state.surge ? 1.5 : 1), tc = B.cTear * G * (state.mods?.tear ?? 1) * (state.time - (this.comboAt ?? -9) < 2.5 ? 1 + 0.1 * Math.min(5, this.combo || 0) : 1), pc = B.cPull * G; // (fallout x0.5, Hunger Surge x1.5: threat.js)
     if (tc + pc > 0) { const a0 = hole.area; hole.area += tc + pc; state.belly = Math.min(1, state.belly + (tc + pc) / (a0 * P3.meal)); L.tear = (L.tear || 0) + tc; L.pull = (L.pull || 0) + pc; }
     for (const ev of B.events) this.swallow(ev, ctx);
     B.events.length = 0;
@@ -260,6 +281,7 @@ export class PlanetGame {
       L.land += dA; state.ledgerLand = L.land;
     }
     this.goalTick(ctx, dt);
+    this.ripeTick(ctx, dt);
     this.threat?.update(dt, ctx);
     // belly and decay (§4.5): a full belly lasts 30 s; fed 0.1%/s, starving 0.8%/s
     const oceanDrain = this.wetPrev ? P3.oceanDrain(tier) : 1;
@@ -282,7 +304,7 @@ export class PlanetGame {
       state.tier = nt; state.tierAt[nt] = state.time; (state.tierLand ??= {})[nt] = state.land;
       hole.shockwave(); W.shock(W.hdir, 0.6 * hole.r / R, 1.5 * hole.r / R, 1.2, 1);
       state.hitstop = Math.max(state.hitstop || 0, 0.25); state.slowmo = 0.4; state.slowT = 0.6; state.punch = 1;
-      this.checkpoint(ctx);
+      this.checkpoint(ctx); this.camDist *= 1.12; { const sz = document.getElementById('size'); sz?.classList.remove('pulse'); void sz?.offsetWidth; sz?.classList.add('pulse'); } // (the pull-out beat: the hole visibly swells, then the camera settles)
       ctx.card(`Tier ${nt} · ${KM(hole.r)}`, TIERS[nt - 1].name);
       ctx.sfx.levelUp();
       ctx.news.say(`${TIERS[nt - 1].name}: the void is now ${KM(hole.r)} wide — ${popStr(state.pop || 0)} swallowed so far`);
@@ -302,6 +324,11 @@ export class PlanetGame {
     else if (rEq < 0.3 * r) cls = Math.min(cls, 1);
     if (cls === 0) { if (rEq > 0.04 * r) ctx.sfx.pebble(); return; } // (a parcel: a dry crackle)
     this.threat?.notice([0, 1, 3, 6, 10][cls]);
+    if (ev.kind !== 'pull') { // the collapse combo (A5): tears within 2.5 s of the last one chain; +10% credit per level (to 5)
+      this.combo = t - (this.comboAt ?? -9) < 2.5 ? (this.combo || 0) + 1 : 0; this.comboAt = t;
+      if (this.combo >= 3 && t - (this.comboCard ?? -9) > 3) { this.comboCard = t; ctx.card(`×${this.combo} COLLAPSE`, `+${10 * Math.min(5, this.combo)}% on torn land`); }
+    }
+    this.gainLabel(ev, cls, ctx);
     const fx = this.fx ??= { hitAt: -9, hitCls: 0, pull: 0, pullT: 9, tok: 3, tokAt: 0 }, pull = ev.kind === 'pull';
     fx.tok = Math.min(3, fx.tok + (t - fx.tokAt) * 2); fx.tokAt = t; // effect tokens: 2 a second, 3 banked (a cascade of tears is one big event to the eye)
     const cost = cls >= 3 ? 3 : cls === 2 ? 2 : 1, show = fx.tok >= cost; if (show) fx.tok -= cost;
@@ -336,7 +363,7 @@ export class PlanetGame {
     // sound: crack + gulp, rumble late by distance, choir, the continent's silence-swell-boom
     const dl = Math.min(1.2, dist / (6 * r));
     if (!show) return;
-    if (cls === 1) sfx.tear(k); else if (cls === 2) { sfx.tear(k); sfx.rumble(k, 0.15 + dl); } else if (cls === 3) { sfx.choir(k); sfx.rumble(k, 0.2 + dl); } else sfx.swell();
+    const cs = Math.min(5, this.combo || 0) * 2; if (cls === 1) sfx.tear(k, cs); else if (cls === 2) { sfx.tear(k, cs); sfx.rumble(k, 0.15 + dl); } else if (cls === 3) { sfx.choir(k); sfx.rumble(k, 0.2 + dl); } else sfx.swell();
     if (ev.pop > 5e5 && !pull && (cls >= 2 || news.queue.length < 2)) { const pp = ev.pop >= 1e9 ? `${(ev.pop / 1e9).toFixed(1)} B` : ev.pop >= 1e6 ? `${(ev.pop / 1e6).toFixed(0)} M` : `${(ev.pop / 1e3).toFixed(0)} k`; news.say(cls === 3 ? `${ev.name} is gone — ${pp} swallowed` : `${ev.name} swallowed — ${pp} evacuated`); }
   }
 
@@ -354,6 +381,49 @@ export class PlanetGame {
     el.querySelector('#rs-new').onclick = () => { const u = new URL(location.href); u.searchParams.delete('r'); location.href = u.href; };
   }
 
+  /** A floating "+X.X%" at the tear's centroid (A6): the credit is known only at the end, so it is estimated from the unit's land and height; provinces and up add the people. Six pooled elements. */
+  gainLabel(ev, cls, ctx) {
+    const { hole, state } = ctx, W = this.world, lf = W.bite.lf, v = lf.lv[ev.L];
+    document.getElementById('size')?.classList.remove('pulse'); if (cls >= 2) { const sz = document.getElementById('size'); void sz.offsetWidth; sz.classList.add('pulse'); }
+    if (this.fx && this.fx.tok < 0) return;
+    const h = v.hsum ? v.hsum[ev.u] / (v.area0[ev.u] || 1) : 300, G = P3.g(hole.r) * P3.feast * (state.fallout ? T3.falloutLand : 1) * (state.surge ? 1.5 : 1);
+    const k = 1 + 0.1 * Math.min(5, this.combo || 0), pct = ev.left * 1e6 * Math.sqrt((h + P3.crust) / 1000) * P3.collapseK * G * (state.mods?.tear ?? 1) * k / hole.area * 100;
+    if (pct < 0.05) return;
+    const pool = this.gains ??= Array.from({ length: 6 }, () => document.body.appendChild(Object.assign(document.createElement('div'), { className: 'gain' }))), el = pool[(this.gainI = ((this.gainI ?? -1) + 1) % 6)];
+    const p = W.renderPos(ev.dir, Math.max(0, W.P.elevation(ev.dir, 6)), _p).project(ctx.camera);
+    const x = p.z > 1 || Math.abs(p.x) > 0.9 ? 0 : p.x, y = p.z > 1 || Math.abs(p.y) > 0.8 ? 0.1 : p.y;
+    el.innerHTML = `+${pct.toFixed(pct < 10 ? 1 : 0)}%${cls >= 2 && ev.pop > 1e5 ? `<small>${popStr(ev.pop)} people</small>` : ''}`;
+    const X = (x * 0.5 + 0.5) * innerWidth, Y = (-y * 0.5 + 0.5) * innerHeight;
+    el.getAnimations().forEach((a) => a.cancel());
+    el.animate([{ opacity: 0, transform: `translate(${X}px,${Y}px) translate(-50%,0) scale(.7)` }, { opacity: 1, transform: `translate(${X}px,${Y - 24}px) translate(-50%,0) scale(1.1)`, offset: 0.15 }, { opacity: 1, transform: `translate(${X}px,${Y - 60}px) translate(-50%,0) scale(1)`, offset: 0.7 }, { opacity: 0, transform: `translate(${X}px,${Y - 90}px) translate(-50%,0) scale(1)` }], { duration: 1300, easing: 'ease-out' });
+  }
+
+  /** Ripe units (A5): at 2 Hz the best four go to zone slots 8-11 (lilac dashed rings) and the minimap; the best one gets a HUD label ("Kesport Peninsula · 58%"). */
+  ripeTick(ctx, dt) {
+    const W = this.world, lf = W.bite.lf, u = W.globe.u, { state, hole } = ctx, rp = this.ripe ??= [];
+    if (lf?.ready && !state.won && ((this.ripeT = (this.ripeT || 0) - dt) <= 0)) {
+      this.ripeT = 0.5; lf.ripe(W.hdir, hole.r, rp, 4);
+      for (let i = 0; i < 4; i++) {
+        const o = rp[i];
+        if (o) { u.uZone[8 + i].value.set(o.dir.x, o.dir.y, o.dir.z, o.rEq / R); u.uZoneP[8 + i].value.set(0, 0.5 + 0.35 * (1 - o.frac), 0, 2); } else u.uZoneP[8 + i].value.y = 0;
+        if (this.map) {
+          const mk = (this.ripeMk ??= [])[i];
+          if (o && mk) { mk.dir = o.dir; mk.r = o.rEq; } else if (o) this.ripeMk[i] = this.map.addMarker({ kind: 'ring', dir: o.dir, r: o.rEq, color: '#c9a8ff' });
+          else if (mk) { mk.remove(); this.ripeMk[i] = null; }
+        }
+      }
+    }
+    // the label: projected from the best unit's centroid every frame (a pooled element)
+    const el = this.ripeEl ??= Object.assign(document.createElement('div'), { id: 'ripe', hidden: true }), o = rp[0];
+    if (!el.isConnected) { document.body.append(el); if (!document.getElementById('ripe-css')) document.head.append(Object.assign(document.createElement('style'), { id: 'ripe-css', textContent: RIPE_CSS })); }
+    if (!o || !state.playing || state.won) { el.hidden = true; return; }
+    const p = W.renderPos(o.dir, Math.max(0, W.P.elevation(o.dir, 6)), _p).project(ctx.camera);
+    if (p.z > 1 || Math.abs(p.x) > 0.92 || Math.abs(p.y) > 0.9) { el.hidden = true; return; }
+    const txt = `${o.name} · ${Math.round(o.frac * 100)}%`;
+    if (el.textContent !== txt) el.textContent = txt;
+    el.hidden = false; el.style.transform = `translate(${((p.x * 0.5 + 0.5) * innerWidth).toFixed(0)}px,${((-p.y * 0.5 + 0.5) * innerHeight).toFixed(0)}px) translate(-50%,-140%)`;
+  }
+
   /** The Sealed checkpoint (§8): the bite map and the hole's frame at the latest tier-up (6 MB, memory only). */
   checkpoint(ctx) { this.ckpt = { tier: ctx.state.tier, snap: this.world.bite.save(), holeQ: this.world.holeQ.clone() }; }
   /** "Retry tier N": back to the tier-up (land as it was, the hole at the tier's floor, belly full). */
@@ -365,7 +435,7 @@ export class PlanetGame {
     hole.area = Math.PI * TIERS[c.tier - 1].r ** 2; hole.sx = hole.sz = 0;
     Object.assign(state, { belly: 1, tier: c.tier, playing: true, over: false, sealed: false, shake: 0, slowT: 0, slowmo: 1, hitstop: 0, frenzy: 0, surge: false, fallout: false, land: B.landEaten, pop: B.pop });
     this.goal = null; this.gT = 0; this.worldGoal = null; this.fx = null; this.rim = 0; this.dustMoved = 0;
-    this.threat?.clear();
+    this.threat?.clear(); ctx.news.queue.length = 0; state.gRate = 0;
     W.update(0, hole, ctx.camera, innerHeight); if (hole.r < P3.capR) W.buildPatchNow(hole.r);
     this.camDist = 0; ctx.card(`Retry · tier ${c.tier}`, TIERS[c.tier - 1].name);
   }
@@ -493,7 +563,7 @@ export class PlanetGame {
     state.hudT = 6;
     const el = (id) => document.getElementById(id);
     el('hud').classList.add('p3');
-    el('size').innerHTML = `${TIERS[tier - 1].name} · <b>${KM(hole.r)}</b> · S ${Math.log10(hole.r).toFixed(2)}`;
+    el('size').innerHTML = `${TIERS[tier - 1].name} · <b>${KM(hole.r)}</b> · ×${(hole.r / P3.startR).toFixed(hole.r >= 4 * P3.startR ? 0 : 1)}`;
     const le = W.bite.landEaten, pct = (x) => (100 * x).toFixed(x < 0.001 ? 3 : x < 0.1 ? 2 : 1);
     el('eaten').hidden = false;
     el('eaten').innerHTML = `Land eaten <b>${pct(le)}</b>% · ${popStr(state.pop || 0)}`;

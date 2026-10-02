@@ -1084,7 +1084,7 @@ let planetCtxObj = null;
 const planetCtx = () => planetCtxObj ??= ({
   THREE, Q, renderer, post, camera, scene, look, sun, LENS, baseFov: FOV, sparks, debris, wisps, birds, news, sfx, fpsEl, perf,
   get hole() { return hole; }, get state() { return state; }, get city() { return city; },
-  steer, flash, hint, assets, edgeArrow,
+  steer, flash, hint, assets, edgeArrow, chips: () => perkChips(),
   /** Phase 3's pay (docs/PHASE3-REVIEW.md A3): 40 + 2 per minute under 30 + 5 per ICBM swallowed. */
   bankPlanet(st) { const pay = Math.round(40 + 2 * Math.max(0, 30 - st.time / 60) + 5 * (st.nukesSwallowed || 0)); save.dust += pay; persist(); return pay; },
   draft() { state.draftsDue++; if (BOT || window.__headless) { openDraft(); if (state.draft) takePerk(state.draft[0]); } else setTimeout(openDraft, 1100); }, // (bots take the first offer at once, as the town's drafts do)

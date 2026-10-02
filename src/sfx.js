@@ -162,10 +162,10 @@ function noise(dur, lp, vol, delay = 0, hp = 0) {
 }
 let lastTear = 0;
 /** A district / island: a crack of rock and a gulp (k 0..1 size). */
-export function tear(k = 0.3) {
+export function tear(k = 0.3, semi = 0) { // (semi: a semitone per combo level)
   if (!ctx || ctx.currentTime - lastTear < 0.12) return;
   lastTear = ctx.currentTime;
-  noise(0.25 + k * 0.3, 2400, 0.35 + k * 0.2); tone('sine', 140 - k * 60, 38, 0.5 + k * 0.4, 0.5 + k * 0.2); tone('triangle', 520, 90, 0.12, 0.1);
+  noise(0.25 + k * 0.3, 2400, 0.35 + k * 0.2); const pk = 2 ** (Math.min(semi, 12) / 12); tone('sine', (140 - k * 60) * pk, 38, 0.5 + k * 0.4, 0.5 + k * 0.2); tone('triangle', 520 * pk, 90, 0.12, 0.1);
 }
 /** A province: a rumble that arrives late, as it would from far away. */
 export function rumble(k = 0.5, delay = 0.3) {

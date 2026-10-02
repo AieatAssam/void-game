@@ -248,6 +248,31 @@ export class Landforms {
     return { dir: { x: pd[best * 3], y: pd[best * 3 + 1], z: pd[best * 3 + 2] }, name, d: bd, L, u: U };
   }
 
+  /**
+   * The units worth aiming at (A5): L1-L3, not torn, 25-65% of their land left and less than 0.9 pi r^2 (so one more pass rips them), centroid within 6 r of `dir`.
+   * Scored left / (d + r); the best `max` go into `out` as { dir, rEq (m), frac, L, u, name }. Scanned at 2 Hz.
+   */
+  ripe(dir, r, out, max = 5) {
+    out.length = 0;
+    const lim = 0.9 * Math.PI * (r / 1000) ** 2, reach = Math.min(3, 6 * r / R);
+    for (let L = 1; L <= 3; L++) {
+      const v = this.lv[L], c = v.c;
+      for (let u = 0; u < v.n; u++) {
+        const left = v.left[u], a0 = v.area0[u];
+        if (!(left > 0.25 * a0 && left < 0.65 * a0) || left >= lim || v.torn[u] || a0 < 1) continue;
+        const d = Math.acos(Math.min(1, c[u * 3] * dir.x + c[u * 3 + 1] * dir.y + c[u * 3 + 2] * dir.z));
+        if (d > reach || this.done(L, u)) continue;
+        const sc = left / (d * R + r);
+        let k = out.length; while (k > 0 && out[k - 1].sc < sc) k--;
+        if (k >= max) continue;
+        out.splice(k, 0, { sc, dir: { x: c[u * 3], y: c[u * 3 + 1], z: c[u * 3 + 2] }, rEq: Math.sqrt(a0 / Math.PI) * 1000, frac: left / a0, L, u });
+        if (out.length > max) out.pop();
+      }
+    }
+    for (const o of out) o.name = this.name(o.L, o.u);
+    return out;
+  }
+
   /** Σ left == bite.sum per level (relative error), and the nesting check; for __planetUnits(). */
   check() {
     const out = { sum: this.bite.sum, levels: [] };
