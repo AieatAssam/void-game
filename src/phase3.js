@@ -67,4 +67,20 @@ export const T3 = {
   nukeGulp: 0.03, rodGulp: 0.02, satGulp: 0.01,
   falloutLife: 45, falloutLand: 0.5, grace: 14,
   satEat: 0.7, // a satellite is swallowed when its subpoint passes within this x r of the hole
+  // WP-B (docs/PHASE3-REVIEW.md B0): the director's numbers per kind. cost = budget points, cool = [min, max] s between spawns of the kind.
+  cap: { build: 2, peak: 3, relax: 1 }, // live telegraphs by tension phase; +1 at DEFCON <= 2 (build / peak)
+  refill: [0.6, 0.2], // budget per s = a + b x (5 - DEFCON)
+  coolK: [1, 1, 1, 0.85, 0.7], // cooldown multiplier by tier 1..5 (T1-T2 gentle, T4 extinction-level)
+  kinds: {
+    bomber: { cost: 3, cool: [42, 56] }, nuke: { cost: 6, cool: [48, 68] }, rod: { cost: 5, cool: [55, 75] },
+    mirv: { cost: 10, cool: [90, 120], hit: 0.04, k: 14, cap: 0.15, gulp: 0.02, children: 4 },
+    laser: { cost: 8, cool: [80, 105], rate: 0.02, k: 1.1, sweep: 0.3, dur: 12, jam: 0.8, gulp: 0.02 },
+    fleet: { cost: 3, cool: [60, 85], hit: 0.04, k: 8, eat: 0.015, all: 0.03, salvo: 12 },
+    tsunami: { cost: 0, cool: [60, 80], hit: 0.03, k: 8, rubble: 1.5 },
+    volcano: { cost: 0, cool: [150, 200], hit: 0.03, k: 8, surge: 1.5 },
+    aegis: { hit: 0.12, gulp: 0.08, retry: 90, tries: 3, r: 800e3 },
+    exodus: { cost: 0, cool: [70, 95], eat: 0.003 },
+    cracker: { hit: 0.2, gulp: 0.05, land: 0.9 },
+    rival: { maw: 1.3, eater: 1.4, speed: 0.74, hit: 0.25, eat: 0.6, cap: 0.25, starve: 0.0015, grow: 0.55 },
+  },
 };

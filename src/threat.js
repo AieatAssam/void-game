@@ -9,110 +9,11 @@ import * as THREE from 'three/webgpu';
 import { attribute, vec3, vec4, float, positionLocal, normalView, normalWorld, mx_noise_float, mix, smoothstep, pow, abs, exp, uniform } from 'three/tsl';
 import { R } from './planetgen.js';
 import { P3, TIERS, T3 } from './phase3.js';
-import { spriteCloud } from './fx.js';
 import { sunDir } from './look.js';
+import { smooth, rnd, _Y, v1, v2, v3, v4, v5, v6, qa, C, FIRE, SMOKE0, SMOKE1, ASH, DUST, KMs, tangentAt, sv, aim, vel3, slerp, Ribbon, Pool } from './threat/kit.js';
 
 const qs = new URLSearchParams(location.search);
 const FORCE = qs.has('defcon') ? Math.min(5, Math.max(1, +qs.get('defcon') || 5)) : 0;
-const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
-const rnd = (a, b) => a + Math.random() * (b - a);
-const _Y = new THREE.Vector3(0, 1, 0);
-const v1 = new THREE.Vector3(), v2 = new THREE.Vector3(), v3 = new THREE.Vector3(), v4 = new THREE.Vector3(), v5 = new THREE.Vector3(), v6 = new THREE.Vector3();
-const m4 = new THREE.Matrix4(), qa = new THREE.Quaternion(), qi = new THREE.Quaternion();
-const C = (hex, k = 1) => new THREE.Color(hex).multiplyScalar(k);
-const FIRE = [C(0xfff4d6, 4), C(0xffc060, 3), C(0xff7a24, 2.2), C(0xc8340c, 1.4)], SMOKE0 = C(0x2a2522), SMOKE1 = C(0x7d7266), ASH = C(0x5a534b), DUST = C(0xb9a98f);
-const KMs = (m) => (m >= 1e6 ? `${(m / 1e6).toFixed(1)} Mm` : `${Math.round(m / 1000)} km`);
-
-/** Tangent unit vector at dir d with the given compass bearing (0 = toward +Y's north, clockwise), planet space. */
-function tangentAt(d, bearing, out) {
-  const e = v6.crossVectors(_Y, d); if (e.lengthSq() < 1e-8) e.set(1, 0, 0); e.normalize();
-  const n = out.crossVectors(d, e).normalize(); // (north)
-  return out.copy(n).multiplyScalar(Math.cos(bearing)).addScaledVector(e, Math.sin(bearing)).normalize();
-}
-const sv = new THREE.Vector3(), w1 = new THREE.Vector3(), w2 = new THREE.Vector3(), w3 = new THREE.Vector3(), wm = new THREE.Matrix4();
-/** Orient a model (up = +y, length axis `axis` = +x or +z) so its length points along `fwd` and its up is as close to `up` as that allows. */
-function aim(obj, fwd, up, axis = 'x') {
-  w1.copy(fwd).normalize(); w2.copy(up).addScaledVector(w1, -up.dot(w1)).normalize();
-  if (axis === 'x') { w3.crossVectors(w1, w2); wm.makeBasis(w1, w2, w3); } else { w3.crossVectors(w2, w1); wm.makeBasis(w3, w2, w1); }
-  obj.quaternion.setFromRotationMatrix(wm);
-}
-/** A velocity at planet point `up` (unit): east a, north b, up c (m/s). */
-function vel3(up, a, b, c, out) {
-  const e = w1.crossVectors(_Y, up); if (e.lengthSq() < 1e-8) e.set(1, 0, 0); e.normalize(); const n = w2.crossVectors(up, e);
-  return out.set(0, 0, 0).addScaledVector(e, a).addScaledVector(n, b).addScaledVector(up, c);
-}
-/** Great-circle interpolation of unit vectors. */
-function slerp(a, b, t, out) {
-  const om = Math.acos(Math.min(1, Math.max(-1, a.dot(b)))), so = Math.sin(om);
-  if (so < 1e-6) return out.copy(a);
-  return out.set(0, 0, 0).addScaledVector(a, Math.sin((1 - t) * om) / so).addScaledVector(b, Math.sin(t * om) / so);
-}
-
-// ---------------------------------------------------------------- camera-facing ribbons (the arc, the contrail, the beam, the rod, the orbit)
-const ribMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
-ribMat.colorNode = vec4(attribute('aCol', 'vec4').xyz, attribute('aCol', 'vec4').w.mul(pow(float(1).sub(abs(attribute('aSide', 'float'))), 0.9)));
-class Ribbon {
-  constructor(n, root) {
-    this.n = n; this.cnt = 0;
-    const g = this.geo = new THREE.BufferGeometry();
-    this.pos = new Float32Array(n * 6); this.col = new Float32Array(n * 8); this.pts = Array.from({ length: n }, () => new THREE.Vector3()); this.w = new Float32Array(n);
-    const side = new Float32Array(n * 2), idx = [];
-    for (let i = 0; i < n; i++) { side[2 * i] = -1; side[2 * i + 1] = 1; if (i) idx.push(2 * i - 2, 2 * i - 1, 2 * i, 2 * i, 2 * i - 1, 2 * i + 1); }
-    g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
-    g.setAttribute('aCol', new THREE.BufferAttribute(this.col, 4).setUsage(THREE.DynamicDrawUsage));
-    g.setAttribute('aSide', new THREE.BufferAttribute(side, 1)); g.setIndex(idx);
-    g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e9);
-    this.mesh = new THREE.Mesh(g, ribMat); this.mesh.frustumCulled = false; this.mesh.renderOrder = 9; this.mesh.visible = false;
-    root.add(this.mesh);
-  }
-  /** Point i: planet-space position (copied), half width (m), rgba. */
-  set(i, p, w, r, g, b, a) { this.pts[i].copy(p); this.w[i] = w; this.col.set([r, g, b, a, r, g, b, a], i * 8); }
-  /** Finish: `cnt` points are drawn; sides are perpendicular to the tangent and the view ray. */
-  done(cnt, camP) {
-    this.cnt = cnt; this.mesh.visible = cnt > 1;
-    if (cnt < 2) return;
-    for (let i = 0; i < cnt; i++) {
-      const a = this.pts[Math.max(0, i - 1)], b = this.pts[Math.min(cnt - 1, i + 1)], p = this.pts[i];
-      v1.subVectors(b, a); v2.subVectors(p, camP); v1.cross(v2).normalize().multiplyScalar(this.w[i]);
-      this.pos[i * 6] = p.x - v1.x; this.pos[i * 6 + 1] = p.y - v1.y; this.pos[i * 6 + 2] = p.z - v1.z; this.pos[i * 6 + 3] = p.x + v1.x; this.pos[i * 6 + 4] = p.y + v1.y; this.pos[i * 6 + 5] = p.z + v1.z;
-    }
-    this.geo.setDrawRange(0, (cnt - 1) * 6);
-    this.geo.attributes.position.needsUpdate = true; this.geo.attributes.aCol.needsUpdate = true;
-  }
-  hide() { this.mesh.visible = false; this.cnt = 0; }
-}
-
-// ---------------------------------------------------------------- planet-anchored sprite pools (additive glows, normal-blend smoke)
-class Pool {
-  constructor(n, additive) {
-    this.n = n; this.add = additive; this.cloud = spriteCloud(n, { additive, world: true }); this.sprite = this.cloud.sprite; this.sprite.renderOrder = additive ? 11 : 10;
-    this.P = new Float32Array(n * 3); this.V = new Float32Array(n * 3); this.age = new Float32Array(n).fill(9); this.life = new Float32Array(n).fill(1);
-    this.s0 = new Float32Array(n); this.s1 = new Float32Array(n); this.a0 = new Float32Array(n); this.C = new Float32Array(n * 3); this.drag = new Float32Array(n); this.next = 0;
-    this.cloud.alpha.array.fill(0); this.cloud.size.array.fill(0);
-  }
-  /** pos = planet-space metres, vel = planet-space m/s. */
-  spawn(p, vel, s0, s1, life, color, alpha, drag = 0.6) {
-    const i = this.next; this.next = (i + 1) % this.n;
-    const lift = 0.42 * Math.max(s0, s1) / (p.length() || 1); // (a sprite is a flat quad: its lower half would sink into the ground and be cut by the depth test, so it sits on it)
-    this.P[i * 3] = p.x * (1 + lift); this.P[i * 3 + 1] = p.y * (1 + lift); this.P[i * 3 + 2] = p.z * (1 + lift); if (vel) { this.V[i * 3] = vel.x; this.V[i * 3 + 1] = vel.y; this.V[i * 3 + 2] = vel.z; } else this.V.fill(0, i * 3, i * 3 + 3);
-    this.s0[i] = s0; this.s1[i] = s1; this.life[i] = life; this.age[i] = 0; this.a0[i] = alpha; this.drag[i] = drag; this.C[i * 3] = color.r; this.C[i * 3 + 1] = color.g; this.C[i * 3 + 2] = color.b;
-  }
-  step(dt) { for (let i = 0; i < this.n; i++) if (this.age[i] < this.life[i]) { this.age[i] += dt; const k = Math.max(0, 1 - this.drag[i] * dt), j = i * 3; this.V[j] *= k; this.V[j + 1] *= k; this.V[j + 2] *= k; this.P[j] += this.V[j] * dt; this.P[j + 1] += this.V[j + 1] * dt; this.P[j + 2] += this.V[j + 2] * dt; } }
-  /** Write render-space positions, sizes and alphas (after the world's frame is placed): q = planet -> render rotation, off = the group's position. */
-  flush(q, off) {
-    const c = this.cloud, pos = c.pos.array, size = c.size.array, al = c.alpha.array, col = c.col.array;
-    for (let i = 0; i < this.n; i++) {
-      const t = this.age[i] / this.life[i];
-      if (t >= 1) { size[i] = 0; al[i] = 0; if (this.add) col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = 0; continue; }
-      v1.set(this.P[i * 3], this.P[i * 3 + 1], this.P[i * 3 + 2]).applyQuaternion(q).add(off);
-      pos[i * 3] = v1.x; pos[i * 3 + 1] = v1.y; pos[i * 3 + 2] = v1.z;
-      size[i] = this.s0[i] + (this.s1[i] - this.s0[i]) * Math.sqrt(t);
-      if (this.add) { const f = this.a0[i] * (1 - t) * (1 - t); col[i * 3] = this.C[i * 3] * f; col[i * 3 + 1] = this.C[i * 3 + 1] * f; col[i * 3 + 2] = this.C[i * 3 + 2] * f; }
-      else { al[i] = this.a0[i] * Math.min(1, t * 12) * (1 - t * t); col[i * 3] = this.C[i * 3]; col[i * 3 + 1] = this.C[i * 3 + 1]; col[i * 3 + 2] = this.C[i * 3 + 2]; }
-    }
-    c.pos.needsUpdate = c.size.needsUpdate = c.alpha.needsUpdate = c.col.needsUpdate = true;
-  }
-}
 
 /** The mushroom cloud's own material: opaque, sun-lit like the rest of the toy world (flat facets, dirty by noise), a hot core burning in the stem and under the cap; it dissolves (alpha test) as uA falls. */
 function mushroomMaterial() {
@@ -138,14 +39,21 @@ export const sealedCss = `#sealed{position:fixed;inset:0;z-index:50;display:flex
 @keyframes thr{to{transform:translateX(-50%) scale(1.04)}}
 #fxflash{position:fixed;inset:0;z-index:5;pointer-events:none;opacity:0;background:#fff}`;
 
+export const NZ = 16; // threat zone slots (planetglobe uZone 0..15; 16..19 are the ripe rings)
+const NS = 12; // scar slots (planetglobe uScar)
+const STATS0 = { nukes: 0, swallowed: 0, hits: 0, near: 0, rods: 0, rodGulps: 0, sats: 0, strafes: 0, strafeHits: 0, mercy: 0, loss: 0, sites: 0, sealWarn: 0, surge: 0, locks: 0, unfair: 0,
+  mirvs: 0, mirvGulps: 0, lasers: 0, laserHits: 0, laserEaten: 0, fleets: 0, fleetGulps: 0, fleetSunk: 0, salvos: 0, tsunamis: 0, volcanoes: 0, magma: 0, aegis: 0, aegisBroke: 0, aegisHits: 0, rockets: 0, rocketGulps: 0,
+  cracker: 0, fizzles: 0, crackerHits: 0, rivals: 0, rivalEaten: 0, rivalHits: 0, rivalKm2: 0, seen: 0 };
+
 export class Threat {
   constructor(game, ctx) {
     this.game = game; this.ctx = ctx; this.W = game.world; this.hole = ctx.hole; this.state = ctx.state; this.sfx = ctx.sfx;
-    this.uid = 0; this.t = 0; this.budget = 3; this.noto = 0; this.quiet = 0; this.defcon = 5; this.base = 5; this.cool = { bomber: 6, nuke: 12, rod: 10 }; this.last = '';
-    this.hits = []; this.tAdd = 0; this.slots = { z: 0, s: 0 }; this.eventsHold = false; this.disabled = qs.has('noarmy') || qs.has('nothreat'); this.sealOn = !this.disabled;
-    this.stats = { nukes: 0, swallowed: 0, hits: 0, near: 0, rods: 0, rodGulps: 0, sats: 0, strafes: 0, strafeHits: 0, mercy: 0, loss: 0, sites: 0, sealWarn: 0, surge: 0, locks: 0 };
-    this.sites = []; this.nukes = []; this.lances = []; this.strafes = []; this.fall = []; this.seal = null; this.siteT = 4;
-    this.zoneUsed = new Array(8).fill(false); this.lineT = 0; this.ready = false;
+    this.uid = 0; this.t = 0; this.budget = 3; this.noto = 0; this.quiet = 0; this.defcon = 5; this.base = 5; this.cool = {}; this.last = '';
+    this.hT = new Float32Array(24).fill(-99); this.hF = new Float32Array(24); this.hN = 0; this.cont = {}; // (the mercy window: a preallocated ring of [time, fraction])
+    this.tAdd = 0; this.slots = { z: 0, s: 0 }; this.eventsHold = false; this.disabled = qs.has('noarmy') || qs.has('nothreat'); this.sealOn = !this.disabled;
+    this.stats = { ...STATS0 };
+    this.K = []; this.byName = {}; this.cand = []; this.sites = []; this.nukes = []; this.lances = []; this.strafes = []; this.fall = []; this.seal = null; this.siteT = 4;
+    this.zoneUsed = new Array(NZ).fill(false); this.lineT = 0; this.ready = false;
     this.camP = new THREE.Vector3(); this.off = new THREE.Vector3(); this.qiw = new THREE.Quaternion();
     if (!document.getElementById('threat-css')) document.head.append(Object.assign(document.createElement('style'), { id: 'threat-css', textContent: sealedCss }));
     this.lineEl = Object.assign(document.createElement('div'), { id: 'threat', hidden: true }); document.body.append(this.lineEl);
@@ -157,7 +65,7 @@ export class Threat {
   async init() {
     const { ctx, W } = this, assets = ctx.assets;
     this.root = new THREE.Group(); this.root.name = 'threats'; W.globe.group.add(this.root);
-    this.glow = new Pool(110, true); this.smoke = new Pool(760, false);
+    this.glow = new Pool(260, true); this.smoke = new Pool(1200, false);
     ctx.scene.add(this.glow.sprite, this.smoke.sprite);
     this.glow.sprite.visible = this.smoke.sprite.visible = !!this.game.entered; // (prepared under Phase 2: the pools stay hidden until the swap, show())
     const model = (name) => { const o = assets[name].scene.clone(true); o.traverse((m) => { if (m.isMesh) { m.castShadow = m.receiveShadow = false; m.frustumCulled = false; } }); o.visible = false; this.root.add(o); return o; };
@@ -171,6 +79,7 @@ export class Threat {
     this.siteMesh = Array.from({ length: 4 }, () => ({ on: false, parts: Array.from({ length: 5 }, () => model('missile_silo')) }));
     const lg = new THREE.CylinderGeometry(1, 1, 0.1, 6), lm = new THREE.MeshStandardNodeMaterial({ color: 0x2b2733, roughness: 0.45, metalness: 0.8, emissive: 0x4a0a08, emissiveIntensity: 1.2 });
     this.lid = new THREE.Mesh(lg, lm); this.lid.visible = false; this.lid.frustumCulled = false; this.root.add(this.lid);
+    this.registerCore();
     window.__threat = this.api();
     for (const o of [this.glow.sprite, this.smoke.sprite]) o.frustumCulled = false;
     try { await ctx.post.precompile(this.root, 6000, this.game.around); await ctx.post.precompile({ traverse: (f) => { f(this.glow.sprite); f(this.smoke.sprite); } }, 3000, this.game.around); } catch (e) { console.warn('threat precompile', e); }
@@ -202,30 +111,49 @@ export class Threat {
   /** Lock time (s) so a ring of `need` extra metres... in radii: the hole must be able to leave `needR` r in lock - turn seconds at 0.9 v. */
   lockFor(needR, floor = 2.0) { const r = this.hole.r, v = P3.speed(r) / r; return Math.min(4.6, Math.max(floor, P3.turn(r) + needR / (0.9 * v))); }
   notice(a) { if (a >= 1) this.quiet = 0; this.noto = Math.min(100, this.noto + a * (this.state.mods?.noto ?? 1)); }
-  zoneAlloc() { for (let i = 0; i < 8; i++) if (!this.zoneUsed[i]) { this.zoneUsed[i] = true; return i; } return -1; }
+  zoneAlloc() { for (let i = 0; i < NZ; i++) if (!this.zoneUsed[i]) { this.zoneUsed[i] = true; return i; } return -1; }
+  zonesFree() { let n = 0; for (let i = 0; i < NZ; i++) if (!this.zoneUsed[i]) n++; return n; }
   zoneFree(i) { if (i >= 0) { this.zoneUsed[i] = false; this.W.globe.u.uZoneP[i].value.y = 0; } }
   zoneSet(i, d, outer, inner, alpha, lock, kind) { if (i < 0) return; const u = this.W.globe.u; u.uZone[i].value.set(d.x, d.y, d.z, outer / R); u.uZoneP[i].value.set(inner / R, alpha, lock, kind); }
-  scar(d, reach, speed, life, kind) { const u = this.W.globe.u, i = this.slots.s = (this.slots.s + 1) % 8; u.uScar[i].value.set(d.x, d.y, d.z, reach / R); u.uScarP[i].value.set(u.uTime.value, life, speed / R, kind); }
+  scar(d, reach, speed, life, kind) { const u = this.W.globe.u, i = this.slots.s = (this.slots.s + 1) % NS; u.uScar[i].value.set(d.x, d.y, d.z, reach / R); u.uScarP[i].value.set(u.uTime.value, life, speed / R, kind); }
   screenFlash(a, color = '#fff', ms = 260) { if (a > this.flashA) { this.flashA = a; this.flashC = color; this.flashDur = ms / 1000; this.flashT = 0; } }
   /** Trauma, budgeted: at most 0.6 added per 1.5 s (§5.3). */
   trauma(k) { const room = Math.max(0, 0.6 - this.tAdd), add = Math.min(k, room); this.tAdd += add; this.state.shake = Math.min(1, this.state.shake + add); }
   news(t) { this.ctx.news.say(t); }
+  /** A tracked hitstop / slow-mo beat (budget: the max of what is asked; slowT ticks in scaled time). */
+  beat(hitstop, slow = 1, secs = 0) { const st = this.state; st.hitstop = Math.max(st.hitstop || 0, hitstop); if (slow < 1) { st.slowmo = slow; st.slowT = secs * slow + 0.3; } }
 
-  /** A damaging hit: capped at 25% of the area, and at 25% in any 30 s (past it a hit is a near miss). Returns the fraction taken. */
-  hurt(frac, why, key, k = 0, cap = 0.25) {
+  // the mercy window (§5.1): <= 25% of the area in any 30 s, kept in a preallocated ring of [time, fraction]
+  mercySum() { let s = 0; for (let i = 0; i < 24; i++) if (this.t - this.hT[i] < 30) s += this.hF[i]; return s; }
+  mercyPush(f) { const i = this.hN = (this.hN + 1) % 24; this.hT[i] = this.t; this.hF[i] = f; }
+  /** The audit: every damaging event says how long its telegraph was visible and fixed; under 1.5 s (or not drawn at all) counts as unfair (stats.unfair, a column in the sweep). */
+  fair(age, what = '') { if (!(age >= 1.45)) { this.stats.unfair++; (this.unfairLog ??= []).length < 12 && this.unfairLog.push(`${what}@${this.t.toFixed(0)}s ${Number.isFinite(age) ? age.toFixed(2) : 'undrawn'}`); } }
+  /** A bonus (area x (1 + frac)): one place, so the sweep's "bonus" column sees every kind. */
+  gain(frac, key) { const { hole, state } = this, a0 = hole.area; hole.area *= 1 + frac * (state.mods?.gulp ?? 1); const d = hole.area - a0, L = state.ledger; L[key] = (L[key] || 0) + d; L.bonus = (L.bonus || 0) + d; return d; }
+
+  /** A damaging hit: capped at 25% of the area, and at 25% in any 30 s (past it a hit is a near miss). Returns the fraction taken. fairAge: seconds the telegraph was visible and fixed. */
+  hurt(frac, why, key, k = 0, cap = 0.25, fairAge = 9) {
     const { hole, state } = this;
     if (k) frac = Math.max(frac, Math.min(cap, k * (state.gRate || 0) / hole.area)); // (seconds of income: A9)
     frac = Math.min(frac, cap) * (state.mods?.hurt ?? 1);
-    this.hits = this.hits.filter((h) => this.t - h.t < 30);
-    const sum = this.hits.reduce((a, h) => a + h.f, 0);
-    if (sum + frac > 0.25 + 1e-9) { this.stats.mercy++; this.stats.near++; this.trauma(0.25); this.ctx.hint('Near miss — the world blinks'); return 0; }
-    this.hits.push({ t: this.t, f: frac });
+    if (this.mercySum() + frac > 0.25 + 1e-9) { this.stats.mercy++; this.stats.near++; this.trauma(0.25); this.ctx.hint('Near miss — the world blinks'); return 0; }
+    this.mercyPush(frac); this.fair(fairAge, key);
     const a0 = hole.area; hole.area *= 1 - frac;
-    const L = state.ledger; L[key] = (L[key] || 0) + (hole.area - a0); this.stats.loss += frac; this.stats.hits++;
+    const L = state.ledger; L[key] = (L[key] || 0) + (hole.area - a0); L.dmg = (L.dmg || 0) + (hole.area - a0); this.stats.loss += frac; this.stats.hits++;
     this.trauma(0.5);
     this.ctx.flash(why);
     this.sfx.hurt();
     return frac;
+  }
+  /** Damage over time (a beam): `rate` is the fraction per second at least, `k` seconds of income per second; applied every frame, booked into the mercy window every 0.4 s. */
+  hurtCont(rate, dt, why, key, k = 0, fairAge = 9) {
+    const { hole, state } = this, c = this.cont[key] ??= { acc: 0, t: -9, hint: -9 };
+    let f = Math.max(rate, k ? k * (state.gRate || 0) / hole.area : 0) * dt * (state.mods?.hurt ?? 1);
+    if (this.mercySum() + c.acc + f > 0.25 + 1e-9) { if (this.t - c.hint > 2) { c.hint = this.t; this.stats.mercy++; this.stats.near++; this.ctx.hint('Near miss — the world blinks'); } return 0; }
+    const a0 = hole.area; hole.area *= 1 - f; c.acc += f; const L = state.ledger; L[key] = (L[key] || 0) + (hole.area - a0); L.dmg = (L.dmg || 0) + (hole.area - a0); this.stats.loss += f;
+    if (this.t - c.t > 0.4) { this.mercyPush(c.acc); c.acc = 0; c.t = this.t; this.fair(fairAge, key); }
+    if (this.t - (c.fx ?? -9) > 0.9) { c.fx = this.t; this.trauma(0.12); this.sfx.hurt(); this.ctx.flash(why); this.stats.hits++; }
+    return f;
   }
 
   // ---------------------------------------------------------------- the director
@@ -235,17 +163,20 @@ export class Threat {
     this.t += dt; this.tAdd = Math.max(0, this.tAdd - dt * 0.4);
     if (this.t > 1e-3 && !this.disabled) this.direct(dt);
     this.updateSites(dt);
-    for (const n of this.nukes) if (n.on) this.nukeStep(n, dt);
-    for (const l of this.lances) if (l.on) this.lanceStep(l, dt);
-    for (const s of this.strafes) if (s.on) this.strafeStep(s, dt);
+    for (const k of this.K) for (const x of k.items) if (x.on) k.step(x, dt);
+    this.rivals?.update(dt);
     this.updateFallout(dt);
     this.glow.step(dt); this.smoke.step(dt);
     this.sealWatch(dt);
-    state.frenzy = Math.max(0, (state.frenzy || 0) - dt); state.slow = Math.max(0, (state.slow || 0) - dt);
+    state.frenzy = Math.max(0, (state.frenzy || 0) - dt); state.slow = Math.max(0, (state.slow || 0) - dt); state.magma = Math.max(0, (state.magma || 0) - dt);
     this.updateLine(dt);
     if (this.flashA > 0) { this.flashT += dt; const k = Math.max(0, 1 - this.flashT / this.flashDur); this.flashEl.style.background = this.flashC; this.flashEl.style.opacity = (this.flashA * k * k).toFixed(3); if (k <= 0) this.flashA = 0; }
     this.ms = (this.ms ?? 0) * 0.95 + (performance.now() - t0) * 0.05;
   }
+
+  /** Register an attack kind: { name, cost, cool [min, max], items (pooled objects with .on), window(r, dc), can?(), set?, spawn(o), step(x, dt), finish(x), live(x), danger(x, out), line(x, pick), age(x), clear?() }. */
+  register(k) { k.items ??= []; k.live ??= () => true; k.finish ??= (x) => { x.on = false; }; this.K.push(k); this.byName[k.name] = k; this.cool[k.name] = k.cool0 ?? 8; return k; }
+  liveCount() { let n = 0; for (const k of this.K) { if (k.passive) continue; for (const x of k.items) if (x.on && k.live(x)) n++; } return n; }
 
   direct(dt) {
     const { hole, state } = this, r = hole.r;
@@ -264,8 +195,8 @@ export class Threat {
     const surge = hole.r < 0.85 * fl0 || (state.surge && hole.r < fl0);
     if (surge && !state.surge) { state.surge = true; this.stats.surge++; this.ctx.card('Hunger Surge', 'land in view grows you ×1.5'); this.news('The void is starving: hunger surge — every bite counts for more'); }
     if (state.surge && hole.r >= fl0) state.surge = false;
-    const mul = surge || this.seal ? 0 : phase === 'build' ? 1 : phase === 'peak' ? 2 : 0, cap = surge || this.seal ? 0 : phase === 'build' ? 2 : phase === 'peak' ? 3 : 1;
-    this.budget = Math.min(14, this.budget + (0.6 + 0.2 * (5 - dc)) * mul * dt);
+    const tier = P3.tier(r), calm = surge || this.seal, mul = calm ? 0 : phase === 'build' ? 1 : phase === 'peak' ? 2 : 0, hard = dc <= 2 ? 1 : 0, cap = calm ? 0 : T3.cap[phase] + (phase === 'relax' ? 0 : hard);
+    this.budget = Math.min(14, this.budget + (T3.refill[0] + T3.refill[1] * (5 - dc)) * mul * dt);
     for (const k in this.cool) this.cool[k] -= dt;
     const grace = FORCE ? 3 : T3.grace;
     if (this.t < grace || this.eventsHold || !state.playing) return;
@@ -274,22 +205,55 @@ export class Threat {
       if (this.spawnNuke({ at: 'hole', first: true })) { this.firstNuke = true; this.ctx.hint('ICBM launched — dive into the inner circle to swallow it'); }
       return;
     }
-    const live = this.nukes.filter((n) => n.on && n.phase === 'fly').length + this.lances.filter((l) => l.on && l.phase !== 'gone' && !l.past).length + this.strafes.filter((s) => s.on).length;
+    this.rivals?.direct(dt, tier);
+    const live = this.liveCount(), cand = this.cand; cand.length = 0;
+    for (const k of this.K) { // set pieces (the Aegis, the cracker) go first and alone; everything else competes for the budget
+      if (!k.set || k.passive || this.cool[k.name] > 0 || !k.window(r, dc, this) || (k.can && !k.can())) continue;
+      if (live === 0 && phase !== 'relax' && !calm && this.spawn(k.name)) return;
+    }
     if (live >= cap) return;
-    const tryK = [];
-    if (r < 450e3 && this.cool.bomber <= 0 && this.budget >= 3) tryK.push('bomber');
-    if (r < 1200e3 && dc <= 3 && this.cool.nuke <= 0 && this.budget >= 6 && this.sites.length) tryK.push('nuke');
-    if (dc <= 2 && r >= 150e3 && this.cool.rod <= 0 && this.budget >= 5) tryK.push('rod');
-    if (!tryK.length) return;
-    const k = tryK.length > 1 && tryK.includes(this.last) ? tryK.filter((x) => x !== this.last)[0] : tryK[Math.floor(Math.random() * tryK.length)];
-    if (this.spawn(k)) { this.last = k; }
+    for (const k of this.K) if (!k.set && !k.passive && this.cool[k.name] <= 0 && this.budget >= k.cost && k.window(r, dc, this) && (!k.can || k.can())) cand.push(k);
+    if (!cand.length) return;
+    let k = cand[Math.floor(Math.random() * cand.length)];
+    if (cand.length > 1 && k.name === this.last) k = cand[(cand.indexOf(k) + 1) % cand.length];
+    this.spawn(k.name);
   }
 
   spawn(kind, opts = {}) {
-    let ok = false;
-    if (kind === 'bomber') ok = this.spawnStrafe(opts); else if (kind === 'nuke') ok = this.spawnNuke(opts); else if (kind === 'rod') ok = this.spawnLance(opts);
-    if (ok && !opts.force) { this.budget -= { bomber: 3, nuke: 6, rod: 5 }[kind]; this.cool[kind] = { bomber: 42 + rnd(0, 14), nuke: 48 + rnd(0, 20), rod: 55 + rnd(0, 20) }[kind]; }
+    const k = this.byName[kind]; if (!k) return false;
+    const ok = k.spawn(opts);
+    if (ok && !opts.force) { this.budget -= k.cost; this.cool[kind] = rnd(k.cool[0], k.cool[1]) * (T3.coolK[P3.tier(this.hole.r) - 1] ?? 1); this.last = kind; }
+    if (ok) this.noteSeen();
     return ok;
+  }
+  noteSeen() { const S = this.stats; S.seen = (S.strafes > 0) + (S.nukes > 0) + (S.rods > 0) + (S.mirvs > 0) + (S.lasers > 0) + (S.fleets > 0) + (S.tsunamis > 0) + (S.volcanoes > 0) + (S.aegis > 0) + (S.rockets > 0) + (S.cracker > 0) + (S.rivals > 0); }
+
+  /** The three Phase 3 kinds as table entries (their logic is below); the WP-B kinds are src/threat/*.js. */
+  registerCore() {
+    const T = T3.kinds, th = this;
+    this.register({ name: 'bomber', cost: T.bomber.cost, cool: T.bomber.cool, cool0: 6, items: this.strafes, window: (r) => r < 450e3, spawn: (o) => th.spawnStrafe(o), step: (x, dt) => th.strafeStep(x, dt), finish: (x) => th.finishStrafe(x),
+      age: (x) => x.age - x.tel,
+      danger: (x, out) => { if (x.age < x.tel + x.run) {
+        const hd = th.W.hdir, across = Math.asin(Math.max(-1, Math.min(1, hd.dot(x.n)))) * R; th.W.normalAt(x.n, v3); const ln = Math.hypot(v3.x, v3.z) || 1;
+        out.push({ kind: 'line', id: `s${x.i}`, across, nx: v3.x / ln, nz: v3.z / ln, hw: x.hw, eta: Math.max(0, x.tel - x.age), end: x.tel + x.run - x.age, locked: true, lock: x.tel }); } },
+      line: (x, pick) => { if (x.age < x.tel + x.run) pick(Math.max(0, x.tel - x.age), `AIR STRIKE · line ${KMs(2 * x.hw)} wide · <b>${Math.max(0, x.tel - x.age).toFixed(1)} s</b>`, x.age > x.tel * 0.5 ? 'lock' : ''); } });
+    this.register({ name: 'nuke', cost: T.nuke.cost, cool: T.nuke.cool, cool0: 12, items: this.nukes, window: (r, dc) => r < 1200e3 && dc <= 3, can: () => th.sites.length > 0, spawn: (o) => th.spawnNuke(o), step: (x, dt) => th.nukeStep(x, dt), finish: (x) => th.finish(x),
+      live: (x) => x.phase === 'fly' && !x.child, age: (x) => (x.phase === 'fly' ? x.age - x.T : x.age - x.boomT),
+      danger: (x, out) => { if (x.phase === 'fly') { th.offsetOf(x.to, th._o ??= {}); out.push({ kind: 'nuke', id: `n${x.uid}`, x: th._o.x, z: th._o.z, R: x.B, inner: x.inner, eta: x.T - x.age, locked: x.locked, lock: x.lock }); } },
+      line: (x, pick) => { if (x.phase === 'fly') pick(x.T - x.age, `${x.child ? 'MIRV' : 'ICBM'} · <b>${KMs(x.B)}</b> blast · impact <b>${Math.max(0, x.T - x.age).toFixed(1)} s</b>${x.locked ? ' · LOCKED' : ''}`, x.locked ? 'lock' : ''); } });
+    this.register({ name: 'rod', cost: T.rod.cost, cool: T.rod.cool, cool0: 10, items: this.lances, window: (r, dc) => r >= 150e3 && dc <= 2, spawn: (o) => th.spawnLance(o), step: (x, dt) => th.lanceStep(x, dt), finish: (x) => th.finishLance(x),
+      live: (x) => x.phase !== 'gone' && !x.past, age: (x) => x.age - x.Tfire,
+      danger: (x, out) => {
+        const o = th._o ??= {};
+        if (x.phase === 'orbit' && x.Tfire - x.age < x.lock + 1.3) { th.offsetOf(x.to, o); out.push({ kind: 'rod', id: `l${x.uid}`, x: o.x, z: o.z, R: x.B, inner: x.inner, eta: x.Tfire - x.age, locked: x.locked, lock: x.lock }); }
+        if (x.phase === 'orbit' && !x.eaten && th.hole.r >= 420e3 && x.gd < 8 * th.hole.r) { // a catchable satellite: its subpoint now and its ground velocity (m/s)
+          const tt = x.th0 + x.om * x.age; th.offsetOf(v3.copy(x.pos).normalize(), o); const px = o.x, pz = o.z;
+          th.satAt(x, tt + x.om, v4); th.offsetOf(v4.normalize(), o);
+          out.push({ kind: 'sat', id: `t${x.uid}`, x: px, z: pz, vx: o.x - px, vz: o.z - pz, R: T3.satEat * th.hole.r, eta: x.Tfire - x.age, locked: false });
+        } },
+      line: (x, pick) => {
+        if (x.phase === 'orbit' && x.Tfire - x.age < x.lock + 1.3) pick(x.Tfire - x.age, `ORBITAL LANCE · <b>${KMs(x.B)}</b> impact · <b>${Math.max(0, x.Tfire - x.age).toFixed(1)} s</b>${x.locked ? ' · LOCKED' : ''}`, x.locked ? 'lock' : '');
+        if (x.phase === 'orbit' && !x.eaten && th.hole.r >= 420e3 && x.gd < 4 * th.hole.r) pick(x.Tfire - x.age + 3, 'SATELLITE OVERHEAD · swallow it for a bonus', 'good'); } });
   }
 
   // ---------------------------------------------------------------- silo fields (edible launch sites)
@@ -334,7 +298,7 @@ export class Threat {
     const { hole, state } = this, r = hole.r; this.dropSite(s);
     this.surf(s.dir, 0, v1, s.elev); this.glow.spawn(v1, null, 2 * r, 3 * r, 0.5, FIRE[1], 1.2, 0);
     for (let i = 0; i < 6; i++) { v2.copy(s.dir); this.smoke.spawn(v1, vel3(v2, rnd(-1, 1) * 0.3 * r, rnd(-1, 1) * 0.3 * r, rnd(0.2, 0.8) * r, sv), 0.5 * r, 1.2 * r, 3, SMOKE1, 0.6, 0.8); }
-    hole.area *= 1.01; state.belly = Math.min(1, state.belly + 0.05); this.sfx.tink?.();
+    this.gain(0.01, 'site'); state.belly = Math.min(1, state.belly + 0.05); this.sfx.tink?.();
     this.news('Silo field swallowed: its missiles never fly'); this.ctx.hint('Silo field swallowed');
   }
 
@@ -349,7 +313,7 @@ export class Threat {
     
     n.from.copy(site.dir); n.to.copy(W.hdir);
     n.chord = W.distTo(site.dir); n.apex = Math.min(1.5e6, 0.18 * n.chord + 0.5 * r);
-    n.zone = this.zoneAlloc();
+    n.zone = this.zoneAlloc(); n.hadZone = n.zone >= 0;
     n.mk = this.map?.addMarker({ kind: 'nuke', from: n.from, dir: n.to, dur: n.T, eta: n.T, r: n.B, label: 'ICBM', color: '#ff5d5d' });
     this.stats.nukes++;
     this.sfx.nukeLaunch(Math.max(0.2, 1 - W.distTo(site.dir) / (40 * r)));
@@ -376,7 +340,7 @@ export class Threat {
         n.ox += (wx - n.ox) * k; n.oz += (wz - n.oz) * k;
         W.dirAt(n.ox, n.oz, n.to);
         n.elevT = Math.max(0, W.P.elevation(n.to, 3));
-      } else if (!n.locked) { n.locked = true; this.stats.locks++; this.sfx.lockBeep(); this.ctx.hint(`LOCKED — ${KMs(n.B)} blast: leave the ring, or dive into the inner circle`); }
+      } else if (!n.locked) { n.locked = true; n.lockAt = this.t; this.stats.locks++; this.sfx.lockBeep(); this.ctx.hint(`LOCKED — ${KMs(n.B)} blast: leave the ring, or dive into the inner circle`); }
       const lockP = n.locked ? Math.min(1, (n.lock - eta) / n.lock) + 0.001 : 0;
       this.zoneSet(n.zone, n.to, n.B, n.inner, Math.min(1, n.age * 1.5) * (n.locked ? 1 : 0.8), lockP, 0);
       if (n.mk) { n.mk.eta = eta; n.mk.r = n.B; }
@@ -461,7 +425,7 @@ export class Threat {
     this.sfx.nukeBoom(Math.min(1, 0.5 + 0.5 * near), delay);
     this.screenFlash(0.18 + 0.5 * near, '#fff4dc', 320);
     this.trauma(0.2 + 0.4 * near);
-    if (n.out === 'hit') { this.hurt(T3.nukeHit, 'Nuclear airburst!', 'nuke', n.first ? 0 : T3.nukeK, n.first ? T3.firstHit : 0.25); this.notice(6); this.news('An ICBM detonates over the void: the blast rim scorches it'); }
+    if (n.out === 'hit') { this.hurt(T3.nukeHit, 'Nuclear airburst!', n.mirv ? 'mirv' : 'nuke', n.first ? 0 : n.child ? T3.kinds.mirv.k : T3.nukeK, n.first ? T3.firstHit : 0.25, n.hadZone && n.locked ? this.t - n.lockAt : -1); this.notice(6); this.news('An ICBM detonates over the void: the blast rim scorches it'); }
     else this.news('An ICBM detonates harmlessly — you slipped the ring');
   }
   /** THE moment: the warhead drops into the well, the mushroom inverts and is sucked down; a lilac ring, a choir, Frenzy. */
@@ -475,7 +439,7 @@ export class Threat {
     for (let i = 0; i < 18; i++) { const a = (i / 18) * 6.283; v2.copy(v1).addScaledVector(tangentAt(W.hdir, a, v3), 1.1 * r); this.glow.spawn(v2, null, 0.3 * r, 0.08 * r, 0.7, C(0xc9a8ff, 2.4), 1.0, 1.5); }
     this.sfx.reverseGulp(); this.screenFlash(0.7, '#e8dcff', 420);
     state.hitstop = Math.max(state.hitstop || 0, 0.15); state.slowmo = 0.5; state.slowT = 0.6 * 0.5 + 0.3; this.trauma(0.5);
-    const a0 = hole.area; hole.area *= 1 + T3.nukeGulp * (state.mods?.gulp ?? 1); state.belly = Math.min(1, state.belly + 0.25); state.ledger.nukeGulp = (state.ledger.nukeGulp || 0) + (hole.area - a0);
+    this.gain(n.child ? T3.kinds.mirv.gulp : T3.nukeGulp, n.child ? 'mirvGulp' : 'nukeGulp'); state.belly = Math.min(1, state.belly + 0.25);
     state.frenzy = 6; this.notice(10);
     this.ctx.card('NUKE SWALLOWED', 'the void eats the bomb: Frenzy'); this.news('The void swallowed an ICBM whole'); this.ctx.hint('FRENZY — speed up, bite deeper');
     n.pulled = true;
@@ -508,7 +472,7 @@ export class Threat {
     // the ground track runs 1.5-2.5 r to the side of the hole (A8): swallowing the satellite is a detour, not a free ride; the designator still aims at the hole
     const br = rnd(-0.9, 0.9), ox = l.side * rnd(1.5, 2.5) * r; W.dirAt(ox, 0, l.a); W.dirAt(ox + Math.sin(br) * 2e4, -Math.cos(br) * 2e4, v1); v1.addScaledVector(l.a, -v1.dot(l.a)).normalize();
     l.b.copy(v1).negate(); l.n.crossVectors(l.a, l.b).normalize(); l.to.copy(W.hdir); l.gd = 9;
-    l.zone = this.zoneAlloc();
+    l.zone = this.zoneAlloc(); l.hadZone = l.zone >= 0;
     l.mk = this.map?.addMarker({ kind: 'sat', dir: l.a, track: l.n, label: 'LANCE', color: '#9fe8ff' });
     this.stats.rods++; this.news('A kinetic-strike satellite swings into position'); this.ctx.hint(`Orbital strike incoming — ${KMs(l.B)} impact zone`);
     return true;
@@ -535,7 +499,7 @@ export class Threat {
           const sp = Math.hypot(hole.vx, hole.vz); if (sp > 0.05 * P3.speed(hole.r)) { l.ux = hole.vx / sp; l.uz = hole.vz / sp; }
           const wx = hole.vx * l.lock - l.uz * l.side * l.off0, wz = hole.vz * l.lock + l.ux * l.side * l.off0, k = Math.min(1, dt * 5);
           l.ox += (wx - l.ox) * k; l.oz += (wz - l.oz) * k; W.dirAt(l.ox, l.oz, l.to);
-        } else if (!l.locked) { l.locked = true; this.stats.locks++; this.sfx.lockBeep(); this.ctx.hint(`LOCKED — ${KMs(l.B)} impact: leave the ring, or dive into the inner circle`); }
+        } else if (!l.locked) { l.locked = true; l.lockAt = this.t; this.stats.locks++; this.sfx.lockBeep(); this.ctx.hint(`LOCKED — ${KMs(l.B)} impact: leave the ring, or dive into the inner circle`); }
         const lockP = l.locked ? Math.min(1, (l.lock - eta) / l.lock) + 0.001 : 0;
         this.zoneSet(l.zone, l.to, l.B, l.inner, Math.min(1, (l.lock + 1.3 - eta) * 2) * (l.locked ? 1 : 0.8), lockP, 0);
         l.elev = Math.max(0, W.P.elevation(l.to, 3)); this.surf(l.to, 0, v1, l.elev);
@@ -587,7 +551,7 @@ export class Threat {
       this.stats.rodGulps++; v1.copy(W.hdir).multiplyScalar(R + Math.max(0, W.P.elevation(W.hdir, 3)) * W.E + 0.1 * r);
       this.glow.spawn(v1, null, 3 * r, 4 * r, 0.14, C(0xf0e4ff, 3), 3, 0); this.glow.spawn(v1, null, 1.2 * r, 2.8 * r, 0.7, C(0xa070ff, 2.2), 1.6, 0.2);
       this.scar(W.hdir, 3.4 * r, 3.2 * r, 3, 2); hole.shockwave(); this.sfx.tink(); this.sfx.choir(0.5); this.screenFlash(0.45, '#e8dcff', 320);
-      state.hitstop = Math.max(state.hitstop || 0, 0.12); this.trauma(0.3); const a0 = hole.area; hole.area *= 1 + T3.rodGulp * (state.mods?.gulp ?? 1); state.belly = Math.min(1, state.belly + 0.15); state.ledger.rodGulp = (state.ledger.rodGulp || 0) + (hole.area - a0); state.frenzy = 6;
+      state.hitstop = Math.max(state.hitstop || 0, 0.12); this.trauma(0.3); this.gain(T3.rodGulp, 'rodGulp'); state.belly = Math.min(1, state.belly + 0.15); state.frenzy = 6;
       this.ctx.card('ROD CAUGHT', 'the void swallowed a lance: Frenzy'); this.news('The void swallowed an orbital rod'); this.notice(6);
       return;
     }
@@ -598,13 +562,13 @@ export class Threat {
     for (let i = 0; i < 7; i++) { v3.copy(v1).setLength(R + l.elev * W.E + r * (0.2 + i * 0.35)); this.smoke.spawn(v3, vel3(v2.copy(l.to).normalize(), rnd(-0.2, 0.2) * r, rnd(-0.2, 0.2) * r, 0.12 * r, sv), 0.7 * r, 1.4 * r, 5, i < 3 ? SMOKE0 : ASH, 0.5, 0.5); }
     this.scar(l.to, 1.6 * r, 3.0 * r, 14, 1); this.scar(l.to, 0.9 * r, 0.2 * r, 80, 1);
     const near = Math.max(0.12, 1 - dist / (8 * r)); this.sfx.nukeBoom(0.35 + 0.4 * near, Math.min(1.2, dist / (12 * r))); this.screenFlash(0.1 + 0.4 * near, '#fff', 260); this.trauma(0.2 + 0.4 * near);
-    if (l.out === 'hit') { this.hurt(T3.rodHit, 'Orbital strike!', 'rod', T3.rodK); this.notice(5); }
+    if (l.out === 'hit') { this.hurt(T3.rodHit, 'Orbital strike!', 'rod', T3.rodK, 0.25, l.hadZone && l.locked ? this.t - l.lockAt : -1); this.notice(5); }
   }
   eatSat(l) {
     const { hole, state } = this, r = hole.r; l.eaten = 1; l.phase = 'eaten'; l.eatT = l.age; this.stats.sats++;
     if (l.zone >= 0) this.zoneFree(l.zone); l.zone = -1; l.beam.hide(); l.mk?.remove(); l.mk = null; l.past = true;
     this.glow.spawn(l.pos, null, 0.3 * r, 1.4 * r, 0.5, C(0xdff6ff, 3), 1.6, 0); this.sfx.tink(); state.hitstop = Math.max(state.hitstop || 0, 0.08); this.trauma(0.15);
-    const a0 = hole.area; hole.area *= 1 + T3.satGulp * (state.mods?.gulp ?? 1); state.ledger.sat = (state.ledger.sat || 0) + (hole.area - a0); state.belly = Math.min(1, state.belly + 0.1);
+    this.gain(T3.satGulp, 'sat'); state.belly = Math.min(1, state.belly + 0.1);
     this.news('The void swallows a kinetic-strike satellite as it passes overhead'); this.ctx.hint('Satellite swallowed'); this.notice(4);
   }
   finishLance(l) { l.on = false; l.sat.visible = false; l.orbit.hide(); l.beam.hide(); l.rod.hide(); if (l.zone >= 0) this.zoneFree(l.zone); l.zone = -1; l.mk?.remove(); l.mk = null; }
@@ -655,7 +619,7 @@ export class Threat {
       }
       if (!s.hit) { // the hole under the sweep
         const hd = W.hdir, across = Math.asin(Math.max(-1, Math.min(1, hd.dot(s.n)))) * R, along = Math.atan2(hd.dot(s.e2), hd.dot(s.e1)) * R;
-        if (Math.abs(across) < s.hw && Math.abs(along - head * s.len) < 1.2 * r) { s.hit = true; this.stats.strafeHits++; this.hurt(T3.bomberHit, 'Carpet bombed!', 'bomber', T3.bomberK); this.notice(4); }
+        if (Math.abs(across) < s.hw && Math.abs(along - head * s.len) < 1.2 * r) { s.hit = true; this.stats.strafeHits++; this.hurt(T3.bomberHit, 'Carpet bombed!', 'bomber', T3.bomberK, 0.25, s.age); this.notice(4); }
       }
     }
     if (s.age > s.tel + s.run + 1.8) this.finishStrafe(s);
@@ -705,17 +669,15 @@ export class Threat {
 
   /** Back to calm (a retry from a checkpoint, or reset()). */
   clear() {
-    for (const n of this.nukes) if (n.on) this.finish(n);
-    for (const l of this.lances) if (l.on) this.finishLance(l);
-    for (const s of this.strafes) if (s.on) this.finishStrafe(s);
+    for (const k of this.K) { for (const x of k.items) if (x.on) k.finish(x); k.clear?.(); }
     for (const f of this.fall) { this.zoneFree(f.zone); f.mk?.remove(); }
     this.fall.length = 0;
     for (const s of this.sites) this.dropSite(s);
     this.sites.length = 0;
     if (this.seal) this.zoneFree(this.seal.zone); this.seal = null; this.lid.visible = false; document.getElementById('sealed')?.remove();
-    this.hits.length = 0; this.budget = 3; this.noto = 0; this.cool = { bomber: 6, nuke: 12, rod: 10 }; this.siteT = 4; this.t = 0; this.tAdd = 0;
-    this.state.frenzy = 0; this.state.fallout = false; this.state.surge = false;
-    const u = this.W.globe.u; for (let i = 0; i < 8; i++) { u.uZoneP[i].value.y = 0; u.uScarP[i].value.y = 0; this.zoneUsed[i] = false; } u.uStrafeP.value.x = 0;
+    this.hT.fill(-99); this.hF.fill(0); this.cont = {}; this.budget = 3; this.noto = 0; for (const k of this.K) this.cool[k.name] = k.cool0 ?? 8; this.siteT = 4; this.t = 0; this.tAdd = 0; this.unfairLog = null;
+    this.state.frenzy = 0; this.state.fallout = false; this.state.surge = false; this.state.magma = 0; this.state.rubble = false; this.state.ash = false;
+    const u = this.W.globe.u; for (let i = 0; i < 20; i++) u.uZoneP[i].value.y = 0; for (let i = 0; i < NS; i++) u.uScarP[i].value.y = 0; for (let i = 0; i < NZ; i++) this.zoneUsed[i] = false; u.uStrafeP.value.x = 0;
     this.glow.age.fill(9); this.smoke.age.fill(9);
   }
 
@@ -725,47 +687,34 @@ export class Threat {
     this.lineT = 0.1;
     const { state } = this; let txt = '', cls = '', k = 1e9;
     const pick = (eta, s, c) => { if (eta < k) { k = eta; txt = s; cls = c; } };
-    for (const n of this.nukes) if (n.on && n.phase === 'fly') pick(n.T - n.age, `ICBM · <b>${KMs(n.B)}</b> blast · impact <b>${Math.max(0, n.T - n.age).toFixed(1)} s</b>${n.locked ? ' · LOCKED' : ''}`, n.locked ? 'lock' : '');
-    for (const l of this.lances) if (l.on && l.phase === 'orbit' && l.Tfire - l.age < l.lock + 1.3) pick(l.Tfire - l.age, `ORBITAL LANCE · <b>${KMs(l.B)}</b> impact · <b>${Math.max(0, l.Tfire - l.age).toFixed(1)} s</b>${l.locked ? ' · LOCKED' : ''}`, l.locked ? 'lock' : '');
-    for (const s of this.strafes) if (s.on && s.age < s.tel + s.run) pick(Math.max(0, s.tel - s.age), `AIR STRIKE · line ${KMs(2 * s.hw)} wide · <b>${Math.max(0, s.tel - s.age).toFixed(1)} s</b>`, s.age > s.tel * 0.5 ? 'lock' : '');
-    for (const l of this.lances) if (l.on && l.phase === 'orbit' && !l.eaten && this.hole.r >= 420e3 && l.gd < 4 * this.hole.r) pick(l.Tfire - l.age + 3, 'SATELLITE OVERHEAD · swallow it for a bonus', 'good');
+    for (const kd of this.K) if (kd.line) for (const x of kd.items) if (x.on) kd.line(x, pick);
     if (this.seal) { txt = `SEALING · grow past <b>${KMs(0.75 * this.floorR())}</b> · <b>${this.seal.left.toFixed(0)} s</b>`; cls = 'lock'; }
     else if (!txt && state.frenzy > 0) { txt = `FRENZY · <b>${state.frenzy.toFixed(0)} s</b>`; cls = 'good'; }
+    else if (!txt && state.magma > 0) { txt = `MAGMA SURGE · land counts ×${T3.kinds.volcano.surge} · <b>${state.magma.toFixed(0)} s</b>`; cls = 'good'; }
     else if (!txt && state.fallout) { txt = 'FALLOUT · hunger ×1.8 · land ×0.5'; }
     else if (!txt && state.surge) { txt = 'HUNGER SURGE · land counts ×1.5'; cls = 'good'; }
     const el = this.lineEl; el.hidden = !txt || !state.playing && !this.seal;
     if (!el.hidden) { if (el.dataset.t !== txt) { el.innerHTML = txt; el.dataset.t = txt; } if (el.className !== cls) el.className = cls; const hud = document.getElementById('hud'); el.style.top = `${(hud ? hud.getBoundingClientRect().bottom : 44) + 8}px`; }
   }
-  /** Dangers for the bots (local frame, metres): circles { x, z, R, inner, eta, locked, kind } and strafe lines. */
+  /** Dangers for the bots (local frame, metres): circles { x, z, R, inner, eta, locked, kind }, strafe lines, beams, rivals, targets. */
   dangers(out = []) {
     out.length = 0; const o = this._o ??= {};
-    for (const n of this.nukes) if (n.on && n.phase === 'fly') { this.offsetOf(n.to, o); out.push({ kind: 'nuke', id: `n${n.uid}`, x: o.x, z: o.z, R: n.B, inner: n.inner, eta: n.T - n.age, locked: n.locked, lock: n.lock }); }
-    for (const l of this.lances) if (l.on && l.phase === 'orbit' && l.Tfire - l.age < l.lock + 1.3) { this.offsetOf(l.to, o); out.push({ kind: 'rod', id: `l${l.uid}`, x: o.x, z: o.z, R: l.B, inner: l.inner, eta: l.Tfire - l.age, locked: l.locked, lock: l.lock }); }
-    for (const s of this.strafes) if (s.on && s.age < s.tel + s.run) {
-      const hd = this.W.hdir, across = Math.asin(Math.max(-1, Math.min(1, hd.dot(s.n)))) * R; // (+ = the hole is on the normal's side)
-      this.W.normalAt(s.n, v3); const ln = Math.hypot(v3.x, v3.z) || 1;
-      out.push({ kind: 'line', id: `s${s.i}`, across, nx: v3.x / ln, nz: v3.z / ln, hw: s.hw, eta: Math.max(0, s.tel - s.age), end: s.tel + s.run - s.age, locked: true, lock: s.tel });
-    }
-    for (const l of this.lances) if (l.on && l.phase === 'orbit' && !l.eaten && this.hole.r >= 420e3 && l.gd < 8 * this.hole.r) { // a catchable satellite: its subpoint now and its ground velocity (m/s)
-      const th = l.th0 + l.om * l.age; this.offsetOf(v3.copy(l.pos).normalize(), o); const x = o.x, z = o.z;
-      this.satAt(l, th + l.om, v4); this.offsetOf(v4.normalize(), o);
-      out.push({ kind: 'sat', id: `t${l.uid}`, x, z, vx: (o.x - x) / 1, vz: (o.z - z) / 1, R: T3.satEat * this.hole.r, eta: l.Tfire - l.age, locked: false });
-    }
+    for (const k of this.K) if (k.danger) for (const x of k.items) if (x.on) k.danger(x, out);
     for (const f of this.fall) { this.offsetOf(f.dir, o); out.push({ kind: 'fall', id: `f${this.fall.indexOf(f)}`, x: o.x, z: o.z, R: f.R, inner: 0, eta: f.life - f.t, locked: true }); }
+    this.rivals?.dangers(out);
     return out;
   }
   api() {
     const self = this;
     return {
-      t: self, force: (kind = 'nuke', o = {}) => { if (kind === 'nuke') { for (let i = 0; i < 20 && !self.sites.length; i++) self.makeSite(); } return self.spawn(kind, { force: true, ...o }); },
-      state: () => ({ defcon: self.defcon, budget: +self.budget.toFixed(1), phase: self.phase, noto: +self.noto.toFixed(1), live: { nukes: self.nukes.filter((n) => n.on).length, lances: self.lances.filter((l) => l.on).length, strafes: self.strafes.filter((s) => s.on).length }, sites: self.sites.length, fall: self.fall.length, mercyHits: self.hits.length, ms: +(self.ms ?? 0).toFixed(3), stats: { ...self.stats }, seal: self.seal && { t: self.seal.t, left: self.seal.left } }),
+      t: self, force: (kind = 'nuke', o = {}) => { if (kind === 'nuke') { for (let i = 0; i < 20 && !self.sites.length; i++) self.makeSite(); } return self.spawn(kind === 'bomber' || self.byName[kind] ? kind : 'nuke', { force: true, ...o }); },
+      state: () => ({ defcon: self.defcon, budget: +self.budget.toFixed(1), phase: self.phase, noto: +self.noto.toFixed(1), live: Object.fromEntries(self.K.map((k) => [k.name, k.items.filter((x) => x.on).length])), sites: self.sites.length, fall: self.fall.length, mercy: +self.mercySum().toFixed(3), ms: +(self.ms ?? 0).toFixed(3), stats: { ...self.stats }, unfair: self.unfairLog, seal: self.seal && { t: self.seal.t, left: self.seal.left }, rivals: self.rivals?.list.map((q) => ({ name: q.name, km: Math.round(q.r / 1000), area: Math.round(q.area / 1e9) })) }),
       rings: () => self.dangers([]), clear: () => self.clear(), stats: self.stats,
       /** Debug: spawn `kind` and snapshot (.shots/<prefix><mark>.jpg) at each mark (s relative to impact / fire / the sweep start); the hole stands still. */
       async seq(kind = 'nuke', o = {}, marks = [0.5], prefix = 'th', bot = () => [0, 0]) {
         self.eventsHold = true; self.clear(); window.__bot = bot; self.state.shake = 0; if (kind === 'nuke') { while (!self.sites.length) self.makeSite(); } self.spawn(kind, { force: true, ...o });
-        const ob = kind === 'nuke' ? self.nukes.find((q) => q.on) : kind === 'rod' ? self.lances.find((q) => q.on) : self.strafes.find((q) => q.on);
-        const age = kind === 'nuke' ? () => (ob.phase === 'fly' ? ob.age - ob.T : ob.age - ob.boomT) : kind === 'rod' ? () => ob.age - ob.Tfire : () => ob.age - ob.tel, out = [];
-        for (const m of marks) { let g = 0; while (age() < m && g++ < 3000) window.__tick(1 / 60, 1); await window.__snap(prefix + String(m).replace('.', '_').replace('-', 'm'), 1); out.push([m, +age().toFixed(2), ob.phase, ob.out]); }
+        const k = self.byName[kind], ob = k.items.find((q) => q.on), age = () => k.age(ob), out = [];
+        for (const m of marks) { let g = 0; while (age() < m && g++ < 4000) window.__tick(1 / 60, 1); await window.__snap(prefix + String(m).replace('.', '_').replace('-', 'm'), 1); out.push([m, +age().toFixed(2), ob.phase, ob.out]); }
         return out;
       },
       hold: (v = true) => { self.eventsHold = v; }, site: () => { self.makeSite(); return self.sites.length; },

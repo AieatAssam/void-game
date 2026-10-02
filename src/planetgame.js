@@ -398,15 +398,15 @@ export class PlanetGame {
     el.animate([{ opacity: 0, transform: `translate(${X}px,${Y}px) translate(-50%,0) scale(.7)` }, { opacity: 1, transform: `translate(${X}px,${Y - 24}px) translate(-50%,0) scale(1.1)`, offset: 0.15 }, { opacity: 1, transform: `translate(${X}px,${Y - 60}px) translate(-50%,0) scale(1)`, offset: 0.7 }, { opacity: 0, transform: `translate(${X}px,${Y - 90}px) translate(-50%,0) scale(1)` }], { duration: 1300, easing: 'ease-out' });
   }
 
-  /** Ripe units (A5): at 2 Hz the best four go to zone slots 8-11 (lilac dashed rings) and the minimap; the best one gets a HUD label ("Kesport Peninsula · 58%"). */
+  /** Ripe units (A5): at 2 Hz the best four go to zone slots 16-19 (lilac dashed rings) and the minimap; the best one gets a HUD label ("Kesport Peninsula · 58%"). */
   ripeTick(ctx, dt) {
     const W = this.world, lf = W.bite.lf, u = W.globe.u, { state, hole } = ctx, rp = this.ripe ??= [];
-    if (state.won && rp.length) { rp.length = 0; for (let i = 8; i < 12; i++) u.uZoneP[i].value.y = 0; this.ripeMk?.forEach((m) => m?.remove()); this.ripeMk = []; } // (the world is eaten: no rings)
+    if (state.won && rp.length) { rp.length = 0; for (let i = 16; i < 20; i++) u.uZoneP[i].value.y = 0; this.ripeMk?.forEach((m) => m?.remove()); this.ripeMk = []; } // (the world is eaten: no rings)
     if (lf?.ready && !state.won && ((this.ripeT = (this.ripeT || 0) - dt) <= 0)) {
       this.ripeT = 0.5; lf.ripe(W.hdir, hole.r, rp, 4);
       for (let i = 0; i < 4; i++) {
         const o = rp[i];
-        if (o) { u.uZone[8 + i].value.set(o.dir.x, o.dir.y, o.dir.z, o.rEq / R); u.uZoneP[8 + i].value.set(0, 0.5 + 0.35 * (1 - o.frac), 0, 2); } else u.uZoneP[8 + i].value.y = 0;
+        if (o) { u.uZone[16 + i].value.set(o.dir.x, o.dir.y, o.dir.z, o.rEq / R); u.uZoneP[16 + i].value.set(0, 0.5 + 0.35 * (1 - o.frac), 0, 2); } else u.uZoneP[16 + i].value.y = 0;
         if (this.map) {
           const mk = (this.ripeMk ??= [])[i];
           if (o && mk) { mk.dir = o.dir; mk.r = o.rEq; } else if (o) this.ripeMk[i] = this.map.addMarker({ kind: 'ring', dir: o.dir, r: o.rEq, color: '#c9a8ff' });

@@ -168,6 +168,7 @@ export function planetUniforms() {
     uSun: uniform(new THREE.Vector3(0.8, 0.25, 0.55).normalize()), uCam: uniform(new THREE.Vector3(0, 0, 3)),
     uRelief: uniform(3), uDetail: uniform(1), uCloudRot: uniform(new THREE.Vector2(1, 0)), uBorders: uniform(0), uClouds: uniform(1),
     uHoles: Array.from({ length: MAX_HOLES }, () => uniform(new THREE.Vector4(0, 1, 0, 2))), uTime: uniform(0),
+    uRivalK: Array.from({ length: 4 }, () => uniform(0)), // rival holes 1..4: 0 = smaller than the player (lilac rim), 1 = bigger (red)
     uHoleD: uniform(new THREE.Vector4(0, 1, 0, 0.001)), // the player's hole: dir.xyz, angular radius (clouds keep clear of it)
     uCut: uniform(0), // hole radius (m) of the flat cut in RENDER space (the hole sits at the origin); 0 = none (cap mode)
     uPatch: uniform(new THREE.Vector4(0, 1, 0, 2)), // the globe is discarded inside this disc (xyz anchor dir, w cos radius; w > 1 = off)
@@ -181,10 +182,10 @@ export function planetUniforms() {
     uShockP: Array.from({ length: 4 }, () => uniform(new THREE.Vector4(-99, 0, 0, 0))), // start time (uTime), speed (rad/s), life (s), strength
     uRim: uniform(0), // the cap's rim band widens with the credit rate
     // threats (src/threat.js, docs/PHASE3.md §5): scars (a scorch + a racing ring: nuke / rod / swallow), telegraph zones (a danger ring + the swallow circle, fallout) and the bombers' strafe band
-    uScar: Array.from({ length: 8 }, () => uniform(new THREE.Vector4(0, 1, 0, 0))), // dir.xyz, ring reach (rad)
-    uScarP: Array.from({ length: 8 }, () => uniform(new THREE.Vector4(0, 0, 0, 0))), // start time (uTime), life (s; 0 = unused), ring speed (rad/s), kind (0 nuke, 1 rod, 2 swallow)
-    uZone: Array.from({ length: 12 }, () => uniform(new THREE.Vector4(0, 1, 0, 0))), // dir.xyz, outer radius (rad)
-    uZoneP: Array.from({ length: 12 }, () => uniform(new THREE.Vector4(0, 0, 0, 0))), // inner (swallow) radius (rad), alpha (0 = unused), lock progress (0 = tracking, then 0..1), kind (0 danger, 1 fallout)
+    uScar: Array.from({ length: 12 }, () => uniform(new THREE.Vector4(0, 1, 0, 0))), // dir.xyz, ring reach (rad)
+    uScarP: Array.from({ length: 12 }, () => uniform(new THREE.Vector4(0, 0, 0, 0))), // start time (uTime), life (s; 0 = unused), ring speed (rad/s), kind (0 nuke, 1 rod, 2 swallow)
+    uZone: Array.from({ length: 20 }, () => uniform(new THREE.Vector4(0, 1, 0, 0))), // dir.xyz, outer radius (rad)
+    uZoneP: Array.from({ length: 20 }, () => uniform(new THREE.Vector4(0, 0, 0, 0))), // inner (swallow) radius (rad), alpha (0 = unused), lock progress (0 = tracking, then 0..1), kind (0 danger, 1 fallout, 2 ripe, 3 tsunami front (inner = band width), 4 laser spot (lock = heat), 5 ash)
     uStrafe: uniform(new THREE.Vector4(0, 1, 0, 0)), uStrafeA: uniform(new THREE.Vector4(1, 0, 0, 0)), uStrafeP: uniform(new THREE.Vector4(0, 0, 0, 0)), // great-circle band: normal.xyz + half width (rad); start dir.xyz + length (rad); alpha, head (0..1), lock
     uGcellA: uniform(1e4), uGfr: uniform(0), uGroundK: uniform(1), uGroundM: uniform(1), // (K: parcels, hedges, rows, street grids, lakes, rivers = the close ground; M: relief, woods, settlements = the km-scale ground that a landmass keeps)
     // close-ground pattern scale: cells per face unit, octave blend, strength
@@ -562,7 +563,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
     col.addAssign(shockGlow);
     // ---- threats (§5): scorch + racing ring per scar, telegraph rings per zone, the strafe band
     if (!OFF.has('threat')) {
-      for (let i = 0; i < 8; i++) {
+      for (let i = 0; i < 12; i++) {
         const s = u.uScar[i], p = u.uScarP[i], age = u.uTime.sub(p.x);
         If(p.y.greaterThan(0).and(age.greaterThan(0)).and(age.lessThan(p.y)), () => {
           const th = acos(clamp(dot(dir, s.xyz), -1, 1)), A = s.w, kind = p.w, burn = select(kind.lessThan(1.5).or(kind.greaterThan(2.5)), float(1), float(0));
@@ -578,7 +579,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
           col.addAssign(rc.mul(band.mul(3.2).add(tail.mul(0.1))).mul(rf).mul(select(kind.greaterThan(2.5), float(0), float(1))));
         });
       }
-      for (let i = 0; i < 12; i++) {
+      for (let i = 0; i < 20; i++) {
         const z = u.uZone[i], q = u.uZoneP[i];
         If(q.y.greaterThan(0.001).and(dot(dir, z.xyz).greaterThan(cos(min(z.w.mul(1.1).add(1e-4), 3.1)))), () => { // (the cheap rejection: no noise, no trig past the zone's own disc)
           const th = acos(clamp(dot(dir, z.xyz), -1, 1)), A = z.w, lock = q.z, fall = q.w, wd = max(A.mul(0.03), 1e-5);
@@ -586,6 +587,24 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
           const edge = exp(pow(th.sub(A).div(wd), 2).negate()), inside = float(1).sub(smoothstep(A.mul(0.985), A, th));
           const ring = (rad, w) => exp(pow(th.sub(rad).div(w), 2).negate());
           const gz = vec3(0, 0, 0).toVar();
+          If(q.w.greaterThan(4.5), () => { // kind 5: ash fall (volcano): a brown, mottled haze that dims the ground under it
+            const nz = mx_noise_float(dir.mul(float(7).div(A)).add(vec3(0, 0, u.uTime.mul(0.15)))).mul(0.5).add(0.5);
+            gz.assign(vec3(0.5, 0.33, 0.18).mul(edge.mul(0.8).add(inside.mul(nz.mul(0.3).add(0.05)))));
+            col.assign(mix(col, col.mul(vec3(0.5, 0.46, 0.42)), inside.mul(q.y).mul(nz.mul(0.4).add(0.35))));
+          }).Else(() => {
+          If(q.w.greaterThan(3.5), () => { // kind 4: the laser spot: a white-hot core, an orange bloom, a flickering red edge; lock = heat (0: the thin warm-up ring)
+            const d = th.div(A), heat = lock, fl = mx_noise_float(dir.mul(float(30).div(A)).add(vec3(u.uTime.mul(2.5), 0, 0))).mul(0.5).add(0.5);
+            const coreK = float(1).sub(smoothstep(0.0, 0.42, d)), bloom = exp(pow(d.mul(1.25), 2).negate());
+            const warm = vec3(1.0, 0.18, 0.08).mul(edge.mul(2.2).mul(pul).add(inside.mul(0.1)));
+            const hot = vec3(1.0, 0.95, 0.85).mul(coreK.mul(2.6)).add(vec3(1.0, 0.42, 0.08).mul(bloom.mul(1.5).mul(fl.mul(0.5).add(0.7)))).add(vec3(1.0, 0.2, 0.06).mul(edge.mul(2.2).mul(pul)));
+            gz.assign(mix(warm, hot, smoothstep(0.0, 0.25, heat)));
+          }).Else(() => {
+          If(q.w.greaterThan(2.5), () => { // kind 3: a tsunami front: a foam band riding the wave, a dark wet drawback behind it (inner = band width, rad)
+            const wb = max(q.x, 1e-5), band = exp(pow(th.sub(A).div(wb), 2).negate()), streak = mx_noise_float(dir.mul(float(1.6).div(wb)).add(vec3(u.uTime.mul(0.4), 0, 0))).mul(0.5).add(0.5);
+            const wet = smoothstep(A.sub(wb.mul(7)), A.sub(wb.mul(0.5)), th).mul(float(1).sub(smoothstep(A.sub(wb.mul(0.2)), A.add(wb), th)));
+            gz.assign(vec3(0.82, 0.97, 1.0).mul(band.mul(streak.mul(0.9).add(0.9))).mul(1.7).add(vec3(0.12, 0.42, 0.5).mul(wet).mul(0.55)));
+            col.assign(mix(col, col.mul(vec3(0.7, 0.85, 0.95)), wet.mul(q.y).mul(0.35)));
+          }).Else(() => {
           If(q.w.greaterThan(1.5), () => { // kind 2: a ripe unit (A5): a lilac dashed ring at its equivalent radius, a faint fill
             const t1 = normalize(cross(z.xyz, vec3(0.0, 1.0, 0.0)).add(vec3(1e-3, 0, 0))), az = atan(dot(dir, cross(z.xyz, t1)), dot(dir, t1)), dash = smoothstep(-0.25, 0.35, sin(az.mul(20).add(u.uTime.mul(0.7))));
             gz.assign(vec3(0.8, 0.66, 1.0).mul(ring(A, wd.mul(1.3)).mul(dash).mul(1.5).add(inside.mul(0.5))));
@@ -596,6 +615,9 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
           g.addAssign(vec3(0.66, 0.46, 1.0).mul(ring(q.x, max(q.x.mul(0.07), 1e-5)).mul(1.7).add(float(1).sub(smoothstep(q.x.mul(0.96), q.x, th)).mul(0.2))).mul(step(1e-6, q.x))); // the swallow circle
           If(fall.greaterThan(0.5), () => { gz.assign(vec3(0.7, 0.85, 0.14).mul(edge.mul(0.7).add(inside.mul(mx_noise_float(dir.mul(float(9).div(A))).mul(0.5).add(0.5).mul(0.2))))); /* fallout: a sick, mottled glow */ }).Else(() => { gz.assign(g); });
           col.assign(mix(col, col.mul(vec3(0.82, 0.92, 0.6)), inside.mul(fall).mul(q.y).mul(0.45)));
+          });
+          });
+          });
           });
           col.addAssign(gz.mul(q.y));
         });
@@ -612,7 +634,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
     }
     // ---- hole caps (spherical): void inside, a lilac glowing lip
     const capMask = float(0).toVar(); // (the atmosphere does not veil the void: it would turn the shaft into grey glass)
-    for (const hu of u.uHoles) {
+    for (const [hi, hu] of u.uHoles.entries()) {
       If(hu.w.lessThan(1.0), () => {
         const c = dot(dir, hu.xyz), th = acos(clamp(c, -1, 1)), th0 = acos(clamp(hu.w, -1, 1)).max(1e-5);
         const dd = th.div(th0);
@@ -632,7 +654,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
         const rim = exp(pow(dd.sub(1).mul(26).div(float(1).add(u.uRim.mul(0.7))), 2).negate());
         col.assign(mix(col, voidCol, inside));
         capMask.assign(max(capMask, sstep(1.05, 0.98, dd)));
-        col.addAssign(vec3(0.62, 0.42, 1.0).mul(rim).mul(1.9));
+        col.addAssign((hi === 0 ? vec3(0.62, 0.42, 1.0) : mix(vec3(0.62, 0.42, 1.0), vec3(1.0, 0.2, 0.14), u.uRivalK[Math.min(hi, 4) - 1])).mul(rim).mul(1.9 + (hi ? 0.7 : 0)));
       });
     }
     // ---- haze between camera and surface: a cheap exponential up close (the camera is 10-1000 km away), the real single scatter from ~50 km
