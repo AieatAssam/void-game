@@ -307,6 +307,12 @@ export function planetSteer(who = 'human') {
           if (s.hunt[d.id] && dist < 14 * r) { dbg.rival = (dbg.rival || 0) + 1; return [d.x / dist, d.z / dist]; }
           continue;
         }
+        if (d.kind === 'beam') { const dist = Math.hypot(d.x, d.z) || 1; if (dist < d.R + 2.2 * r && !(human && Math.random() < 0.004)) { dbg.beam = (dbg.beam || 0) + 1; return [-d.x / dist, -d.z / dist]; } continue; } // (keep out of the beam: it is slower than the hole)
+        if (d.kind === 'target') { // an edible set-piece part (the laser platform, an Aegis platform, a cracker station): greedy always, human 2 times in 3
+          const dist = Math.hypot(d.x, d.z) || 1; s.tgt ??= {}; if (s.tgt[d.id] === undefined) s.tgt[d.id] = who === 'greedy' || Math.random() < 0.67;
+          if (s.tgt[d.id] && dist < (d.reach ?? 10) * r && d.eta > 0.5) { dbg.target = (dbg.target || 0) + 1; return dist < 0.25 * r ? [0, 0] : [d.x / dist, d.z / dist]; }
+          continue;
+        }
         if (d.kind === 'sat') continue;
         if (d.kind === 'fall' || !d.locked || (human && d.eta > d.lock - 0.35)) continue;
         if (d.kind === 'line') { if (d.end > 0.3 && Math.abs(d.across) < d.hw + 0.35 * r) { dbg.dodge = (dbg.dodge || 0) + 1; return [Math.sign(d.across || 1) * d.nx, Math.sign(d.across || 1) * d.nz]; } continue; }

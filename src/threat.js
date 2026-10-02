@@ -11,6 +11,7 @@ import { R } from './planetgen.js';
 import { P3, TIERS, T3 } from './phase3.js';
 import { sunDir } from './look.js';
 import { Rivals } from './planetrival.js';
+import { makeLaser } from './threat/laser.js';
 import { smooth, rnd, _Y, v1, v2, v3, v4, v5, v6, qa, C, FIRE, SMOKE0, SMOKE1, ASH, DUST, KMs, tangentAt, sv, aim, vel3, slerp, Ribbon, Pool } from './threat/kit.js';
 
 const qs = new URLSearchParams(location.search);
@@ -69,7 +70,7 @@ export class Threat {
     this.glow = new Pool(260, true); this.smoke = new Pool(1200, false);
     ctx.scene.add(this.glow.sprite, this.smoke.sprite);
     this.glow.sprite.visible = this.smoke.sprite.visible = !!this.game.entered; // (prepared under Phase 2: the pools stay hidden until the swap, show())
-    const model = (name) => { const o = assets[name].scene.clone(true); o.traverse((m) => { if (m.isMesh) { m.castShadow = m.receiveShadow = false; m.frustumCulled = false; } }); o.visible = false; this.root.add(o); return o; };
+    const model = this.model = (name) => { const o = assets[name].scene.clone(true); o.traverse((m) => { if (m.isMesh) { m.castShadow = m.receiveShadow = false; m.frustumCulled = false; } }); o.visible = false; this.root.add(o); return o; };
     for (let i = 0; i < 3; i++) {
       const mat = mushroomMaterial(), mesh = model('mushroom_cloud');
       mesh.traverse((m) => { if (m.isMesh) m.material = mat; });
@@ -82,6 +83,7 @@ export class Threat {
     this.lid = new THREE.Mesh(lg, lm); this.lid.visible = false; this.lid.frustumCulled = false; this.root.add(this.lid);
     this.registerCore();
     this.rivals = new Rivals(this); this.register(this.rivals.kind());
+    this.register(makeLaser(this));
     window.__threat = this.api();
     for (const o of [this.glow.sprite, this.smoke.sprite]) o.frustumCulled = false;
     try { await ctx.post.precompile(this.root, 6000, this.game.around); await ctx.post.precompile({ traverse: (f) => { f(this.glow.sprite); f(this.smoke.sprite); } }, 3000, this.game.around); } catch (e) { console.warn('threat precompile', e); }

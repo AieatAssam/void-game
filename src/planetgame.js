@@ -227,7 +227,7 @@ export class PlanetGame {
     if (this.wetPrev) mult = P3.oceanSpeed(tier) * (state.mods?.sea ?? 1); // the sea: no credit, slower while small (wet = the centre is at sea AND the disc ate nothing last frame: a coast is not the sea)
     else if (here.e < D) mult = 1.1; // lowland feast
     else if (here.e < P3.wallK * D) mult = 1 - 0.5 * (here.e - D) / (3 * D); // ridge drag: eaten from the top down over several passes
-    const slow = state.slow > 0 ? 0.45 : 1;
+    const slow = state.slow > 0 ? (state.slowK ?? 0.45) : 1;
     const speed = P3.speed(r) * mult * slow * (state.frenzy > 0 ? 1.3 : 1) * (state.mods?.speed ?? 1) * (ctx.speedK?.() ?? 1);
     const kick = state.kick || (state.kick = { x: 0, z: 0 });
     let dx = (hole.sx * speed + kick.x * r / 60) * dt, dz = (hole.sz * speed + kick.z * r / 60) * dt;
