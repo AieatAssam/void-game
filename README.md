@@ -23,6 +23,8 @@ island-scale second phase are this project's own spin on it.
 | ![The island: its coast is the edge of the map](docs/screens/phase2-coast.jpg) | ![The snowy range walls off one stretch of the island](docs/screens/phase2-mountains.jpg) |
 | ![A rival hole (Rusty) breaks out and eats the same country](docs/screens/phase2-rival.jpg) | ![Rubble spills over the rim when a building crumbles](docs/screens/phase2-rubble.jpg) |
 | ![Too weak: a heavy-lift chopper hangs the Void Lid over the hole](docs/screens/phase2-seal.jpg) | ![The minimap: coast, range, roads, settlements, the next target ringed](docs/screens/phase2-minimap.jpg) |
+| ![Ascension: the island cracks to its coast as the capital falls](docs/screens/phase3-ascend-cracks.jpg) | ![Ascension: the pull-out, the limb, the stars and the Moon](docs/screens/phase3-ascend-pullout.jpg) |
+| ![Ascension: the reveal, the wound pulsing beside a coast](docs/screens/phase3-ascend-reveal.jpg) | ![Ascension: the plunge back to the hole, control returns](docs/screens/phase3-ascend-arrival.jpg) |
 
 ## The game
 - **Grow:** everything has a size. Swallow what fits; each bite widens the hole by a share of the object's footprint —
@@ -38,9 +40,12 @@ island-scale second phase are this project's own spin on it.
 - **Breakout:** clear the town and the ground gives way. The hole escapes into the countryside, and now whole settlements
   are the meal: farmsteads, villages, a castle on its hill, a market town, an industrial valley and the capital. Buildings
   crumble into the hole, roads are the fast lanes, towns evacuate, and the army answers with roadblocks, artillery, strike
-  jets and heavy-lift choppers dropping Void Lids, until the Capper rolls out of the capital. Swallow the capital to win.
+  jets and heavy-lift choppers dropping Void Lids, until the Capper rolls out of the capital. Swallow the capital and the world changes (below).
   The country is an **island**: the coast is the map edge and a snowy range walls off one side; the land rolls, and the hole
   is slower uphill. Two **rival holes** break out of far settlements, and a minimap shows the whole island.
+- **Ascension (Phase 3):** when the capital falls the world goes quiet, the island cracks to its coast and the hole rips outward, eating the shore, then one long zoom
+  climbs through the clouds to orbit: the curved limb, the stars, the Moon, a glowing wound beside a coast. The planet is the new map (`?planet` starts there;
+  `__ascend()` from a `?region` run replays the cinematic).
 - **Sealed:** starve back toward town size (under 9 m) and the army flies a Void Lid in. Grow past 9.6 m in 14 seconds or
   it drops and the run is over: a weak hole is the only kind small enough to cap. Every new run starts from a fresh town.
 - **Challenge cards:** pick one rule twist per run (Car Crusher, Rush Hour, Glass Cannon, Crowded…) for a dust multiplier.

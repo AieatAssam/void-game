@@ -39,6 +39,8 @@ const CSS = `
 .edge-arrow.pulse b{animation:ascpulse .7s ease-in-out infinite alternate}
 @keyframes ascpulse{from{transform:scale(1);filter:brightness(1)}to{transform:scale(1.35);filter:brightness(1.8)}}
 #news{z-index:35}
+#levelup.asc b{font-size:clamp(28px,6.4vw,60px);letter-spacing:.03em}
+#levelup.asc small{font-size:clamp(12px,1.6vw,18px);letter-spacing:.32em}
 #hud.ascin{animation:aschud 1.2s ease-out both}
 @keyframes aschud{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}`;
 
@@ -191,7 +193,7 @@ export class Ascension {
     S.uFront.value = 4 + (this.coast + 160) * eo(u) ** 1.4; S.uHot.value = 1 - sm(0.7, 1, (t - T.brk) / 0.8); S.uVis.value = 1 - sm(T.brk + 0.1, T.brk + 1.3, t); // (the pit takes the cracks) S.uW.value = Math.max(1.0, this.cam.dist * 0.0021) * (1 + 0.8 * sm(0.3, 1, u));
     this.cracks.mesh.position.set(hole.x, 0, hole.z);
     // the sea pours over the coast: white fans of water sliding in and down
-    if (t > 0.9 && t < 4.6 && (this.pourT = (this.pourT || 0) - raw) < 0) {
+    if (t > 0.9 && t < 3.6 && (this.pourT = (this.pourT || 0) - raw) < 0) {
       this.pourT = 0.07;
       const T0 = this.city().terrain;
       for (let q = 0; q < 3; q++) {
@@ -240,7 +242,7 @@ export class Ascension {
     this.once('reveal', T.pull, () => {
       this.news = true;
       this.ctx.news.queue.length = 0; this.ctx.news.t = 0; // (the line that tells the world: nothing from the old country first)
-      this.card('PHASE 3 — THE WORLD', 'The hole is global');
+      this.card('PHASE 3 — THE WORLD', 'The hole is global'); document.getElementById('levelup').classList.add('asc');
       this.ctx.news.say('Void entity visible from orbit — global emergency declared');
       sfx.unduck(1.2); sfx.chord();
       this.W.shock(this.W.hdir, 0.002, 0.3, 3.4, 1); // (a lilac ring spreading over the planet from the wound)
@@ -304,6 +306,7 @@ export class Ascension {
     this.wound.sprite.material.dispose(); this.decks.sprite.material.dispose();
     this.W.globe.u.uSkyK.value = 1; this.W.globe.moonAt[0] = -0.93; this.W.globe.moonAt[1] = 0.8;
     ctx.scene.background = new THREE.Color(0x000000);
+    document.getElementById('levelup')?.classList.remove('asc');
     this.bars.remove(); this.flashEl.remove(); this.style.remove();
     document.getElementById('hud')?.classList.remove('ascin');
     for (const el of document.querySelectorAll('.edge-arrow.pulse')) el.classList.remove('pulse');
