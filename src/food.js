@@ -8,11 +8,12 @@
 // Everything is in planet space under planet.group; instance matrices ride the planet's curve (up = the item's direction).
 import * as THREE from 'three/webgpu';
 import {
-  Fn, vec3, vec4, float, int, uniform, attribute, positionGeometry, positionLocal, normalGeometry, mix, select, step, floor, fract,
-  smoothstep, clamp, hash, dot, abs, max, uniformArray,
+  Fn, vec2, vec3, vec4, float, int, uniform, attribute, positionGeometry, positionLocal, normalGeometry, mix, select, step, floor, fract,
+  smoothstep, clamp, hash, dot, abs, max, uniformArray, fwidth, uv,
 } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { R, faceDir } from './planetgen.js';
+import { TRAIL } from './planetglobe.js';
 import { flatGeometry } from './city.js';
 
 const QUARTER = (Math.PI / 2) * R;
@@ -101,7 +102,7 @@ const WALLS = [ // 4 palettes x 5 colours (sRGB): modern glass, old stone, white
   [[.42, .68, .88], [.2, .32, .5], [.26, .7, .68], [.92, .86, .74], [.96, .96, .94]],
   [[.9, .74, .5], [.94, .84, .58], [.78, .42, .3], [.86, .82, .74], [.96, .94, .9]],
   [[.97, .96, .92], [.97, .93, .84], [.93, .8, .55], [.88, .78, .62], [.84, .84, .82]],
-  [[.74, .38, .28], [.84, .8, .72], [.66, .32, .26], [.32, .42, .55], [.9, .8, .56]],
+  [[.7, .45, .35], [.84, .8, .72], [.64, .4, .32], [.34, .43, .54], [.88, .8, .6]],
 ].flat().map(lin);
 const WALL_T = uniformArray(WALLS, 'vec3');
 
@@ -127,7 +128,8 @@ function skylineMaterial(sunU) {
   const top = step(0.5, n.y), side = float(1).sub(top);
   const u = select(abs(n.x).greaterThan(0.5), p.z, p.x).div(mix(float(1), sh.y, seg)).add(0.5);
   const fu = fract(u.mul(4)), fv = fract(p.y.mul(sh.w));
-  const win = step(0.2, fu).mul(step(fu, 0.8)).mul(step(0.3, fv)).mul(step(fv, 0.76)).mul(side).mul(step(0.4, p.y.mul(sh.w)));
+  const wAA = float(1).sub(smoothstep(0.35, 0.9, fwidth(u.mul(4)).max(fwidth(p.y.mul(sh.w))))); // (windows dissolve to a mean tint before they alias: no shimmer at T1-T2)
+  const win = step(0.2, fu).mul(step(fu, 0.8)).mul(step(0.3, fv)).mul(step(fv, 0.76)).mul(side).mul(step(0.4, p.y.mul(sh.w))).mul(wAA);
   const cell = hash(floor(u.mul(4)).add(floor(p.y.mul(sh.w)).mul(17.13)).add(s.mul(91.7)).add(select(abs(n.x).greaterThan(0.5), float(0), float(41))));
   const lit = step(cell, 0.62);
   m.colorNode = Fn(() => {
@@ -136,10 +138,13 @@ function skylineMaterial(sunU) {
     const tint = float(0.9).add(hash(s.mul(57.3)).mul(0.2));
     const low = step(sh.w, 2.5);
     const rh = hash(s.mul(7.7)), orange = low.mul(step(0.5, pal)).mul(step(0.3, rh)); // terracotta only on old / whitewashed / brick low-rise
-    const slate = mix(vec3(0.36, 0.37, 0.4), vec3(0.72, 0.7, 0.66), hash(s.mul(3.3)));
-    const roof = mix(mix(slate, vec3(0.16, 0.27, 0.12), step(0.965, rh)), vec3(0.42, 0.2, 0.15), orange);
+    const slate = mix(vec3(0.3, 0.3, 0.32), vec3(0.66, 0.62, 0.56), hash(s.mul(3.3)));
+    const roofK = hash(s.mul(5.9)), cell = floor(vec2(p.x.mul(7), p.z.mul(7)).add(s.mul(31))), speck = step(0.82, hash(cell.x.add(cell.y.mul(57.1)).add(s))); // (rooftop plant: dark boxes on the flat roofs)
+    let roofA = mix(slate, vec3(0.12, 0.12, 0.13), step(0.6, roofK)); // tar
+    roofA = mix(roofA, vec3(0.13, 0.25, 0.1), step(0.955, rh)); // green roof
+    const roof = mix(roofA, vec3(0.4, 0.26, 0.19), orange).mul(float(1).sub(speck.mul(0.35))).mul(float(0.8).add(smoothstep(0.38, 0.5, abs(p.x).max(abs(p.z))).mul(-0.35).add(0.35))); // (a darker parapet rim)
     const base = mix(wall.mul(tint), roof, top);
-    const ao = float(0.55).add(float(0.45).mul(smoothstep(0.0, 1.4, p.y.mul(sh.w))));
+    const ao = float(0.34).add(float(0.66).mul(smoothstep(0.0, 2.6, p.y.mul(sh.w))));
     const glass = mix(vec3(1), vec3(0.42, 0.5, 0.58), win.mul(0.7));
     return vec4(base.mul(ao).mul(glass).mul(TONE), 1);
   })();
@@ -156,9 +161,9 @@ function treeMaterial() {
   const zz = sh.z.mul(0.5), pal = floor(zz), s = sh.z.sub(pal.mul(2));
   m.colorNode = Fn(() => {
     const k = hash(s.mul(311.3));
-    const greens = mix(vec3(0.012, 0.045, 0.02), vec3(0.04, 0.115, 0.03), k); // conifer .. broadleaf
-    const dry = mix(vec3(0.075, 0.09, 0.03), vec3(0.12, 0.09, 0.03), k); // savanna / autumn
-    const jungle = mix(vec3(0.008, 0.055, 0.025), vec3(0.025, 0.1, 0.03), k);
+    const greens = mix(vec3(0.03, 0.085, 0.04), vec3(0.08, 0.2, 0.05), k); // conifer .. broadleaf
+    const dry = mix(vec3(0.13, 0.15, 0.05), vec3(0.2, 0.15, 0.05), k); // savanna / autumn
+    const jungle = mix(vec3(0.02, 0.1, 0.04), vec3(0.05, 0.17, 0.05), k);
     const c = mix(mix(greens, dry, step(0.5, pal)), jungle, step(1.5, pal));
     return vec4(c.mul(float(0.6).add(positionGeometry.y.mul(0.8))), 1);
   })();
@@ -170,6 +175,7 @@ const UNITS = { // key -> model, per-unit radius = model's tier (m)
   cargo: 'cargo_ship', carrier: 'aircraft_carrier', destroyer: 'destroyer', rig: 'oil_rig', silo: 'missile_silo', pad: 'launch_pad',
 };
 const MODEL_CAP = 200;
+const WAKE = { cargo: 0, carrier: 1, destroyer: 2 }, WAKE_BOW = 0.9; // (ships with a wake; how far past the model's centre the foam starts, in radii; flip the sign of the keel in writeUnits if a model's bow is -X)
 
 // ---------------------------------------------------------------- Food
 const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _q = new THREE.Quaternion(), _qi = new THREE.Quaternion();
@@ -209,7 +215,14 @@ export class Food {
     const tg = treeGeometry(); tg.setAttribute('aShape', this.tshapeA);
     this.trees = new THREE.InstancedMesh(tg, treeMaterial(), CT);
     this.trees.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    for (const mm of [this.city, this.trees]) { mm.frustumCulled = false; mm.count = 0; mm.castShadow = mm.receiveShadow = false; mm.matrixAutoUpdate = false; this.group.add(mm); }
+    // contact shadow + AO blobs: one flat soft quad per box, stretched away from the sun, sharing the box slots (alpha-blended, no depth write)
+    const dgeo = new THREE.PlaneGeometry(1, 1); dgeo.rotateX(-Math.PI / 2); dgeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e9);
+    const dmat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, fog: false });
+    const dq = uv().sub(0.5).mul(2), dr = dq.length();
+    dmat.colorNode = vec4(0.02, 0.015, 0.03, float(1).sub(smoothstep(0.15, 1.0, dr)).pow(1.6).mul(0.36));
+    this.decals = new THREE.InstancedMesh(dgeo, dmat, CB);
+    this.decals.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.decals.renderOrder = 1;
+    for (const mm of [this.city, this.trees, this.decals]) { mm.frustumCulled = false; mm.count = 0; mm.castShadow = mm.receiveShadow = false; mm.matrixAutoUpdate = false; this.group.add(mm); }
     // GLB units
     this.units = {};
     const pal = new THREE.TextureLoader().load(import.meta.env.BASE_URL + 'palette.png');
@@ -220,12 +233,24 @@ export class Food {
       if (!a) continue;
       const geo = flatGeometry(a, this.low ? 1 : 0);
       geo.computeBoundingBox();
-      const mesh = new THREE.InstancedMesh(geo, this.unitMat, MODEL_CAP);
+      let umat = this.unitMat;
+      if (k === 'carrier') { umat = this.unitMat.clone(); umat.color = new THREE.Color(2.4, 2.4, 2.4); } // (its navy palette read as a hole in the sea: lifted)
+      const mesh = new THREE.InstancedMesh(geo, umat, MODEL_CAP);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.frustumCulled = false; mesh.count = 0; mesh.matrixAutoUpdate = false;
       this.group.add(mesh);
       this.units[k] = { mesh, name, rad: a.meta.tier, lift: -geo.boundingBox.min.y, free: Array.from({ length: MODEL_CAP }, (_, i) => MODEL_CAP - 1 - i), hi: 0 };
     }
+    // wakes: a flat foam V trailing every ship (slot = unit key block + instance index, so a unit's slot never moves)
+    const wg = new THREE.PlaneGeometry(1, 1); wg.rotateX(-Math.PI / 2); wg.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e9);
+    const wm = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, fog: false });
+    const wq = uv(), wd = float(1).sub(wq.x), wy = wq.y.sub(0.5).abs().mul(2); // d: 0 at the bow .. 1 at the tail end; y: 0 on the keel line .. 1 at the edge
+    const wa = wd.mul(0.62).add(0.07), arm = float(1).sub(smoothstep(0.0, 0.07, wy.sub(wa).abs())).mul(float(1).sub(wd).pow(1.3));
+    const core = float(1).sub(smoothstep(0.0, wd.mul(0.12).add(0.07), wy)).mul(float(1).sub(wd).pow(0.8)), brk = hash(floor(wq.x.mul(46)).add(floor(wq.y.mul(14)).mul(7.3))).mul(0.5).add(0.5);
+    wm.colorNode = vec4(0.86, 0.95, 0.98, arm.mul(0.7).add(core.mul(0.55)).mul(brk).mul(smoothstep(0.0, 0.04, wd)).clamp(0, 0.85));
+    this.wakes = new THREE.InstancedMesh(wg, wm, MODEL_CAP * 3); this.wakes.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.wakes.frustumCulled = false; this.wakes.matrixAutoUpdate = false; this.wakes.renderOrder = 1; this.wakes.castShadow = this.wakes.receiveShadow = false; this.wakes.count = MODEL_CAP * 3;
+    this.group.add(this.wakes);
     this.assets = assets; this.toneU = TONE;
     this.urbanDirty = true; this.urbanAt = 0;
     W.onPatch = (info) => this.paintUrban(info);
@@ -523,11 +548,11 @@ export class Food {
   layCity(e) {
     const rho = e.tier, rnd = rng(e.id ^ 0x1234567), W = this.W;
     const fine = this.fineNow();
-    const rNow = this.curR, N = Math.round(lerp(16, 400, SM(100, 2600, rho))), c = Math.max(rho * Math.sqrt(Math.PI / N), 0.03 * rNow), tallK = SM(250, 7000, rho); // (blocks never thinner than ~2 px)
+    const rNow = this.curR, N = Math.round(lerp(22, 520, SM(100, 2600, rho))), c = Math.max(rho * Math.sqrt(Math.PI / N), 0.03 * rNow), tallK = SM(250, 7000, rho); // (blocks never thinner than ~2 px)
     const yaw0 = rnd() * 3.14159, cy = Math.cos(yaw0), sy = Math.sin(yaw0), wob = rnd() * 6.283, wob2 = rnd() * 6.283;
     this.frameOf(e);
     const out = [], _d = new THREE.Vector3(), g = Math.ceil((rho * 1.25) / c);
-    for (let jj = -g; jj <= g && out.length < 400 * 11; jj++) for (let ii = -g; ii <= g && out.length < 400 * 11; ii++) {
+    for (let jj = -g; jj <= g && out.length < 520 * 11; jj++) for (let ii = -g; ii <= g && out.length < 520 * 11; ii++) {
       const gx = (ii + 0.5 + (rnd() - 0.5) * 0.35) * c, gz = (jj + 0.5 + (rnd() - 0.5) * 0.35) * c, dd = Math.hypot(gx, gz), an = Math.atan2(gz, gx);
       const lim = rho * (0.86 + 0.16 * Math.sin(an * 3 + wob) + 0.08 * Math.sin(an * 5 + wob2));
       if (dd > lim) continue;
@@ -541,7 +566,8 @@ export class Food {
       const slab = rnd() < 0.3 * (1 - core * 0.6);
       if (slab) { fx = f * (1.25 + 0.6 * rnd()); fz = f * (0.6 + 0.2 * rnd()); }
       let H = f * (0.22 + (0.9 + 1.9 * tallK) * Math.pow(core, 1.25) * Math.pow(q, 0.8) + 0.45 * rnd() * (1 - core));
-      H = Math.min(Math.max(H, 0.2 * f), 3 * f);
+      if (core > 0.62 && rnd() < 0.3 + 0.4 * tallK) H *= 1.35 + 0.5 * rnd(); // downtown: a few much taller cores
+      H = Math.min(Math.max(H, 0.2 * f), (3 + 1.8 * tallK) * f);
       let a = 0, w = 1;
       if (H > 1.5 * f && rnd() < 0.55) { a = 0.16 + 0.26 * rnd(); w = 0.5 + 0.28 * rnd(); }
       else if (H > 0.9 * f && rnd() < 0.25) { a = 0.3 + 0.2 * rnd(); w = 0.7 + 0.15 * rnd(); }
@@ -630,6 +656,7 @@ export class Food {
         if (!tr) { this.upA.array[(at + k) * 3] = arr[(at + k) * 16 + 12]; this.upA.array[(at + k) * 3 + 1] = arr[(at + k) * 16 + 13]; this.upA.array[(at + k) * 3 + 2] = arr[(at + k) * 16 + 14]; }
       }
       if (!tr) for (let k = 0; k < lay.n; k++) { const o = (at + k) * 3, l = 1 / Math.hypot(this.upA.array[o], this.upA.array[o + 1], this.upA.array[o + 2]); this.upA.array[o] *= l; this.upA.array[o + 1] *= l; this.upA.array[o + 2] *= l; }
+      if (!tr) this.writeDecals(e, at, lay);
       mesh.count = pool.count;
       mesh.instanceMatrix.needsUpdate = true; (tr ? this.tshapeA : this.shapeA).needsUpdate = true; if (!tr) this.upA.needsUpdate = true;
       e.pieces = { mesh, pool, at, n: lay.n, tr };
@@ -648,6 +675,19 @@ export class Food {
     }
     e.vis = true; this.urbanDirty = true; this.stats.shows++;
   }
+  /** The contact-shadow blob of every box of item e (slots [at, at + n)): a soft ellipse stretched away from the sun by the box's height. */
+  writeDecals(e, at, lay) {
+    const arr = this.decals.instanceMatrix.array, d = lay.d, S = this.W.sunPlanet, sE = S.x * e.e1.x + S.y * e.e1.y + S.z * e.e1.z, sZ = S.x * e.e2.x + S.y * e.e2.y + S.z * e.e2.z;
+    const sU = Math.max(0.18, S.x * e.dir.x + S.y * e.dir.y + S.z * e.dir.z), hl = Math.hypot(sE, sZ) || 1, ax = -sE / hl, az = -sZ / hl, yaw = Math.atan2(az, ax);
+    this.zero(arr, at, Math.ceil(lay.n / this.cityPool.chunk) * this.cityPool.chunk);
+    for (let k = 0; k < lay.n; k++) {
+      const o = k * 11, fx = d[o + 3], fz = d[o + 5], H = d[o + 4], len = Math.min(3.2 * H, (H * hl) / sU), f = Math.max(fx, fz);
+      if (f < 0.012 * this.curR) continue; // (under ~2 px a blob is a black speck: the box alone will do)
+      const cx = d[o] + ax * len * 0.5, cz = d[o + 1] + az * len * 0.5;
+      this.put(arr, at + k, e, cx, cz, yaw, len + f * 1.5, 1, f * 1.45, d[o + 6] + d[o + 4] * 0 + f * 0.22 + 0.4, -f * 0.03 - 0.3); // (the box's gh - 0.22 f + 0.22 f: the ground, a hair above)
+    }
+    this.decals.instanceMatrix.needsUpdate = true; this.decals.count = this.cityPool.count;
+  }
   writeUnits(e, q, hole) {
     for (const p of e.pieces.units) {
       const u = p.u, m = p.m, arr = m.mesh.instanceMatrix.array;
@@ -658,13 +698,20 @@ export class Food {
       }
       this.put(arr, p.idx, e, ox, oz, u.yaw + q * 0.8, s, s, s, u.gh, sink - m.lift * s);
       m.mesh.instanceMatrix.needsUpdate = true;
+      const wk = WAKE[u.key];
+      if (wk !== undefined) { // the wake: stern-ward of the hull along its keel (the model's +X), 5 radii long, gone once the ship is going down
+        const slot = wk * MODEL_CAP + p.idx, wr = m.rad * s, ca = Math.cos(u.yaw), sa = Math.sin(u.yaw), L = 4.4 * wr;
+        if (q > 0) this.zero(this.wakes.instanceMatrix.array, slot, 1);
+        else this.put(this.wakes.instanceMatrix.array, slot, e, ox - ca * (L * 0.5 - wr * WAKE_BOW), oz - sa * (L * 0.5 - wr * WAKE_BOW), u.yaw, L, 1, wr * 2.4, u.gh, -2 - wr * 0.12);
+        this.wakes.instanceMatrix.needsUpdate = true;
+      }
     }
   }
   hide(e) {
     if (!e.vis) return;
     const p = e.pieces;
-    if (p?.mesh) { this.zero(p.mesh.instanceMatrix.array, p.at, Math.ceil(p.n / p.pool.chunk) * p.pool.chunk); p.pool.free(p.at, p.n); p.mesh.count = p.pool.count; p.mesh.instanceMatrix.needsUpdate = true; this.stats.boxes -= p.n; }
-    else if (p?.units) for (const g of p.units) { this.zero(g.m.mesh.instanceMatrix.array, g.idx, 1); g.m.free.push(g.idx); g.m.mesh.instanceMatrix.needsUpdate = true; let hi = g.m.hi; while (hi > 0 && g.m.free.includes(hi - 1)) hi--; g.m.hi = hi; g.m.mesh.count = hi; }
+    if (p?.mesh) { if (!p.tr) { this.zero(this.decals.instanceMatrix.array, p.at, Math.ceil(p.n / p.pool.chunk) * p.pool.chunk); this.decals.instanceMatrix.needsUpdate = true; } this.zero(p.mesh.instanceMatrix.array, p.at, Math.ceil(p.n / p.pool.chunk) * p.pool.chunk); p.pool.free(p.at, p.n); p.mesh.count = p.pool.count; p.mesh.instanceMatrix.needsUpdate = true; this.stats.boxes -= p.n; }
+    else if (p?.units) for (const g of p.units) { if (WAKE[g.u.key] !== undefined) { this.zero(this.wakes.instanceMatrix.array, WAKE[g.u.key] * MODEL_CAP + g.idx, 1); this.wakes.instanceMatrix.needsUpdate = true; } this.zero(g.m.mesh.instanceMatrix.array, g.idx, 1); g.m.free.push(g.idx); g.m.mesh.instanceMatrix.needsUpdate = true; let hi = g.m.hi; while (hi > 0 && g.m.free.includes(hi - 1)) hi--; g.m.hi = hi; g.m.mesh.count = hi; }
     e.pieces = null; e.vis = false; this.urbanDirty = true;
   }
 
@@ -682,7 +729,9 @@ export class Food {
       let x = ox, z = oz, sink = 0, sy = H, sx = fx, sz = fz, yaw = d[o + 2];
       if (q > 0) {
         const sl = q * q * (3 - 2 * q) * 0.9;
-        x = ox + (hx - ox) * sl; z = oz + (hz - oz) * sl; sink = q * q * (H * 0.8 + fx * 1.2); sy = H * (1 - 0.7 * q * q); sx = fx * (1 - 0.3 * q); sz = fz * (1 - 0.3 * q);
+        x = ox + (hx - ox) * sl; z = oz + (hz - oz) * sl;
+        const inK = Math.max(0, 1 - Math.hypot(x - hx, z - hz) / Math.max(1, e.holeR || 1)); // (over the void: drop, don't hover)
+        sink = q * q * (H * 0.8 + fx * 1.2) + inK * inK * q * (H + fx * 1.5) * 1.1; sy = H * (1 - 0.7 * q * q); sx = fx * (1 - 0.3 * q); sz = fz * (1 - 0.3 * q);
         yaw += (rr - 0.5) * 2.5 * q;
       } else if (T > 0.04) { x += Math.sin(T * 90 + k) * fx * 0.04; z += Math.cos(T * 80 + k) * fz * 0.04; } // tremble
       this.put(arr, p.at + k, e, x, z, yaw, sx, sy, sz, d[o + 6], sink);
@@ -702,22 +751,68 @@ export class Food {
       e.Eat = this.E;
       for (let k = 0; k < lay.n; k++) { const o = k * 11; this.put(arr, p.at + k, e, d[o], d[o + 1], d[o + 2], d[o + 3], d[o + 4], d[o + 5], d[o + 6], 0); }
       p.mesh.instanceMatrix.needsUpdate = true;
+      if (!p.tr) this.writeDecals(e, p.at, lay);
       if ((n += lay.n) > budget) return;
     }
   }
 
-  // ------------------------------------------------------------------ the footprints in the patch's maps
+  // ------------------------------------------------------------------ the footprints in the patch's RGBA map
+  // R settlement density (soft edge: the suburbs fray into the fields), G woods, B road distance field (3 texels = uRoadW metres: the shader draws a
+  // line of any width from it), A spare. Roads are re-rasterised only when the patch or the set of towns changes.
   paintUrban(info = this.W.patchInfo) {
     if (!info) return;
-    const g = this.W.globe, ua = g.urbanData, wa = g.woodData;
-    ua.fill(0); wa.fill(0);
+    const g = this.W.globe, m = g.mapData, W = this.W;
     const A = info.A, cosR = Math.cos((info.half * 1.4) / R);
+    for (let i = 0; i < m.length; i += 4) { m[i] = 0; m[i + 1] = 0; }
+    const towns = [];
     for (const e of this.recs) {
-      if (!e.vis || e.falling || e.pieces?.units || e.pieces?.none || e.tier < 0.16 * this.curR || e.dir.x * A.x + e.dir.y * A.y + e.dir.z * A.z < cosR) continue; // (under ~0.16 r a footprint is a stain: the boxes carry it)
-      this.W.stampInto(e.kind === 'forest' ? wa : ua, info, e.dir.x, e.dir.y, e.dir.z, e.tier * (e.kind === 'forest' ? 0.95 : 1.0));
+      if (!e.alive || e.pieces?.units || e.dir.x * A.x + e.dir.y * A.y + e.dir.z * A.z < cosR) continue;
+      if (e.kind === 'settle' && e.tier >= 0.16 * this.curR) towns.push(e);
+      if (!e.vis || e.falling || e.pieces?.none || e.tier < 0.16 * this.curR) continue; // (under ~0.16 r a footprint is a stain: the boxes carry it)
+      if (e.kind === 'forest') W.stampInto(m, info, e.dir.x, e.dir.y, e.dir.z, e.tier * 0.95, 4, 1, 0.3);
+      else W.stampInto(m, info, e.dir.x, e.dir.y, e.dir.z, e.tier * 0.95, 4, 0, 0.38);
     }
-    g.urbanTex.needsUpdate = true; g.woodTex.needsUpdate = true;
+    const sig = towns.length + ':' + towns.reduce((s, e) => (s * 31 + (e.id | 0)) | 0, info.half | 0);
+    if (sig !== this.roadSig || info !== this.roadInfo) { this.roadSig = sig; this.roadInfo = info; this.paintRoads(towns, info); }
+    const rd = this.roadData;
+    for (let i = 0, k = 2; i < rd.length; i++, k += 4) m[k] = rd[i];
+    g.mapTex.needsUpdate = true;
     this.urbanDirty = false;
+  }
+
+  /** Roads: each town to its two nearest neighbours (within 45 r), a gently bent polyline, a tent distance field (255 on the line .. 0 at 3 texels). */
+  paintRoads(towns, info) {
+    const rd = this.roadData ??= new Uint8Array(TRAIL * TRAIL);
+    rd.fill(0);
+    if (towns.length < 2) return;
+    const W = this.W, tx = towns.map((e) => W.texelOf(info, e.dir.x, e.dir.y, e.dir.z, {})), maxD = 45 * this.curR, seen = new Set(), segs = [];
+    for (let a = 0; a < towns.length; a++) {
+      const near = [];
+      for (let b = 0; b < towns.length; b++) if (b !== a) { const d = Math.acos(Math.min(1, towns[a].dir.x * towns[b].dir.x + towns[a].dir.y * towns[b].dir.y + towns[a].dir.z * towns[b].dir.z)) * R; if (d < maxD) near.push([d, b]); }
+      near.sort((p, q) => p[0] - q[0]);
+      for (const [, b] of near.slice(0, 2)) { const key = a < b ? a * 4096 + b : b * 4096 + a; if (!seen.has(key)) { seen.add(key); segs.push([a, b]); } }
+    }
+    const texM = (info.half * 2) / TRAIL, W3 = 3;
+    const seg = (x0, y0, x1, y1) => {
+      const i0 = Math.max(0, Math.floor(Math.min(x0, x1) - W3)), i1 = Math.min(TRAIL - 1, Math.ceil(Math.max(x0, x1) + W3)), j0 = Math.max(0, Math.floor(Math.min(y0, y1) - W3)), j1 = Math.min(TRAIL - 1, Math.ceil(Math.max(y0, y1) + W3));
+      if (i1 < i0 || j1 < j0) return;
+      const dx = x1 - x0, dy = y1 - y0, l2 = dx * dx + dy * dy || 1;
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        const t = Math.min(1, Math.max(0, ((i - x0) * dx + (j - y0) * dy) / l2)), d = Math.hypot(i - (x0 + dx * t), j - (y0 + dy * t));
+        if (d < W3) { const v = Math.round((1 - d / W3) * 255), o = j * TRAIL + i; if (v > rd[o]) rd[o] = v; }
+      }
+    };
+    for (const [a, b] of segs) {
+      const p = tx[a], q = tx[b], len = Math.hypot(q.u - p.u, q.v - p.v);
+      if (len / (1 / texM) > 1e9 || len < 1.5) continue;
+      if (Math.max(p.u, q.u) < -50 || Math.min(p.u, q.u) > TRAIL + 50 || Math.max(p.v, q.v) < -50 || Math.min(p.v, q.v) > TRAIL + 50) continue;
+      const rnd = rng((towns[a].id ^ towns[b].id) | 0), nx = -(q.v - p.v) / len, ny = (q.u - p.u) / len, n = Math.max(2, Math.min(5, Math.round(len / 40)));
+      let px = p.u, py = p.v;
+      for (let k = 1; k <= n; k++) {
+        const f = k / n, bend = k < n ? (rnd() - 0.5) * len * 0.05 : 0, cx = p.u + (q.u - p.u) * f + nx * bend, cy = p.v + (q.v - p.v) * f + ny * bend;
+        seg(px, py, cx, cy); px = cx; py = cy;
+      }
+    }
   }
 
   // ------------------------------------------------------------------ per frame
@@ -776,6 +871,7 @@ export class Food {
   }
   startFall(e, hole) {
     e.falling = true; e.fallT = 0; e.alive = true;
+    if (e.pieces?.mesh && !e.pieces.tr) { this.zero(this.decals.instanceMatrix.array, e.pieces.at, Math.ceil(e.pieces.n / e.pieces.pool.chunk) * e.pieces.pool.chunk); this.decals.instanceMatrix.needsUpdate = true; } // (the shadow goes first: the boxes are on the move)
     const k = Math.min(1, e.tier / hole.r);
     e.fallDur = e.tier < 0.12 * hole.r ? 0.7 : 1.5 + 1.5 * k;
     this.holeIn(e, hole);

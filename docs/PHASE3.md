@@ -126,8 +126,8 @@ so it's long done by the capital. `?planet` shows "Forming the world…" for tha
   land by the bite map (§2.5).
 - `planetMaterial` (TSL, `MeshBasicNodeMaterial` with hand-written lighting, `fog: false`) is shared by the globe, the
   patch and the minimap globe through a `uLocal` uniform:
-  - **land:** biome ramp × macro `fbm3` variation, slope rock, altitude snow, and a farmland patchwork (`mx_worley`) on
-    T1–T2 lowlands.
+  - **land:** biome ramp × macro `fbm3` variation, slope rock, altitude snow; on the patch the baked ground (`src/groundtex.js`, §11
+    "premium ground"): Voronoi farm parcels, forest canopy and stands, street grids, relief slopes, scan detail, rivers and lakes.
   - **ocean:** depth colour from height, GGX sun glint, Fresnel to the sky colour, two octaves of wave-normal noise at T1–T2.
   - **lighting:** Lambert + wrap from the sun, hemi fill, cloud shadows (`night.G` sampled along the sun direction).
   - **night side:** `night.R` city lights × (1 − daylight), warm sodium colour, flicker-free. Lights in eaten land go out
@@ -149,9 +149,9 @@ carried onto the sphere:
 - **Leapfrog:** two patch meshes. Start building the next one (`slicer(3)` from region.js, ~10 slices: 16.6k ×
   `heightAt` ≈ 35 ms) when the hole is more than 4 r from the anchor, or r has changed by more than 1.25×. Cross-fade
   over 0.4 s with a dithered alpha ramp. At 0.6 r/s a 4 r drift takes 6.7 s; the build takes ~0.2 s.
-- A per-patch 512² **city map** canvas (CPU 2D: city footprints, street-grid strokes, road lines between neighbouring
-  settlements), painted at build time (~3 ms) and uploaded as a texture. The patch shader uses it for pavement colour, by
-  day, and lit grids, by night.
+- A per-patch 512² RGBA **map** (`globe.mapTex`, painted by `food.paintUrban`): R settlement density (soft edge), G woods, B a road
+  distance field between neighbouring towns (3 texels reach: the shader draws any line width from it), A spare. The patch shader
+  uses it for the urban fabric, woods and roads by day, and street glow by night.
 - A per-patch 512² `R8` **fine trail** (cosmetic): eaten depth in units of 4D(r_build), stamped every frame where the
   hole is (π(r/texel)² ≈ 1000 texels) and re-rasterized at rebuild from a ring buffer of the last 4096 stamps `{dir, r,
   depth}`. Its texel is 0.055 r: 77 m at the start.
@@ -658,3 +658,35 @@ epilogue that ends at T3 with "to be continued" if the later steps aren't in.
   at 1.4 km after 10 min: its bites (0.3-0.5 r items) were 1-2 % each, one every 12 s.
 - **Bot / tools:** `window.__planetBot(seconds, who)` (bot.js; `who` = `'human'` or `'greedy'`), `tools/botrun.mjs` 4th argument `planet`, `tools/balance.mjs
   '&planet' 1800 8 planet`. Debug: `__planet.look(i, dist, r, bearing, tier)`, `.crumb(i, tier, dist, r, frac)`, `.lookKind(kind)`, `__P3`.
+
+### Premium ground pass (T1-T3 close ground)
+
+The Phase 3 ground was a saturated rectangle quilt with black hedges, flat light and grey discs under the cities. Now:
+- **`src/groundtex.js`** bakes six small tileable textures once on the CPU (~100 ms): `fields` (periodic Voronoi parcels: id, distance to the
+  hedge, crop rows, hedge type; 9 km tile), `canopy` (stands / clumps / crowns, 1.5 km), `urban` (block grid with a few missing streets, alleys,
+  park blocks, 0.8 km), `relief` (slopes of a fBm and a ridged fBm, 12 km), `noise` (4 value-noise scales, 20 km) and `scan` (rock normal +
+  luminance and grass luminance resampled from the PBR scans in `public/tex`: one 256² fetch with 2x anisotropy; the `pbr.js` arrays were 45 ms of
+  a 140 ms frame at 3 Mpx, from the 8x anisotropic compressed array fetches). Textures, not noise maths: mip-mapping antialiases hedges, rows and
+  street grids into their mean colour by itself, and a fetch replaces a dozen noise calls. All are sampled in surface metres on the cube face
+  (`wp = st * 5e6`), so nothing swims across patch rebuilds; the cube-face seam shows only as a fine line (gradients are clamped).
+- **Colour:** natural, muted biome ramps; farm parcels use absolute crop palettes (pasture, green crop, ripe grain, plough, stubble, rapeseed)
+  shifted by dryness, only where habitability x the bake's population is high, mixed 66 % so the regional hue stays; hedges are a 30-80 % soft
+  darker green line; a second, 2 km parcel layer and 5-9 km stands carry the pattern up to T3. Woods are patches (wetness + stand noise, cleared by
+  fields and towns), conifer / broadleaf / jungle by climate, canopy brightness from the baked texture, gone to a mean before a pixel is 60 m.
+- **Relief:** the CPU heightfield is smooth below 2 km, so the shader adds baked slopes (`relief` x2 scales, warped, faded by the pixel size) and
+  the rock scan's normals on top of the vertex slope (shading exaggeration `2 + 3.4/E`); `aS` per patch vertex = terrain occlusion (curvature at two
+  scales) and the sun's cast shadow marched across the height grid in `patchGen` (soft, ~100-2000 m). Haze: a cheap exponential up close
+  (`dist/200 km`), blended into the single-scatter shell from 28-51 km. Cloud shadows: only thick cloud, 30 % at most, only from T2 (r > 2.5 km).
+- **Water:** the seabed shows through the shallows (sand -> depth colour), two fine wave octaves in metres, surf bands lapping toward the shore,
+  rivers (zero crossings of a warped noise: constant pixel width, wider with the local flow value, lowlands only) and lakes use the same lighting
+  (`shadeWater`). Beaches are a narrow warm sand band with a wet edge.
+- **Cities:** the skyline kit got dark/light roofs with plant and parapet, a base darkening of 2.6 floors, window grids that dissolve before they
+  alias, up to 520 boxes per city and taller downtown cores; a second `InstancedMesh` of soft contact-shadow blobs shares the box slots (stretched
+  away from the sun by the box height, zeroed when an item starts to fall); crumbling boxes that reach the void drop instead of hovering. The
+  ground under a town is the street grid fabric (dense core, gardens at the edge) under a ragged footprint; roads between towns are thin pale lines.
+- **Ships** have a foam wake (flat instanced quad per cargo / carrier / destroyer, slot = unit block + instance index) and the carrier is lifted
+  with a tinted material clone.
+- **Cost** (browser pane at 3.1 Mpx, same camera, interleaved A/B): farm 1.4 km 144 -> ~78 ms, farm 30 km 166 -> ~102 ms, mountain 10 km 233 -> ~95 ms
+  (the old patch pattern stack was the expensive part). `?off=ground` (no baked ground), `?off=fields|canopy|urban|relief|noise|pbr|cloud|wave|atmo`
+  price each part; `?dbg=1..9,12` shows albedo / normal / terrain AO+shadow / sun term / pixel size.
+

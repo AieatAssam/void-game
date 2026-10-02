@@ -168,18 +168,26 @@ export class PlanetWorld {
   /** Synchronous full build (the first patch, under the loading line). */
   buildPatchNow(r) { const gen = this.patchGen(r); while (!gen.next().done); }
 
-  /** Write a smooth disc of the hole's radius into a trail map for patch `p` (A, X, Z, half). */
-  stampInto(arr, p, x, y, z, r) {
+  /** Write a smooth disc of the hole's radius into a patch-space map `arr` (one byte per texel, or `stride` with channel `off`) for patch `p` (A, X, Z, half).
+   *  ewK: the soft edge as a share of r (0.1 = the trail's crisp rim; 0.5 = a settlement fading out into the fields). */
+  stampInto(arr, p, x, y, z, r, stride = 1, off = 0, ewK = 0.1) {
     const dot = Math.min(1, p.A.x * x + p.A.y * y + p.A.z * z), ang = Math.acos(dot);
     const k = ang < 1e-7 ? R : (R * ang) / Math.sin(ang);
     const gx = k * (p.X.x * x + p.X.y * y + p.X.z * z), gz = k * (p.Z.x * x + p.Z.y * y + p.Z.z * z);
     const L = p.half * 2, ts = L / TRAIL, cx = (gx / L + 0.5) * TRAIL - 0.5, cz = (gz / L + 0.5) * TRAIL - 0.5;
-    const rad = r / ts, ew = Math.max(1.5, 0.1 * r / ts), ext = rad + ew;
+    const rad = r / ts, ew = Math.max(1.5, ewK * r / ts), ext = rad + ew;
     const i0 = Math.max(0, Math.floor(cx - ext)), i1 = Math.min(TRAIL - 1, Math.ceil(cx + ext)), j0 = Math.max(0, Math.floor(cz - ext)), j1 = Math.min(TRAIL - 1, Math.ceil(cz + ext));
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
       const d = Math.hypot(i - cx, j - cz), v = Math.min(1, Math.max(0, (rad + ew * 0.5 - d) / ew));
-      if (v > 0) { const b = Math.round(v * 255), o = j * TRAIL + i; if (b > arr[o]) arr[o] = b; }
+      if (v > 0) { const b = Math.round(v * 255), o = (j * TRAIL + i) * stride + off; if (b > arr[o]) arr[o] = b; }
     }
+  }
+
+  /** Patch-space texel (fractional) of a planet direction, for the maps; { u, v } in texels or null. */
+  texelOf(p, x, y, z, out = {}) {
+    const dot = Math.min(1, p.A.x * x + p.A.y * y + p.A.z * z), ang = Math.acos(dot), k = ang < 1e-7 ? R : (R * ang) / Math.sin(ang), L = p.half * 2;
+    out.u = ((k * (p.X.x * x + p.X.y * y + p.X.z * z)) / L + 0.5) * TRAIL - 0.5; out.v = ((k * (p.Z.x * x + p.Z.y * y + p.Z.z * z)) / L + 0.5) * TRAIL - 0.5;
+    return out;
   }
 
   /**
@@ -196,7 +204,7 @@ export class PlanetWorld {
     for (let k = 0; k < n; k++) cs[k] = (half * Math.sinh(aW * ((k / (n - 1)) * 2 - 1))) / sh;
     const spacing = cs[(n >> 1) + 1] - cs[n >> 1];
     const fine = Math.max(2, Math.min(12, Math.floor(Math.log(159000 / (2 * spacing)) / Math.log(2.03))));
-    const cnt = lay.count, pos = new Float32Array(cnt * 3), dir = new Float32Array(cnt * 3), aH = new Float32Array(cnt), aHm = new Float32Array(cnt), aG = new Float32Array(cnt * 3), aUV = new Float32Array(cnt * 2);
+    const cnt = lay.count, pos = new Float32Array(cnt * 3), dir = new Float32Array(cnt * 3), aH = new Float32Array(cnt), aHm = new Float32Array(cnt), aG = new Float32Array(cnt * 3), aS = new Float32Array(cnt * 2), aUV = new Float32Array(cnt * 2);
     const hs = new Float32Array(n * n), skirt = half * 0.012, d = { x: 0, y: 0, z: 0 }, f = {};
     const L = half * 2;
     for (let j = 0; j < n; j++) {
@@ -220,11 +228,53 @@ export class PlanetWorld {
       const sx = (hs[j * n + i1] - hs[j * n + i0]) / (cs[i1] - cs[i0]), sz = (hs[j1 * n + i] - hs[j0 * n + i]) / (cs[j1] - cs[j0]), k = j * n + i;
       aG[k * 3] = X.x * sx + Z.x * sz; aG[k * 3 + 1] = X.y * sx + Z.y * sz; aG[k * 3 + 2] = X.z * sx + Z.z * sz;
     }
+    // terrain occlusion (curvature of the heights, two scales) and the sun's cast shadow, per vertex, in the build's relief E: soft, ~100-2000 m
+    // (the ground shader multiplies the sky fill and the sun by them: valleys sit in shade, ridges throw it, with no shadow map)
+    const Eb = P3.relief(rB), Sp = this.sunPlanet, sx = Sp.dot(X), sz = Sp.dot(Z), sy = Sp.dot(A), hl = Math.hypot(sx, sz) || 1;
+    const hdx = sx / hl, hdz = sz / hl, tanP = sy / hl, shadowsOn = sy > 0.03 && tanP < 3;
+    const idxOf = (x) => (Math.asinh((x * sh) / half) / aW * 0.5 + 0.5) * (n - 1);
+    const hAt = (x, z) => { // bilinear height (m) at anchor-plane metres, NaN outside the grid
+      const fi = idxOf(x), fj = idxOf(z);
+      if (!(fi >= 0 && fj >= 0 && fi <= n - 1 && fj <= n - 1)) return NaN;
+      const i0 = Math.min(n - 2, Math.floor(fi)), j0 = Math.min(n - 2, Math.floor(fj)), ax = fi - i0, ay = fj - j0, o = j0 * n + i0;
+      return (hs[o] * (1 - ax) + hs[o + 1] * ax) * (1 - ay) + (hs[o + n] * (1 - ax) + hs[o + n + 1] * ax) * ay;
+    };
+    let hMax = 0; for (let k = 0; k < n * n; k++) if (hs[k] > hMax) hMax = hs[k];
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) {
+        const k = j * n + i, h = hs[k];
+        let ao = 1;
+        if (h > 0.5 || hMax > 0) {
+          let c = 0;
+          for (const s of [1, 3]) {
+            const ia = Math.max(0, i - s), ib = Math.min(n - 1, i + s), ja = Math.max(0, j - s), jb = Math.min(n - 1, j + s);
+            const cx = ((hs[j * n + ia] + hs[j * n + ib]) / 2 - h) / ((cs[ib] - cs[ia]) / 2 || 1), cz = ((hs[ja * n + i] + hs[jb * n + i]) / 2 - h) / ((cs[jb] - cs[ja]) / 2 || 1);
+            c += (cx + cz) * 0.5 * (s === 1 ? 0.6 : 1.0);
+          }
+          ao = 1 - Math.min(0.55, Math.max(0, c * Eb * 3.2)) + Math.min(0.12, Math.max(0, -c * Eb * 1.4));
+        }
+        let sh2 = 1;
+        if (shadowsOn && h > 0 && hMax > 0) {
+          const gx0 = cs[i], gz0 = cs[j], v0 = h * Eb - (gx0 * gx0 + gz0 * gz0) / (2 * R), sp = Math.max(60, (cs[Math.min(n - 1, i + 1)] - cs[Math.max(0, i - 1)]) * 0.5);
+          let occ = 0;
+          for (let q = 0, t = sp * 1.2; q < 20 && t < 40000 && occ < 0.98; q++, t *= 1.32) {
+            const px = gx0 + hdx * t, pz = gz0 + hdz * t, hh = hAt(px, pz);
+            if (hh !== hh) break;
+            const ray = v0 + t * tanP, terr = hh * Eb - (px * px + pz * pz) / (2 * R), w = 0.04 * t + 6, d = (terr - ray) / w;
+            if (d > -1) occ = Math.max(occ, Math.min(1, Math.max(0, d * 0.5 + 0.5)));
+            if (ray > hMax * Eb + 50) break;
+          }
+          sh2 = 1 - occ;
+        }
+        aS[k * 2] = ao; aS[k * 2 + 1] = sh2;
+      }
+      if (j % 8 === 7) yield;
+    }
     // skirt: the border vertices again, lowered
     for (let s = 0; s < 4; s++) for (let k = 0; k < n; k++) {
       const b = lay.border(s, k), o = lay.grid + s * n + k;
       pos[o * 3] = pos[b * 3] - dir[b * 3] * skirt; pos[o * 3 + 1] = pos[b * 3 + 1] - dir[b * 3 + 1] * skirt; pos[o * 3 + 2] = pos[b * 3 + 2] - dir[b * 3 + 2] * skirt;
-      dir.copyWithin(o * 3, b * 3, b * 3 + 3); aH[o] = aH[b]; aHm[o] = aHm[b]; aG.copyWithin(o * 3, b * 3, b * 3 + 3); aUV.copyWithin(o * 2, b * 2, b * 2 + 2);
+      dir.copyWithin(o * 3, b * 3, b * 3 + 3); aH[o] = aH[b]; aHm[o] = aHm[b]; aG.copyWithin(o * 3, b * 3, b * 3 + 3); aS.copyWithin(o * 2, b * 2, b * 2 + 2); aUV.copyWithin(o * 2, b * 2, b * 2 + 2);
     }
     yield;
     // the trail, re-rasterised from the ring buffer into a scratch map (only stamps that fall inside)
@@ -240,10 +290,11 @@ export class PlanetWorld {
     raster(start, this.nStamps); // (stamps made while the build ran)
     // commit
     const g = globe.patch.geometry.attributes;
-    g.position.array.set(pos); g.aDir.array.set(dir); g.aH.array.set(aH); g.aHm.array.set(aHm); g.aG.array.set(aG); g.aUV.array.set(aUV);
+    g.position.array.set(pos); g.aDir.array.set(dir); g.aH.array.set(aH); g.aHm.array.set(aHm); g.aG.array.set(aG); g.aS.array.set(aS); g.aUV.array.set(aUV);
     globe.trailData.set(tr); globe.trailTex.needsUpdate = true;
     globe.commitPatch(A, half);
     globe.u.uWoundP.value = 0.6 * rB;
+    globe.u.uRoadW.value = 3 * ((half * 2) / TRAIL); // (3 texels: the road distance field's reach, see food.paintUrban)
     this.patchInfo = info;
     this.onPatch?.(info); // (food.js repaints its footprint maps into the new patch space)
     this.builds++;
@@ -259,7 +310,7 @@ export class PlanetWorld {
     look.sky.visible = false; look.envSky.visible = false; // (the dome + stars in globe.sky replace them)
     renderer.toneMappingExposure = 1.0;
     post.opts.ao = false; post.opts.shafts = false; post.build(); // (no AO on a planet; one rebuild, under the loading line)
-    post.setPreset({ lut: { shadow: [0.97, 1.0, 1.05], high: [1.03, 1.0, 0.97], sat: 1.1, con: 1.05 }, shafts: 0 });
+    post.setPreset({ lut: { shadow: [0.99, 1.0, 1.03], high: [1.03, 1.0, 0.97], sat: 1.06, con: 1.05 }, shafts: 0 });
     scene.add(this.globe.group, this.globe.sky);
     this.scene = scene; this.ctx = { camera, look, post, renderer, sun };
     sun.shadow.autoUpdate = false; // (never toggle castShadow at runtime: it breaks ShadowNode)
