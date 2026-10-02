@@ -152,13 +152,18 @@ export class Ascension {
       this.bars.style.transition = 'height 1.2s ease-in'; requestAnimationFrame(() => { for (const i of this.bars.children) i.style.height = '6.5vh'; });
     });
     this.once('post', 0.12, () => this.game.world.enterPost(this.ctx.post)); // (the post pipeline rebuilds without AO: one hitch, under the freeze)
-    this.once('break', T.hold, () => { state.slowmo = 0.3; this.shake = 0.9; hole.shockwave(); sfx.boom(1); sfx.duck(0.5, 0.2); this.cracks.mesh.visible = true; });
+    this.once('break', T.hold, () => { this.lite(true); state.slowmo = 0.3; this.shake = 0.9; hole.shockwave(); sfx.boom(1); sfx.duck(0.5, 0.2); this.cracks.mesh.visible = true; });
     for (const [name, ts, r0, v, n, size, life] of [['d1', 0.5, 'h', 25, 32, 12, 3.5], ['d2', 0.95, 2, 50, 36, 26, 4], ['d3', 1.6, 0.4, 90, 40, 46, 5], ['d4', 2.3, 0.85, 140, 40, 70, 6]]) this.once(name, ts, () => {
       const rr = r0 === 'h' ? hole.r : this.city().half * r0, col = new THREE.Color(name === 'd2' || name === 'd4' ? 0x8c7a64 : 0xb8a58a);
       this.debris.dustRing(hole.x, 1, hole.z, rr, v, n, size, life, col, 0.7); hole.shockwave(); this.shake = Math.max(this.shake, 0.7); sfx.boom(0.8);
     });
     this.once('surge', T.brk, () => { state.slowmo = 0.5; sfx.surge(2.3); sfx.duck(1, 0.3); this.shake = 1; });
     this.shake = Math.max(0, this.shake - raw * (t < T.brk ? 0.25 : 0.12));
+    const D = window.__ascDbg; // (dev: price the parts of the region stage: window.__ascDbg = { debris: false, cracks: false, water: false, city: false, terrain: false, hole: false })
+    if (D && this.stage === 'region') {
+      const C = this.city(), vis = (o, k) => { if (o && D[k] !== undefined) o.visible = D[k]; };
+      vis(this.debris.puffs, 'debris'); vis(this.debris.mesh, 'chunks'); vis(this.cracks.mesh, 'cracks'); vis(C.terrain?.waterMesh, 'water'); vis(C.group, 'city'); vis(C.terrain?.group, 'terrain'); vis(hole.group, 'hole');
+    }
     if (this.stage === 'region') this.regionFrame(raw, t);
     if (t >= T.swap && this.stage === 'region') this.swap();
     // the flash: in over the last half second of the surge, out over the first 0.8 s of the planet
@@ -281,7 +286,7 @@ export class Ascension {
     this.over = true;
     const { state, ctx } = this;
     ctx.camera.fov = ctx.baseFov; ctx.camera.updateProjectionMatrix();
-    state.asc = null; state.slowmo = 1;
+    state.asc = null; state.slowmo = 1; this.lite(false);
     ctx.scene.remove(this.wound.sprite, this.decks.sprite);
     this.wound.sprite.material.dispose(); this.decks.sprite.material.dispose();
     this.W.globe.u.uSkyK.value = 1; this.W.globe.moonAt[0] = -0.93; this.W.globe.moonAt[1] = 0.8;

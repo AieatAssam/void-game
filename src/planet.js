@@ -352,12 +352,11 @@ export class PlanetWorld {
   around(fn) { this.sceneState(true); try { return fn(); } finally { this.sceneState(false); } }
   /** Remember the shared scene objects (before the first around() / enter()). */
   bind({ scene, camera, look, post, renderer, sun }) { this.ctx0 = { scene, look, renderer }; this.scene = scene; this.ctx = { camera, look, post, renderer, sun }; return this; }
-  /** The post pipeline without AO and shafts (one rebuild: the ascension does it under the hit-stop) and the planet's grade. */
+  /** The post pipeline without AO and shafts, and the planet's grade. No rebuild (it froze the game ~1 s while the shaders compiled): AO is suspended, the shafts follow the preset's 0. */
   enterPost(post) {
     if (this.postDone) return;
     this.postDone = true;
-    this.savedPost = { ao: post.opts.ao, shafts: post.opts.shafts };
-    post.opts.ao = false; post.opts.shafts = false; post.build(); // (no AO on a planet)
+    post.suspendAO(true);
     post.setPreset({ lut: { shadow: [0.99, 1.0, 1.03], high: [1.03, 1.0, 0.97], sat: 1.06, con: 1.05 }, shafts: 0 });
   }
 
@@ -378,7 +377,7 @@ export class PlanetWorld {
     if (!c) return;
     this.scene.remove(this.globe.group, this.globe.sky);
     this.sceneState(false);
-    if (this.savedPost) { c.post.opts.ao = this.savedPost.ao; c.post.opts.shafts = this.savedPost.shafts; c.post.build(); }
+    c.post.suspendAO(false);
     c.camera.near = s.near; c.camera.far = s.far; c.camera.updateProjectionMatrix();
     this.globe.dispose();
   }

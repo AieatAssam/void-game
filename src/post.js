@@ -38,6 +38,16 @@ import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import { Q } from './quality.js';
 
 const _sp = new THREE.Vector3();
+/**
+ * compileAsync() looks its render context up at call depth 0, but the scene pass renders nested inside the post pipeline's own render call (depth 1): objects it compiles get another
+ * context, so the real frame found no node-builder state for them and built it all again at first draw (15 ms per instanced mesh: 1.3 s the first time the cinematic's high camera saw
+ * the island). Looking the context up at depth 1 for the duration of the call makes the compile hit.
+ */
+function nested(r, fn, depth = 1) {
+  const rc = r._renderContexts, get = rc.get;
+  rc.get = function (t, m) { return get.call(this, t, m, depth); };
+  try { return fn(); } finally { rc.get = get; }
+}
 const NOWATCH = typeof location !== 'undefined' && location.search.includes('nowatch'); // profiling: hold the tier as set
 
 export class Post {
@@ -60,6 +70,8 @@ export class Post {
     bakeLut(this.lutTex, {});
     this.sunUV = uniform(new THREE.Vector2(0.5, -1));
     this.shaftK = uniform(0);
+    this.aoShare = uniform(1); // AO's share of the picture (suspendAO: 0 on a planet, with no rebuild of the pipeline)
+    this.aoOff = false;
     this.lowSpec = false; // set by the watchdog: thins grass, never draws LOD0
     if (!this.enabled) return;
     this.pipeline = new THREE.RenderPipeline(renderer);
@@ -72,6 +84,7 @@ export class Post {
     const { scenePass, camera, opts } = this;
     this.aoPass?.dispose?.();
     this.aoK = 0;
+    this.passDepth = undefined; // (re-learned on the next frame)
     this.bloomPass?.dispose?.();
     this.aoPass = this.bloomPass = null;
     for (const t of this.rtts || []) t.dispose();
@@ -100,7 +113,7 @@ export class Post {
         this.aoRtt = aoTex;
         this.rtts.push(aoTex);
       }
-      lit = lit.mul(mix(float(1), pow(aoTex.r, 1.6), 0.9));
+      lit = lit.mul(mix(float(1), pow(aoTex.r, 1.6), this.aoShare.mul(0.9)));
       // the denoise is inline (16 depth-aware taps per pixel), and bloom, shafts and the composite each evaluate
       // `lit` at full res: bake it once so they all read a texture
       const litTex = convertToTexture(vec4(lit, 1));
@@ -155,6 +168,11 @@ export class Post {
 
   setSize() {}
 
+  /** Switch AO off / on without rebuilding the pipeline (a rebuild is a ~1 s freeze while its shaders compile): its share goes to 0 and its buffers shrink to nothing. The planet (Phase 3) has no use for it. */
+  suspendAO(off) {
+    this.aoOff = off; this.aoShare.value = off ? 0 : 1;
+  }
+
   /**
    * Compile what `root` will draw (default: the scene) in the scene pass's own render context (its target and MRT:
    * renderer.compileAsync on the canvas built different variants, so the first real draw compiled again).
@@ -170,7 +188,7 @@ export class Post {
     const withPass = (fn) => { // (collect synchronously in the scene pass's context, then put the renderer back)
       if (!sp) return fn();
       const rt = r.getRenderTarget(), mrt = r.getMRT();
-      try { r.setRenderTarget(sp.renderTarget); r.setMRT(sp.getMRT()); return fn(); } finally { r.setRenderTarget(rt); r.setMRT(mrt); }
+      try { r.setRenderTarget(sp.renderTarget); r.setMRT(sp.getMRT()); return nested(r, fn, this.passDepth); } finally { r.setRenderTarget(rt); r.setMRT(mrt); }
     };
     const race = (p, ms) => Promise.race([p, new Promise((res) => setTimeout(res, ms))]).catch((e) => console.warn('precompile skipped', e));
     if (!root) { // the whole scene at once, behind the loading screen
@@ -215,6 +233,27 @@ export class Post {
       await race(p, 1000);
       await new Promise((res) => (document.hidden ? setTimeout(res, 0) : requestAnimationFrame(() => res())));
     }
+  }
+
+  /**
+   * One mesh's render object and pipeline, created now and not awaited (precompile() does one a frame, behind a timeout, and skips the rest of a big region): the ascension
+   * warms every mesh of the region (LODs share an instanced mesh's node state), 3 ms a frame, so the cinematic's high camera does not meet ~900 first draws at once (1.3 s).
+   */
+  warm(o, mats = null) {
+    const r = this.renderer, sp = this.scenePass, scene = this.scene, cam = this.camera, rt = r.getRenderTarget(), mrt = r.getMRT();
+    const parents = [], f = o.frustumCulled, n = o.count, m0 = o.material, ps = [];
+    for (let q = o; q; q = q.parent) { parents.push([q, q.visible]); q.visible = true; }
+    o.frustumCulled = false;
+    if (o.isInstancedMesh && !n) o.count = 1; // (culled traffic and crumbs sit at 0 until the first cull: three skips them)
+    try {
+      if (sp) { r.setRenderTarget(sp.renderTarget); r.setMRT(sp.getMRT()); }
+      for (const m of mats || [m0]) { o.material = m; nested(r, () => ps.push(r.compileAsync(o, cam, scene)), this.passDepth); } // (mats: the variants it can switch to: the ground's cut / solid sets)
+    } finally {
+      o.material = m0; o.frustumCulled = f; o.count = n;
+      for (const [q, pv] of parents) q.visible = pv;
+      r.setRenderTarget(rt); r.setMRT(mrt);
+    }
+    return Promise.all(ps).catch(() => {});
   }
 
   /** Pulled-back views (Phase 2): contact AO reaches as far as things are big on screen. k = viewScale (1 in town). */
@@ -284,7 +323,7 @@ export class Post {
     // AO resolution is held at opts.aoRes of a CSS pixel: above 1x the extra device pixels add no AO detail (it is soft and
     // denoised) but its cost grows with them, and retina screens are where the GPU is slowest
     if (this.aoPass) {
-      const k = this.opts.aoRes / Math.max(1, this.renderer.getPixelRatio());
+      const k = this.aoOff ? 0.02 : this.opts.aoRes / Math.max(1, this.renderer.getPixelRatio());
       if (k !== this.aoK) { this.aoK = k; this.aoPass.resolutionScale = k; this.aoRtt?.setResolutionScale(k); }
     }
     if (this.opts.shafts) { // where the sun sits on screen (uv, y down)
@@ -295,6 +334,10 @@ export class Post {
       // morning, noon, night (and the sun behind the camera): the two half-res ray passes would be multiplied by zero
       if (this.rayRtts) for (const t of this.rayRtts) t.autoUpdate = this.shaftK.value > 0;
     }
-    this.pipeline.render();
+    if (this.passDepth === undefined && this.scenePass) { // (learn the call depth the scene pass renders at: nested() compiles at that depth, so the compile hits)
+      const rc = this.renderer._renderContexts, get = rc.get, self = this;
+      rc.get = function (t, m, d) { if (t === self.scenePass.renderTarget) self.passDepth = d; return get.call(this, t, m, d); };
+      try { this.pipeline.render(); } finally { rc.get = get; }
+    } else this.pipeline.render();
   }
 }

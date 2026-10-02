@@ -29,7 +29,7 @@ export class PlanetGame {
    * Build the world (async; `slice` = the ascension's 3 ms time slicer: the planet is baked and built behind Phase 2, nothing here touches the scene's state) and
    * compile its pipelines. commit() then swaps it in. begin() = both, behind a loading line (?planet).
    */
-  async prepare(ctx, slice = null) {
+  async prepare(ctx, slice = null, r0 = num('r', P3.startR)) {
     const quality = ctx.Q.tier === 'low' ? 'low' : ctx.Q.tier === 'medium' ? 'medium' : 'high';
     const seed = num('seed', 7);
     const W = this.world = await PlanetWorld.create(seed, { quality, workers: !qs.has('noworker'), slice, onStage: (t) => ctx.stage?.(t) });
@@ -38,12 +38,24 @@ export class PlanetGame {
     await loadPack(ctx.assets, 'planet', null, slice ? { gentle: true } : undefined); // (the ships, silos and rigs)
     if (!qs.has('nomap')) { this.map = new PlanetMap(ctx.renderer, W.globe); this.map.show(false); await this.map.precompile(); } // (the minimap: §6.3)
     if (!qs.has('noarmy') && !qs.has('nothreat')) { ctx.stage?.('Arming the world…'); this.threat = new Threat(this, ctx); await this.threat.init(); } // (the DEFCON director, src/threat.js)
-    if (slice) { // (under Phase 2: the globe, sky and patch pipelines compile here, one mesh a frame)
+    if (slice) { // (under Phase 2: the globe, sky and patch pipelines compile here, one mesh a frame; the textures go up to the GPU one a frame; the first patch is built: the swap does none of it)
       await ctx.post.precompile(W.globe.group, 20000, this.around);
       await ctx.post.precompile(W.globe.sky, 8000, this.around);
+      const g = W.globe;
+      for (const t of [g.surfTex, g.nightTex, g.biteTex, g.trailTex, g.mapTex, ...Object.values(g.gt)]) { ctx.renderer.initTexture(t); await slice(); }
+      this.placeStart(r0); W.buildPatchNow(r0);
     }
     this.prepared = true;
     return this;
+  }
+
+  /** Put the hole at the start (the islet by the coast; ?view=pole, ?at=city debug) and the sun over the left shoulder. */
+  placeStart() {
+    const W = this.world;
+    if (qs.get('view') === 'pole') W.placeAt(new THREE.Vector3(0, 1, 0));
+    else if (qs.get('at') === 'city') W.placeAt(W.P.city, W.P.startDir); // (debug: the mainland)
+    else W.placeAt(W.P.startDir, W.P.city);
+    W.setSunRender(_s.set(-0.75, 0.6, 0.3)); // low sun over the left shoulder: relief reads
   }
 
   /** The swap: the town / region goes, the planet is the scene, the hole is dropped in at r0. cinematic: the ascension keeps the HUD and the controls off until it is done. */
@@ -55,15 +67,12 @@ export class PlanetGame {
     this.entered = true;
     this.threat?.show();
     ctx.wisps.sprite.visible = false; ctx.birds.sprite.visible = false;
-    if (qs.get('view') === 'pole') W.placeAt(new THREE.Vector3(0, 1, 0));
-    else if (qs.get('at') === 'city') W.placeAt(W.P.city, W.P.startDir); // (debug: the mainland)
-    else W.placeAt(W.P.startDir, W.P.city);
-    W.setSunRender(_s.set(-0.75, 0.6, 0.3)); // low sun over the left shoulder: relief reads
+    this.placeStart(r0);
     hole.area = Math.PI * r0 * r0;
     hole.x = hole.z = 0; hole.vx = hole.vz = 0; hole.sx = hole.sz = 0; hole.hidden = false; hole.capMode = false;
     state.phase = 3; state.belly = 1; state.tier = P3.tier(r0); state.left = 0; state.wallHint = 0; state.land = 0;
     W.update(0, hole, ctx.camera, innerHeight);
-    if (!W.capMode) W.buildPatchNow(r0);
+    if (!W.capMode && !W.patchInfo) W.buildPatchNow(r0); // (the cinematic built it behind Phase 2)
     W.update(0, hole, ctx.camera, innerHeight);
     this.hole = hole; this.ctxRef = ctx;
     if (this.map) { this.map.show(true); this.map.place(W, hole); }

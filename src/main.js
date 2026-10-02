@@ -194,6 +194,7 @@ function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null, 
   minimap.stop();
   rubble.clear();
   if (state?.phase === 3) { planetGame?.leave(); planetGame = null; }
+  if (state?.warmSlice) state.warmSlice.cancelled = true;
   if (state?.planetSlice) { // a planet was being prebuilt behind Phase 2: drop it
     planetReady = false;
     state.planetSlice.cancelled = true;
@@ -1233,11 +1234,32 @@ function prebuildPlanet() {
   const slice = state.planetSlice = slicer(3, () => post.fps > 0 && post.fps < 55);
   state.planetJob = (async () => {
     const game = new (await import('./planetgame.js')).PlanetGame();
-    await game.prepare(planetCtx(), slice);
+    await game.prepare(planetCtx(), slice, 8000); // (8 km: the hole's radius at the swap; the Ascension grows it to 40 km on the planet)
     planetReady = true;
+    warmRegion();
     console.info(`[phase3] planet ready (behind Phase 2): bake + globe + ${game.world.bite.lf.lv[1].n} districts`);
     return game;
   })().catch((e) => { if (!slice.cancelled) console.warn('planet prebuild failed', e); return null; });
+}
+
+/** Create the region's render objects (every mesh, every LOD) in the background, 3 ms a frame: the Ascension's high camera meets them all at once otherwise (1.3 s). */
+async function warmRegion() {
+  const slice = state.warmSlice = slicer(3, () => post.fps > 0 && post.fps < 55), reg = city, list = [];
+  reg.group.traverse((o) => { if (o.isMesh || o.isPoints) list.push(o); });
+  const t0 = performance.now();
+  let pending = 0;
+  try {
+    for (const o of list) {
+      await slice();
+      while (pending > 10) await slice(); // (each compile is async: a few at a time)
+      if (city !== reg || state.phase !== 2) return;
+      pending++;
+      post.warm(o, o.userData?.ground && reg.groundSets ? [reg.groundSets.cut, reg.groundSets.solid] : null).then(() => pending--);
+    }
+    while (pending > 0) await slice();
+  } catch (e) { return; } // (cancelled: a new run)
+  window.__warmed = true;
+  console.info(`[phase3] region warmed: ${list.length} meshes in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
 }
 
 /** The region's pay, banked as the capital falls (the town banked at the breakout): dust, best, daily. The Phase 3 run starts from here. */
@@ -1258,6 +1280,7 @@ async function ascend(fast = false) {
   if (state.asc || state.ascending || state.phase !== 2) return;
   state.ascending = true;
   state.playing = false;
+  const tA = performance.now();
   const pay = bankRegion();
   prebuildPlanet(); // (a no-op if it is already running)
   if (!state.planetJob) { state.ascending = false; state.playing = true; return; }
@@ -1271,14 +1294,19 @@ async function ascend(fast = false) {
   for (const el of Object.values(edgeArrows)) el.hidden = true;
   state.draft = null; draftEl.hidden = true; perksEl.hidden = true;
   news.say(`${city.capital?.name || 'The capital'} has fallen — the country is gone · +${pay.total} void dust`);
-  const ctx = planetCtx();
-  state.asc = new Ascension({
+  const ctx = planetCtx(), tB = performance.now();
+  const asc = new Ascension({
     camera, hole, state, ctx, game, city: () => city, debris, sfx, fast,
     cam0: { dist: camDist, yaw: camYaw, pitch: PITCH - (state.lowK || 0) * 0.22, fov: camera.fov },
     hideHud: () => { $('hud').hidden = true; }, showHud: () => { $('hud').hidden = false; },
+    // (the camera climbs to kilometres: nothing a shadow map or a blade of grass could add, and the draw calls were 100 ms a frame)
+    lite: (() => { let was = 1; return (on) => { grass.hidden = on; city.tinyK = on ? 0.14 : undefined; /* (the 40k trees and hedges: 15 M triangles a frame from 2 km up) */ if (on) { was = post.opts.shadowEvery; post.opts.shadowEvery = 1e9; } else post.opts.shadowEvery = was; }; })(),
     card: (small, big) => ctx.card(small, big),
     done: () => { state.ascending = false; console.info('[ascend] done'); },
   });
+  await post.precompile({ traverse: (f) => f(asc.cracks.mesh) }, 6000); // (the crack shader compiles before the clock starts, not on the frame the cracks appear)
+  state.asc = asc;
+  console.info(`[ascend] start: bank ${(tB - tA).toFixed(0)} ms, cinematic set-up ${(performance.now() - tB).toFixed(0)} ms`);
 }
 window.__ascend = (fast = false) => { // (dev: from a ?region run: the capital "falls" and the real cinematic plays; fast = 2.5x)
   if (state.phase === 1) { hole.area = Math.PI * 10 ** 2; state.mi = MILESTONES.length; return breakout(true).then(() => ascend(fast)); }
@@ -1425,7 +1453,7 @@ const perf = {
 };
 function perfTag() {
   return [`p${state?.phase ?? 1}`, state?.breaking && 'breakout', city?.reveal != null && city.meshes && city.reveal < city.meshes.length && `reveal ${city.reveal}/${city.meshes.length}`,
-    state?.draft && 'draft', !state?.playing && 'menu'].filter(Boolean).join(' ');
+    state?.draft && 'draft', state?.asc && `asc ${state.asc.t.toFixed(1)}`, !state?.playing && !state?.asc && 'menu'].filter(Boolean).join(' ');
 }
 function perfStats(win = 10000) {
   const now = performance.now(), d = [];
@@ -1522,7 +1550,7 @@ function perfOverlay(jsMs, subMs) {
   perf.i = (perf.i + 1) % HIST; perf.n++;
   if (perf.n > 30) { // (skip the first frames after load)
     perf.worstEver = Math.max(perf.worstEver, dt);
-    if (dt > 50) { perf.hitches.push({ t: +((now - perf.since) / 1000).toFixed(1), ms: Math.round(dt), js: +jsMs.toFixed(1), submit: +subMs.toFixed(1), tag: perfTag() }); if (perf.hitches.length > 200) perf.hitches.shift(); }
+    if (dt > 50) { perf.hitches.push({ t: +((now - perf.since) / 1000).toFixed(1), ms: Math.round(dt), js: +jsMs.toFixed(1), submit: +subMs.toFixed(1), draws: renderer.info.render.drawCalls, tris: Math.round(renderer.info.render.triangles / 1000), gpu: perf.gpu == null ? null : +perf.gpu.toFixed(1), tag: perfTag() }); if (perf.hitches.length > 200) perf.hitches.shift(); }
   }
   // GPU time per frame (WebGPU timestamp queries)
   perf.gpuN++;
@@ -1941,7 +1969,7 @@ function frame(dt) {
 
   sparks.update(dt);
   debris.update(dt);
-  wisps.update(dt, camTarget, camDist, look.sun.color);
+  if (state.asc) wisps.sprite.visible = false; else wisps.update(dt, camTarget, camDist, look.sun.color); // (the cinematic's camera is kilometres up: 88 sprites 400 m wide were 20 screens of overdraw)
   birds.update(dt, state.phase === 2 && world.night.value < 0.5, camTarget, camDist, hole); // (no birds at night)
   chains.update(dt, hole, director);
   for (const s of bubbles) {
