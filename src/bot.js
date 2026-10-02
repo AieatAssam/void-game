@@ -471,6 +471,9 @@ window.__runSum = (r = window.__botRun) => {
   return { min: m(r.time), tier: Object.values(r.tierAt).map(m).join('/'), won: r.won, sealed: r.sealed, dmg: p(-(L.dmg || 0)), bonus: p(L.bonus || 0), by: r.threat.by, unfair: r.threat.unfair, mercy: r.threat.mercy, seen: r.threat.seen, rivalPct: +((100 * r.threat.rivalKm2) / 1.48e8).toFixed(1), rEnd: Math.round(r.r / 1000), kinds: Object.fromEntries(Object.entries(L).filter(([k]) => !['land', 'tear', 'pull', 'fed', 'starve', 'dmg', 'bonus'].includes(k)).map(([k, v]) => [k, p(v)])) };
 };
 
+/** `__sweepRows()`: the last sweep for the WP-B gate: minutes (and cumulative minutes at the tier-ups), end r, damage / bonus % of gains, decay %, kinds seen, unfair / mercy / seal counts, hits by kind, rivals' share of the world's land and rivals eaten, set pieces (Aegis attempts / broken, cracker spawned / fizzled / hit). */
+window.__sweepRows = (rows = window.__sweep) => rows.map((r) => ({ m: r.min, tier: Object.values(r.tierMin).join('/'), land: Object.values(r.tierLand).join('/'), rEnd: r.rEnd, dmg: r.dmg, bonus: r.bonus, dec: r.decay, seen: r.thr.seen, unfair: r.thr.unfair, mercy: r.thr.mercy, seal: r.thr.sealWarn, hits: r.thr.hits, by: r.thr.by, riv: +((100 * r.thr.rivalKm2) / 1.48e8).toFixed(1), rivEaten: r.thr.rivalEaten, ag: [r.thr.aegis, r.thr.aegisBroke].join('/'), ck: [r.thr.cracker, r.thr.fizzles, r.thr.crackerHits].join('/'), won: r.won }));
+
 /**
  * Phase 3 test helpers (docs/PHASE3.md §12.7 R3): `await __planetTT.tear(L, maxKm2, minKm2, off, bearing, r, frames)` stands the hole beside the nearest unit of level L
  * (area in the range) and starts its tear, then renders `frames` frames; `__planetTT.step(n)` renders n more (1/30 s each); `__planetTT.hud(false)` hides the HUD for screenshots.

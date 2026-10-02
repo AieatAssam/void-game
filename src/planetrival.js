@@ -103,7 +103,7 @@ export class Rivals {
     } else if (x.tgt) w = tangentToward(x.dir, x.tgt.x, x.tgt.y, x.tgt.z, tg);
     if (w) x.hv.lerp(w, 1 - Math.exp(-dt / (P3.turn(x.r) * 1.3))).addScaledVector(x.dir, -x.hv.dot(x.dir)).normalize();
     // grazing slows it (as ridge drag and the feast do the player): a fleeing rival that stops to eat can be caught
-    const sp = speed0 * (x.feed > 0.3 ? (x.mood === 'chase' ? 0.3 : 0.06) : 1) * (x.mood === 'retreat' ? 1.1 : 1), ang = sp * dt / R, cs = Math.cos(ang), sn = Math.sin(ang);
+    const sp = speed0 * (x.feed > 0.3 ? (x.mood === 'chase' ? 0.25 : 0.04) : 1) * (x.mood === 'retreat' ? 1.1 : 1), ang = sp * dt / R, cs = Math.cos(ang), sn = Math.sin(ang);
     a.copy(x.dir).multiplyScalar(cs).addScaledVector(x.hv, sn); b.copy(x.hv).multiplyScalar(cs).addScaledVector(x.dir, -sn);
     x.dir.copy(a).normalize(); x.hv.copy(b).addScaledVector(x.dir, -b.dot(x.dir)).normalize();
     // chew (bite.chew with opts: no tear flags, its own phase and budget, and its own people count: the player's counters stay the player's)
