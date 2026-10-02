@@ -327,6 +327,7 @@ export function planetSteer(who = 'human') {
  * `__planetBot(seconds, who)`: from the ?planet start, run the bot for `seconds` of game time (headless), stopping at the win (land >= 99.5%)
  * or the time. Returns the log (every 30 s: tier, r, belly, land, income so far), the tier-up times and the ledger of growth by source.
  */
+window.__planetSteer = planetSteer; // (real-time runs: window.__bot = __planetSteer('human'))
 window.__planetBot = (seconds = 600, who = 'human', dt = 1 / 30) => {
   const log = [], P = window.__planet, state = P.ctx.state, hole = P.ctx.hole, t0 = state.time;
   const was = window.__bot, wh = window.__headless;

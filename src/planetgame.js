@@ -57,6 +57,7 @@ export class PlanetGame {
     window.__planetLand = () => W.bite.landEaten * 100; // % of the world's land eaten
     window.__planetDbg = window.__planet.dbg; // r, tier, e_eff, speed, patch builds, bite/world/step ms
     window.__planetLadder = () => this.ladderTest(ctx);
+    window.__planetUnits = () => this.unitsApi(ctx);
     window.__P3 = P3; // (balance knobs between runs: __P3.growth, __P3.gLand, ...)
     state.playing = true;
     return this;
@@ -147,7 +148,15 @@ export class PlanetGame {
     const credit = W.bite.chew(W.hdir, r, dt, moved);
     W.bite.upload();
     this.cpu.bite = performance.now() - tb;
-    const dA = credit * P3.g(r) * P3.feast * (here.h < 0 ? 0 : 1);
+    // tear-offs and the pull-in (§12.3): the units the disc touched, the remnants within reach; their credit is not land credit under the ocean rule
+    const B = W.bite;
+    B.tearCheck(W.hdir, r); B.pullCheck(W.hdir, r, state.time); B.stepTears(dt);
+    const G = P3.g(r) * P3.feast, tc = B.cTear * G, pc = B.cPull * G;
+    if (tc + pc > 0) { const a0 = hole.area; hole.area += tc + pc; state.belly = Math.min(1, state.belly + (tc + pc) / (a0 * P3.meal)); L.tear = (L.tear || 0) + tc; L.pull = (L.pull || 0) + pc; }
+    for (const ev of B.events) this.swallow(ev, ctx);
+    B.events.length = 0;
+    state.pop = B.pop;
+    const dA = credit * G * (here.h < 0 ? 0 : 1);
     if (dA > 0) {
       const a0 = hole.area;
       hole.area += dA;
@@ -188,6 +197,11 @@ export class PlanetGame {
       ctx.news.say(`${TIERS[nt - 1].name}: the void is now ${KM(hole.r)} wide`);
       if (g.on) g.refreshGoals(nt);
     }
+  }
+
+  /** A unit tears off or is pulled in (§12.5): the feel lives here. */
+  swallow(ev, ctx) {
+    if (ev.type === 'start') ctx.state.lastTear = ev;
   }
 
   /** A meal has started to fall: growth now (the HUD answers at once), then the feel (§5.3) and the news. */
@@ -255,6 +269,46 @@ export class PlanetGame {
     return out;
   }
 
+  /** window.__planetUnits(): the landforms in numbers (R2 checks) and test hooks (nearest / goto) for the tear tests. */
+  unitsApi(ctx) {
+    const W = this.world, lf = W.bite.lf, { hole } = ctx, self = this;
+    const info = (L, u) => ({ L, u, name: lf.name(L, u), area0: Math.round(lf.lv[L].area0[u]), left: Math.round(lf.lv[L].left[u]), rEqKm: Math.round(lf.rEq(L, u) / 1000), torn: !!lf.lv[L].torn[u] });
+    const api = {
+      lf, init: { ms: Math.round(W.bite.initMs), worstSliceMs: +W.bite.initSlice.toFixed(2) },
+      check: () => lf.check(),
+      counts: () => lf.lv.map((v, L) => ({ L, n: L === 0 ? lf.land.length : v.n - (L === 4 ? 1 : 0) })),
+      info,
+      /** The biggest n units of a level by starting area. */
+      biggest(L = 4, n = 8) { const v = lf.lv[L], ids = [...Array(v.n).keys()].filter((u) => v.area0[u] > 0).sort((a, b) => v.area0[b] - v.area0[a]).slice(0, n); return ids.map((u) => info(L, u)); },
+      /** The nearest unit of level L (standing land left, area0 in [minKm2, maxKm2]) to the hole. */
+      nearest(L = 1, maxKm2 = 1e12, minKm2 = 0, from = W.hdir) {
+        const v = lf.lv[L]; let best = -1, bd = 9;
+        for (let u = 0; u < v.n; u++) {
+          if (v.left[u] < 1 || v.area0[u] > maxKm2 || v.area0[u] < minKm2 || v.torn[u]) continue;
+          const d = Math.acos(Math.min(1, v.c[u * 3] * from.x + v.c[u * 3 + 1] * from.y + v.c[u * 3 + 2] * from.z));
+          if (d < bd) { bd = d; best = u; }
+        }
+        return best < 0 ? null : { ...info(L, best), distKm: Math.round(bd * R / 1000) };
+      },
+      /** Stand just outside unit (L, u), `off` hole radii from its rim, facing it; builds the patch if there is one. */
+      goto(L, u, off = 1.2, bearing = Math.random() * 6.283) {
+        const c = lf.dirOf(L, u, { x: 0, y: 0, z: 0 }), r = hole.r, d = W.P.step(c, bearing, lf.rEq(L, u) + off * r);
+        W.placeAt(d, c); W.h0Set = false; W.job = null;
+        if (!W.capMode) W.buildPatchNow(r);
+        self.camDist = 0; return info(L, u);
+      },
+      /** Steering [sx, sz] toward the unit's centroid (a test helper: ?__planet.run(n, () => units.steer(L, u))). */
+      steer(L, u) {
+        const c = lf.dirOf(L, u, { x: 0, y: 0, z: 0 }), q = new W.hdir.constructor(c.x, c.y, c.z).applyQuaternion(W.holeQ.clone().invert()), l = Math.hypot(q.x, q.z) || 1;
+        return [q.x / l, q.z / l];
+      },
+      /** Tear jobs running now. */
+      jobs: () => W.bite.jobs.map((j) => ({ name: j.name, L: j.L, kind: j.kind, parcels: j.n, next: j.next, t: +j.t.toFixed(2), T: +j.T.toFixed(2), active: j.act.length })),
+      stat: () => ({ ...W.bite.stat, pop: W.bite.pop, popK: W.bite.popK, tearMs: W.bite.tearMs, biteMs: W.bite.ms }),
+    };
+    return api;
+  }
+
   hud(ctx, tier) {
     const { hole, state } = ctx, F = this.food;
     const g = F.on ? F.nextGoal(hole) : null;
@@ -318,7 +372,7 @@ export class PlanetGame {
       /** Jump to a planet direction ({x,y,z}); screen-up toward `toward`. */
       teleport(dir, toward) { W.placeAt(dir, toward); },
       dbg: () => ({ r: hole.r, tier: P3.tier(hole.r), E: W.E, h0: W.h0, e_eff: W.eff(0, 0).e, h: W.eff(0, 0).h, speed: P3.speed(hole.r), land: W.bite.landEaten, belly: state.belly,
-        patchBuilds: W.builds, patchMs: W.buildMs, patchMaxSlice: W.maxSlice, lastBuild: W.lastBuild, biteMs: self.cpu.bite, visited: W.bite.visited, food: self.food.stats, foodMs: self.cpu.food, worldMs: self.cpu.world, stepMs: self.cpu.step, cap: W.capMode, walls: state.walls || 0, credit: state.ledgerLand || 0 }),
+        patchBuilds: W.builds, patchMs: W.buildMs, patchMaxSlice: W.maxSlice, lastBuild: W.lastBuild, biteMs: self.cpu.bite, tearMs: W.bite.tearMs, visited: W.bite.visited, food: self.food.stats, foodMs: self.cpu.food, worldMs: self.cpu.world, stepMs: self.cpu.step, cap: W.capMode, walls: state.walls || 0, credit: state.ledgerLand || 0 }),
       /** Debug: jump to a sunlit spot `off` m short of a peak taller than minE (m) at radius r (m), facing it, and settle the camera. */
       peak(minE = 4500, r = 3000, off = 16000) {
         const S = W.sunPlanet, P = W.P;

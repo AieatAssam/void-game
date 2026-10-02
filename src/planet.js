@@ -21,7 +21,7 @@ export class PlanetWorld {
     const bake = await bakePlanet(seed, 512, { workers });
     const P = makePlanet(seed);
     const globe = new PlanetGlobe(bake, { quality, relief: 1 });
-    const bite = new BiteMap(bake, globe.biteTex, globe.B);
+    const bite = new BiteMap(bake, globe.biteTex, globe.B, P, seed);
     await bite.init();
     return new PlanetWorld(P, globe, bite, bake, seed);
   }

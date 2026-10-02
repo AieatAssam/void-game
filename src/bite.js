@@ -4,6 +4,7 @@
 // (R8, 255 = untouched): the working precision is 16 bit because at r = 1.4 km a frame chews ~0.1% of a 96 km2 texel.
 import { R, decodeHeight, texelArea } from './planetgen.js';
 import { P3 } from './phase3.js';
+import { Landforms } from './landforms.js';
 
 const Q4 = Math.PI / 4;
 const FACES = [ // [fwd, right, up] (planetgen.js FACES)
@@ -13,10 +14,13 @@ const FACES = [ // [fwd, right, up] (planetgen.js FACES)
 ];
 const OCEAN = 65535;
 const tick = () => new Promise((r) => setTimeout(r, 0));
+const SLICE = 3; // ms: the init generator's slice (§12.7 R2: no slice > 4 ms)
+const POP = 8.1e9; // the world's people (the counter ends at exactly this)
+const MAXT = 16384; // parcels touched in one chew
 
 export class BiteMap {
   /** bake = { surf, N } from bakePlanet; tex = the globe's biteTex (DataArrayTexture R8, B x B x 6): its data array is rem8. */
-  constructor(bake, tex, B = 1024) {
+  constructor(bake, tex, B = 1024, P = null, seed = 1) {
     this.B = B; this.tex = tex; this.rem8 = tex.image.data;
     const n = 6 * B * B;
     this.rem = new Uint16Array(n); // working remaining fraction of land (65535 = untouched); ocean: 0 and never visited
@@ -34,14 +38,24 @@ export class BiteMap {
     this.credit = 0; // m2 of credit from the last chew()
     this.visited = 0; this.ms = 0;
     this.ready = false;
+    this.lf = P ? new Landforms(this, P, seed) : null; // the units (§12.3)
+    this.pop = 0; this.popK = 0; this.initMs = 0; this.initSlice = 0; // people swallowed (counter), people per (km2 x night light), init timing
+    this.touched = new Int32Array(MAXT); this.nTouched = 0; this.tflag = new Uint8Array(6 * 256 * 256); // parcels the last chew() ate from
+    this.ptear = new Uint8Array(6 * 256 * 256); // parcels already inside a tear job (1)
+    this.jobs = []; this.events = []; this.tearOn = true; this.texBudget = 15000; this.tearMs = 0; this.cTear = 0; this.cPull = 0; // tear jobs, events for the game, per-frame credit (m2)
+    this.pullAt = 0; this.stat = { tears: 0, pulls: 0, parcelTears: 0 };
+    const N = bake.N; this.nIdx = new Int32Array(B); this.nRow = new Int32Array(B); const sc = (N - 1) / (B - 1);
+    for (let i = 0; i < B; i++) { this.nIdx[i] = Math.round(i * sc); this.nRow[i] = Math.round(i * sc) * N; } // bake texel of a bite texel (rows pre-multiplied)
   }
 
-  /** Build the land mask and heights from the bake (async: a tick between faces so the loading screen stays alive). */
-  async init() {
-    const { B } = this, { surf, N } = this.bake, fl = N * N, H = new Float32Array(6 * fl);
-    for (let k = 0; k < 6 * fl; k++) H[k] = decodeHeight(surf[k * 4]);
-    let sum = 0;
-    const sc = (N - 1) / (B - 1);
+  /** Build the land mask, heights, parcels and units from the bake as a generator that yields every ~3 ms (§12.7 R2). Drain it with init(). */
+  *gen() {
+    const t00 = performance.now();
+    let ts = t00, worst = 0;
+    const { B, lf } = this, { surf, night, N } = this.bake, fl = N * N, H = new Float32Array(6 * fl);
+    for (let k = 0; k < 6 * fl; k++) { H[k] = decodeHeight(surf[k * 4]); if ((k & 65535) === 0) if (performance.now() - ts > SLICE) { worst = Math.max(worst, performance.now() - ts); yield; ts = performance.now(); } }
+    let sum = 0, sumN = 0;
+    const sc = (N - 1) / (B - 1), { nIdx, nRow } = this;
     for (let f = 0; f < 6; f++) {
       const base = f * B * B, hb = f * fl;
       for (let j = 0; j < B; j++) {
@@ -49,15 +63,30 @@ export class BiteMap {
         for (let i = 0; i < B; i++) {
           const x = i * sc, x0 = Math.min(N - 2, Math.floor(x)), fx = x - x0, o = hb + y0 * N + x0;
           const h = H[o] * (1 - fx) * (1 - fy) + H[o + 1] * fx * (1 - fy) + H[o + N] * (1 - fx) * fy + H[o + N + 1] * fx * fy;
-          const k = base + j * B + i;
-          if (h > 0) { this.hm[k] = Math.min(60000, Math.round(h)); this.rem[k] = 65535; this.rem8[k] = 255; sum += this.area[j * B + i]; } else { this.hm[k] = OCEAN; this.rem8[k] = 255; }
+          const k = base + j * B + i, ar = this.area[j * B + i];
+          if (lf) lf.pTot[lf.pk(f, i, j)] += ar;
+          if (h > 0) {
+            this.hm[k] = Math.min(60000, Math.round(h)); this.rem[k] = 65535; this.rem8[k] = 255; sum += ar;
+            if (lf) {
+              const pk = lf.pk(f, i, j), ni = hb + nRow[j] + nIdx[i], nr = night[ni * 2] / 255;
+              lf.pArea0[pk] += ar; lf.sH[pk] += ar * h; lf.sN[pk] += ar * nr; lf.sT[pk] += ar * surf[ni * 4 + 1]; lf.sS[pk] += ar * i; lf.sU[pk] += ar * j; sumN += ar * nr;
+            }
+          } else { this.hm[k] = OCEAN; this.rem8[k] = 255; }
         }
+        if (performance.now() - ts > SLICE) { worst = Math.max(worst, performance.now() - ts); yield; ts = performance.now(); }
       }
-      await tick();
     }
     this.sum0 = this.sum = sum;
+    this.popK = sumN > 0 ? POP / sumN : 0; // people per (km2 x night light): the counter ends at exactly 8.1 B
     this.tex.needsUpdate = true;
+    if (lf) { ts = performance.now(); for (const _ of lf.build()) { worst = Math.max(worst, performance.now() - ts); yield; ts = performance.now(); } }
+    this.initMs = performance.now() - t00; this.initSlice = worst;
     this.ready = true;
+  }
+  /** Drain gen() in ~10 ms bursts between timer ticks (the loading line stays alive). */
+  async init() {
+    let t = performance.now();
+    for (const _ of this.gen()) { if (performance.now() - t > 10) { await tick(); t = performance.now(); } }
     return this;
   }
 
@@ -88,7 +117,10 @@ export class BiteMap {
    * this frame. Returns the credit in m2 (already x land share, not x G). Visits at most P3.texelBudget texels, round robin.
    */
   chew(c, r, dt, moved) {
-    const t0 = performance.now(), { B, rem, ov, hm, area, tau: tauT, tanT, rem8 } = this;
+    const t0 = performance.now(), { B, rem, ov, hm, area, tau: tauT, tanT, rem8, lf } = this;
+    const lv = lf?.lv, l0 = lv?.[0].left, l1 = lv?.[1].left, l2 = lv?.[2].left, l3 = lv?.[3].left, l4 = lv?.[4].left, pu1 = lf?.pu[1], pu2 = lf?.pu[2], pu3 = lf?.pu[3], pu4 = lf?.pu[4];
+    const { tflag, touched: tlist, nIdx, nRow } = this, night = this.bake.night, fl = this.bake.N * this.bake.N;
+    let nT = 0, popAcc = 0;
     const rho = r / R, cosIn = Math.cos(Math.max(0, rho - 0.0016)), cosOuter = Math.cos(Math.min(3, rho * 1.0 + 0.012)); // (a generous outer bound: a texel is <= ~1.7e-3 rad at B = 1024)
     // boundary points of the disc -> a bounding box per face (gnomonic, conservative)
     const ax = Math.abs(c.y) < 0.95 ? [0, 1, 0] : [1, 0, 0];
@@ -167,23 +199,156 @@ export class BiteMap {
           const da = d * ar;
           remArea += da;
           credit += da * 1e6 * Math.sqrt(hcol / 1000);
+          if (lf) { // the units (§12.3): the parcel and its four ancestors lose da; the parcel is marked for the tear check
+            const pk = lf.pk(f, i, j);
+            l0[pk] -= da; l1[pu1[pk]] -= da; l2[pu2[pk]] -= da; l3[pu3[pk]] -= da; l4[pu4[pk]] -= da;
+            if (!tflag[pk] && nT < MAXT) { tflag[pk] = 1; tlist[nT++] = pk; }
+            popAcc += da * night[(f * fl + nRow[j] + nIdx[i]) * 2];
+          }
         }
       }
       if (touched) this.dirty[f] = 1;
     }
-    this.sum -= remArea;
+    this.sum -= remArea; this.pop += popAcc * this.popK / 255; this.nTouched = nT;
     this.credit = credit;
     this.visited = n; this.ms = performance.now() - t0;
     return credit;
   }
 
+  // ------------------------------------------------------------------ tear-off and pull-in (§12.3)
+  /** After chew(): every unit the disc touched this frame with 0 < left < min(0.5 area0, 0.6 pi r^2) tears off (the highest qualifying ancestor wins). c = hole direction (planet space), r in m. */
+  tearCheck(c, r) {
+    const lf = this.lf, n = this.nTouched;
+    if (lf && this.tearOn) {
+      const lim = 0.6 * Math.PI * (r / 1000) ** 2, { lv, pu } = lf;
+      for (let k = 0; k < n; k++) {
+        const pk = this.touched[k];
+        if (this.ptear[pk]) continue;
+        for (let L = 4; L >= 0; L--) {
+          const u = L ? pu[L][pk] : pk, v = lv[L], left = v.left[u];
+          if (left > 1e-6 && left < Math.min(0.5 * v.area0[u], lim) && !v.torn[u]) { this.startTear(L, u, c, 'tear'); break; }
+        }
+      }
+    }
+    for (let k = 0; k < n; k++) this.tflag[this.touched[k]] = 0;
+    this.nTouched = 0;
+  }
+
+  /** Every ~0.35 s: remnants (left < 0.5 area0 and < 0.08 pi r^2) and whole isles (area0 < 0.08 pi r^2) with their centroid within 2.5 r tear off untouched. */
+  pullCheck(c, r, now) {
+    const lf = this.lf;
+    if (!lf || !this.tearOn || now < this.pullAt) return;
+    this.pullAt = now + 0.35;
+    const lim = 0.08 * Math.PI * (r / 1000) ** 2, cosR = Math.cos(Math.min(3, (2.5 * r) / R));
+    for (let L = 4; L >= 1; L--) {
+      const v = lf.lv[L], cc = v.c;
+      for (let u = 0; u < v.n; u++) {
+        const left = v.left[u];
+        if (left <= 1e-6 || v.torn[u]) continue;
+        if (L === 4 ? v.area0[u] >= lim : !(left < 0.5 * v.area0[u] && left < lim)) continue;
+        if (cc[u * 3] * c.x + cc[u * 3 + 1] * c.y + cc[u * 3 + 2] * c.z > cosR) this.startTear(L, u, c, 'pull');
+      }
+    }
+  }
+
+  /** Start a tear job for a unit: its standing parcels sorted nearest-first to c, sunk as a wave of 0.8-2.5 s (log of the area). Returns the job. */
+  startTear(L, u, c, kind) {
+    const lf = this.lf, v = lf.lv[L], left = v.left[u], ps = lf.parcels(L, u), pd = lf.pDir, l0 = lf.lv[0].left;
+    v.torn[u] = 1;
+    const cand = [];
+    for (let k = 0; k < ps.length; k++) { const pk = ps[k]; if (!this.ptear[pk] && l0[pk] > 1e-6) { this.ptear[pk] = 1; cand.push(pk); } }
+    if (!cand.length) return null;
+    const dist = new Float32Array(cand.length), idx = cand.map((_, k) => k);
+    cand.forEach((pk, k) => { dist[k] = Math.acos(Math.min(1, Math.max(-1, pd[pk * 3] * c.x + pd[pk * 3 + 1] * c.y + pd[pk * 3 + 2] * c.z))); });
+    idx.sort((a, b) => dist[a] - dist[b]);
+    const list = Int32Array.from(idx, (k) => cand[k]), ds = Float32Array.from(idx, (k) => dist[k]);
+    const T = 0.8 + 1.7 * Math.min(1, Math.max(0, Math.log(Math.max(left, 1) / 1500) / Math.log(8e6 / 1500)));
+    const d = lf.dirOf(L, u, {});
+    const job = { L, u, kind, list, dist: ds, n: list.length, next: 0, t: 0, T, dmax: ds[ds.length - 1] || 1e-6, act: [], credit: 0, area: left, name: lf.name(L, u) };
+    this.jobs.push(job);
+    const popLeft = (L === 0 ? lf.sN[u] : v.nsum[u]) * this.popK * (left / (v.area0[u] || 1));
+    this.stat[L === 0 ? 'parcelTears' : kind === 'pull' ? 'pulls' : 'tears']++;
+    this.events.push({ type: 'start', kind, L, u, name: job.name, area0: v.area0[u], left, T, dir: d, rEq: lf.rEq(L, u), parcels: job.n, pop: popLeft });
+    return job;
+  }
+
+  /** Advance the tear jobs: <= texBudget texel visits across all jobs per frame. Credit lands in cTear / cPull (m2). */
+  stepTears(dt) {
+    this.cTear = this.cPull = 0;
+    if (!this.jobs.length) { this.tearMs = 0; return; }
+    const t0 = performance.now(), STAGE = [0.55, 0.36, 0], GAP = 0.11;
+    let budget = this.texBudget;
+    for (let ji = this.jobs.length - 1; ji >= 0; ji--) {
+      const J = this.jobs[ji];
+      J.t += dt;
+      const reach = Math.min(1, J.t / J.T) * J.dmax * 1.0001;
+      while (J.next < J.n && budget > 0 && J.dist[J.next] <= reach) {
+        const pk = J.list[J.next++], tx = this.parcelTexels(pk);
+        budget -= 64;
+        if (tx.length) { const a = { tx, pk, t0: J.t, stage: 1 }; J.act.push(a); budget -= this.shrinkAll(a, STAGE[0], J); }
+      }
+      for (let k = J.act.length - 1; k >= 0; k--) {
+        const a = J.act[k], st = Math.min(3, 1 + Math.floor((J.t - a.t0) / GAP));
+        if (st > a.stage) { budget -= this.shrinkAll(a, STAGE[st - 1], J); a.stage = st; }
+        if (a.stage >= 3) { J.act[k] = J.act[J.act.length - 1]; J.act.pop(); }
+      }
+      if (J.next >= J.n && !J.act.length) {
+        this.jobs.splice(ji, 1);
+        this.events.push({ type: 'done', kind: J.kind, L: J.L, u: J.u, name: J.name, area: J.area, credit: J.credit });
+      }
+    }
+    this.tearMs = performance.now() - t0;
+  }
+
+  /** The standing land texels (flat indices) of a parcel: the 8x8 window around its nominal block, filtered through pk(). */
+  parcelTexels(pk) {
+    const { B, lf, hm, rem } = this, f = pk >> 16, pj = (pk >> 8) & 255, pi = pk & 255, out = [], base = f * B * B;
+    const i0 = Math.max(0, 4 * pi - 2), i1 = Math.min(B - 1, 4 * pi + 5), j0 = Math.max(0, 4 * pj - 2), j1 = Math.min(B - 1, 4 * pj + 5);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const kk = base + j * B + i;
+      if (hm[kk] !== OCEAN && rem[kk] > 0 && lf.pk(f, i, j) === pk) out.push(kk);
+    }
+    return Int32Array.from(out);
+  }
+
+  /** Multiply the remaining fraction of every texel of a sinking parcel by `frac` (0 = gone): the one take-texel path for tears (left, pop, credit, ledger stay in sync). Returns the texel count. */
+  shrinkAll(a, frac, J) {
+    const { B, lf, rem, rem8, ov, hm, area, bake } = this, lv = lf.lv, BB = B * B, night = bake.night, fl = bake.N * bake.N, crust = P3.crust, K = P3.collapseK;
+    const { nIdx, nRow } = this, pk = a.pk, u1 = lf.pu[1][pk], u2 = lf.pu[2][pk], u3 = lf.pu[3][pk], u4 = lf.pu[4][pk];
+    let credit = 0, da = 0, pop = 0;
+    for (const kk of a.tx) {
+      const rn = rem[kk] / 65535;
+      if (rn <= 0) continue;
+      const nr = rn * frac, d = rn - nr, f = (kk / BB) | 0, j = ((kk - f * BB) / B) | 0, i = kk - f * BB - j * B;
+      rem[kk] = Math.round(nr * 65535); ov[kk] = 65535;
+      const r8 = Math.round(nr * 255);
+      if (r8 !== rem8[kk]) { rem8[kk] = r8; this.dirty[f] = 1; }
+      const dd = d * area[j * B + i];
+      da += dd; credit += dd * 1e6 * Math.sqrt((hm[kk] + crust) / 1000); pop += dd * night[(f * fl + nRow[j] + nIdx[i]) * 2];
+    }
+    if (da > 0) {
+      lv[0].left[pk] -= da; lv[1].left[u1] -= da; lv[2].left[u2] -= da; lv[3].left[u3] -= da; lv[4].left[u4] -= da;
+      this.sum -= da; this.pop += pop * this.popK / 255;
+      credit *= K; J.credit += credit;
+      if (J.kind === 'pull') this.cPull += credit; else this.cTear += credit;
+    }
+    return a.tx.length;
+  }
+
   /** Snapshot / restore the whole bite state (calibration runs and the Sealed checkpoint, §12.7 R2). */
-  save() { return { rem: this.rem.slice(), ov: this.ov.slice(), rem8: this.rem8.slice(), sum: this.sum }; }
-  restore(sv) { this.rem.set(sv.rem); this.ov.set(sv.ov); this.rem8.set(sv.rem8); this.sum = sv.sum; this.tex.needsUpdate = true; }
+  save() {
+    const lf = this.lf;
+    return { rem: this.rem.slice(), ov: this.ov.slice(), rem8: this.rem8.slice(), sum: this.sum, pop: this.pop, ptear: this.ptear.slice(), lv: lf?.lv.map((v) => ({ left: v.left.slice(), torn: v.torn?.slice() })) };
+  }
+  restore(sv) {
+    this.rem.set(sv.rem); this.ov.set(sv.ov); this.rem8.set(sv.rem8); this.sum = sv.sum; this.pop = sv.pop; this.ptear.set(sv.ptear); this.jobs.length = 0; this.events.length = 0;
+    sv.lv?.forEach((s, L) => { this.lf.lv[L].left.set(s.left); if (s.torn) this.lf.lv[L].torn.set(s.torn); });
+    this.tex.needsUpdate = true;
+  }
 
   /** Push dirty faces to the GPU (<= 10 Hz). */
   upload(now = performance.now()) {
-    if (now - this.lastUp < 100) return;
+    if (now - this.lastUp < (this.jobs.length ? 33 : 100)) return; // (a tear is a wave: 30 Hz while one runs)
     let any = false;
     for (let f = 0; f < 6; f++) if (this.dirty[f]) { this.tex.addLayerUpdate(f); this.dirty[f] = 0; any = true; }
     if (any) { this.tex.needsUpdate = true; this.lastUp = now; }
