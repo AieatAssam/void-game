@@ -268,7 +268,7 @@ export class PlanetGame {
       const g = G.g;
       state.goalDone[G.idx] = state.time;
       ctx.card('Goal cleared', g.name);
-      news.say(`${g.name} has fallen — ${popStr(state.pop || 0)} swallowed so far`);
+      news.say(`${g.name} ${/provinces|nations/.test(g.kind) ? 'have' : 'has'} fallen — ${popStr(state.pop || 0)} swallowed so far`);
       sfx.levelUp(); ctx.draft?.();
       G.g = lf.makeGoal(KINDS[++G.idx], W.hdir); pr = lf.progress(G.g);
     }
@@ -287,7 +287,7 @@ export class PlanetGame {
   /**
    * window.__planetLadder(): the "always something smaller and larger" rule (§4.2, §12.3) as pure table queries (no placement, no patch):
    * 20 random land spots per tier at a random size in the tier. A spot passes with >= 3 meals (a unit with 0.1-0.9 pi r^2 of land left,
-   * centroid within 8 r) and >= 1 bigger thing (a unit with more than pi r^2 left within 15 r of its rim, or at T1 a wall: a column above 0.12 r within 15 r).
+   * centroid within 8 r) and >= 1 bigger thing (a unit with more than pi r^2 left within 15 r of its rim, at T1 a wall (a column above 0.12 r within 15 r), or the Moon while r < 1737 km). `noLand` counts the spots that pass only on the Moon.
    * `rEqMeals` counts the strict "0.1-0.9 r" reading (equivalent radius) for reference.
    */
   ladderTest(ctx, per = 20) {
@@ -311,7 +311,9 @@ export class PlanetGame {
         }
         if (tier === 1 && !bigger) for (let q = 0; q < 24 && !bigger; q++) if (W.P.elevation(W.P.step(d, Math.random() * 6.283, (2 + Math.random() * 13) * r), 4) > 0.12 * r) bigger++;
         o.meals.push(meals); o.rEqMeals.push(strict); o.bigger.push(bigger);
-        if (meals >= 3 && bigger >= 1) { o.pass++; out.total.pass++; } else { o.fail++; out.total.fail++; o.fails.push({ r: Math.round(r / 1000), meals, bigger }); }
+        const moon = r < 1737400 ? 1 : 0; // the Moon is in the sky (an impostor, always in frame) and bigger than the hole until r = 1737 km
+        if (!bigger) o.noLand = (o.noLand || 0) + 1; // spots whose only bigger thing is the Moon (or nothing, past 1737 km)
+        if (meals >= 3 && (bigger >= 1 || moon)) { o.pass++; out.total.pass++; } else { o.fail++; out.total.fail++; o.fails.push({ r: Math.round(r / 1000), meals, bigger }); }
       }
     }
     return out;

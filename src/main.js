@@ -582,7 +582,10 @@ function edgeArrow(id, target, glyph, color) {
   el.hidden = !target || !state.playing;
   if (el.hidden) return;
   const a = Math.atan2(target[1] - hole.z, target[0] - hole.x), rad = Math.min(innerWidth, innerHeight) * 0.4;
-  el.style.transform = `translate(${Math.cos(a) * rad}px, ${Math.sin(a) * rad}px)`;
+  let ay = Math.sin(a) * rad;
+  const hb = $('hud').classList.contains('p3') ? $('hud').getBoundingClientRect().bottom + 44 - innerHeight / 2 : -1e9; // (Phase 3: keep the arrow and its label below the HUD pills)
+  if (ay < hb) ay = hb;
+  el.style.transform = `translate(${Math.cos(a) * rad}px, ${ay}px)`;
   el.firstChild.style.transform = `rotate(${a}rad)`;
   el.lastChild.textContent = glyph;
   el.style.setProperty('--c', color);

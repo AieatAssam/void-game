@@ -822,10 +822,13 @@ export class PlanetGlobe {
     const alt = camera.position.y - this.group.position.y - R, hi = alt > 120000;
     this.sky.visible = this.atmo.visible = this.moon.visible = hi;
     const far = camera.far * 0.9;
-    // the Moon (r 1737 km at 12 R) is far past the far plane from T1 to T4: draw it as an impostor on the same ray at 0.85 far with the same angular size (it is the sky's "larger thing", §12.3)
-    const mw = _mw.copy(this._moonLocal ??= this.moon.position.clone()).applyQuaternion(this.group.quaternion).add(this.group.position).sub(camera.position), md = mw.length(), kk = Math.min(1, (0.85 * far) / md);
-    this.moon.position.copy(mw.multiplyScalar(kk).add(camera.position).sub(this.group.position).applyQuaternion(_mq.copy(this.group.quaternion).invert()));
-    this.moon.scale.setScalar(1737400 * kk);
+    // the game's Moon (§12.3 "always something larger"): the real one (r 1737 km at 12 R) is far past the far plane from T1 to T4, so with `moonSky` it is an impostor anchored to the camera:
+    // top left of the frame, on the sky band, at 0.85 far with the true angular size (1.3 deg radius). The camera never turns, so a fixed spot reads as a moon hanging over the limb.
+    if (this.moonSky) {
+      const hh = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)), hw = hh * camera.aspect, dm = 0.85 * far;
+      _mw.set(-0.93 * hw, 0.8 * hh, -1).applyQuaternion(camera.quaternion).normalize().multiplyScalar(dm).add(camera.position).sub(this.group.position).applyQuaternion(_mq.copy(this.group.quaternion).invert());
+      this.moon.position.copy(_mw); this.moon.scale.setScalar(dm * 1737400 / (R * 12));
+    }
     this.dome.position.copy(camera.position);
     this.dome.scale.setScalar(far);
     this.uStarR.value = far * 0.98;

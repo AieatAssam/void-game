@@ -339,6 +339,7 @@ export class PlanetWorld {
     post.opts.ao = false; post.opts.shafts = false; post.build(); // (no AO on a planet; one rebuild, under the loading line)
     post.setPreset({ lut: { shadow: [0.99, 1.0, 1.03], high: [1.03, 1.0, 0.97], sat: 1.06, con: 1.05 }, shafts: 0 });
     scene.add(this.globe.group, this.globe.sky);
+    this.globe.moonSky = true; // (the Moon as a camera-anchored impostor, planetglobe.update)
     this.scene = scene; this.ctx = { camera, look, post, renderer, sun };
     sun.shadow.autoUpdate = false; // (never toggle castShadow at runtime: it breaks ShadowNode)
     sun.intensity = 4.2;
