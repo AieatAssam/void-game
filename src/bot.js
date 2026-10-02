@@ -318,13 +318,20 @@ export function planetSteer(who = 'human') {
           if (s.tgt[d.id] && dist < (d.reach ?? 10) * r && d.eta > 0.5 && dist < goD) { go = [dist < 0.25 * r ? 0 : d.x / dist, dist < 0.25 * r ? 0 : d.z / dist, 'target']; goD = dist; }
           continue;
         }
-        if (d.kind === 'sat') continue;
+        if (d.kind === 'sat' || d.kind === 'scenery') continue;
         if (d.kind === 'fall' || !d.locked || (human && d.eta > d.lock - 0.35)) continue;
         if (d.kind === 'line') { if (d.end > 0.3 && Math.abs(d.across) < d.hw + 0.35 * r) { dbg.dodge = (dbg.dodge || 0) + 1; return [Math.sign(d.across || 1) * d.nx, Math.sign(d.across || 1) * d.nz]; } continue; }
         if (!(d.eta > 0.05)) continue;
         if (s.pick[d.id] === undefined) { s.pick[d.id] = d.inner > 0 && (who === 'greedy' || Math.random() < 1 / 3); if (s.pick[d.id]) dbg.dive = (dbg.dive || 0) + 1; }
         if (s.pick[d.id] && dist - 0.3 * d.inner <= v * d.eta * 1.5) { dbg.dodge = (dbg.dodge || 0) + 1; return dist < 0.3 * d.inner + v * 0.05 ? [0, 0] : [d.x / dist, d.z / dist]; } // (centre it, then sit still until it goes off)
-        if (dist < d.R * 1.15) { dbg.dodge = (dbg.dodge || 0) + 1; return [-d.x / dist, -d.z / dist]; }
+        if (dist < d.R * 1.15) {
+          dbg.dodge = (dbg.dodge || 0) + 1;
+          if (d.R <= 1.3 * r) { // a small ring: sidestep it (a player steps out sideways and keeps going) rather than back off
+            const hx = Math.cos(s.heading ?? 0), hz = Math.sin(s.heading ?? 0); let nx = -hz, nz = hx; if (nx * d.x + nz * d.z > 0) { nx = -nx; nz = -nz; }
+            const ox = nx + hx * 0.3, oz = nz + hz * 0.3, ol = Math.hypot(ox, oz) || 1; return [ox / ol, oz / ol];
+          }
+          return [-d.x / dist, -d.z / dist];
+        }
       }
       if (go) { dbg[go[2]] = (dbg[go[2]] || 0) + 1; return [go[0], go[1]]; }
     }

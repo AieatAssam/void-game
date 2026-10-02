@@ -235,7 +235,7 @@ export class Threat {
   spawn(kind, opts = {}) {
     const k = this.byName[kind]; if (!k) return false;
     const ok = k.spawn(opts);
-    if (ok && !opts.force) { this.budget -= k.cost; this.cool[kind] = rnd(k.cool[0], k.cool[1]) * (T3.coolK[P3.tier(this.hole.r) - 1] ?? 1); this.last = kind; }
+    if (ok && !opts.force) { this.budget -= k.cost; this.cool[kind] = rnd(k.cool[0], k.cool[1]) * (kind === 'rod' ? 1 : T3.coolK[P3.tier(this.hole.r) - 1] ?? 1); this.last = kind; }
     if (ok) this.noteSeen();
     return ok;
   }

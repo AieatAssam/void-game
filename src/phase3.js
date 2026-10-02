@@ -35,7 +35,7 @@ export const P3 = {
   pitch: (r) => ramp(VIEW, r, 1) * Math.PI / 180,
   relief: (r) => ramp(VIEW, r, 2),
   aim: (r) => ramp(VIEW, r, 3), // degrees
-  gScale: 1.06, // global multiplier on the G ramp (balance knob)
+  gScale: 1.28, // global multiplier on the G ramp (balance knob)
   gRamp: GRAMP, // (mutable for sweeps: __P3.gRamp[0][1] = ...)
   g: (r) => P3.gScale * ramp(P3.gRamp, r, 1),
   tier: (r) => { let t = 1; for (const q of TIERS) if (r >= q.r * 0.999 || q.n === 1) t = q.n; return t; },
@@ -62,7 +62,7 @@ export const P3 = {
 // Threat tuning (docs/PHASE3-REVIEW.md A9): damage is the larger of the old fixed fraction and `k` seconds of current income (state.gRate), so a hit costs the same
 // number of seconds of progress at every tier. Bonuses are the area multipliers for swallowing the weapons (x mods.gulp).
 export const T3 = {
-  nukeK: 25, rodK: 25, bomberK: 12, // seconds of income lost to a hit
+  nukeK: 25, rodK: 20, bomberK: 12, // seconds of income lost to a hit
   nukeHit: 0.07, rodHit: 0.08, bomberHit: 0.06, firstHit: 0.07, // floors (the scripted first ICBM is capped at firstHit)
   nukeGulp: 0.03, rodGulp: 0.02, satGulp: 0.01,
   falloutLife: 45, falloutLand: 0.5, grace: 14,
@@ -70,14 +70,14 @@ export const T3 = {
   // WP-B (docs/PHASE3-REVIEW.md B0): the director's numbers per kind. cost = budget points, cool = [min, max] s between spawns of the kind.
   cap: { build: 2, peak: 3, relax: 1 }, // live telegraphs by tension phase; +1 at DEFCON <= 2 (build / peak)
   refill: [0.6, 0.2], // budget per s = a + b x (5 - DEFCON)
-  coolK: [1, 1, 1, 0.85, 0.7], // cooldown multiplier by tier 1..5 (T1-T2 gentle, T4 extinction-level)
+  coolK: [1.3, 1.15, 1, 0.85, 0.7], // cooldown multiplier by tier 1..5 (T1-T2 gentle, T4 extinction-level)
   kinds: {
     bomber: { cost: 3, cool: [42, 56] }, nuke: { cost: 6, cool: [48, 68] }, rod: { cost: 5, cool: [55, 75] },
     mirv: { cost: 10, cool: [90, 120], hit: 0.04, k: 14, cap: 0.15, gulp: 0.02, children: 4 },
     laser: { cost: 8, cool: [80, 105], rate: 0.02, k: 1.1, sweep: 0.3, dur: 12, jam: 0.8, gulp: 0.02 },
-    fleet: { cost: 3, cool: [85, 120], hit: 0.04, k: 8, eat: 0.015, all: 0.03, salvo: 12 },
+    fleet: { cost: 3, cool: [100, 140], hit: 0.04, k: 8, eat: 0.015, all: 0.03, salvo: 12 },
     tsunami: { cost: 0, cool: [60, 80], hit: 0.03, k: 8, rubble: 1.5, rubbleT: 30 },
-    volcano: { cost: 0, cool: [150, 200], hit: 0.03, k: 8, surge: 1.5, surgeT: 8 },
+    volcano: { cost: 0, cool: [220, 300], hit: 0.03, k: 8, surge: 1.5, surgeT: 8 },
     aegis: { hit: 0.12, gulp: 0.08, retry: 90, tries: 3, r: 800e3 },
     exodus: { cost: 0, cool: [70, 95], eat: 0.003 },
     cracker: { hit: 0.2, gulp: 0.05, land: 0.9 },

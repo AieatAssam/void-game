@@ -70,13 +70,13 @@ export function makeFleet(th) {
       if (q.mk && q.ships[0].alive) q.mk.dir = q.ships[0].dir;
       // the salvo
       const carrier = q.ships[0];
-      if (carrier.alive && dist < 15 * hr && q.age < 40 && q.nSalvo < 3 && (q.salvoT -= dt) <= 0) { q.salvoT = T.salvo; q.nSalvo++; this.salvo(q); }
+      if (carrier.alive && dist < 15 * hr && q.age < 40 && q.nSalvo < 2 && (q.salvoT -= dt) <= 0) { q.salvoT = T.salvo; q.nSalvo++; this.salvo(q); }
       for (const m of q.missiles) if (m.on) this.missile(q, m, dt);
       // gone: far away, or sunk and every missile landed
       if ((dist > 45 * hr && !up) || q.age > 60 || (!live && !up && q.ships[0].sink >= 1 && q.ships[1].sink >= 1 && q.ships[2].sink >= 1)) k.finish(q);
     },
     salvo(q) {
-      const r = hole.r, n = Math.min(3 + Math.floor(Math.random() * 3), th.zonesFree());
+      const r = hole.r, n = Math.min(3 + Math.floor(Math.random() * 2), th.zonesFree());
       if (n < 3) return;
       const lock = th.lockFor(0.9, 2.0, 3.2), sp = Math.hypot(hole.vx, hole.vz), ux = sp > 0.05 * P3.speed(r) ? hole.vx / sp : 0, uz = sp > 0.05 * P3.speed(r) ? hole.vz / sp : -1, base = rnd(0, 6.283), salvo = { sum: 0 };
       let made = 0;

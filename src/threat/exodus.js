@@ -87,7 +87,7 @@ export function makeStation(th) {
     danger(q, out) {
       if (q.eaten) return; const t = q.th0 + q.om * q.t, hr = hole.r;
       at(q, t, a); b.copy(a).normalize(); th.offsetOf(b, o); const x0 = o.x, z0 = o.z; at(q, t + q.om, a); b.copy(a).normalize(); th.offsetOf(b, o);
-      out.push({ kind: 'sat', id: `st${q.i}`, x: x0, z: z0, vx: o.x - x0, vz: o.z - z0, R: 0.8 * hr, eta: 24 - q.t, locked: false });
+      out.push({ kind: 'scenery', id: `st${q.i}`, x: x0, z: z0, vx: o.x - x0, vz: o.z - z0, R: 0.8 * hr, eta: 24 - q.t, locked: false });
     },
   };
   x.mod.visible = false;
