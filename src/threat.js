@@ -502,11 +502,11 @@ export class Threat {
   // ---------------------------------------------------------------- kinetic lances ("rods from god")
   spawnLance(o = {}) {
     const { hole, W } = this, r = hole.r, l = this.lances.find((q) => !q.on); if (!l) return false;
-    const lock = this.lockFor(0.5, 2.0), Tfire = Math.max(6.6, lock + 3.2), om = 0.034;
+    const lock = this.lockFor(0.5, 2.0), Tfire = Math.max(12, lock + 3.2), om = 0.034; // (12 s in orbit: a satellite 1.5-2.5 r to the side is a 5-9 s detour at the hole's speed)
     Object.assign(l, { uid: ++this.uid, on: true, phase: 'orbit', age: 0, r0: r, B: 1.0 * r, inner: 0.3 * r, lock, Tfire, om, th0: -om * Tfire, locked: false, past: false, ox: 0, oz: 0, side: Math.random() < 0.5 ? -1 : 1, off0: o.at === 'hole' ? 0 : 0.55 * r, ux: 0, uz: -1, rodT: -1, eaten: 0, alt: Math.max(260e3, 0.8 * r), out: '' });
     // the orbit plane holds the hole's position and the screen's top: the satellite comes down the frame toward you
-    // the ground track runs 2.5-4 r to the side of the hole (A8): swallowing the satellite is a detour, not a free ride; the designator still aims at the hole
-    const br = rnd(-0.9, 0.9), ox = l.side * rnd(2.5, 4) * r; W.dirAt(ox, 0, l.a); W.dirAt(ox + Math.sin(br) * 2e4, -Math.cos(br) * 2e4, v1); v1.addScaledVector(l.a, -v1.dot(l.a)).normalize();
+    // the ground track runs 1.5-2.5 r to the side of the hole (A8): swallowing the satellite is a detour, not a free ride; the designator still aims at the hole
+    const br = rnd(-0.9, 0.9), ox = l.side * rnd(1.5, 2.5) * r; W.dirAt(ox, 0, l.a); W.dirAt(ox + Math.sin(br) * 2e4, -Math.cos(br) * 2e4, v1); v1.addScaledVector(l.a, -v1.dot(l.a)).normalize();
     l.b.copy(v1).negate(); l.n.crossVectors(l.a, l.b).normalize(); l.to.copy(W.hdir); l.gd = 9;
     l.zone = this.zoneAlloc();
     l.mk = this.map?.addMarker({ kind: 'sat', dir: l.a, track: l.n, label: 'LANCE', color: '#9fe8ff' });
@@ -698,6 +698,8 @@ export class Threat {
     el.querySelector('#sl-new').onclick = () => { location.reload(); };
   }
 
+  /** Director and Void Lid back on (a reset() after a win). */
+  arm() { this.disabled = qs.has('noarmy') || qs.has('nothreat'); this.sealOn = !this.disabled; this.eventsHold = false; }
   /** The world is eaten (A3): the director stops, the weapons go. */
   stand() { this.clear(); this.disabled = true; this.sealOn = false; }
 

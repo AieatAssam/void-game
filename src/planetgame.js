@@ -221,7 +221,7 @@ export class PlanetGame {
     hole.sx = (hole.sx || 0) + (sx - (hole.sx || 0)) * kv;
     hole.sz = (hole.sz || 0) + (sz - (hole.sz || 0)) * kv;
     // what is under the hole: height x what is left of it
-    const here = W.eff(0, 0), Ek = 1 + (W.E - 1) * smooth(40e3, 450e3, r); // (A10: the walls and the drag compare the height the player SEES (x E, ramped in), so a summit stays a summit past T1)
+    const here = W.eff(0, 0), Ek = 1 + (W.E - 1) * smooth(40e3, 450e3, r) * P3.heightK; // (A10: the walls and the drag compare the height the player SEES (x E, ramped in), so a summit stays a summit past T1)
     here.e *= Ek;
     let mult = 1;
     if (this.wetPrev) mult = P3.oceanSpeed(tier) * (state.mods?.sea ?? 1); // the sea: no credit, slower while small (wet = the centre is at sea AND the disc ate nothing last frame: a coast is not the sea)
@@ -597,7 +597,7 @@ export class PlanetGame {
         W.placeAt(W.P.startDir, W.P.city); W.h0Set = false; W.job = null; W.patchInfo = null; W.nStamps = 0; W.globe.trailData.fill(0); W.globe.trailTex.needsUpdate = true;
         W.capMode = false; hole.capMode = false; W.globe.hidePatch?.(); hole.area = Math.PI * self.r0 * self.r0; hole.sx = hole.sz = 0;
         Object.assign(state, { belly: 1, tier: P3.tier(self.r0), land: 0, time: 0, pop: 0, best: 0, walls: 0, goalDone: [], tierLand: {}, tierAt: { 1: 0 }, shake: 0, slowT: 0, slowmo: 1, hitstop: 0, ledger: { land: 0, tear: 0, pull: 0, fed: 0, starve: 0 }, perks: [], mods: modsFor([]), drafts: 0, draftsDue: 0, draft: null, continents: 0, won: false });
-        self.goal = null; self.gT = 0; self.worldGoal = null; state.sealed = false; state.over = false; state.playing = true; state.frenzy = 0; state.surge = false; state.fallout = false; state.nukesSwallowed = 0; self.threat?.clear(); self.ckpt = { tier: P3.tier(self.r0), snap: self.snap0, holeQ: W.holeQ.clone() };
+        self.goal = null; self.gT = 0; self.worldGoal = null; state.sealed = false; state.over = false; state.playing = true; state.frenzy = 0; state.surge = false; state.fallout = false; state.nukesSwallowed = 0; state.gRate = 0; self.combo = 0; self.threat?.clear(); if (self.threat) { for (const k in self.threat.stats) self.threat.stats[k] = 0; self.threat.firstNuke = false; self.threat.arm(); } self.ckpt = { tier: P3.tier(self.r0), snap: self.snap0, holeQ: W.holeQ.clone() };
         W.update(0, hole, ctx.camera, innerHeight); W.buildPatchNow(self.r0); self.camDist = 0; self.fx = null;
         return 'reset';
       },

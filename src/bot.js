@@ -420,7 +420,7 @@ window.__planetSweep = async (n = 3, secs = 3000, who = 'human') => {
     const run = window.__planetBotAsync(secs, who);
     while (!run.done) await new Promise((r) => setTimeout(r, 300));
     const L = run.ledger, tot = L.land + L.tear + L.pull;
-    rows.push({ won: run.won, sealed: run.sealed, threat: run.threat, min: m(run.time), tierMin: Object.fromEntries(Object.entries(run.tierAt).map(([k, v]) => [k, m(v)])), tierLand: run.tierLand, goalMin: run.goalAt.map(m), rEnd: Math.round(run.r / 1000), share: [L.land, L.tear, L.pull].map((v) => Math.round((100 * v) / tot)), decay: Math.round((100 * (L.fed + L.starve)) / -tot) });
+    rows.push({ won: run.won, sealed: run.sealed, threat: run.threat, min: m(run.time), tierMin: Object.fromEntries(Object.entries(run.tierAt).map(([k, v]) => [k, m(v)])), tierLand: run.tierLand, goalMin: run.goalAt.map(m), rEnd: Math.round(run.r / 1000), share: [L.land, L.tear, L.pull].map((v) => Math.round((100 * v) / tot)), decay: Math.round((100 * (L.fed + L.starve)) / -tot), dmg: +((100 * -((L.nuke || 0) + (L.rod || 0) + (L.bomber || 0))) / tot).toFixed(1), bonus: +((100 * ((L.nukeGulp || 0) + (L.rodGulp || 0) + (L.sat || 0))) / tot).toFixed(1), sat: +((100 * (L.sat || 0)) / tot).toFixed(1), walls: window.__planet.ctx.state.walls || 0, thr: { ...window.__threat?.stats } });
   }
   window.__sweepDone = true;
   return rows;
