@@ -12,6 +12,7 @@ import { modsFor } from './perks.js';
 import { PlanetMap } from './planetmap.js';
 import { Threat, sealedCss } from './threat.js';
 import { save, persist } from './meta.js';
+import { Cities } from './cities.js';
 
 const KM = (m) => (m >= 1e5 ? `${(m / 1000).toFixed(0)} km` : m >= 1e4 ? `${(m / 1000).toFixed(1)} km` : `${(m / 1000).toFixed(2)} km`);
 const SUN_R = new THREE.Vector3(-0.75, 0.6, 0.3).normalize(); // low sun over the left shoulder (render space): relief reads; it follows the hole, so the play area is always lit (review B2)
@@ -45,6 +46,7 @@ export class PlanetGame {
     await loadPack(ctx.assets, 'planet', null, slice ? { gentle: true } : undefined);
     if (!qs.has('nomap')) { this.map = new PlanetMap(ctx.renderer, W.globe); this.map.show(false); await this.map.precompile(); } // (the minimap: §6.3)
     if (!qs.has('noarmy') && !qs.has('nothreat')) { ctx.stage?.('Arming the world…'); this.threat = new Threat(this, ctx); await this.threat.init(); } // (the DEFCON director, src/threat.js)
+    this.cities = new Cities(this, ctx); this.cities.attach(this.map); try { await ctx.post.precompile({ traverse: (f) => f(this.cities.pool.sprite) }, 3000, this.around); } catch (e) { console.warn('cities precompile', e); }
     if (slice) { // (under Phase 2: the globe, sky and patch pipelines compile here, one mesh a frame; the textures go up to the GPU one a frame; the first patch is built: the swap does none of it)
       await ctx.post.precompile(W.globe.group, 20000, this.around);
       await ctx.post.precompile(W.globe.sky, 8000, this.around);
@@ -88,7 +90,7 @@ export class PlanetGame {
     ctx.dropTown(); // the town (and any Phase 2 region) goes; stand-ins keep the shared code honest
     W.enter({ scene: ctx.scene, camera: ctx.camera, look: ctx.look, post: ctx.post, renderer: ctx.renderer, sun: ctx.sun });
     this.entered = true;
-    this.threat?.show();
+    this.threat?.show(); this.cities?.show();
     ctx.wisps.sprite.visible = false; ctx.birds.sprite.visible = false;
     this.placeStart(r0);
     hole.area = Math.PI * r0 * r0;
@@ -135,7 +137,7 @@ export class PlanetGame {
   /** Throw a prepared (never swapped in) world away: the run ended in Phase 2. */
   discard() {
     if (this.entered) return;
-    this.threat?.dispose(); this.threat = null;
+    this.threat?.dispose(); this.threat = null; this.cities?.dispose(); this.cities = null;
     this.map?.dispose(); this.map = null;
     this.world?.globe.dispose(); this.world = null;
   }
@@ -191,6 +193,7 @@ export class PlanetGame {
     this.painFx(ctx, W);
     state.asc?.afterWorld(W, camera);
     this.threat?.post(ctx);
+    if (this.cities) { _qi.copy(W.holeQ).invert(); this.cities.post(_qi, W.globe.group.position); }
     hole.update(dt, state.time, Math.max(0, 0.5 - state.belly) * 2, W.span, W.tilt);
     // the sun is fixed in planet space: rotate it into render space for the hole's own lighting and the shared sunDir
     W.sunRender(_s);
@@ -296,6 +299,7 @@ export class PlanetGame {
     this.goalTick(ctx, dt);
     this.ripeTick(ctx, dt);
     this.threat?.update(dt, ctx);
+    this.cities?.update(dt, ctx);
     // belly and decay (§4.5): a full belly lasts 30 s; fed 0.1%/s, starving 0.8%/s
     const oceanDrain = this.wetPrev ? P3.oceanDrain(tier) : 1;
     const hunt = B.landEaten >= 0.97; // §12.4: no decay in the hunt (the last specks of land are a chase, not a famine)
@@ -443,7 +447,7 @@ export class PlanetGame {
   checkpoint(ctx) { this.ckpt = { tier: ctx.state.tier, snap: this.world.bite.save(this.ckpt?.snap !== this.snap0 ? this.ckpt?.snap : null), holeQ: this.world.holeQ.clone() }; }
   /** "Retry tier N": back to the tier-up (land as it was, the hole at the tier's floor, belly full). */
   restoreCheckpoint(ctx) {
-    ctx.pain?.clear();
+    ctx.pain?.clear(); this.cities?.reset();
     const W = this.world, { hole, state } = ctx, c = this.ckpt, B = W.bite;
     B.restore(c.snap); B.jobs.length = 0; B.events.length = 0; B.tflag.fill(0); B.nTouched = 0; B.pullAt = 0;
     W.holeQ.copy(c.holeQ).normalize(); W.hdir.set(0, 1, 0).applyQuaternion(W.holeQ); W.h0Set = false; W.job = null; W.patchInfo = null; W.nStamps = 0; W.globe.trailData.fill(0); W.globe.trailTex.needsUpdate = true;
@@ -609,7 +613,7 @@ export class PlanetGame {
       },
       /** Back to the start of the run (bite map, units, hole, ledger, trail): for balance sweeps in one page load. */
       reset() {
-        ctx.pain?.clear();
+        ctx.pain?.clear(); self.cities?.reset();
         W.bite.restore(self.snap0); W.bite.jobs.length = 0; W.bite.events.length = 0; W.bite.tflag.fill(0); W.bite.nTouched = 0; W.bite.pullAt = 0; W.bite.stat = { tears: 0, pulls: 0, parcelTears: 0 }; self.rim = 0; self.dustMoved = 0;
         W.placeAt(W.P.startDir, W.P.city); W.h0Set = false; W.job = null; W.patchInfo = null; W.nStamps = 0; W.globe.trailData.fill(0); W.globe.trailTex.needsUpdate = true;
         W.capMode = false; hole.capMode = false; W.globe.hidePatch?.(); hole.area = Math.PI * self.r0 * self.r0; hole.sx = hole.sz = 0;
@@ -673,7 +677,7 @@ export class PlanetGame {
 
   leave(ctx) {
     ctx.sfx.grind.stop();
-    this.threat?.dispose(); this.threat = null;
+    this.threat?.dispose(); this.threat = null; this.cities?.dispose(); this.cities = null;
     this.map?.dispose(); this.map = null;
     for (const id of ['stars', 'eaten', 'left']) { const e = document.getElementById(id); if (e) e.hidden = false; }
     document.getElementById('defcon').hidden = true; document.getElementById('hud').classList.remove('p3');

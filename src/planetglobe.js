@@ -337,7 +337,8 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
       }
     });
     const oceanCol = vec3(0).toVar(), landCol = vec3(0).toVar(), dbgV = vec3(0).toVar();
-    const urbV = patch ? sstep(0.45, 0.95, nRaw.r) : float(0);
+    const cnU = mx_fractal_noise_float(dir.mul(210), 3, 2.1, 0.5, 1).mul(0.5).add(0.5).toVar(), cityD = nRaw.r.mul(cnU).mul(1.2).toVar(); // (a city is where the population density meets a ~30 km blotch of noise: discrete towns on a dense plain)
+    const urbV = patch ? sstep(0.58, 0.72, cityD) : float(0);
     // the water's lighting: sun glint, Fresnel to the sky, a body colour and a little diffuse
     const shadeWater = (oc, on, iceO, nrmL) => {
       const Hh = normalize(L.add(V)), nh = max(dot(on, Hh), 0), nv = max(dot(on, V), 0);
@@ -554,11 +555,27 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
     }
     // ---- surface = ocean/land, then lights and clouds on top
     const col = mix(oceanCol, landCol, landMask).toVar();
+    // ---- cities (docs 12.12): the baked population density, thresholded with noise, is an urban footprint: tan-grey fabric with an arterial web in daylight, a lit grid at night, glints by day;
+    //      the footprint dies with the land (no `wound` = no city), and its lights flare and strobe along the sinking front: the wink-out wave
+    const foot = float(0).toVar(), cityGlow = float(0).toVar();
+    if (!OFF.has('city')) If(nRaw.r.greaterThan(0.4).and(landMask.greaterThan(0.4)), () => {
+      const cn2 = mx_noise_float(dir.mul(2600)).mul(0.5).add(0.5);
+      const core = sstep(0.58, 0.72, cityD), rem = float(1).sub(wound.mul(4).min(1));
+      foot.assign(core.mul(rem));
+      const roadK = fadeTo(2600, pxM), g1 = abs(fract(wp.x.div(1900)).sub(0.5)), g2 = abs(fract(wp.y.div(1900)).sub(0.5)), web = float(1).sub(sstep(0.012, 0.03, min(g1, g2))).mul(roadK);
+      const fabric = mix(vec3(0.3, 0.27, 0.25), vec3(0.5, 0.45, 0.39), cn2.mul(0.7).add(core.mul(0.3))).mul(float(1).sub(web.mul(0.34)));
+      col.assign(mix(col, fabric, foot.mul(0.82).mul(float(1).sub(near.mul(u.uGroundK).mul(0.8)))));
+      const speck = sstep(0.72, 0.9, mx_noise_float(dir.mul(9000)).mul(0.5).add(0.5)).mul(sstep(0.3, 0.7, cn2)), edge = wound.mul(float(1).sub(wound)).mul(4).min(1).mul(core);
+      cityGlow.assign(foot.mul(speck.mul(0.5).add(web.mul(0.5)).add(0.12)));
+      col.addAssign(vec3(1.0, 0.78, 0.45).mul(cityGlow.mul(0.9).add(sstep(0.46, 0.6, cityD).mul(float(1).sub(core)).mul(rem).mul(0.1)))); // (windows catching the sun: sparkles that bloom, and a faint warm halo round the edge of a city)
+      col.addAssign(vec3(1.0, 0.45, 0.12).mul(edge).mul(sin(u.uTime.mul(34).add(cn2.mul(60))).mul(0.5).add(0.9)).mul(1.2)); // (the lights flare and strobe as the land under them sinks)
+    });
     const dark = sstep(-0.02, -0.2, nlGeo).mul(float(1).sub(cloud.mul(0.8))).mul(float(1).sub(wound.mul(4).min(1))).toVar();
     If(dark.greaterThan(0.002), () => { // night lights: clustered, speckled, off in cloud and in eaten land
       const nlight = nRaw.r.toVar();
       const cl1 = mx_noise_float(dir.mul(640)).mul(0.5).add(0.5), cl2 = mx_noise_float(dir.mul(2100)).mul(0.5).add(0.5);
       const lights = nlight.mul(sstep(0.35, 0.9, cl1.mul(0.6).add(nlight.mul(0.7))).mul(sstep(0.56, 0.78, cl2)).mul(2.2).add(nlight.mul(nlight).mul(sstep(0.5, 0.75, cl1)).mul(0.5))).mul(landMask);
+      col.addAssign(vec3(1.0, 0.62, 0.24).mul(cityGlow.mul(2.6).add(foot.mul(0.5))).mul(dark).mul(float(1).sub(near.mul(u.uGroundK))));
       col.addAssign(vec3(1.0, 0.56, 0.2).mul(lights).mul(dark).mul(1.7).mul(float(1).sub(near.mul(u.uGroundK))));  // (close up the food's own windows take over: the bake's blobs would be 5 km soft clouds)
       if (patch) col.addAssign(vec3(1.0, 0.5, 0.18).mul(urbV).mul(dark).mul(0.09).mul(u.uGroundK).mul(near)); // street glow under the skyline
     });

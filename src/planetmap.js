@@ -330,6 +330,15 @@ export class PlanetMap {
       g.lineWidth = 1 * D; g.strokeStyle = col + '88'; stroke(pts, true);
     }
     this.project(m.dir, m.kind === 'sat' ? 0.12 : 0, p);
+    if (m.kind === 'city') { // a city: a warm lit pip (bigger and ringed for the megacities), a dark hollow ring once its land is eaten
+      if (!p[2] || p[3]) return;
+      const dead = m.c?.eaten, rr = (m.big ? 3.2 : 1.9) * D;
+      g.beginPath(); g.arc(p[0], p[1], rr, 0, PI2);
+      if (dead) { g.lineWidth = 1 * D; g.strokeStyle = '#3a2a4a'; g.stroke(); return; }
+      g.fillStyle = '#ffd28a'; g.fill(); if (m.big) { g.beginPath(); g.arc(p[0], p[1], rr + 2 * D * (0.6 + 0.4 * pulse), 0, PI2); g.lineWidth = 1 * D; g.strokeStyle = '#ffd28a99'; g.stroke(); }
+      if (m.label && this.ext < 6e6) lab(p[0] + rr + 3 * D, p[1], m.label);
+      return;
+    }
     if (!p[2] || p[3]) { if (m.kind !== 'sat') chev(p[0], p[1], col, 5); return; }
     g.lineWidth = 1.4 * D; g.strokeStyle = '#120a22'; g.fillStyle = col;
     if (m.kind === 'rival') {
