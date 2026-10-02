@@ -198,7 +198,7 @@ export class Threat {
     const dc = FORCE || Math.min(fl, nl);
     if (dc !== this.defcon) {
       const up = dc < this.defcon; this.defcon = dc;
-      if (up && this.t > 2) { this.sfx.klaxon(dc); this.news(['', 'DEFCON 1: the world answers with everything it has', 'DEFCON 2: orbital weapons are being armed', 'DEFCON 3: the World Defense Council authorises a nuclear response', 'DEFCON 4: air forces scrambled', ''][dc]); this.ctx.hint(`DEFCON ${dc}`); }
+      if (up && this.t > 2) { this.sfx.klaxon(dc); if (dc <= 2) this.ctx.card(`DEFCON ${dc}`, dc === 1 ? 'the world answers with everything it has' : 'orbital weapons are armed'); this.news(['', 'DEFCON 1: the world answers with everything it has', 'DEFCON 2: orbital weapons are being armed', 'DEFCON 3: the World Defense Council authorises a nuclear response', 'DEFCON 4: air forces scrambled', ''][dc]); this.ctx.hint(`DEFCON ${dc}`); }
     }
     state.defcon = dc;
     // tension cycle (75 s): build 45 / peak 15 / relax 15 (§5.1); comeback and the lid relax it

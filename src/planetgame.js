@@ -374,7 +374,7 @@ export class PlanetGame {
     if (!document.getElementById('threat-css')) document.head.append(Object.assign(document.createElement('style'), { id: 'threat-css', textContent: sealedCss }));
     document.getElementById('sealed')?.remove();
     const tiers = [2, 3, 4].map((n) => state.tierAt?.[n] != null ? `T${n} ${tm(state.tierAt[n])}` : '').filter(Boolean).join(' · ');
-    const rows = [['Time', tm(state.time)], ['People swallowed', popStr(state.pop || 0)], ['Peak size', KM(state.best || hole.r)], ['Tier-ups', tiers], ['ICBMs swallowed', `${st.swallowed || 0} / ${st.nukes || 0}`], ['Rods caught', `${st.rodGulps || 0} / ${st.rods || 0}`], ['Satellites', st.sats || 0], ['Hits taken', st.hits || 0], ['Dust earned', `+${state.dust || 0}`]];
+    const rows = [['Time', tm(state.time)], ['People swallowed', popStr(state.pop || 0)], ['Peak size', KM(state.best || hole.r)], ['Tier-ups', tiers], ['ICBMs swallowed', `${st.swallowed || 0} / ${st.nukes || 0}`], ['Rods caught', `${st.rodGulps || 0} / ${st.rods || 0}`], ['Satellites', st.sats || 0], ['Hits taken', st.hits || 0], ['Weapons seen', `${st.seen || 0} kinds`], ['Rivals eaten', `${st.rivalEaten || 0} / ${st.rivals || 0}`], ['Aegis broken / cracker fizzled', `${st.aegisBroke || 0} / ${st.fizzles || 0}`], ['Dust earned', `+${state.dust || 0}`]];
     const el = Object.assign(document.createElement('div'), { id: 'sealed', className: 'won' });
     el.innerHTML = `<h1>THE WORLD IS EATEN</h1><table>${rows.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('')}</table><div><button id="rs-go">Continue (free roam)</button><button class="alt" id="rs-new">New run</button></div>`;
     document.body.append(el);

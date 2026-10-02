@@ -81,6 +81,6 @@ export const T3 = {
     aegis: { hit: 0.12, gulp: 0.08, retry: 90, tries: 3, r: 800e3 },
     exodus: { cost: 0, cool: [70, 95], eat: 0.003 },
     cracker: { hit: 0.2, gulp: 0.05, land: 0.9 },
-    rival: { ttl: { maw: 170, eater: 210 }, maw: 1.3, eater: 1.4, speed: 0.74, hit: 0.18, eat: 0.6, cap: 0.25, starve: 0.0015, grow: 0.35 },
+    rival: { ttl: { maw: 140, eater: 170 }, maw: 1.3, eater: 1.4, speed: 0.74, hit: 0.18, eat: 0.6, cap: 0.25, starve: 0.0015, grow: 0.35 },
   },
 };
