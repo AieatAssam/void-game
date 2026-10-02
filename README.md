@@ -25,6 +25,9 @@ island-scale second phase are this project's own spin on it.
 | ![Too weak: a heavy-lift chopper hangs the Void Lid over the hole](docs/screens/phase2-seal.jpg) | ![The minimap: coast, range, roads, settlements, the next target ringed](docs/screens/phase2-minimap.jpg) |
 | ![Ascension: the island cracks to its coast as the capital falls](docs/screens/phase3-ascend-cracks.jpg) | ![Ascension: the pull-out, the limb, the stars and the Moon](docs/screens/phase3-ascend-pullout.jpg) |
 | ![Ascension: the reveal, the wound pulsing beside a coast](docs/screens/phase3-ascend-reveal.jpg) | ![Ascension: the plunge back to the hole, control returns](docs/screens/phase3-ascend-arrival.jpg) |
+| ![Adversity: a carrier group's cruise-missile salvo, one ring per missile](docs/screens/phase3-threat-fleet-salvo.jpg) | ![Adversity: a tsunami front racing across the sea](docs/screens/phase3-threat-tsunami.jpg) |
+| ![Adversity: an orbital laser platform sweeping its beam toward the hole](docs/screens/phase3-threat-laser.jpg) | ![Adversity: a MIRV's four warheads, one ring each](docs/screens/phase3-threat-mirv-rings.jpg) |
+| ![The Aegis: six platforms and the closing lid ring](docs/screens/phase3-threat-aegis-lid.jpg) | ![The Last Resort: the planet-cracker charging over the limb, fed by three power stations](docs/screens/phase3-threat-cracker-charge.jpg) |
 
 ## The game
 - **Grow:** everything has a size. Swallow what fits; each bite widens the hole by a share of the object's footprint —
@@ -46,6 +49,7 @@ island-scale second phase are this project's own spin on it.
 - **Ascension (Phase 3):** when the capital falls the world goes quiet, the island cracks to its coast and the hole rips outward, eating the shore, then one long zoom
   climbs through the clouds to orbit: the curved limb, the stars, the Moon, a glowing wound beside a coast. The planet is the new map (`?planet` starts there;
   `__ascend()` from a `?region` run replays the cinematic).
+- **Planet adversity (Phase 3):** a DEFCON director (T1-T2 gentle, T3-T4 extinction-level) throws nukes and MIRVs, orbital lances and a sweeping laser, bomber wings, carrier groups with cruise salvos, tsunamis and volcanoes at you — every one telegraphed (a ring locked for 1.5 s or more), none worth more than 25% of your size — and two rival holes (the Maw, the World-Eater) hunt you on the sphere, bigger than you until you out-grow and swallow them. Set pieces: the Aegis (swallow its six platforms before the lid closes) and the planet-cracker (swallow its three power stations or dodge the beam). Everything is edible or avoidable; swallowing the weapons is the game's best moment.
 - **Sealed:** starve back toward town size (under 9 m) and the army flies a Void Lid in. Grow past 9.6 m in 14 seconds or
   it drops and the run is over: a weak hole is the only kind small enough to cap. Every new run starts from a fresh town.
 - **Challenge cards:** pick one rule twist per run (Car Crusher, Rush Hour, Glass Cannon, Crowded…) for a dust multiplier.

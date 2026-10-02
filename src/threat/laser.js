@@ -1,7 +1,7 @@
 // The orbital laser platform (docs/PHASE3-REVIEW.md B2, T3-T4, DEFCON <= 2): a platform 0.8 r up warms a spot 6 r away for 2 s (a thin red ring and a flickering line),
 // then a white-hot beam sweeps toward the hole at 0.3 x its speed for 12 s (outrunnable on a straight line at every tier). In the beam: 2%/s or 1.1 s of income per
 // second, whichever is more, and the hole is jammed (speed x0.8). The platform then drops to 0.3 r to re-aim for 5 s: swallow it (within 0.8 r of its subpoint) for
-// +2% and Frenzy. At DEFCON 1 it sweeps twice. The beam lights the atmosphere (glow sprites down its length), burns the ground (scar kind 3, a hot zone kind 4).
+// +2% and Frenzy. The beam lights the atmosphere (glow sprites down its length), burns the ground (scar kind 3, a hot zone kind 4).
 import * as THREE from 'three/webgpu';
 import { R } from '../planetgen.js';
 import { P3, T3 } from '../phase3.js';
