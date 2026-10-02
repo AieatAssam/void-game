@@ -36,6 +36,7 @@ import { radialBlur } from 'three/addons/tsl/display/radialBlur.js';
 import { sunDir, sunCol } from './look.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import { Q } from './quality.js';
+import { lensNodes, lensUniforms } from './blackhole.js';
 
 const _sp = new THREE.Vector3();
 /**
@@ -62,7 +63,7 @@ export class Post {
     this.good = 0;
     this.grade = uniform(new THREE.Vector3(1, 1, 1));
     this.opts = { ao: Q.ao && !q.has('noao'), aoRes: Q.aoRes, aoSamples: Q.aoSamples, bloom: Q.bloom, aa: Q.aa, grain: Q.grain,
-      shafts: Q.tier === 'high' && !q.has('noshafts'), lut: !q.has('nolut'), shadowEvery: Q.shadowEvery };
+      shafts: Q.tier === 'high' && !q.has('noshafts'), lut: !q.has('nolut'), shadowEvery: Q.shadowEvery, lensLow: Q.tier === 'low' || q.has('webgl') };
     this.lutTex = new THREE.Data3DTexture(new Uint8Array(LUT ** 3 * 4), LUT, LUT, LUT);
     this.lutTex.minFilter = this.lutTex.magFilter = THREE.LinearFilter;
     this.lutTex.wrapS = this.lutTex.wrapT = this.lutTex.wrapR = THREE.ClampToEdgeWrapping;
@@ -73,6 +74,7 @@ export class Post {
     this.pk0 = uniform(new THREE.Vector4(0.5, 0.5, 9, 0)); // hit feedback (src/pain.js): hole on screen (uv), seconds since the hit, impact 0..1
     this.pk1 = uniform(new THREE.Vector4(0, 0, 1, 0)); // wound 0..1, heartbeat pulse, aspect
     this.fxu = uniform(new THREE.Vector4(0, 0, 0, 0)); // a blast (threat.js): white-out (added in HDR, so bloom bursts), warm grade, bloom boost
+    this.lens = lensUniforms(); // the finale's black hole (src/blackhole.js): the lens bends the picture, a thin accretion disk is drawn over it; A.w = 0 costs nothing
     this.aoShare = uniform(1); // AO's share of the picture (suspendAO: 0 on a planet, with no rebuild of the pipeline)
     this.aoOff = false;
     this.lowSpec = false; // set by the watchdog: thins grass, never draws LOD0
@@ -156,16 +158,18 @@ export class Post {
     this.pipeline.outputNode = sample((uv0) => {
       // hit feedback: a shock ring out of the hole (the picture is pushed away along it), a zoom punch, split colour channels, a red vignette and a drained, heartbeat-pulsed picture while wounded
       const age = pk0.z, amp = pk0.w, wound = pk1.x, heart = pk1.y, asp = pk1.z;
+      const lens = lensNodes(uv0, asp, this.lens, time, opts.lensLow); // (the finale: the picture is sampled through the black hole's lens, then the shadow and the disk go over it)
       const hv = uv0.sub(pk0.xy), hd = hv.mul(vec2(asp, 1)), hr = hd.length().max(1e-4);
       const imp = amp.mul(exp(age.mul(-1.7)));
       const ring = exp(pow(hr.sub(age.mul(1.5)).div(0.075), 2).negate()).mul(imp).mul(smoothstep(0, 0.05, age));
-      const uv = uv0.add(hd.div(hr).div(vec2(asp, 1)).mul(ring).mul(0.02)).sub(hv.mul(imp.mul(exp(age.mul(-5))).mul(0.03)));
+      const uv = lens.uv.add(hd.div(hr).div(vec2(asp, 1)).mul(ring).mul(0.02)).sub(hv.mul(imp.mul(exp(age.mul(-5))).mul(0.03)));
       const c0 = uv.sub(0.5);
       const r2 = dot(c0, c0);
       let c;
       const caP = hv.mul(imp.mul(0.008)).add(c0.mul(r2).mul(grain ? 0.012 : 0));
       if (grain) c = vec3(aa.sample(uv.sub(caP)).r, aa.sample(uv).g, aa.sample(uv.add(caP)).b); // faint chromatic fringe toward the corners, and the hit's split
       else c = aa.sample(uv).rgb;
+      c = c.mul(float(1).sub(lens.over.w)).add(lens.over.xyz);
       const vig = smoothstep(0.06, 0.5, r2), red = imp.mul(0.8).add(wound.mul(heart.mul(0.4).add(0.25)).mul(0.8));
       c = mix(c, vec3(luminance(c)), clamp(imp.mul(0.3).add(wound.mul(0.22)), 0, 0.6)); // drained
       c = c.mul(vec3(1).sub(vec3(0.05, 0.75, 0.8).mul(vig.mul(red).mul(0.8)))).add(vec3(0.5, 0.015, 0.01).mul(vig).mul(vig).mul(red).mul(0.55)); // red at the edges

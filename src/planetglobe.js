@@ -9,7 +9,7 @@ import {
   Fn, vec2, vec3, vec4, float, int, uniform, texture, attribute, positionGeometry, positionLocal, normalize, dot, cross, length, sqrt, exp,
   pow, max, min, abs, atan, acos, cos, mix, smoothstep, clamp, select, step, sin, mx_noise_float, mx_noise_vec3,
   mx_fractal_noise_float, mx_worley_noise_float, mx_cell_noise_vec3, instancedBufferAttribute, uv, cameraPosition,
-  floor, fract, If, Discard, positionWorld, dFdx, dFdy, fwidth, sign,
+  floor, fract, If, Discard, positionWorld, dFdx, dFdy, fwidth, sign, uniformArray,
 } from 'three/tsl';
 import { makePlanet, bakeRows, faceDir, dirFace, R, SQ_MIN, SQ_STEP, decodeHeight } from './planetgen.js';
 import { MAX_HOLES } from './hole.js';
@@ -196,6 +196,9 @@ export function planetUniforms() {
     uGcellA: uniform(1e4), uGfr: uniform(0), uGroundK: uniform(1), uGroundM: uniform(1), // (K: parcels, hedges, rows, street grids, lakes, rivers = the close ground; M: relief, woods, settlements = the km-scale ground that a landmass keeps)
     // close-ground pattern scale: cells per face unit, octave blend, strength
     uPx: uniform(0.0005), // metres per pixel per metre of view distance
+    // the finale (src/finale.js): fault lines glowing on the shards, the sea peeling off from the hole outward, clouds, the sun's disc in the sky
+    uFault: uniform(0), uPeel: uniform(new THREE.Vector4(0, 1, 0, -1)), // (peel: unit direction of the hole in planet space, the angle (rad) within which the sea is gone; w < 0 = off)
+    uSunK: uniform(1),
   };
 }
 
@@ -213,8 +216,25 @@ const luma = (c) => dot(c, vec3(0.3, 0.55, 0.15));
  * cos(angle); w > 1 = empty), uCut (flat hole cut, metres, render space), uPatch (globe discard disc), uWoundG/uWoundP (wound depth, m).
  * `gt` = groundtex.js.
  */
-export function planetMaterial({ surf, night, bite, trail = null, gt = null, N = 512, B = 1024, quality = 'high', patch = false, u = planetUniforms() }) {
+// quaternion helpers for the shards (vec4 xyzw): rotate v by q, and by q^-1
+const qRot = (q, v) => v.add(cross(q.xyz, cross(q.xyz, v).add(v.mul(q.w))).mul(2));
+const qInv = (q, v) => qRot(vec4(q.xyz.negate(), q.w), v);
+/**
+ * One shard's transform of a rest position p (planet units, the globe's mesh scale = R): spin about its rest centroid X.xyz, stretch along the axis V.xyz by S = A.w
+ * (the other two axes shrink by 1/sqrt(S): volume kept: the tidal spaghettification), scale V.w, then move to A.xyz. Q = the spin quaternion.
+ */
+export function xformWith(p, A, Q, V, X) {
+  const rel = qRot(Q, p.sub(X.xyz)), along = dot(rel, V.xyz), S = max(A.w, 1);
+  const out = rel.add(V.xyz.mul(along.mul(S.sub(1)))).sub(rel.sub(V.xyz.mul(along)).mul(float(1).sub(float(1).div(sqrt(S)))));
+  return A.xyz.add(out.mul(V.w));
+}
+export const shardXform = (p, SU, idx) => xformWith(p, SU.A.element(idx), SU.Q.element(idx), SU.V.element(idx), SU.X.element(idx));
+export { qRot, qInv };
+
+export function planetMaterial({ surf, night, bite, trail = null, gt = null, N = 512, B = 1024, quality = 'high', patch = false, u = planetUniforms(), shard = null }) {
   const low = quality === 'low';
+  const aSh = shard ? attribute('aSh', 'float') : null, shIdx = shard ? int(aSh.add(0.5)) : null; // (the finale's shards: one id per triangle)
+  const shQ = shard ? shard.Q.element(shIdx) : null;
   const mat = new THREE.MeshBasicNodeMaterial({ fog: false });
   const aH = attribute('aH', 'float');
   const dirV = patch ? attribute('aDir', 'vec3') : positionGeometry; // (a varying: a vertex-stage value in the colour graph)
@@ -231,7 +251,8 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
   } else {
     const holeK = smoothstep(0.85, 1.7, acos(clamp(dot(normalize(dirV), u.uHoleD.xyz), -1, 1)).div(u.uHoleD.w));
     const sink = float(1).sub(remV).mul(u.uWoundG).mul(landV).mul(holeK);
-    mat.positionNode = positionGeometry.mul(float(1).add(max(aH, 0).mul(u.uRelief).sub(sink).div(R)));
+    const rest = positionGeometry.mul(float(1).add(max(aH, 0).mul(u.uRelief).sub(sink).div(R)));
+    mat.positionNode = shard ? shardXform(rest, shard, shIdx) : rest;
   }
   mat.userData.u = u;
 
@@ -240,10 +261,10 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
     // the flat cut under the hole (r < 110 km): the hole sits at the render origin
     If(positionWorld.xz.length().lessThan(u.uCut), () => { Discard(); });
     if (!patch) If(dot(dir, u.uPatch.xyz).greaterThan(u.uPatch.w), () => { Discard(); }); // the patch draws this part
-    const L = u.uSun;
+    const L = shard ? qInv(shQ, u.uSun).toVar() : u.uSun; // (a shard turns: the sun and the camera are rotated into its own frame, so the lighting follows it)
     const ro = u.uCam;
     const P = patch ? dir.mul(float(1).add(max(aH, 0).mul(u.uRelief).div(R))) : positionLocal;
-    const toCam = ro.sub(P), dist = length(toCam).toVar(), V = toCam.div(dist).toVar();
+    const toCam = ro.sub(P), dist = length(toCam).toVar(), V = (shard ? qInv(shQ, toCam.div(dist)) : toCam.div(dist)).toVar();
     // ---- the bake
     const S = sampleFace(surf, N, dir).toVar();
     const st = faceST(dir).toVar();
@@ -389,6 +410,14 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
       oc = mix(oc, vec3(0.92, 0.97, 1.0), torn.mul(lapT.mul(0.45).add(0.5)).mul(0.85));
       oceanCol.assign(shadeWater(oc, on, iceO, float(1)));
     });
+    // ---- the finale: the sea peels off the shards from the hole outward (a ragged front, wet foam on it), leaving dark wet basalt
+    if (shard) {
+      const thP = acos(clamp(dot(dir, u.uPeel.xyz), -1, 1)), wob = mx_noise_float(dir.mul(7).add(vec3(2.3, 1.1, 4.7))).mul(0.2).add(mx_noise_float(dir.mul(31)).mul(0.05)), fr = u.uPeel.w;
+      const dry = float(1).sub(smoothstep(fr.sub(0.04), fr.add(0.04), thP.add(wob))).mul(float(1).sub(landMask)), front = exp(pow(thP.add(wob).sub(fr).div(0.055), 2).negate()).mul(step(0, fr)).mul(float(1).sub(landMask));
+      const bed = srgb(0.06, 0.052, 0.05).mul(sunLit.mul(max(dot(dir, L), 0).mul(0.7).add(0.08)).mul(day).add(amb)).add(vec3(0.5, 0.2, 0.08).mul(mx_noise_float(dir.mul(120)).mul(0.5).add(0.5).pow(6)).mul(0.5));
+      oceanCol.assign(mix(oceanCol, bed, dry));
+      oceanCol.addAssign(vec3(0.55, 0.85, 1.0).mul(front).mul(1.6));
+    }
     // ---- the land: climate (T, M) + altitude + slope, then the close ground, then the wound
     If(landMask.greaterThan(0.001), () => {
       const Te = T0.sub(max(e.sub(400), 0).div(9000)).add(nm.mul(0.05)).toVar();
@@ -717,6 +746,15 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
         }
       });
     }
+    // ---- the finale: fault lines glow (the crust is about to part), and a shard heats as the tide takes it
+    if (shard) {
+      const eg = attribute('aEdge', 'float'), heat = shard.X.element(shIdx).w, fl = float(1).sub(smoothstep(0.0, 0.3, eg)), fl2 = pow(fl, 3);
+      const flick = mx_noise_float(dir.mul(260).add(vec3(0, 0, u.uTime.mul(1.3)))).mul(0.35).add(0.9);
+      const thH = acos(clamp(dot(dir, u.uPeel.xyz), -1, 1)), fk = float(1).sub(smoothstep(u.uFault.mul(3.7).sub(0.7), u.uFault.mul(3.7), thH)); // (the glow spreads out from the hole)
+      col.addAssign(mix(vec3(1.0, 0.26, 0.04), vec3(1.0, 0.8, 0.45), fl2).mul(fl.mul(0.6).add(fl2.mul(1.6))).mul(fk).mul(flick));
+      col.assign(mix(col, col.mul(vec3(1.5, 0.8, 0.55)).add(vec3(0.5, 0.17, 0.04)), heat.mul(0.5).min(0.8)));
+      col.addAssign(vec3(1.0, 0.45, 0.12).mul(heat).mul(fl.mul(2.0).add(0.08)));
+    }
     // ---- haze between camera and surface: a cheap exponential up close (the camera is 10-1000 km away), the real single scatter from ~50 km
     if (!OFF.has('atmo')) {
       const dm = dist.mul(R);
@@ -727,7 +765,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
       const hzK = float(1).sub(capMask.mul(0.92));
       col.assign(mix(col, hazeC, hz.mul(hzK)));
       If(dist.greaterThan(0.0035), () => {
-        const A = atmosphere(ro, V.negate(), dist, L, low ? 3 : 4, u.uAtmo).toVar();
+        const A = (shard ? atmosphere(ro, toCam.div(dist).negate(), dist, u.uSun, low ? 3 : 4, u.uAtmo) : atmosphere(ro, V.negate(), dist, L, low ? 3 : 4, u.uAtmo)).toVar();
         col.assign(mix(col, col.mul(A.w).add(A.rgb), hk.mul(hzK)));
       });
     }
@@ -755,7 +793,7 @@ function atmosphereMaterial(globeU, low) {
 
 // ---------------------------------------------------------------- the Moon
 const _mw = new THREE.Vector3(), _mq = new THREE.Quaternion();
-function moonMaterial(globeU) {
+export function moonMaterial(globeU) {
   const m = new THREE.MeshBasicNodeMaterial({ fog: false });
   m.colorNode = Fn(() => {
     const d = normalize(positionGeometry);
@@ -785,7 +823,7 @@ function skyDome(globeU) {
     const mw = band.mul(sstep(-0.3, 0.55, f).mul(0.8).add(0.2)).mul(float(1).sub(dust.mul(band))).mul(core.mul(0.7).add(0.3));
     const col = mix(vec3(0.45, 0.55, 1.0), vec3(0.95, 0.85, 0.75), core.mul(0.6)).mul(mw).mul(0.05).mul(globeU.uSkyK);
     const sd = max(dot(d, globeU.uSun), 0);
-    return vec4(col.add(vec3(1.0, 0.9, 0.75).mul(pow(sd, 3500).mul(9).add(pow(sd, 90).mul(0.05)))).add(vec3(0.0015, 0.002, 0.004)), 1);
+    return vec4(col.add(vec3(1.0, 0.9, 0.75).mul(pow(sd, 3500).mul(9).add(pow(sd, 90).mul(0.05)).mul(globeU.uSunK))).add(vec3(0.0015, 0.002, 0.004)), 1);
   })();
   return m;
 }

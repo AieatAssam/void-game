@@ -13,6 +13,7 @@ import { PlanetMap } from './planetmap.js';
 import { Threat, sealedCss } from './threat.js';
 import { save, persist } from './meta.js';
 import { Cities } from './cities.js';
+import { Finale, FT } from './finale.js';
 
 const KM = (m) => (m >= 1e5 ? `${(m / 1000).toFixed(0)} km` : m >= 1e4 ? `${(m / 1000).toFixed(1)} km` : `${(m / 1000).toFixed(2)} km`);
 const SUN_R = new THREE.Vector3(-0.75, 0.6, 0.3).normalize(); // low sun over the left shoulder (render space): relief reads; it follows the hole, so the play area is always lit (review B2)
@@ -124,6 +125,16 @@ export class PlanetGame {
     window.__planetDbg = window.__planet.dbg; // r, tier, e_eff, speed, patch builds, bite/world/step ms
     window.__planetLadder = () => this.ladderTest(ctx);
     window.__planetUnits = () => this.unitsApi(ctx);
+    if (qs.has('finale') && !this.finDebug) { // ?planet&finale[=t]: build the finale, take the land away and play it (or scrub to t)
+      this.finDebug = true;
+      setTimeout(async () => {
+        const st = ctx.state; st.playing = false; ctx.hole.area = Math.PI * (num('r', 2.3e6)) ** 2; window.__bot = () => [0, 0];
+        if (qs.get('fake') !== '0') this.fakeLand(1);
+        const F = await this.finalePrep(ctx); if (!F) return console.warn('finale not ready');
+        this.world.update(0, ctx.hole, ctx.camera, innerHeight); this.camDist = 0; for (let i = 0; i < 4; i++) window.__tick(1 / 30, 3);
+        await this.startFinale(ctx); const t = +qs.get('finale'); if (t > 0) window.__finale(t);
+      }, 1500);
+    }
     window.__P3 = P3; // (balance knobs between runs: __P3.gRamp, __P3.collapseK, ...)
   }
 
@@ -159,7 +170,11 @@ export class PlanetGame {
     const A = state.asc?.cam;
     const fx = this.fx;
     let camDist, pitch;
-    if (A) {
+    if (A?.free) { // the finale's keyframed camera (src/finale.js): position and target in render space
+      camDist = this.camDist = A.dist; pitch = 0;
+      camera.position.copy(A.pos); camera.up.set(0, 1, 0); camera.lookAt(A.look); if (A.roll) camera.rotateZ(A.roll);
+      if (Math.abs(camera.fov - A.fov) > 1e-3) { camera.fov = A.fov; camera.updateProjectionMatrix(); }
+    } else if (A) {
       camDist = this.camDist = A.dist; pitch = A.pitch;
       const hz = Math.cos(pitch) * camDist;
       camera.position.set(Math.sin(A.yaw) * hz, Math.sin(pitch) * camDist, Math.cos(A.yaw) * hz);
@@ -296,6 +311,7 @@ export class PlanetGame {
       state.belly = Math.min(1, state.belly + dA / (a0 * P3.meal));
       L.land += dA; state.ledgerLand = L.land;
     }
+    if (B.landEaten >= 0.8 && !this.finPromise) this.finalePrep(ctx); // (the finale's shards, interior and shaders are built behind the play, 3 ms a frame)
     this.goalTick(ctx, dt);
     this.ripeTick(ctx, dt);
     this.threat?.update(dt, ctx);
@@ -383,6 +399,46 @@ export class PlanetGame {
     if (!show) return;
     const cs = Math.min(5, this.combo || 0) * 2; if (cls === 1) sfx.tear(k, cs); else if (cls === 2) { sfx.tear(k, cs); sfx.rumble(k, 0.15 + dl); } else if (cls === 3) { sfx.choir(k); sfx.rumble(k, 0.2 + dl); } else sfx.swell();
     if (ev.pop > 5e5 && !pull && (cls >= 2 || news.queue.length < 2)) { const pp = ev.pop >= 1e9 ? `${(ev.pop / 1e9).toFixed(1)} B` : ev.pop >= 1e6 ? `${(ev.pop / 1e6).toFixed(0)} M` : `${(ev.pop / 1e3).toFixed(0)} k`; news.say(cls === 3 ? `${ev.name} is gone — ${pp} swallowed` : `${ev.name} swallowed — ${pp} evacuated`); }
+  }
+
+  /** The finale (src/finale.js): built behind the play from 80% of the land (3 ms a frame); the last land starts it. Bot / headless runs skip it unless `window.__finaleBot`. */
+  finalePrep(ctx) {
+    if (this.finPromise) return this.finPromise;
+    if (qs.has('nofinale') || (window.__headless && !window.__finaleBot)) return null;
+    return (this.finPromise = Finale.prepare(this, ctx).then((F) => (this.fin = F)).catch((e) => { console.warn('finale prepare failed', e); this.finFailed = true; return null; }));
+  }
+  async startFinale(ctx) {
+    const F = this.fin || (await this.finalePrep(ctx));
+    if (!F || F.started) return false;
+    F.worldTime = ctx.state.time; F.onButtons = (mk) => this.finaleButtons(ctx, mk);
+    F.begin(); this.installFinaleDebug(ctx);
+    return true;
+  }
+  /** The world is eaten: the finale if it can play, else the plain results overlay (bots, ?nofinale, a failed build). */
+  endWorld(ctx) {
+    const { state } = ctx;
+    (async () => {
+      const ok = await this.startFinale(ctx).catch((e) => { console.warn('finale failed', e); return false; });
+      if (!ok) { ctx.card('THE WORLD IS EATEN', `${popStr(state.pop || 0)} swallowed`); ctx.news.say('Nothing is left. The void is the world.'); ctx.sfx.levelUp(); setTimeout(() => this.resultsUi(ctx), window.__headless || window.__bot ? 0 : 2200); }
+    })();
+  }
+  /** The title card's buttons (the finale calls it with a maker). */
+  finaleButtons(ctx, mk) {
+    mk('Results', '', () => this.resultsUi(ctx));
+    mk('Continue', '', () => { this.fin.btnEl.classList.remove('on'); this.fin.cardEl.classList.remove('on'); setTimeout(() => this.fin.btnEl.classList.remove('on'), 0); ctx.hint?.('Drag to look around — Esc for the menu'); });
+    mk('New World', 'pri', () => { const u = new URL(location.href); u.searchParams.set('seed', String(Math.floor(Math.random() * 9e5) + 1000)); u.searchParams.delete('r'); u.searchParams.delete('finale'); location.href = u.href; });
+  }
+  installFinaleDebug(ctx) {
+    const F = this.fin, self = this;
+    window.__finale = Object.assign((t) => { F.hold = true; F.scrub(t); window.__tick(1 / 60, 1); return t; }, {
+      play() { F.hold = false; }, fin: () => F, FT, start: () => self.startFinale(ctx), fake: (f) => self.fakeLand(f), clock: () => F.t,
+    });
+  }
+  /** Visual only: take the land away (the wound shader on every land texel) without touching the accounting. */
+  fakeLand(frac = 1) {
+    const B = this.world.bite, n = B.hm.length; let k = 0;
+    for (let i = 0; i < n; i++) { if (B.hm[i] !== 65535 && Math.random() < frac) { B.rem8[i] = 0; B.rem[i] = 0; } k++; }
+    B.tex.needsUpdate = true; return k;
   }
 
   /** The win screen (A3): a results overlay in the Sealed overlay's style. Continue = free roam (the director stays off), New run = a fresh load. */
@@ -484,10 +540,10 @@ export class PlanetGame {
     }
     G.frac = pr.frac;
     if (G.g.kind === 'world' && pr.cleared && !state.won) {
-      state.won = true; state.goalDone[4] = state.time; save.worlds = (save.worlds || 0) + 1; ctx.card('THE WORLD IS EATEN', `${popStr(state.pop || 0)} swallowed`); news.say('Nothing is left. The void is the world.'); sfx.levelUp();
+      state.won = true; state.goalDone[4] = state.time; save.worlds = (save.worlds || 0) + 1;
       this.threat?.stand(); ctx.edgeArrow('town', null); sfx.grind.stop();
       state.dust = ctx.bankPlanet?.(state) || 0; // (banked once: Phase 3's pay, persisted)
-      setTimeout(() => this.resultsUi(ctx), window.__headless || window.__bot ? 0 : 2200);
+      this.endWorld(ctx);
     }
     G.hunt = W.bite.landEaten >= 0.97 && !state.won;
     G.tgt = state.won ? null : lf.target(G.hunt ? world : G.g, W.hdir, hole.r, G.hunt);

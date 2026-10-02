@@ -12,6 +12,7 @@ export function unlock() {
 export function toggleMute() {
   muted = !muted;
   if (master) master.gain.value = muted ? 0 : 0.35;
+  if (fa) fa.out.gain.value = fvol();
   return muted;
 }
 
@@ -315,3 +316,75 @@ export function pain(k = 0.5) {
 }
 /** One heartbeat of the wounded hole (k 0..1): two soft low thumps. */
 export function heart(k = 0.5) { tone('sine', 66, 38, 0.16, 0.3 * k + 0.08); tone('sine', 54, 34, 0.18, 0.22 * k + 0.05, 0.2); }
+
+// ---------- the finale (src/finale.js): one persistent graph, driven by finale.mix(t-derived targets); the chunks are one-shots over it ----------
+let fa = null;
+const fvol = () => (muted ? 0 : 1);
+/** Build the finale's graph (once) and open its bus. It bypasses the master's duck (the world goes silent, the finale does not). */
+export const finale = {
+  start() {
+    if (!ctx) return;
+    if (!noiseBuf) noise(0.01, 100, 0.0001);
+    if (fa) { fa.out.gain.setTargetAtTime(fvol(), ctx.currentTime, 0.05); return; }
+    const out = ctx.createGain(); out.gain.value = fvol(); out.connect(ctx.destination);
+    const bus = (v = 0) => { const g = ctx.createGain(); g.gain.value = v; g.connect(out); return g; };
+    const osc = (type, f, dest, det = 0) => { const o = ctx.createOscillator(); o.type = type; o.frequency.value = f; o.detune.value = det; o.connect(dest); o.start(); return o; };
+    const nz = (dest) => { const s = ctx.createBufferSource(); s.buffer = noiseBuf; s.loop = true; s.connect(dest); s.start(); return s; };
+    fa = { out, noise: noiseBuf };
+    // sub: two detuned sines and a saw an octave down through a lowpass: the world's weight
+    fa.gSub = bus(); const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 160; lp.connect(fa.gSub);
+    fa.sub = [osc('sine', 41, lp), osc('sine', 41.7, lp), osc('sawtooth', 20.5, lp)];
+    // groan: noise through a slow, resonant lowpass (the crust straining)
+    fa.gGroan = bus(); fa.fGroan = ctx.createBiquadFilter(); fa.fGroan.type = 'lowpass'; fa.fGroan.Q.value = 7; fa.fGroan.frequency.value = 160; nz(fa.fGroan); fa.fGroan.connect(fa.gGroan);
+    const lfo = ctx.createOscillator(), lg = ctx.createGain(); lfo.frequency.value = 0.19; lg.gain.value = 70; lfo.connect(lg).connect(fa.fGroan.frequency); lfo.start();
+    // the choir / organ: a stacked D minor, sines and triangles, a slow tremolo
+    fa.gChoir = bus(); fa.choir = [];
+    [73.4, 110, 146.8, 174.6, 220, 293.7, 440].forEach((f, i) => { const g = ctx.createGain(); g.gain.value = 0.16 / (1 + i * 0.35); g.connect(fa.gChoir); fa.choir.push(osc(i % 2 ? 'triangle' : 'sine', f, g, (i - 3) * 3), osc('sine', f * 2.003, g, i * 2)); });
+    // grinding: band-passed noise, shuddering
+    fa.gGrind = bus(); const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 480; bp.Q.value = 0.9; nz(bp); const am = ctx.createGain(); am.gain.value = 0.5; bp.connect(am); am.connect(fa.gGrind);
+    const l2 = ctx.createOscillator(), l2g = ctx.createGain(); l2.type = 'sawtooth'; l2.frequency.value = 11; l2g.gain.value = 0.5; l2.connect(l2g).connect(am.gain); l2.start(); fa.bp = bp;
+    // the shimmer: high sines drifting up, only after the silence
+    fa.gShim = bus(); fa.shim = [1760, 2637, 3520, 5274].map((f, i) => osc('sine', f, (() => { const g = ctx.createGain(); g.gain.value = 0.05 / (1 + i * 0.5); g.connect(fa.gShim); return g; })(), i * 7));
+    // the resolved drone: a fifth over a sub, breathing
+    fa.gDrone = bus(); const dl = ctx.createGain(); dl.gain.value = 0.5; dl.connect(fa.gDrone); fa.drone = [osc('sine', 55, dl), osc('sine', 82.5, dl, 2), osc('sine', 110.2, dl, -2)];
+    const l3 = ctx.createOscillator(), l3g = ctx.createGain(); l3.frequency.value = 0.23; l3g.gain.value = 0.3; l3.connect(l3g).connect(dl.gain); l3.start();
+  },
+  /** targets 0..1 per layer (smoothed here): sub, groan, choir, grind, shim, drone; rise 0..1 lifts the sub's pitch and the grind's band. */
+  mix(m, tau = 0.1) {
+    if (!fa || !ctx) return;
+    const t = ctx.currentTime, set = (g, v, k = 1) => g.gain.setTargetAtTime(v * k, t, tau);
+    set(fa.gSub, m.sub * 0.62); set(fa.gGroan, m.groan * 0.55); set(fa.gChoir, m.choir * 0.5); set(fa.gGrind, m.grind * 0.34); set(fa.gShim, m.shim * 0.6); set(fa.gDrone, m.drone * 0.7);
+    fa.sub[0].frequency.setTargetAtTime(41 + 24 * (m.rise || 0), t, 0.2); fa.sub[1].frequency.setTargetAtTime(41.7 + 24.6 * (m.rise || 0), t, 0.2); fa.sub[2].frequency.setTargetAtTime(20.5 + 12 * (m.rise || 0), t, 0.2);
+    fa.fGroan.frequency.setTargetAtTime(150 + 160 * (m.groan || 0), t, 0.3); fa.bp.frequency.setTargetAtTime(380 + 900 * (m.rise || 0), t, 0.2);
+    for (let i = 0; i < fa.shim.length; i++) fa.shim[i].frequency.setTargetAtTime([1760, 2637, 3520, 5274][i] * (1 + 0.35 * (m.up || 0)), t, 0.4);
+    if (muted) fa.out.gain.setTargetAtTime(0, t, 0.05); else fa.out.gain.setTargetAtTime(1, t, 0.05);
+  },
+  /** A chunk swallowed (k 0..1 its share, n how many so far): a thump whose pitch climbs, a crunch of grit. */
+  hit(k = 0.3, n = 0) {
+    if (!fa || !ctx || muted) return;
+    const f = 52 * (1 + 0.045 * n);
+    const t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(f * 1.9, t); o.frequency.exponentialRampToValueAtTime(f * 0.55, t + 0.5); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35 + 0.5 * k, t + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
+    o.connect(g).connect(fa.out); o.start(t); o.stop(t + 1);
+    const s = ctx.createBufferSource(), fl = ctx.createBiquadFilter(), g2 = ctx.createGain(); s.buffer = noiseBuf; s.loop = true; fl.type = 'lowpass'; fl.frequency.value = 500 + 700 * k;
+    g2.gain.setValueAtTime(0.0001, t); g2.gain.exponentialRampToValueAtTime(0.25 + 0.3 * k, t + 0.02); g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.5 + 0.5 * k); s.connect(fl).connect(g2).connect(fa.out); s.start(t); s.stop(t + 1.1);
+  },
+  /** The rupture: the crust goes in one sound: a crack, a sub slam, a long falling groan. */
+  rupture() {
+    if (!fa || !ctx || muted) return;
+    const t = ctx.currentTime; noise(0.35, 7000, 0.7, 0); noise(2.8, 700, 0.6, 0.02); tone('sine', 70, 18, 3.2, 0.95); tone('sawtooth', 110, 30, 2.0, 0.16, 0.03);
+    const o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'sawtooth'; o.frequency.setValueAtTime(240, t); o.frequency.exponentialRampToValueAtTime(34, t + 3.6); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.1, t + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + 3.6);
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 400; o.connect(f).connect(g).connect(fa.out); o.start(t); o.stop(t + 3.7);
+  },
+  /** The last mouthful: a sub that falls through the floor, then (by the silence) nothing. */
+  last() { if (!fa || !ctx || muted) return; tone('sine', 90, 14, 4.2, 1.0); noise(1.2, 400, 0.5, 0.02); },
+  /** The resolve: a wide, slow chord (open fifths and an octave) that swells and holds. */
+  resolve() {
+    if (!fa || !ctx || muted) return;
+    const t = ctx.currentTime;
+    [73.4, 110, 146.8, 220, 293.7, 440, 587.3].forEach((f, i) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.type = i % 2 ? 'triangle' : 'sine'; o.frequency.value = f * 1.002; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.1 / (1 + i * 0.25), t + 3.2 + i * 0.12); g.gain.setTargetAtTime(0.0001, t + 6, 2.5); o.connect(g).connect(fa.out); o.start(t); o.stop(t + 14); });
+  },
+  stop() { if (fa && ctx) { const t = ctx.currentTime; for (const g of [fa.gSub, fa.gGroan, fa.gChoir, fa.gGrind, fa.gShim, fa.gDrone]) g.gain.setTargetAtTime(0, t, 0.4); } },
+  /** Everything but the sub-bass out within a breath: the sudden silence at the transformation. */
+  silence(tau = 0.04) { if (fa && ctx) { const t = ctx.currentTime; for (const g of [fa.gSub, fa.gGroan, fa.gChoir, fa.gGrind, fa.gShim, fa.gDrone]) g.gain.setTargetAtTime(0, t, tau); } },
+};
