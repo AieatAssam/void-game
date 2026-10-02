@@ -71,10 +71,10 @@ export class Threat {
     ctx.scene.add(this.glow.sprite, this.smoke.sprite);
     this.glow.sprite.visible = this.smoke.sprite.visible = !!this.game.entered; // (prepared under Phase 2: the pools stay hidden until the swap, show())
     const model = this.model = (name) => { const o = assets[name].scene.clone(true); o.traverse((m) => { if (m.isMesh) { m.castShadow = m.receiveShadow = false; m.frustumCulled = false; } }); o.visible = false; this.root.add(o); return o; };
-    for (let i = 0; i < 3; i++) {
-      const mat = mushroomMaterial(), mesh = model('mushroom_cloud');
-      mesh.traverse((m) => { if (m.isMesh) m.material = mat; });
-      this.nukes.push({ i, on: false, arc: new Ribbon(48, this.root), trail: new Ribbon(28, this.root), mis: model('icbm'), mush: { mesh, mat }, zone: -1, mk: null, pos: new THREE.Vector3(), to: new THREE.Vector3(), from: new THREE.Vector3() });
+    for (let i = 0; i < 6; i++) { // (3 with a mushroom cloud; 3 "light" ones for the MIRV warheads: fireball and smoke only, no extra pipeline)
+      let mush = null;
+      if (i < 3) { const mat = mushroomMaterial(), mesh = model('mushroom_cloud'); mesh.traverse((m) => { if (m.isMesh) m.material = mat; }); mush = { mesh, mat }; }
+      this.nukes.push({ i, on: false, arc: new Ribbon(48, this.root), trail: new Ribbon(28, this.root), mis: model('icbm'), mush, zone: -1, mk: null, pos: new THREE.Vector3(), to: new THREE.Vector3(), from: new THREE.Vector3() });
     }
     for (let i = 0; i < 2; i++) this.lances.push({ i, on: false, sat: model('kinetic_sat'), orbit: new Ribbon(97, this.root), beam: new Ribbon(10, this.root), rod: new Ribbon(14, this.root), zone: -1, a: new THREE.Vector3(), b: new THREE.Vector3(), n: new THREE.Vector3(), to: new THREE.Vector3(), pos: new THREE.Vector3(), mk: null, mkO: null });
     for (let i = 0; i < 2; i++) this.strafes.push({ i, on: false, jets: [0, 1, 2].map(() => model('bomber')), mk: null });
@@ -243,8 +243,10 @@ export class Threat {
       line: (x, pick) => { if (x.age < x.tel + x.run) pick(Math.max(0, x.tel - x.age), `AIR STRIKE · line ${KMs(2 * x.hw)} wide · <b>${Math.max(0, x.tel - x.age).toFixed(1)} s</b>`, x.age > x.tel * 0.5 ? 'lock' : ''); } });
     this.register({ name: 'nuke', cost: T.nuke.cost, cool: T.nuke.cool, cool0: 12, items: this.nukes, window: (r, dc) => r < 1200e3 && dc <= 3, can: () => th.sites.length > 0, spawn: (o) => th.spawnNuke(o), step: (x, dt) => th.nukeStep(x, dt), finish: (x) => th.finish(x),
       live: (x) => x.phase === 'fly' && !x.child, age: (x) => (x.phase === 'fly' ? x.age - x.T : x.age - x.boomT),
-      danger: (x, out) => { if (x.phase === 'fly') { th.offsetOf(x.to, th._o ??= {}); out.push({ kind: 'nuke', id: `n${x.uid}`, x: th._o.x, z: th._o.z, R: x.B, inner: x.inner, eta: x.T - x.age, locked: x.locked, lock: x.lock }); } },
-      line: (x, pick) => { if (x.phase === 'fly') pick(x.T - x.age, `${x.child ? 'MIRV' : 'ICBM'} · <b>${KMs(x.B)}</b> blast · impact <b>${Math.max(0, x.T - x.age).toFixed(1)} s</b>${x.locked ? ' · LOCKED' : ''}`, x.locked ? 'lock' : ''); } });
+      danger: (x, out) => { if (x.phase === 'fly' && !x.mirv) { th.offsetOf(x.to, th._o ??= {}); out.push({ kind: 'nuke', id: `n${x.uid}`, x: th._o.x, z: th._o.z, R: x.B, inner: x.inner, eta: x.T - x.age, locked: x.locked, lock: x.lock }); } },
+      line: (x, pick) => { if (x.phase === 'fly') { if (x.mirv) pick(x.splitAt - x.age + 2, `MIRV BUS · splits into ${T3.kinds.mirv.children} warheads in <b>${Math.max(0, x.splitAt - x.age).toFixed(1)} s</b>`, ''); else pick(x.T - x.age, `${x.child ? 'MIRV WARHEAD' : 'ICBM'} · <b>${KMs(x.B)}</b> blast · impact <b>${Math.max(0, x.T - x.age).toFixed(1)} s</b>${x.locked ? ' · LOCKED' : ''}`, x.locked ? 'lock' : ''); } } });
+    const mk = this.register({ name: 'mirv', cost: T.mirv.cost, cool: T.mirv.cool, cool0: 60, items: this.nukes, step() {}, live: () => false, window: (r, dc) => r >= 150e3 && dc <= 2, can: () => th.sites.length > 0 && th.zonesFree() >= 4 && th.freeNukes() >= 5,
+      spawn: (o) => { mk.t0 = th.t; return th.spawnNuke({ ...o, mirv: true }); }, age: () => th.t - mk.t0, finish() {} });
     this.register({ name: 'rod', cost: T.rod.cost, cool: T.rod.cool, cool0: 10, items: this.lances, window: (r, dc) => r >= 150e3 && dc <= 2, spawn: (o) => th.spawnLance(o), step: (x, dt) => th.lanceStep(x, dt), finish: (x) => th.finishLance(x),
       live: (x) => x.phase !== 'gone' && !x.past, age: (x) => x.age - x.Tfire,
       danger: (x, out) => {
@@ -259,6 +261,29 @@ export class Threat {
         if (x.phase === 'orbit' && x.Tfire - x.age < x.lock + 1.3) pick(x.Tfire - x.age, `ORBITAL LANCE · <b>${KMs(x.B)}</b> impact · <b>${Math.max(0, x.Tfire - x.age).toFixed(1)} s</b>${x.locked ? ' · LOCKED' : ''}`, x.locked ? 'lock' : '');
         if (x.phase === 'orbit' && !x.eaten && th.hole.r >= 420e3 && x.gd < 4 * th.hole.r) pick(x.Tfire - x.age + 3, 'SATELLITE OVERHEAD · swallow it for a bonus', 'good'); } });
   }
+
+  freeNukes() { let n = 0; for (const q of this.nukes) if (!q.on) n++; return n; }
+  /** The MIRV bus (a nuke item with `mirv`) splits at its apex into `children` warheads, each on its own ring 1.2-2 r around where the hole will be (docs B3). */
+  splitMirv(p) {
+    const { hole, W } = this, r = p.r0, M = T3.kinds.mirv, u = p.splitAt / p.T, salvo = { sum: 0, gulps: 0 };
+    slerp(p.from, p.to, u, v5).normalize(); const hs = p.apex * 4 * u * (1 - u) + p.site.elev * W.E * (1 - u), base = rnd(0, 6.283);
+    this.finish(p);
+    this.surf(v5, hs, v1, 0); this.glow.spawn(v1, null, 3 * r, 7 * r, 0.9, C(0xff7ab8, 3), 1.6, 0); this.glow.spawn(v1, null, 4 * r, 5 * r, 0.14, FIRE[0], 3, 0);
+    for (let i = 0; i < 4; i++) this.glow.spawn(v1, vel3(v5, rnd(-1, 1) * 2 * r, rnd(-1, 1) * 2 * r, rnd(-1, 1) * r, sv), 1.2 * r, 0.3 * r, 0.9, FIRE[1], 1.2, 1.2);
+    let made = 0;
+    for (let k = 0; k < M.children; k++) {
+      const c = this.nukes.find((q) => !q.on && q.mush) ?? this.nukes.find((q) => !q.on), z = c ? this.zoneAlloc() : -1; if (!c || z < 0) { if (z >= 0) this.zoneFree(z); break; }
+      const lock = this.lockFor(0.5, 2.0), a = base + k * 1.5708 + rnd(-0.35, 0.35), d = rnd(1.2, 2.0) * r;
+      Object.assign(c, { child: true, mirv: false, salvo, hs, cx: Math.cos(a) * d, cz: Math.sin(a) * d, uid: ++this.uid, on: true, phase: 'fly', age: 0, r0: r, B: 1.0 * r, inner: 0.4 * r, lock, T: lock + 1.6 + 0.12 * k, locked: false, ox: 0, oz: 0, side: 1, off0: 0, ux: 0, uz: -1, boomT: 0, out: '', puffT: 0, ashT: 0, ashN: 0, elevT: 0, capT: 0, core: false, first: false, apex: 0, site: { elev: 0 }, pulled: false });
+      c.from.copy(v5); c.to.copy(W.hdir); c.zone = z; c.hadZone = true;
+      c.mk = this.map?.addMarker({ kind: 'nuke', from: c.from, dir: c.to, dur: c.T, eta: c.T, r: c.B, label: 'MIRV', color: '#ff3a8a' });
+      made++;
+    }
+    this.sfx.mirvSplit?.(); this.trauma(0.2); this.screenFlash(0.2, '#ffd0ea', 260);
+    this.news(`The MIRV bus splits: ${made} warheads, each on its own ring`); this.ctx.hint(`MIRV SPLIT — ${made} rings: slip between them, or dive into one`);
+  }
+  /** Swallowing 2+ of one salvo's warheads: the card. */
+  mirvGulp(n) { const s = n.salvo; if (!s) return; this.stats.mirvGulps++; if (++s.gulps >= 2) { this.ctx.card('MIRV GULP', `${s.gulps} warheads swallowed: +${Math.round(T3.kinds.mirv.gulp * 100)}% each`); } }
 
   // ---------------------------------------------------------------- silo fields (edible launch sites)
   updateSites(dt) {
@@ -313,22 +338,24 @@ export class Threat {
     for (const s of this.sites) { const d = W.distTo(s.dir); if (d < 5 * r || d > 40 * r) continue; const sc = Math.abs(d - 14 * r) + Math.random() * 6 * r; if (sc < best) { best = sc; site = s; } }
     if (!site) return false;
     const lock = this.lockFor(0.8, 2.0);
-    Object.assign(n, { uid: ++this.uid, on: true, phase: 'fly', age: 0, r0: r, B: 1.4 * r, inner: 0.5 * r, lock, T: lock + rnd(3.4, 4.6), locked: false, ox: 0, oz: 0, side: Math.random() < 0.5 ? -1 : 1, off0: o.at === 'hole' ? 0 : 0.6 * r, ux: 0, uz: -1, boomT: 0, out: '', site, puffT: 0, ashT: 0, ashN: 0, elevT: 0, capT: 0, core: false, first: !!o.first });
+    Object.assign(n, { child: false, mirv: false, hs: undefined, salvo: null, cx: 0, cz: 0, uid: ++this.uid, on: true, phase: 'fly', age: 0, r0: r, B: 1.4 * r, inner: 0.5 * r, lock, T: lock + rnd(3.4, 4.6), locked: false, ox: 0, oz: 0, side: Math.random() < 0.5 ? -1 : 1, off0: o.at === 'hole' ? 0 : 0.6 * r, ux: 0, uz: -1, boomT: 0, out: '', site, puffT: 0, ashT: 0, ashN: 0, elevT: 0, capT: 0, core: false, first: !!o.first });
     
     n.from.copy(site.dir); n.to.copy(W.hdir);
     n.chord = W.distTo(site.dir); n.apex = Math.min(1.5e6, 0.18 * n.chord + 0.5 * r);
-    n.zone = this.zoneAlloc(); n.hadZone = n.zone >= 0;
-    n.mk = this.map?.addMarker({ kind: 'nuke', from: n.from, dir: n.to, dur: n.T, eta: n.T, r: n.B, label: 'ICBM', color: '#ff5d5d' });
-    this.stats.nukes++;
+    if (o.mirv) { Object.assign(n, { mirv: true, lock: 0.1, T: 8.6, splitAt: 4.7, B: 0, inner: 0, off0: 0 }); n.apex = Math.min(2.2e6, 0.3 * n.chord + 1.2 * r); n.zone = -1; n.hadZone = false; } // (the bus: no ring; it splits at 4.7 s)
+    else { n.zone = this.zoneAlloc(); n.hadZone = n.zone >= 0; }
+    n.mk = this.map?.addMarker({ kind: 'nuke', from: n.from, dir: n.to, dur: n.T, eta: n.T, r: n.mirv ? 1.5 * r : n.B, label: n.mirv ? 'MIRV' : 'ICBM', color: n.mirv ? '#ff3a8a' : '#ff5d5d' });
+    if (n.mirv) this.stats.mirvs++; else this.stats.nukes++;
     this.sfx.nukeLaunch(Math.max(0.2, 1 - W.distTo(site.dir) / (40 * r)));
-    this.news('Launch detected: an ICBM leaves a silo field'); this.ctx.hint('ICBM launched — the ring is the blast: dive into the inner circle to swallow it');
+    if (n.mirv) { this.news('Launch detected: a MIRV bus leaves a silo field — it will split into warheads'); this.ctx.hint('MIRV launched — it splits over the horizon into four warheads'); }
+    else { this.news('Launch detected: an ICBM leaves a silo field'); this.ctx.hint('ICBM launched — the ring is the blast: dive into the inner circle to swallow it'); }
     this.glow.spawn(this.surf(site.dir, 0, v1, site.elev), null, 1.4 * r, 4 * r, 1.1, FIRE[1], 1.6, 0);
     return true;
   }
   /** Ballistic point of nuke n at t (0..1): the great circle from the silo to the target, a parabola over it. */
   arcAt(n, t, out) {
     slerp(n.from, n.to, t, v3).normalize();
-    const e0 = n.site.elev, e1 = n.elevT ?? 0, h = (e0 * (1 - t) + e1 * t) * this.W.E + n.apex * 4 * t * (1 - t) + n.r0 * 0.4 * t * t * t * t; // (the last quarter drops to the airburst height)
+    const e0 = n.site.elev, e1 = n.elevT ?? 0, h = n.hs !== undefined ? n.hs * Math.pow(1 - t, 1.4) + e1 * this.W.E * t + n.r0 * 0.4 * t * t * t * t : (e0 * (1 - t) + e1 * t) * this.W.E + n.apex * 4 * t * (1 - t) + n.r0 * 0.4 * t * t * t * t; // (the last quarter drops to the airburst height)
     return out.copy(v3).multiplyScalar(R + h);
   }
   nukeStep(n, dt) {
@@ -336,11 +363,12 @@ export class Threat {
     n.age += dt;
     const camP = this.camP;
     if (n.phase === 'fly') {
+      if (n.mirv && n.age >= n.splitAt) { this.splitMirv(n); return; }
       const eta = n.T - n.age;
       if (eta > n.lock) { // tracking: the ring rides the spot the hole will reach, offset to the side so doing nothing is a hit and escaping or diving is a choice
         const sp = Math.hypot(hole.vx, hole.vz);
         if (sp > 0.05 * P3.speed(hole.r)) { n.ux = hole.vx / sp; n.uz = hole.vz / sp; }
-        const wx = hole.vx * n.lock - n.uz * n.side * n.off0, wz = hole.vz * n.lock + n.ux * n.side * n.off0, k = Math.min(1, dt * 5);
+        const wx = hole.vx * n.lock - n.uz * n.side * n.off0 + n.cx, wz = hole.vz * n.lock + n.ux * n.side * n.off0 + n.cz, k = Math.min(1, dt * 5);
         n.ox += (wx - n.ox) * k; n.oz += (wz - n.oz) * k;
         W.dirAt(n.ox, n.oz, n.to);
         n.elevT = Math.max(0, W.P.elevation(n.to, 3));
@@ -365,6 +393,11 @@ export class Threat {
     // after the boom: the mushroom, the fall into the well
     n.arc.hide(); n.trail.hide(); n.mis.visible = false;
     const m = n.mush, mt = n.age - n.boomT;
+    if (!m) { // a light MIRV warhead: the fireball is spawned at the detonation; here a short smoke column
+      if (n.out !== 'swallow' && mt < 2.6 && (n.puffT = (n.puffT ?? 0) - dt) <= 0) { n.puffT = 0.14; const r = n.r0; v1.copy(n.pg).setLength(R + n.elev * W.E + rnd(0.1, 1.8) * r); this.smoke.spawn(v1, vel3(v2.copy(n.to).normalize(), rnd(-0.1, 0.1) * r, rnd(-0.1, 0.1) * r, 0.2 * r, sv), 0.5 * r, 1.0 * r, 3.2, mt < 0.8 ? SMOKE1 : SMOKE0, 0.4, 0.5); }
+      if (mt > (n.out === 'swallow' ? 1.0 : 3.4)) this.finish(n);
+      return;
+    }
     if (n.out === 'swallow') {
       const u = Math.min(1, Math.max(0, (mt - 0.28) / 1.0)), grow = Math.min(1, mt / 0.28), e = u * u * (3 - 2 * u), f = n.H / 1.16 * 0.62 * (0.35 + 0.65 * grow);
       v1.copy(W.hdir).multiplyScalar(R + Math.max(0, W.P.elevation(W.hdir, 3)) * W.E); v2.lerpVectors(n.pg, v1, e * e);
@@ -409,8 +442,7 @@ export class Threat {
     n.pg = this.surf(n.to, 0, new THREE.Vector3(), n.elev); n.qUp = n.qUp ?? new THREE.Quaternion();
     n.qUp.setFromUnitVectors(_Y, v1.copy(n.to).normalize());
     n.zone >= 0 && this.zoneFree(n.zone); n.zone = -1; n.mk?.remove(); n.mk = null;
-    n.mush.mesh.position.copy(n.pg); n.mush.mesh.quaternion.copy(n.qUp); n.mush.mesh.scale.setScalar(1e-3); n.mush.mesh.visible = true;
-    n.mush.mat.userData.uA.value = 0; n.mush.mat.userData.uHeat.value = 1;
+    if (n.mush) { n.mush.mesh.position.copy(n.pg); n.mush.mesh.quaternion.copy(n.qUp); n.mush.mesh.scale.setScalar(1e-3); n.mush.mesh.visible = true; n.mush.mat.userData.uA.value = 0; n.mush.mat.userData.uHeat.value = 1; }
     const delay = Math.min(1.2, dist / (12 * r));
     if (dist < n.inner) return this.swallowNuke(n, dist);
     n.out = dist < n.B ? 'hit' : 'miss';
@@ -423,13 +455,15 @@ export class Threat {
     for (let i = 0; i < 14; i++) { const a = (i / 14) * 6.283 + rnd(0, 0.4), tg = tangentAt(v3.copy(n.to).normalize(), a, v4); v1.copy(n.pg).setLength(R + n.elev * W.E + 0.05 * r).addScaledVector(tg, 0.2 * n.B); this.smoke.spawn(v1, sv.copy(tg).multiplyScalar(0.8 * r).addScaledVector(v3, 0.05 * r), 0.6 * r, 1.4 * r, 4.5, DUST, 0.6, 0.45); } // (the rolling base ring)
     this.scar(n.to, 2.0 * n.B, 0.8 * r, 14, 0);
     this.scar(n.to, 1.2 * n.B, 0.2 * r, 90, 0); // (the scorch stays: its ring is short)
-    this.fall.push({ dir: n.to.clone(), R: 2 * r, t: 0, life: T3.falloutLife, zone: this.zoneAlloc() });
-    if (this.fall.length > 2) { const o = this.fall.shift(); this.zoneFree(o.zone); }
+    if (!n.child) { this.fall.push({ dir: n.to.clone(), R: 2 * r, t: 0, life: T3.falloutLife, zone: this.zoneAlloc() }); if (this.fall.length > 2) { const o = this.fall.shift(); this.zoneFree(o.zone); } }
     const near = Math.max(0.12, 1 - dist / (8 * r));
-    this.sfx.nukeBoom(Math.min(1, 0.5 + 0.5 * near), delay);
-    this.screenFlash(0.18 + 0.5 * near, '#fff4dc', 320);
-    this.trauma(0.2 + 0.4 * near);
-    if (n.out === 'hit') { this.hurt(T3.nukeHit, 'Nuclear airburst!', n.mirv ? 'mirv' : 'nuke', n.first ? 0 : n.child ? T3.kinds.mirv.k : T3.nukeK, n.first ? T3.firstHit : 0.25, n.hadZone && n.locked ? this.t - n.lockAt : -1); this.notice(6); this.news('An ICBM detonates over the void: the blast rim scorches it'); }
+    this.sfx.nukeBoom(Math.min(1, (n.child ? 0.35 : 0.5) + 0.5 * near), delay);
+    this.screenFlash((n.child ? 0.1 : 0.18) + 0.5 * near, '#fff4dc', 320);
+    this.trauma((n.child ? 0.1 : 0.2) + 0.4 * near);
+    if (n.out === 'hit') {
+      const M = T3.kinds.mirv, room = n.child ? Math.max(0, M.cap - n.salvo.sum) : 0.25, fa = n.hadZone && n.locked ? this.t - n.lockAt : -1;
+      const got = room > 0.003 ? this.hurt(n.child ? M.hit : T3.nukeHit, n.child ? 'MIRV warhead!' : 'Nuclear airburst!', n.child ? 'mirv' : 'nuke', n.first ? 0 : n.child ? M.k : T3.nukeK, n.first ? T3.firstHit : room, fa) : 0;
+      if (n.child) { n.salvo.sum += got; if (!got) { this.stats.near++; } } this.notice(6); this.news('An ICBM detonates over the void: the blast rim scorches it'); }
     else this.news('An ICBM detonates harmlessly — you slipped the ring');
   }
   /** THE moment: the warhead drops into the well, the mushroom inverts and is sucked down; a lilac ring, a choir, Frenzy. */
@@ -446,9 +480,9 @@ export class Threat {
     this.gain(n.child ? T3.kinds.mirv.gulp : T3.nukeGulp, n.child ? 'mirvGulp' : 'nukeGulp'); state.belly = Math.min(1, state.belly + 0.25);
     state.frenzy = 6; this.notice(10);
     this.ctx.card('NUKE SWALLOWED', 'the void eats the bomb: Frenzy'); this.news('The void swallowed an ICBM whole'); this.ctx.hint('FRENZY — speed up, bite deeper');
-    n.pulled = true;
+    n.pulled = true; if (n.child) this.mirvGulp(n);
   }
-  finish(n) { n.on = false; n.mush.mesh.visible = false; n.mis.visible = false; n.arc.hide(); n.trail.hide(); if (n.zone >= 0) this.zoneFree(n.zone); n.zone = -1; n.mk?.remove(); n.mk = null; }
+  finish(n) { n.on = false; if (n.mush) n.mush.mesh.visible = false; n.mis.visible = false; n.arc.hide(); n.trail.hide(); if (n.zone >= 0) this.zoneFree(n.zone); n.zone = -1; n.mk?.remove(); n.mk = null; }
 
   // ---------------------------------------------------------------- fallout
   updateFallout(dt) {
@@ -705,7 +739,6 @@ export class Threat {
     out.length = 0; const o = this._o ??= {};
     for (const k of this.K) if (k.danger) for (const x of k.items) if (x.on) k.danger(x, out);
     for (const f of this.fall) { this.offsetOf(f.dir, o); out.push({ kind: 'fall', id: `f${this.fall.indexOf(f)}`, x: o.x, z: o.z, R: f.R, inner: 0, eta: f.life - f.t, locked: true }); }
-    this.rivals?.dangers(out);
     return out;
   }
   api() {

@@ -318,7 +318,7 @@ export function planetSteer(who = 'human') {
         if (d.kind === 'line') { if (d.end > 0.3 && Math.abs(d.across) < d.hw + 0.35 * r) { dbg.dodge = (dbg.dodge || 0) + 1; return [Math.sign(d.across || 1) * d.nx, Math.sign(d.across || 1) * d.nz]; } continue; }
         if (!(d.eta > 0.05)) continue;
         const dist = Math.hypot(d.x, d.z) || 1;
-        if (s.pick[d.id] === undefined) { s.pick[d.id] = who === 'greedy' || Math.random() < 1 / 3; if (s.pick[d.id]) dbg.dive = (dbg.dive || 0) + 1; }
+        if (s.pick[d.id] === undefined) { s.pick[d.id] = d.inner > 0 && (who === 'greedy' || Math.random() < 1 / 3); if (s.pick[d.id]) dbg.dive = (dbg.dive || 0) + 1; }
         if (s.pick[d.id] && dist - 0.3 * d.inner <= v * d.eta * 1.5) { dbg.dodge = (dbg.dodge || 0) + 1; return dist < 0.3 * d.inner + v * 0.05 ? [0, 0] : [d.x / dist, d.z / dist]; } // (centre it, then sit still until it goes off)
         if (dist < d.R * 1.15) { dbg.dodge = (dbg.dodge || 0) + 1; return [-d.x / dist, -d.z / dist]; }
       }

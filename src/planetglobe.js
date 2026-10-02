@@ -582,33 +582,16 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
       for (let i = 0; i < 20; i++) {
         const z = u.uZone[i], q = u.uZoneP[i];
         If(q.y.greaterThan(0.001).and(dot(dir, z.xyz).greaterThan(cos(min(z.w.mul(1.1).add(1e-4), 3.1)))), () => { // (the cheap rejection: no noise, no trig past the zone's own disc)
-          const th = acos(clamp(dot(dir, z.xyz), -1, 1)), A = z.w, lock = q.z, fall = q.w, wd = max(A.mul(0.03), 1e-5);
-          const pul = sin(u.uTime.mul(select(lock.greaterThan(0.001), float(15), float(5)))).mul(0.3).add(0.7);
-          const edge = exp(pow(th.sub(A).div(wd), 2).negate()), inside = float(1).sub(smoothstep(A.mul(0.985), A, th));
+          const th = acos(clamp(dot(dir, z.xyz), -1, 1)).toVar(), A = z.w, lock = q.z, fall = q.w, wd = max(A.mul(0.03), 1e-5); // (.toVar(): a shared node first used inside an If branch is emitted there, and read as 0 by the others)
+          const pul = sin(u.uTime.mul(select(lock.greaterThan(0.001), float(15), float(5)))).mul(0.3).add(0.7).toVar();
+          const edge = exp(pow(th.sub(A).div(wd), 2).negate()).toVar(), inside = float(1).sub(smoothstep(A.mul(0.985), A, th)).toVar();
           const ring = (rad, w) => exp(pow(th.sub(rad).div(w), 2).negate());
           const gz = vec3(0, 0, 0).toVar();
-          If(q.w.greaterThan(4.5), () => { // kind 5: ash fall (volcano): a brown, mottled haze that dims the ground under it
-            const nz = mx_noise_float(dir.mul(float(7).div(A)).add(vec3(0, 0, u.uTime.mul(0.15)))).mul(0.5).add(0.5);
-            gz.assign(vec3(0.5, 0.33, 0.18).mul(edge.mul(0.8).add(inside.mul(nz.mul(0.3).add(0.05)))));
-            col.assign(mix(col, col.mul(vec3(0.5, 0.46, 0.42)), inside.mul(q.y).mul(nz.mul(0.4).add(0.35))));
-          }).Else(() => {
-          If(q.w.greaterThan(3.5), () => { // kind 4: the laser spot: a white-hot core, an orange bloom, a flickering red edge; lock = heat (0: the thin warm-up ring)
-            const d = th.div(A), heat = lock, fl = mx_noise_float(dir.mul(float(30).div(A)).add(vec3(u.uTime.mul(2.5), 0, 0))).mul(0.5).add(0.5);
-            const coreK = float(1).sub(smoothstep(0.0, 0.42, d)), bloom = exp(pow(d.mul(1.25), 2).negate());
-            const warm = vec3(1.0, 0.18, 0.08).mul(edge.mul(2.2).mul(pul).add(inside.mul(0.1)));
-            const hot = vec3(1.0, 0.95, 0.85).mul(coreK.mul(2.6)).add(vec3(1.0, 0.42, 0.08).mul(bloom.mul(1.5).mul(fl.mul(0.5).add(0.7)))).add(vec3(1.0, 0.2, 0.06).mul(edge.mul(2.2).mul(pul)));
-            gz.assign(mix(warm, hot, smoothstep(0.0, 0.25, heat)));
-          }).Else(() => {
-          If(q.w.greaterThan(2.5), () => { // kind 3: a tsunami front: a foam band riding the wave, a dark wet drawback behind it (inner = band width, rad)
-            const wb = max(q.x, 1e-5), band = exp(pow(th.sub(A).div(wb), 2).negate()), streak = mx_noise_float(dir.mul(float(1.6).div(wb)).add(vec3(u.uTime.mul(0.4), 0, 0))).mul(0.5).add(0.5);
-            const wet = smoothstep(A.sub(wb.mul(7)), A.sub(wb.mul(0.5)), th).mul(float(1).sub(smoothstep(A.sub(wb.mul(0.2)), A.add(wb), th)));
-            gz.assign(vec3(0.82, 0.97, 1.0).mul(band.mul(streak.mul(0.9).add(0.9))).mul(1.7).add(vec3(0.12, 0.42, 0.5).mul(wet).mul(0.55)));
-            col.assign(mix(col, col.mul(vec3(0.7, 0.85, 0.95)), wet.mul(q.y).mul(0.35)));
-          }).Else(() => {
-          If(q.w.greaterThan(1.5), () => { // kind 2: a ripe unit (A5): a lilac dashed ring at its equivalent radius, a faint fill
+          If(q.w.greaterThan(1.5).and(q.w.lessThan(2.5)), () => { // kind 2: a ripe unit (A5): a lilac dashed ring at its equivalent radius, a faint fill
             const t1 = normalize(cross(z.xyz, vec3(0.0, 1.0, 0.0)).add(vec3(1e-3, 0, 0))), az = atan(dot(dir, cross(z.xyz, t1)), dot(dir, t1)), dash = smoothstep(-0.25, 0.35, sin(az.mul(20).add(u.uTime.mul(0.7))));
             gz.assign(vec3(0.8, 0.66, 1.0).mul(ring(A, wd.mul(1.3)).mul(dash).mul(1.5).add(inside.mul(0.5))));
-          }).Else(() => {
+          });
+          If(q.w.lessThan(1.5), () => {
           const danger = mix(vec3(1.0, 0.6, 0.12), vec3(1.0, 0.1, 0.06), min(lock.mul(40), 1)), hatch = sin(th.div(A).mul(44).sub(u.uTime.mul(select(lock.greaterThan(0.001), float(3.5), float(1.2))))).mul(0.5).add(0.5);
           const g = danger.mul(edge.mul(2.6).mul(pul).add(inside.mul(hatch.mul(0.16).add(0.05)))).toVar();
           g.addAssign(vec3(1.0, 0.92, 0.8).mul(ring(A.mul(float(1).sub(lock)), wd.mul(0.9))).mul(step(0.001, lock)).mul(2.4)); // the closing countdown ring
@@ -616,9 +599,21 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
           If(fall.greaterThan(0.5), () => { gz.assign(vec3(0.7, 0.85, 0.14).mul(edge.mul(0.7).add(inside.mul(mx_noise_float(dir.mul(float(9).div(A))).mul(0.5).add(0.5).mul(0.2))))); /* fallout: a sick, mottled glow */ }).Else(() => { gz.assign(g); });
           col.assign(mix(col, col.mul(vec3(0.82, 0.92, 0.6)), inside.mul(fall).mul(q.y).mul(0.45)));
           });
-          });
-          });
-          });
+          // kinds 3-5 are plain arithmetic (masks), not If branches: a TSL If with noise in it drew its body for every zone kind here
+          const kW = q.w, mAsh = step(4.5, kW), mLas = step(3.5, kW).mul(step(kW, 4.5)), mWav = step(2.5, kW).mul(step(kW, 3.5));
+          const nzA = mx_noise_float(dir.mul(float(7).div(A)).add(vec3(0, 0, u.uTime.mul(0.15)))).mul(0.5).add(0.5);
+          const ash = vec3(0.5, 0.33, 0.18).mul(edge.mul(0.8).add(inside.mul(nzA.mul(0.3).add(0.05))));
+          const dL = th.div(A), flL = mx_noise_float(dir.mul(float(30).div(A)).add(vec3(u.uTime.mul(2.5), 0, 0))).mul(0.5).add(0.5);
+          const coreK = float(1).sub(smoothstep(0.0, 0.42, dL)), bloom = exp(pow(dL.mul(1.25), 2).negate());
+          const warmL = vec3(1.0, 0.18, 0.08).mul(edge.mul(2.2).mul(pul).add(inside.mul(0.1)));
+          const hotL = vec3(1.0, 0.95, 0.85).mul(coreK.mul(2.6)).add(vec3(1.0, 0.42, 0.08).mul(bloom.mul(1.5).mul(flL.mul(0.5).add(0.7)))).add(vec3(1.0, 0.2, 0.06).mul(edge.mul(2.2).mul(pul)));
+          const las = mix(warmL, hotL, smoothstep(0.0, 0.25, lock));
+          const wb = max(q.x, 1e-5), band = exp(pow(th.sub(A).div(wb), 2).negate()), streak = mx_noise_float(dir.mul(float(1.6).div(wb)).add(vec3(u.uTime.mul(0.4), 0, 0))).mul(0.5).add(0.5);
+          const wet = smoothstep(A.sub(wb.mul(7)), A.sub(wb.mul(0.5)), th).mul(float(1).sub(smoothstep(A.sub(wb.mul(0.2)), A.add(wb), th)));
+          const wav = vec3(0.82, 0.97, 1.0).mul(band.mul(streak.mul(0.9).add(0.9))).mul(1.7).add(vec3(0.12, 0.42, 0.5).mul(wet).mul(0.55));
+          gz.addAssign(ash.mul(mAsh).add(las.mul(mLas)).add(wav.mul(mWav)));
+          col.assign(mix(col, col.mul(vec3(0.5, 0.46, 0.42)), inside.mul(q.y).mul(nzA.mul(0.4).add(0.35)).mul(mAsh)));
+          col.assign(mix(col, col.mul(vec3(0.7, 0.85, 0.95)), wet.mul(q.y).mul(0.35).mul(mWav)));
           col.addAssign(gz.mul(q.y));
         });
       }
