@@ -42,14 +42,14 @@ export class PlanetGame {
     const W = this.world = await PlanetWorld.create(seed, { quality, workers: !qs.has('noworker'), slice, onStage: (t) => ctx.stage?.(t) });
     W.bind({ scene: ctx.scene, camera: ctx.camera, look: ctx.look, post: ctx.post, renderer: ctx.renderer, sun: ctx.sun });
     this.around = (fn) => (this.entered ? fn() : W.around(fn)); // (compile in the planet's scene state before the swap: W.sceneState)
-    await loadPack(ctx.assets, 'planet', null, slice ? { gentle: true } : undefined); // (the ships, silos and rigs)
+    await loadPack(ctx.assets, 'planet', null, slice ? { gentle: true } : undefined);
     if (!qs.has('nomap')) { this.map = new PlanetMap(ctx.renderer, W.globe); this.map.show(false); await this.map.precompile(); } // (the minimap: §6.3)
     if (!qs.has('noarmy') && !qs.has('nothreat')) { ctx.stage?.('Arming the world…'); this.threat = new Threat(this, ctx); await this.threat.init(); } // (the DEFCON director, src/threat.js)
     if (slice) { // (under Phase 2: the globe, sky and patch pipelines compile here, one mesh a frame; the textures go up to the GPU one a frame; the first patch is built: the swap does none of it)
       await ctx.post.precompile(W.globe.group, 20000, this.around);
       await ctx.post.precompile(W.globe.sky, 8000, this.around);
       const g = W.globe;
-      for (const t of [g.surfTex, g.nightTex, g.biteTex, g.trailTex, g.mapTex, ...Object.values(g.gt)]) { ctx.renderer.initTexture(t); await slice(); }
+      for (const t of [g.surfTex, g.nightTex, g.biteTex, g.trailTex, ...Object.values(g.gt)]) { ctx.renderer.initTexture(t); await slice(); }
       this.placeStart(r0); W.buildPatchNow(r0);
     }
     this.prepared = true;
@@ -122,7 +122,7 @@ export class PlanetGame {
     window.__planetDbg = window.__planet.dbg; // r, tier, e_eff, speed, patch builds, bite/world/step ms
     window.__planetLadder = () => this.ladderTest(ctx);
     window.__planetUnits = () => this.unitsApi(ctx);
-    window.__P3 = P3; // (balance knobs between runs: __P3.growth, __P3.gLand, ...)
+    window.__P3 = P3; // (balance knobs between runs: __P3.gRamp, __P3.collapseK, ...)
   }
 
   /** ?planet: prepare + commit behind the loading line. */
@@ -424,8 +424,8 @@ export class PlanetGame {
     el.hidden = false; el.style.transform = `translate(${((p.x * 0.5 + 0.5) * innerWidth).toFixed(0)}px,${((-p.y * 0.5 + 0.5) * innerHeight).toFixed(0)}px) translate(-50%,-140%)`;
   }
 
-  /** The Sealed checkpoint (§8): the bite map and the hole's frame at the latest tier-up (6 MB, memory only). */
-  checkpoint(ctx) { this.ckpt = { tier: ctx.state.tier, snap: this.world.bite.save(), holeQ: this.world.holeQ.clone() }; }
+  /** The Sealed checkpoint (§8): the bite map and the hole's frame at the latest tier-up (17 MB, memory only; the snapshot is reused at every tier-up). */
+  checkpoint(ctx) { this.ckpt = { tier: ctx.state.tier, snap: this.world.bite.save(this.ckpt?.snap !== this.snap0 ? this.ckpt?.snap : null), holeQ: this.world.holeQ.clone() }; }
   /** "Retry tier N": back to the tier-up (land as it was, the hole at the tier's floor, belly full). */
   restoreCheckpoint(ctx) {
     const W = this.world, { hole, state } = ctx, c = this.ckpt, B = W.bite;

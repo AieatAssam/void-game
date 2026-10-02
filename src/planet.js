@@ -324,9 +324,7 @@ export class PlanetWorld {
     globe.trailData.set(tr); globe.trailTex.needsUpdate = true;
     globe.commitPatch(A, half);
     globe.u.uWoundP.value = 0.6 * rB;
-    globe.u.uRoadW.value = 3 * ((half * 2) / TRAIL); // (3 texels: the road distance field's reach, see food.paintUrban)
     this.patchInfo = info;
-    this.onPatch?.(info); // (a hook for painting footprints into the new patch space)
     this.builds++;
     this.lastBuild = { ms: performance.now() - t0, rB, spacing, fine };
   }
@@ -340,7 +338,7 @@ export class PlanetWorld {
     const { scene, look, renderer } = this.ctx0, s = this.saved ??= {};
     if (on) {
       Object.assign(s, { envI: scene.environmentIntensity, fog: scene.fogNode, bg: scene.background, sky: look.sky.visible, envSky: look.envSky.visible, exposure: renderer.toneMappingExposure });
-      scene.environmentIntensity = 0.14; // (the town's daylight IBL washes the food's dark albedo out to mint; the sun carries the planet)
+      scene.environmentIntensity = 0.14; // (the town's daylight IBL washes the ground's dark albedo out to mint; the sun carries the planet)
       scene.fogNode = null; // (aerialFog uses max(y, 0) and would fog the globe at y = -R solid; haze lives in planetMaterial)
       scene.background = new THREE.Color(0x000000);
       look.sky.visible = false; look.envSky.visible = false; // (the dome + stars in globe.sky replace them)

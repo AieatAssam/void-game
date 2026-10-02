@@ -189,7 +189,6 @@ export function planetUniforms() {
     uGcellA: uniform(1e4), uGfr: uniform(0), uGroundK: uniform(1), uGroundM: uniform(1), // (K: parcels, hedges, rows, street grids, lakes, rivers = the close ground; M: relief, woods, settlements = the km-scale ground that a landmass keeps)
     // close-ground pattern scale: cells per face unit, octave blend, strength
     uPx: uniform(0.0005), // metres per pixel per metre of view distance
-    uRoadW: uniform(230), // metres from a road line at which the patch map's road distance field reaches 0 (3 texels)
   };
 }
 
@@ -199,15 +198,15 @@ const fadeTo = (lam, px) => float(1).sub(smoothstep(lam * 0.1, lam * 0.42, px));
 const luma = (c) => dot(c, vec3(0.3, 0.55, 0.15));
 
 /**
- * planetMaterial({ surf, night, bite, trail, map, gt, N, B, quality, patch, u }) -> NodeMaterial with .userData.u (uniforms).
+ * planetMaterial({ surf, night, bite, trail, gt, N, B, quality, patch, u }) -> NodeMaterial with .userData.u (uniforms).
  * patch = false: the globe (positionGeometry = unit direction, `aH` = height). patch = true: the local detail patch: positions are
  * relative to the patch anchor (float precision), `aDir` the unit direction, `aH` the real signed height, `aHm` the height used to
  * morph the rim into the globe, `aG` the slope vector, `aS` (terrain occlusion, sun shadow), `aUV` the trail-map coordinates.
  * Uniforms: uSun (planet space), uCam (camera in planet units), uRelief (E), uDetail, uCloudRot, uBorders, uHoles[i] (vec4: dir.xyz,
  * cos(angle); w > 1 = empty), uCut (flat hole cut, metres, render space), uPatch (globe discard disc), uWoundG/uWoundP (wound depth, m).
- * `map` = the patch's RGBA map (R settlement, G woods, B roads, A wake foam) in patch space, painted by the Phase 2 code (unused in Phase 3); `gt` = groundtex.js.
+ * `gt` = groundtex.js.
  */
-export function planetMaterial({ surf, night, bite, trail = null, map = null, gt = null, N = 512, B = 1024, quality = 'high', patch = false, u = planetUniforms() }) {
+export function planetMaterial({ surf, night, bite, trail = null, gt = null, N = 512, B = 1024, quality = 'high', patch = false, u = planetUniforms() }) {
   const low = quality === 'low';
   const mat = new THREE.MeshBasicNodeMaterial({ fog: false });
   const aH = attribute('aH', 'float');
@@ -246,8 +245,7 @@ export function planetMaterial({ surf, night, bite, trail = null, map = null, gt
     const wp = st.xy.mul(5.0e6).add(vec2(st.z.mul(113.7e3), st.z.mul(57.1e3))).toVar(); // surface metres on the cube face (continuous within a face, so detail never swims)
     const GR = patch && !!gt && !OFF.has('ground'), PB = !low && !OFF.has('pbr');
     // ---- every texture the ground needs, fetched here in uniform control flow (derivatives inside the land / sea branches would not be defined)
-    let fA, fB, fC, cA, cB, uB, rA, rB, nz, scA, scB, mapV, gwx, gwy, riverN, riverFw;
-    if (patch && map) mapV = texture(map, attribute('aUV', 'vec2')).toVar();
+    let fA, fB, fC, cA, cB, uB, rA, rB, nz, scA, scB, gwx, gwy, riverN, riverFw;
     if (GR) {
       const T_ = (k, mk) => (OFF.has(k) ? vec4(0.5, 0.5, 0.5, 0.5).toVar() : mk().toVar()); // (?off=fields,canopy,urban,relief prices each baked pattern)
       fA = T_('fields', () => texture(gt.fields, vec2(wp.x, wp.y.div(1.35)).div(FIELD_TILE)));
@@ -332,7 +330,7 @@ export function planetMaterial({ surf, night, bite, trail = null, map = null, gt
       }
     });
     const oceanCol = vec3(0).toVar(), landCol = vec3(0).toVar(), dbgV = vec3(0).toVar();
-    const urbV = patch ? sstep(0.45, 0.95, nRaw.r) : float(0), woodV = mapV ? mapV.g : float(0), roadV = mapV ? mapV.b : float(0);
+    const urbV = patch ? sstep(0.45, 0.95, nRaw.r) : float(0);
     // the water's lighting: sun glint, Fresnel to the sky, a body colour and a little diffuse
     const shadeWater = (oc, on, iceO, nrmL) => {
       const Hh = normalize(L.add(V)), nh = max(dot(on, Hh), 0), nv = max(dot(on, V), 0);
@@ -459,7 +457,7 @@ export function planetMaterial({ surf, night, bite, trail = null, map = null, gt
         can = mix(can, srgb(0.06, 0.22, 0.1), jung);
         const canL0 = float(0.55).add(cvv.r.mul(1.15)).mul(float(1).sub(cvv.b.mul(0.45))), canL = mix(float(1.18), canL0, fadeTo(450, pxM).mul(0.85).add(0.15)); // (the canopy tile is 1.5 km: it must be gone before a pixel is 60 m) // dark gaps, bright crown tops, glades
         const canopy = can.mul(canL);
-        woodK.assign(max(wood, woodV.mul(0.9)).mul(gM));
+        woodK.assign(wood.mul(gM));
         land.assign(mix(land, canopy, woodK.mul(fadeTo(900, pxM).mul(0.8).add(0.2))));
         rough.assign(mix(rough, 0.35, woodK));
         // ---- the dry lands: sand and scree grain
@@ -476,11 +474,6 @@ export function planetMaterial({ surf, night, bite, trail = null, map = null, gt
         fab = mix(fab, garden, mix(float(0.15), uB.a, uK).mul(0.8));
         fab = mix(fab, srgb(0.2, 0.2, 0.21), uB.r.mul(uK).mul(0.85).mul(dense.mul(0.8).add(0.2)));
         land.assign(mix(land, fab, urE));
-        // ---- roads between settlements: a thin, pale line on a distance field painted per patch
-        const rdD = float(1).sub(roadV); // 0 on the line .. 1 at W metres from it
-        const rw = mix(18, 32, sstep(0, 1, urbV)); // metres (full width)
-        const roadA = float(1).sub(sstep(0.3, 1.0, rdD.mul(u.uRoadW).div(max(rw.mul(0.5), pxM.mul(0.75))))).mul(fadeTo(900, pxM).mul(0.8).add(0.2)).mul(sstep(0.02, 0.2, roadV));
-        land.assign(mix(land, mix(srgb(0.56, 0.52, 0.45), srgb(0.3, 0.3, 0.3), urE).mul(luma(land).mul(0.5).add(0.75)), roadA.mul(0.8).mul(gOn)));
         rough.assign(mix(rough, 0.5, urE));
       }
       // ---- scree and rock
@@ -560,7 +553,7 @@ export function planetMaterial({ surf, night, bite, trail = null, map = null, gt
       const cl1 = mx_noise_float(dir.mul(640)).mul(0.5).add(0.5), cl2 = mx_noise_float(dir.mul(2100)).mul(0.5).add(0.5);
       const lights = nlight.mul(sstep(0.35, 0.9, cl1.mul(0.6).add(nlight.mul(0.7))).mul(sstep(0.56, 0.78, cl2)).mul(2.2).add(nlight.mul(nlight).mul(sstep(0.5, 0.75, cl1)).mul(0.5))).mul(landMask);
       col.addAssign(vec3(1.0, 0.56, 0.2).mul(lights).mul(dark).mul(1.7).mul(float(1).sub(near.mul(u.uGroundK))));  // (close up the food's own windows take over: the bake's blobs would be 5 km soft clouds)
-      if (patch && map) col.addAssign(vec3(1.0, 0.5, 0.18).mul(urbV).mul(dark).mul(0.09).mul(u.uGroundK).mul(near)); // street glow under the skyline
+      if (patch) col.addAssign(vec3(1.0, 0.5, 0.18).mul(urbV).mul(dark).mul(0.09).mul(u.uGroundK).mul(near)); // street glow under the skyline
     });
     If(cloud.greaterThan(0.001), () => { // clouds: white, lit with wrap, thin edges lose density
       const cloudLit = mix(vec3(0.66, 0.72, 0.85), vec3(0.98, 0.985, 1.0), sstep(0.38, 0.95, cloudRaw.add(cn.mul(1.6)))).mul((sunLit.mul(clamp(dot(dir, L).add(0.1).div(1.1), 0, 1)).mul(0.92).add(amb.mul(1.5))));
@@ -772,16 +765,13 @@ export class PlanetGlobe {
     this.nightTex = dataArray(bake.night, bake.N, 6, THREE.RGFormat);
     this.biteTex = dataArray(new Uint8Array(6 * B * B).fill(255), B, 6, THREE.RedFormat);
     // footprints in patch space like the trail: RGBA = settlement density, woods, road distance field, (spare)
-    this.mapData = new Uint8Array(TRAIL * TRAIL * 4);
-    this.mapTex = new THREE.DataTexture(this.mapData, TRAIL, TRAIL, THREE.RGBAFormat, THREE.UnsignedByteType);
-    this.mapTex.minFilter = this.mapTex.magFilter = THREE.LinearFilter; this.mapTex.generateMipmaps = false; this.mapTex.needsUpdate = true;
     this.gt = gt ?? bakeGroundTextures(quality); // (the ascension passes textures baked in slices during Phase 2) // the baked ground patterns (fields, canopy, streets, relief)
     this.trailData = new Uint8Array(TRAIL * TRAIL);
     this.trailTex = new THREE.DataTexture(this.trailData, TRAIL, TRAIL, THREE.RedFormat, THREE.UnsignedByteType);
     this.trailTex.minFilter = this.trailTex.magFilter = THREE.LinearFilter;
     this.trailTex.generateMipmaps = false; this.trailTex.unpackAlignment = 1; this.trailTex.needsUpdate = true;
     this.u = planetUniforms();
-    const mo = { surf: this.surfTex, night: this.nightTex, bite: this.biteTex, trail: this.trailTex, map: this.mapTex, gt: this.gt, N: bake.N, B, quality, u: this.u };
+    const mo = { surf: this.surfTex, night: this.nightTex, bite: this.biteTex, trail: this.trailTex, gt: this.gt, N: bake.N, B, quality, u: this.u };
     this.material = planetMaterial({ ...mo, map: null, gt: null }); // (the globe: macro colour only)
     this.u.uRelief.value = relief;
     const n = segments ?? (quality === 'low' ? 64 : quality === 'medium' ? 96 : 128);
@@ -893,5 +883,5 @@ export class PlanetGlobe {
     this.uStarR.value = far * 0.98;
   }
 
-  dispose() { this.surfTex.dispose(); this.nightTex.dispose(); this.biteTex.dispose(); this.trailTex.dispose(); this.mapTex.dispose(); for (const k of Object.values(this.gt)) k.dispose(); this.globe.geometry.dispose(); this.patch.geometry.dispose(); }
+  dispose() { this.surfTex.dispose(); this.nightTex.dispose(); this.biteTex.dispose(); this.trailTex.dispose(); for (const k of Object.values(this.gt)) k.dispose(); this.globe.geometry.dispose(); this.patch.geometry.dispose(); }
 }

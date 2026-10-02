@@ -337,12 +337,18 @@ export class BiteMap {
   }
 
   /** Snapshot / restore the whole bite state (calibration runs and the Sealed checkpoint, §12.7 R2). */
-  save() {
-    const lf = this.lf;
-    return { rem: this.rem.slice(), ov: this.ov.slice(), rem8: this.rem8.slice(), sum: this.sum, pop: this.pop, ptear: this.ptear.slice(), lv: lf?.lv.map((v) => ({ left: v.left.slice(), torn: v.torn?.slice() })) };
+  save(into = null) {
+    // rem8 is rem >> 8 and ov is "touched": both are rebuilt by restore(), so the snapshot is rem + the unit tables (17 MB, was 35). `into` (a previous snapshot) is overwritten in place: no allocation at a tier-up.
+    const lf = this.lf, o = into ?? { rem: new Uint16Array(this.rem.length), ptear: new Uint8Array(this.ptear.length), lv: lf?.lv.map((v) => ({ left: new Float64Array(v.left.length), torn: v.torn ? new Uint8Array(v.torn.length) : null })) };
+    o.rem.set(this.rem); o.ptear.set(this.ptear); o.sum = this.sum; o.pop = this.pop;
+    lf?.lv.forEach((v, L) => { o.lv[L].left.set(v.left); o.lv[L].torn?.set(v.torn); });
+    return o;
   }
   restore(sv) {
-    this.rem.set(sv.rem); this.ov.set(sv.ov); this.rem8.set(sv.rem8); this.sum = sv.sum; this.pop = sv.pop; this.ptear.set(sv.ptear); this.jobs.length = 0; this.events.length = 0;
+    const { rem, ov, rem8, hm } = this;
+    rem.set(sv.rem);
+    for (let k = 0; k < rem.length; k++) { const q = rem[k]; ov[k] = q < 65535 ? 65535 : 0; rem8[k] = hm[k] === OCEAN ? 255 : Math.round(q * (255 / 65535)); } // (an eaten or partly eaten texel was overlapped: ov is the conservative value; untouched ones start over)
+    this.sum = sv.sum; this.pop = sv.pop; this.ptear.set(sv.ptear); this.jobs.length = 0; this.events.length = 0;
     sv.lv?.forEach((s, L) => { this.lf.lv[L].left.set(s.left); if (s.torn) this.lf.lv[L].torn.set(s.torn); });
     this.tex.needsUpdate = true;
   }
