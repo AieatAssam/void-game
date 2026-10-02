@@ -23,7 +23,7 @@ const list = document.getElementById('list');
 const sorted = Object.values(assets).sort((p, q) => p.meta.tier - q.meta.tier);
 let x = 0;
 for (const a of sorted) {
-  const r = Math.max(a.meta.tier, 0.3);
+  const r = Math.max(a.meta.tier / (a.meta.geoScale || 1), 0.3); // geoScale: fiction-size models (aegis, cracker) are modelled small
   x += r;
   a.scene.position.x = x;
   x += r + 1;

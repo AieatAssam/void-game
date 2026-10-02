@@ -1,4 +1,56 @@
 {
+ "aa_battery": {
+  "pack": "planet",
+  "lod": [
+   0.4,
+   0.15
+  ],
+  "tier": 15,
+  "mass": 4481.946,
+  "kind": "unit",
+  "height": 12.611,
+  "unit": "aa",
+  "tris": 1480,
+  "lodTris": 1278,
+  "lod2Tris": 1256,
+  "bytes": 26144,
+  "clips": []
+ },
+ "aegis_platform": {
+  "pack": "planet",
+  "lod": [
+   0.4,
+   0.15
+  ],
+  "tier": 30000,
+  "mass": 58485.551,
+  "kind": "fx",
+  "height": 36,
+  "unit": "aegis",
+  "geoScale": 1000,
+  "tris": 1676,
+  "lodTris": 776,
+  "lod2Tris": 620,
+  "bytes": 22972,
+  "clips": []
+ },
+ "aircraft_carrier": {
+  "pack": "planet",
+  "lod": [
+   0.4,
+   0.15
+  ],
+  "tier": 165,
+  "mass": 650667.255,
+  "kind": "unit",
+  "height": 65,
+  "unit": "carrier",
+  "tris": 940,
+  "lodTris": 708,
+  "lod2Tris": 698,
+  "bytes": 15404,
+  "clips": []
+ },
  "airliner": {
   "tier": 14.125,
   "mass": 900,
@@ -86,6 +138,23 @@
   "bytes": 82852,
   "clips": []
  },
+ "bomber": {
+  "pack": "planet",
+  "lod": [
+   0.4,
+   0.15
+  ],
+  "tier": 25,
+  "mass": 2698.943,
+  "kind": "fx",
+  "height": 3.84,
+  "unit": "bomber",
+  "tris": 608,
+  "lodTris": 488,
+  "lod2Tris": 468,
+  "bytes": 11932,
+  "clips": []
+ },
  "bumper_car": {
   "tier": 0.81,
   "mass": 0.5,
@@ -122,6 +191,23 @@
   "lodTris": 6288,
   "lod2Tris": 3252,
   "bytes": 194580,
+  "clips": []
+ },
+ "cargo_ship": {
+  "pack": "planet",
+  "lod": [
+   0.4,
+   0.15
+  ],
+  "tier": 150,
+  "mass": 513360,
+  "kind": "unit",
+  "height": 69,
+  "unit": "cargo",
+  "tris": 1856,
+  "lodTris": 1772,
+  "lod2Tris": 1762,
+  "bytes": 29336,
   "clips": []
  },
  "carousel": {
@@ -338,6 +424,41 @@
   "lodTris": 3074,
   "lod2Tris": 1724,
   "bytes": 101324,
+  "clips": []
+ },
+ "cracker": {
+  "pack": "planet",
+  "lod": [
+   0.4,
+   0.15
+  ],
+  "tier": 150000,
+  "mass": 2959161.221,
+  "kind": "unit",
+  "height": 106,
+  "unit": "cracker",
+  "geoScale": 1000,
+  "tris": 3592,
+  "lodTris": 1436,
+  "lod2Tris": 1006,
+  "bytes": 38944,
+  "clips": []
+ },
+ "destroyer": {
+  "pack": "planet",
+  "lod": [
+   0.4,
+   0.15
+  ],
+  "tier": 75,
+  "mass": 54120,
+  "kind": "unit",
+  "height": 41,
+  "unit": "destroyer",
+  "tris": 772,
+  "lodTris": 688,
+  "lod2Tris": 686,
+  "bytes": 14004,
   "clips": []
  },
  "drummer": {
@@ -561,6 +682,23 @@
    "fire"
   ]
  },
+ "icbm": {
+  "pack": "planet",
+  "lod": [
+   0.4,
+   0.15
+  ],
+  "tier": 3.2,
+  "mass": 623.822,
+  "kind": "fx",
+  "height": 6.647,
+  "unit": "icbm",
+  "tris": 1398,
+  "lodTris": 558,
+  "lod2Tris": 288,
+  "bytes": 16884,
+  "clips": []
+ },
  "jet": {
   "pack": "region",
   "tier": 7,
@@ -572,6 +710,57 @@
   "lodTris": 1322,
   "lod2Tris": 422,
   "bytes": 40144,
+  "clips": []
+ },
+ "kinetic_sat": {
+  "pack": "planet",
+  "lod": [
+   0.4,
+   0.15
+  ],
+  "tier": 21.5,
+  "mass": 4702.824,
+  "kind": "fx",
+  "height": 15.552,
+  "unit": "sat",
+  "tris": 856,
+  "lodTris": 778,
+  "lod2Tris": 772,
+  "bytes": 16196,
+  "clips": []
+ },
+ "laser_platform": {
+  "pack": "planet",
+  "lod": [
+   0.4,
+   0.15
+  ],
+  "tier": 62,
+  "mass": 99428.635,
+  "kind": "fx",
+  "height": 24,
+  "unit": "laser",
+  "tris": 1880,
+  "lodTris": 916,
+  "lod2Tris": 722,
+  "bytes": 24084,
+  "clips": []
+ },
+ "launch_pad": {
+  "pack": "planet",
+  "lod": [
+   0.4,
+   0.15
+  ],
+  "tier": 200,
+  "mass": 8630400.146,
+  "kind": "unit",
+  "height": 179.8,
+  "unit": "pad",
+  "tris": 1952,
+  "lodTris": 1376,
+  "lod2Tris": 1354,
+  "bytes": 25436,
   "clips": []
  },
  "locomotive": {
@@ -633,6 +822,57 @@
   "lodTris": 3118,
   "lod2Tris": 2428,
   "bytes": 104088,
+  "clips": []
+ },
+ "missile_silo": {
+  "pack": "planet",
+  "lod": [
+   0.4,
+   0.15
+  ],
+  "tier": 10,
+  "mass": 1520,
+  "kind": "unit",
+  "height": 9.5,
+  "unit": "silo",
+  "tris": 1070,
+  "lodTris": 754,
+  "lod2Tris": 644,
+  "bytes": 18280,
+  "clips": []
+ },
+ "mushroom_cloud": {
+  "pack": "planet",
+  "lod": [
+   0.5,
+   0.2
+  ],
+  "tier": 0.5,
+  "mass": 0.521,
+  "kind": "fx",
+  "height": 1.175,
+  "unit": "cloud",
+  "tris": 1472,
+  "lodTris": 1344,
+  "lod2Tris": 914,
+  "bytes": 24224,
+  "clips": []
+ },
+ "oil_rig": {
+  "pack": "planet",
+  "lod": [
+   0.4,
+   0.15
+  ],
+  "tier": 52,
+  "mass": 455073.221,
+  "kind": "unit",
+  "height": 107.5,
+  "unit": "rig",
+  "tris": 1086,
+  "lodTris": 966,
+  "lod2Tris": 952,
+  "bytes": 19124,
   "clips": []
  },
  "parade_float": {
@@ -770,6 +1010,23 @@
   "bytes": 84856,
   "clips": []
  },
+ "rocket": {
+  "pack": "planet",
+  "lod": [
+   0.4,
+   0.15
+  ],
+  "tier": 15,
+  "mass": 30374.868,
+  "kind": "fx",
+  "height": 25.314,
+  "unit": "rocket",
+  "tris": 1758,
+  "lodTris": 844,
+  "lod2Tris": 796,
+  "bytes": 23224,
+  "clips": []
+ },
  "rubber_duck": {
   "tier": 0.5,
   "mass": 0.1,
@@ -827,6 +1084,23 @@
   "clips": [
    "turn"
   ]
+ },
+ "space_station": {
+  "pack": "planet",
+  "lod": [
+   0.4,
+   0.15
+  ],
+  "tier": 55,
+  "mass": 64064,
+  "kind": "fx",
+  "height": 52,
+  "unit": "station",
+  "tris": 1206,
+  "lodTris": 672,
+  "lod2Tris": 600,
+  "bytes": 17268,
+  "clips": []
  },
  "stadium": {
   "pack": "region",

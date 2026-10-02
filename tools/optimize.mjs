@@ -19,7 +19,7 @@ const manifest = {};
 for (const f of readdirSync('assets-raw').filter((f) => f.endsWith('.glb')).sort()) {
   const name = f.slice(0, -4);
   const doc = await io.read(`assets-raw/${f}`);
-  await doc.transform(dedup(), weld(), prune());
+  await doc.transform(dedup(), weld(), prune({ keepLeaves: true }));
   // LOD1 (~25%) for mid distance, LOD2 (~8%) for far / zoomed-out views (ART.md budgets).
   const lods = [];
   // thin structures (spokes, rails, bunting) can ask for gentler LODs with a `lod: [r1, r2]` extra
@@ -27,7 +27,7 @@ for (const f of readdirSync('assets-raw').filter((f) => f.endsWith('.glb')).sort
   const [r1, r2] = Array.isArray(lodExtra) ? lodExtra : [0.25, 0.08];
   for (const [dir, ratio, error] of [['lod', r1, 0.02], ['lod2', r2, 0.06]]) {
     const lod = await io.read(`assets-raw/${f}`);
-    await lod.transform(dedup(), weld(), simplify({ simplifier: MeshoptSimplifier, ratio, error }), prune(),
+    await lod.transform(dedup(), weld(), simplify({ simplifier: MeshoptSimplifier, ratio, error }), prune({ keepLeaves: true }),
       meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
     await io.write(`public/models/${dir}/${f}`, lod);
     lods.push(countTris(lod));

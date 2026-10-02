@@ -367,3 +367,32 @@ def hip_roof(name, d, w, h, loc=(0, 0, 0), color='roof_tile', bev=0.08):
         f = [(1, 2, 5), (3, 0, 4), (0, 1, 5, 4), (2, 3, 4, 5), (3, 2, 1, 0)]
     ob = mesh(name, v, f, color, loc)
     return bevel(ob, bev, 2) if bev else ob
+
+
+def poly_prism(name, pts, z0, z1, color='steel', loc=(0, 0, 0), bev=0.0):
+    """Extrude an XY outline (CCW) from z0 to z1 (ship hulls, wings, plates)."""
+    n = len(pts)
+    v = [(x, y, z0) for x, y in pts] + [(x, y, z1) for x, y in pts]
+    f = [tuple(range(n - 1, -1, -1)), tuple(range(n, 2 * n))]
+    f += [(i, (i + 1) % n, n + (i + 1) % n, n + i) for i in range(n)]
+    ob = mesh(name, v, f, color, loc)
+    return bevel(ob, bev, 1) if bev else ob
+
+
+def mirror_pts(half):
+    """[(x, y>=0)...] stern->bow along +y side -> closed symmetric outline."""
+    return [(x, -y) for x, y in half] + [(x, y) for x, y in reversed(half)]
+
+
+def blk(name, size, loc, color, bev=0, rot=(0, 0, 0)):
+    """Cheap box: no bevel unless asked (12 tris)."""
+    return box(name, size, loc=loc, color=color, bev=bev, seg=1, rot=rot)
+
+
+def empty(name, loc, root):
+    e = bpy.data.objects.new(name, None)
+    coll().objects.link(e)
+    e.location = loc
+    e.empty_display_size = 1.0
+    parent(e, root)
+    return e

@@ -55,7 +55,12 @@ REGION = [
     'city_block', 'city_block_b', 'glass_tower', 'supertall', 'tv_tower', 'stadium', 'parliament',
     'army_truck', 'howitzer', 'jet', 'chinook', 'sandbags', 'capper',
 ]
-ALL = ASSETS + PACKS + REGION
+# Phase 3 (docs/PHASE3.md 6.6): the planet pack - adversaries, space hardware and set pieces (pack 'planet').
+PLANET = [
+    'icbm', 'missile_silo', 'aircraft_carrier', 'kinetic_sat', 'laser_platform', 'aegis_platform', 'rocket', 'space_station',
+    'bomber', 'mushroom_cloud', 'launch_pad', 'cargo_ship', 'destroyer', 'oil_rig', 'aa_battery', 'cracker',
+]
+ALL = ASSETS + PACKS + REGION + PLANET
 ONLY = globals().get('ONLY') or ASSETS
 for n in ONLY:
     try:
