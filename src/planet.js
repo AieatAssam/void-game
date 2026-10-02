@@ -110,6 +110,8 @@ export class PlanetWorld {
     // hole cut: flat disc of the hole's radius in render space (T1-T3); caps (T4+) are angular
     if (!this.capMode && r >= P3.capR) this.toCapMode(hole);
     g.u.uCut.value = this.capMode ? 0 : r;
+    g.u.uHoleD.value.set(this.hdir.x, this.hdir.y, this.hdir.z, r / R);
+    g.u.uClouds.value = 0.5 + 0.5 * SM(8000, 100000, r);
     if (this.capMode) g.setHole(0, this.hdir, r / R); else g.setHole(0, this.hdir, 0);
     // wound depth: the patch's trail sinks ~0.6 r_build; the bite map 3 km (x E applied by the shader's own height)
     g.u.uWoundG.value = 3000;

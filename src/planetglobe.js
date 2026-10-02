@@ -166,6 +166,7 @@ export function planetUniforms() {
     uSun: uniform(new THREE.Vector3(0.8, 0.25, 0.55).normalize()), uCam: uniform(new THREE.Vector3(0, 0, 3)),
     uRelief: uniform(3), uDetail: uniform(1), uCloudRot: uniform(new THREE.Vector2(1, 0)), uBorders: uniform(0), uClouds: uniform(1),
     uHoles: Array.from({ length: MAX_HOLES }, () => uniform(new THREE.Vector4(0, 1, 0, 2))), uTime: uniform(0),
+    uHoleD: uniform(new THREE.Vector4(0, 1, 0, 0.001)), // the player's hole: dir.xyz, angular radius (clouds keep clear of it)
     uCut: uniform(0), // hole radius (m) of the flat cut in RENDER space (the hole sits at the origin); 0 = none (cap mode)
     uPatch: uniform(new THREE.Vector4(0, 1, 0, 2)), // the globe is discarded inside this disc (xyz anchor dir, w cos radius; w > 1 = off)
     uWoundG: uniform(3000), // metres a fully eaten bite-map texel sinks
@@ -197,13 +198,13 @@ const townLayer = (q, dens) => {
   const cell = floor(q), f = fract(q), r = mx_cell_noise_vec3(cell), r2 = mx_cell_noise_vec3(cell.add(vec2(17.3, 5.1)));
   const ctr = vec2(0.3, 0.3).add(r.yz.mul(0.4)), d = length(f.sub(ctr)), rad = float(0.16).add(r.x.mul(0.16)).mul(clamp(dens.mul(2.6), 0.5, 1.45));
   const present = step(r2.x, dens.mul(0.7).sub(0.12));
-  const m = float(1).sub(smoothstep(rad.mul(0.9), rad, d)).mul(present);
-  const lp = f.sub(ctr).div(rad).mul(3.2).add(0.5), fb = fract(lp), blk = mx_cell_noise_vec3(floor(lp).add(floor(q).mul(5.0)));
+  const m = float(1).sub(smoothstep(rad.mul(0.95), rad, d)).mul(present);
+  const lp = f.sub(ctr).div(rad).mul(5.5).add(0.5), fb = fract(lp), blk = mx_cell_noise_vec3(floor(lp).add(floor(q).mul(5.0)));
   const st = min(min(fb.x, float(1).sub(fb.x)), min(fb.y, float(1).sub(fb.y)));
-  const street = sstep(0.13, 0.07, st).mul(float(1).sub(smoothstep(rad.mul(0.5), rad.mul(0.85), d)));
-  let roof = srgb(0.5, 0.25, 0.18);
-  roof = mix(roof, srgb(0.3, 0.32, 0.37), step(0.3, blk.x));
-  roof = mix(roof, srgb(0.56, 0.48, 0.38), step(0.6, blk.x));
+  const street = sstep(0.11, 0.05, st).mul(float(1).sub(smoothstep(rad.mul(0.5), rad.mul(0.85), d)));
+  let roof = srgb(0.46, 0.27, 0.21);
+  roof = mix(roof, srgb(0.34, 0.35, 0.39), step(0.3, blk.x));
+  roof = mix(roof, srgb(0.5, 0.44, 0.37), step(0.6, blk.x));
   roof = mix(roof, srgb(0.4, 0.38, 0.36), step(0.85, blk.x));
   roof = mix(roof, srgb(0.3, 0.45, 0.22), step(0.88, blk.y).mul(0.7)); // gardens
   return { col: mix(roof.mul(float(0.85).add(blk.z.mul(0.3))).mul(float(0.7).add(sstep(0.12, 0.36, st).mul(0.5))), srgb(0.16, 0.16, 0.18), street), m, lit: step(0.55, blk.y).mul(float(1).sub(street)).mul(m) };
@@ -260,7 +261,7 @@ export function planetMaterial({ surf, night, bite, trail = null, N = 512, B = 1
     if (patch) { // the real heights, interpolated; the slope vector from the CPU
       e = aH.toVar();
       const aG = attribute('aG', 'vec3');
-      nrm = normalize(dir.sub(aG.mul(u.uRelief))).toVar();
+      nrm = normalize(dir.sub(aG.mul(u.uRelief).mul(2.0))).toVar(); // (shading relief x2: the ground reads with gentle light)
       slope = length(aG).mul(u.uRelief).toVar();
     } else {
       const e0 = heightOf(S.r);
@@ -270,18 +271,18 @@ export function planetMaterial({ surf, night, bite, trail = null, N = 512, B = 1
       const t1 = normalize(cross(dir, ax)), t2 = cross(dir, t1), del = 0.0042;
       const hh = (d2) => max(heightOf(sampleFace(surf, N, normalize(d2)).r), 0);
       const hc = max(e0, 0), g1 = hh(dir.add(t1.mul(del))).sub(hc).div(del), g2 = hh(dir.add(t2.mul(del))).sub(hc).div(del);
-      const k = u.uRelief.div(R);
+      const k = u.uRelief.div(R).mul(2.0);
       nrm = normalize(dir.sub(t1.mul(g1.mul(k))).sub(t2.mul(g2.mul(k)))).toVar();
-      slope = length(vec2(g1, g2)).mul(k).toVar();
+      slope = length(vec2(g1, g2)).mul(k.mul(0.5)).toVar();
     }
     const T0 = S.g, M = S.b;
     const nl = dot(nrm, L), nlGeo = dot(dir, L).toVar();
     const day = sstep(-0.2, 0.22, nlGeo);
     // ---- light
     const warm = mix(vec3(1.0, 0.42, 0.16), vec3(1.0, 0.95, 0.88), sstep(0.0, 0.42, nlGeo));
-    const sunLit = warm.mul(3.1);
-    const amb = vec3(0.05, 0.085, 0.16).mul(sstep(-0.35, 0.45, nlGeo)).add(vec3(0.0035, 0.0055, 0.011));
-    const landMask = sstep(-2, 5, e).toVar();
+    const sunLit = warm.mul(2.6); // (sunlit white must stay under the bloom threshold, or snow veils the hole)
+    const amb = vec3(0.05, 0.085, 0.16).mul(sstep(-0.35, 0.45, nlGeo)).add(vec3(0.011, 0.018, 0.038)); // (night side: starlit, so the ground stays readable)
+    const landMask = sstep(-0.5, 1.5, e).toVar();
     const nm = mx_fractal_noise_float(dir.mul(34).add(vec3(3.1, 1.7, 5.2)), 3, 2, 0.5, 1).toVar();
     const near = sstep(2.2, 0.35, dist).toVar(); // fine detail only when close
     // ---- wound (bite map + the patch's fine trail): eaten land sinks; strata walls over a glowing mantle
@@ -294,10 +295,10 @@ export function planetMaterial({ surf, night, bite, trail = null, N = 512, B = 1
     if (!OFF.has('cloud')) If(dist.greaterThan(0.0015), () => {
       cn.assign(mx_noise_float(dr.mul(80)).mul(0.17).add(mx_noise_float(dr.mul(230)).mul(0.12)).add(mx_noise_float(dr.mul(640)).mul(0.05)).mul(u.uDetail));
       cloudRaw.assign(sampleFace(night, N, normalize(dr)).g);
-      cloud.assign(sstep(0.3, 0.68, cloudRaw.add(cn)).mul(u.uClouds).mul(sstep(0.0015, 0.02, dist))); // (no cloud skin up against the lens)
+      cloud.assign(sstep(0.3, 0.68, cloudRaw.add(cn)).mul(u.uClouds).mul(sstep(0.0015, 0.02, dist)).mul(smoothstep(u.uHoleD.w.mul(3.5), u.uHoleD.w.mul(9), length(dir.sub(u.uHoleD.xyz))))); // (no cloud skin up against the lens)
       if (!low) {
         const ds = normalize(dr.add(L.sub(dr.mul(dot(dr, L))).mul(0.006)));
-        shadow.assign(float(1).sub(sstep(0.3, 0.68, sampleFace(night, N, ds).g.add(cn)).mul(0.5).mul(sstep(0, 0.25, nlGeo)).mul(sstep(0.0015, 0.02, dist))));
+        shadow.assign(float(1).sub(sstep(0.3, 0.68, sampleFace(night, N, ds).g.add(cn)).mul(0.5).mul(sstep(0, 0.25, nlGeo)).mul(sstep(0.0015, 0.02, dist)).mul(smoothstep(u.uHoleD.w.mul(3.5), u.uHoleD.w.mul(9), length(dir.sub(u.uHoleD.xyz))))));
       }
     });
     const oceanCol = vec3(0).toVar(), landCol = vec3(0).toVar(), townLitV = float(0).toVar();
@@ -319,7 +320,7 @@ export function planetMaterial({ surf, night, bite, trail = null, N = 512, B = 1
       const diffO = max(dot(on, L), 0).mul(0.9).add(0.05);
       const skyRef = vec3(0.16, 0.3, 0.6).mul(sstep(-0.3, 0.5, nlGeo).mul(0.9).add(0.04));
       oc = mix(oc, srgb(0.3, 0.78, 0.72), sstep(30, 0, depth).mul(0.45).mul(float(1).sub(iceO))); // shallows near a coast: lighter
-      const foam = sstep(10, 0, depth).mul(sstep(0.55, 0.9, mx_noise_float(vec3(st.xy.mul(u.uGcellA.mul(4)), u.uTime.mul(0.3))).mul(0.5).add(0.5))).mul(near);
+      const foam = sstep(3, 0, depth).mul(sstep(0.5, 0.8, mx_noise_float(vec3(st.xy.mul(u.uGcellA.mul(4)), u.uTime.mul(0.3))).mul(0.5).add(0.5))).mul(near);
       oc = mix(oc, vec3(0.9, 0.97, 1.0), foam.mul(0.6));
       oceanCol.assign(oc.mul(sunLit.mul(diffO).mul(day).add(amb)).add(skyRef.mul(fres).mul(1.1)).add(sunLit.mul(glint).mul(float(1).sub(iceO).mul(0.55))));
     });
@@ -337,6 +338,7 @@ export function planetMaterial({ surf, night, bite, trail = null, N = 512, B = 1
       // the close ground (hole scale): fields, hedges, woods, villages and towns, in two cross-faded octaves
       const sr = vec2(st.x.mul(0.906).sub(st.y.mul(0.423)), st.x.mul(0.423).add(st.y.mul(0.906))); // (fields are not square to the cube: a 25 degree turn)
       const gK = u.uGroundK.mul(near).toVar();
+      const grainV = float(0).toVar(), crackV = float(0).toVar();
       If(gK.greaterThan(0.01).and(float(OFF.has('ground') ? 0 : 1).greaterThan(0.5)), () => {
         const pxM = dist.mul(R).mul(u.uPx), sA = float(5.0e6).div(u.uGcellA), fr = u.uGfr;
         const cult = sstep(1000, 300, e).mul(sstep(0.26, 0.4, Te)).mul(sstep(0.12, 0.24, M)).mul(float(1).sub(sstep(0.18, 0.32, slope))).mul(float(1).sub(sstep(0.8, 0.95, Te))).mul(float(1).sub(rockAmt)).toVar();
@@ -348,6 +350,8 @@ export function planetMaterial({ surf, night, bite, trail = null, N = 512, B = 1
         const hwA = clamp(pxM.mul(1.1).div(sA), 0.035, 0.14), hwB = clamp(pxM.mul(1.1).div(sA.mul(2)), 0.035, 0.14);
         const fieldV = vec3(0).toVar(), treeMV = float(0).toVar(), treeCV = vec3(0).toVar(), townMV = float(0).toVar(), townCV = vec3(0).toVar();
         const addOct = (p, hw, fade, w) => { // one octave of the pattern stack, weighted (only the octaves with weight are evaluated)
+          grainV.addAssign(mx_noise_float(vec3(p.mul(0.5), 1.0)).mul(0.6).add(mx_noise_float(vec3(p.mul(1.9), 5.0)).mul(0.4)).mul(fade).mul(w));
+          crackV.addAssign(pow(float(1).sub(abs(mx_noise_float(vec3(p.mul(1.5), 9.0)))), 10).mul(fade).mul(w));
           fieldV.addAssign(mix(srgb(0.46, 0.5, 0.24), fieldLayer(p, hw, fade).rgb, fade).mul(w));
           If(wood.greaterThan(0.04), () => { const t = treeLayer(p.mul(5.0)); treeMV.addAssign(t.m.mul(fade).mul(w)); treeCV.addAssign(t.col.mul(w)); });
           If(dens.greaterThan(0.08), () => { const q = townLayer(p.mul(0.2), dens); townMV.addAssign(q.m.mul(fade).mul(w)); townCV.addAssign(q.col.mul(w)); townLitV.addAssign(q.lit.mul(fade).mul(w)); });
@@ -357,13 +361,15 @@ export function planetMaterial({ surf, night, bite, trail = null, N = 512, B = 1
         const fieldC = fieldV, treeM = treeMV, treeC = treeCV, townM = townMV, townC = townCV;
         land.assign(mix(land, fieldC.mul(float(1).add(nm.mul(0.3))), cult.mul(gK).mul(0.92)));
         land.assign(mix(land, treeC, wood.mul(treeM).mul(gK).mul(float(1).sub(cult.mul(0.6)))));
-        land.assign(mix(land, townC.mul(0.8), townM.mul(gK).mul(0.9).mul(float(1).sub(rockAmt)).mul(sstep(0.0, 400, float(2000).sub(e)))));
+        land.assign(mix(land, townC.mul(0.8), townM.mul(gK).mul(float(1).sub(rockAmt)).mul(sstep(0.0, 400, float(2000).sub(e)))));
       });
       land.assign(mix(land, rockC, rockAmt.mul(0.9)));
       const snowLine = mix(1800, 6400, sstep(0.0, 0.75, T0.add(nm.mul(0.06)))), snow = sstep(snowLine.sub(500), snowLine.add(900), e.add(nm.mul(700))).mul(float(1).sub(sstep(0.35, 1.0, slope).mul(0.75)));
       const ice = sstep(0.16, 0.05, Te.add(nm.mul(0.05)));
       const white = mix(srgb(0.66, 0.79, 0.94), srgb(0.96, 0.975, 1.0), clamp(nm.mul(1.4).add(0.55).add(fine.mul(0.9)), 0, 1)); // snow and ice: blue in the hollows, bright on the ridges
-      land.assign(mix(land, white, max(snow, ice)));
+      const snowK = max(snow, ice).mul(float(1).sub(sstep(0.35, 0.9, crackV.mul(0.5).add(grainV.mul(0.7))).mul(0.55).mul(gK)));
+      land.assign(mix(land, white.mul(float(0.6).add(grainV.mul(0.35).mul(gK))), snowK));
+      land.mulAssign(float(1).add(grainV.mul(1.0).mul(gK)).sub(crackV.mul(0.16).mul(gK).mul(rockAmt.max(0.4)))); // grain over everything (after rock and snow)
       land.assign(mix(land, vec3(0.9, 0.82, 0.62), S.a.mul(u.uBorders).mul(0.7)));
       const diffL = clamp(nl.add(0.12).div(1.12), 0, 1);
       // the wound's albedo: scorched lip, banded strata walls, mantle floor (+ its glow, emissive: it blooms)

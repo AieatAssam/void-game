@@ -39,7 +39,8 @@ export class PlanetGame {
     W.update(0, hole, ctx.camera, innerHeight);
     this.camDist = 0;
     window.__planet = this.debugApi(ctx);
-    window.__planetLand = () => W.bite.landEaten * 100;
+    window.__planetLand = () => W.bite.landEaten * 100; // % of the world's land eaten
+    window.__planetDbg = window.__planet.dbg; // r, tier, e_eff, speed, patch builds, bite/world/step ms
     state.playing = true;
     return this;
   }
@@ -172,6 +173,21 @@ export class PlanetGame {
       teleport(dir, toward) { W.placeAt(dir, toward); },
       dbg: () => ({ r: hole.r, tier: P3.tier(hole.r), E: W.E, h0: W.h0, e_eff: W.eff(0, 0).e, h: W.eff(0, 0).h, speed: P3.speed(hole.r), land: W.bite.landEaten, belly: state.belly,
         patchBuilds: W.builds, patchMs: W.buildMs, patchMaxSlice: W.maxSlice, lastBuild: W.lastBuild, biteMs: self.cpu.bite, visited: W.bite.visited, worldMs: self.cpu.world, stepMs: self.cpu.step, cap: W.capMode, walls: state.walls || 0, credit: state.ledgerLand || 0 }),
+      /** Debug: jump to a sunlit spot `off` m short of a peak taller than minE (m) at radius r (m), facing it, and settle the camera. */
+      peak(minE = 4500, r = 3000, off = 16000) {
+        const S = W.sunPlanet, P = W.P;
+        let m = null;
+        for (let k = 0; k < 800000 && !m; k++) {
+          const z = Math.random() * 1.2 - 0.6, a = Math.random() * 6.283, s = Math.sqrt(1 - z * z), d = { x: Math.cos(a) * s, y: z, z: Math.sin(a) * s };
+          if (d.x * S.x + d.y * S.y + d.z * S.z > 0.5 && P.elevation(d, 12) > minE) m = d;
+        }
+        W.placeAt(P.step(m, 1.0, off), m); hole.area = Math.PI * r * r; W.h0Set = false; return P.elevation(m, 12);
+      },
+      /** Debug: advance n frames without drawing, steering with fn(t) -> [sx, sz]. */
+      run(n, fn = () => [0, 0], dt = 1 / 30) {
+        const was = window.__bot, h = window.__headless; let t = 0;
+        window.__bot = () => fn(t += dt); window.__headless = true; window.__tick(dt, n); window.__headless = h; window.__bot = was;
+      },
       /** Calibration (§2.5): a straight run over flat land at radius r (m): credit per second vs G * 1.2 r^2 * sqrt(hcol). */
       cal(rm, secs = 20, dt = 1 / 30) {
         const saveQ = W.holeQ.clone(), saveBite = { rem: W.bite.rem.slice(), ov: W.bite.ov.slice(), rem8: W.bite.rem8.slice(), sum: W.bite.sum };
