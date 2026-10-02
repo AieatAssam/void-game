@@ -46,11 +46,10 @@ export class PlanetGame {
     W.update(0, hole, ctx.camera, innerHeight);
     if (!W.capMode) W.buildPatchNow(r0);
     W.update(0, hole, ctx.camera, innerHeight);
-    const F = this.food = new Food(W, ctx.assets, { quality });
-    F.dens = num('dens', 1);
-    F.buildGoals(r0); F.refreshGoals(state.tier);
+    // §12: the land is the meal. food.js stays in the tree until R4 deletes it, but off: at r = 40 km its skyline kit and settlements are crumbs (?food: the old loop, for A/B).
+    const F = this.food = qs.has('food') ? new Food(W, ctx.assets, { quality }) : { on: false, recs: new Set(), stats: {}, goalsByTier: {}, goalTotal: 0, goalLeft: 0, reset() {}, revive() {}, update: () => [], paintUrban() {}, nextGoal: () => null };
+    if (F.on = qs.has('food')) { F.dens = num('dens', 1); F.buildGoals(r0); F.refreshGoals(state.tier); F.vx = F.vz = 0; F.update(0, hole, true); F.paintUrban(); }
     this.hole = hole; this.ctxRef = ctx;
-    F.vx = F.vz = 0; F.update(0, hole, true); F.paintUrban();
     if (!qs.has('nomap')) { this.map = new PlanetMap(ctx.renderer, W.globe); this.map.show(true); this.map.place(W, hole); await this.map.precompile(); } // (the minimap: §6.3)
     state.pop = 0; state.ledger = { meal: 0, crumb: 0, land: 0, fed: 0, starve: 0, ate: 0, crumbs: 0 }; state.tierAt = { 1: 0 }; state.shake = 0; state.slowT = 0;
     this.camDist = 0;
@@ -84,8 +83,8 @@ export class PlanetGame {
     camera.position.set(this.lead.x, Math.sin(pitch) * camDist, this.lead.y + horiz);
     const sh = state.shake * camDist * 0.015;
     if (sh > 0) { camera.position.x += Math.sin(state.time * 23) * sh; camera.position.y += Math.sin(state.time * 31) * sh * 0.5; camera.position.z += Math.cos(state.time * 19) * sh; }
-    camera.lookAt(this.lead.x, 0, this.lead.y);
-    const alt = camera.position.y + W.h0, far = Math.max(camDist * 4, 1.2 * Math.sqrt(2 * R * alt + alt * alt)), near = camDist * 0.02;
+    camera.lookAt(this.lead.x, 0, this.lead.y - 0.14 * camDist * P3.aim(r) / 4); // (§12.1: aimed above the hole, so the limb and the black sky are in frame from the first second)
+    const alt = camera.position.y + W.h0, far = Math.max(camDist * 4, 1.2 * Math.sqrt(2 * R * alt + alt * alt), 1.15 * (Math.sqrt(2 * R * alt + alt * alt) + 0.2475 * R)), near = camDist * 0.02; // (far's last term: the atmosphere shell's far wall behind the limb, or the glow is clipped)
     if (Math.abs(camera.far - far) > far * 0.05 || Math.abs(camera.near - near) > near * 0.1) { camera.far = far; camera.near = near; camera.updateProjectionMatrix(); }
     // ---- the world: group placement, patch, bite upload; then the hole itself (it sits on the ground under it)
     const tw = performance.now();
@@ -100,7 +99,7 @@ export class PlanetGame {
     ctx.sparks.update(dt); ctx.debris.update(dt);
     if (state.playing) this.hud(ctx, tier);
     ctx.news.update(dt, state.pop || 0, !!state.playing);
-    this.map?.update(dt, { hole, world: W, food: this.food, tier, land: W.bite.landEaten });
+    this.map?.update(dt, { hole, world: W, food: this.food.on ? this.food : null, tier, land: W.bite.landEaten });
     this.cpu.step = t1 - t0;
     if (!window.__headless) {
       if (document.visibilityState === 'visible' && !qs.has('nowatch')) post.watch(dt);
@@ -133,7 +132,7 @@ export class PlanetGame {
     const wallAt = (x, z) => { const q = W.eff(x, z); return q.e > P3.wallK * D && q.e > here.e ? q.e : 0; }; // (never trapped: downhill is always open)
     let w = dx || dz ? wallAt(dx, dz) : 0;
     if (w) {
-      if (state.time > (state.wallHint || 0)) { state.wallHint = state.time + 6; ctx.hint(`Too tall — grow to ${KM(w / 2)}`); }
+      if (state.time > (state.wallHint || 0)) { state.wallHint = state.time + 6; ctx.hint(`Too tall — grow to ${KM(w / (P3.wallK * 0.03))}`); }
       const wx = dx ? wallAt(dx, 0) : 0, wz = dz ? wallAt(0, dz) : 0;
       if (!wx) dz = 0; else if (!wz) dx = 0; else { dx = 0; dz = 0; }
       state.walls = (state.walls || 0) + 1;
@@ -148,7 +147,7 @@ export class PlanetGame {
     const credit = W.bite.chew(W.hdir, r, dt, moved);
     W.bite.upload();
     this.cpu.bite = performance.now() - tb;
-    const dA = credit * P3.gLand[tier] * P3.feast * (here.h < 0 ? 0 : 1);
+    const dA = credit * P3.g(r) * P3.feast * (here.h < 0 ? 0 : 1);
     if (dA > 0) {
       const a0 = hole.area;
       hole.area += dA;
@@ -156,14 +155,15 @@ export class PlanetGame {
       L.land += dA; state.ledgerLand = L.land;
     }
     // food: spawn / despawn around the hole, the ladder, falls; eat what has fallen in
-    const tf = performance.now();
-    for (const ev of this.food.update(dt, hole)) {
-      if (ev.type === 'eat') this.eat(ev.e, ctx);
-      else if (state.time > (state.tooBigT || 0)) { state.tooBigT = state.time + 6; ctx.hint(`Too big — grow to ${KM(ev.e.tier / 0.95)}`); }
+    const tf = performance.now(), g = this.food;
+    if (g.on) {
+      for (const ev of g.update(dt, hole)) {
+        if (ev.type === 'eat') this.eat(ev.e, ctx);
+        else if (state.time > (state.tooBigT || 0)) { state.tooBigT = state.time + 6; ctx.hint(`Too big — grow to ${KM(ev.e.tier / 0.95)}`); }
+      }
+      if (g.tier === (state.tier || 1) && g.goalTotal && g.goalLeft === 0 && !state.goalDone?.[g.tier]) this.goalCleared(ctx, g.tier);
     }
     this.cpu.food = performance.now() - tf;
-    const g = this.food;
-    if (g.tier === (state.tier || 1) && g.goalTotal && g.goalLeft === 0 && !state.goalDone?.[g.tier]) this.goalCleared(ctx, g.tier);
     // belly and decay (§4.5): a full belly lasts 30 s; fed 0.1%/s, starving 0.8%/s
     const oceanDrain = here.h < 0 ? P3.oceanDrain(tier) : 1;
     state.belly = Math.max(0, state.belly - P3.bellyDrain * oceanDrain * (state.mods?.hunger ?? 1) * dt);
@@ -186,7 +186,7 @@ export class PlanetGame {
       ctx.card(`Tier ${nt} · ${KM(hole.r)}`, TIERS[nt - 1].name);
       ctx.sfx.levelUp();
       ctx.news.say(`${TIERS[nt - 1].name}: the void is now ${KM(hole.r)} wide`);
-      g.refreshGoals(nt);
+      if (g.on) g.refreshGoals(nt);
     }
   }
 
@@ -234,8 +234,8 @@ export class PlanetGame {
   ladderTest(ctx, per = 20) {
     const W = this.world, F = this.food, { hole } = ctx, save = { q: W.holeQ.clone(), a: hole.area }, out = { total: { pass: 0, fail: 0 } };
     F.noShow = true;
-    const bounds = [[1400, 6000], [6000, 25000], [25000, 110000]];
-    for (let tier = 1; tier <= 3; tier++) {
+    const bounds = TIERS.map((q, i) => [q.r, TIERS[i + 1]?.r ?? 2400e3]);
+    for (let tier = 1; tier <= TIERS.length; tier++) {
       const o = out['T' + tier] = { pass: 0, fail: 0, fails: [], meals: [], gap: 0 };
       for (let k = 0; k < per; k++) {
         const z = Math.random() * 2 - 1, a = Math.random() * 6.283, s = Math.sqrt(1 - z * z), d = { x: Math.cos(a) * s, y: z, z: Math.sin(a) * s };
@@ -257,7 +257,7 @@ export class PlanetGame {
 
   hud(ctx, tier) {
     const { hole, state } = ctx, F = this.food;
-    const g = F.nextGoal(hole);
+    const g = F.on ? F.nextGoal(hole) : null;
     ctx.edgeArrow('town', g && g.d > hole.r * 5 && [g.x, g.z], g ? `${g.name}${g.fits ? '' : ` · ${KM(g.need)}`}` : '', g?.fits ? '#9ed9bf' : '#ff8a3d');
     if ((state.hudT = (state.hudT || 0) - 1) > 0) return;
     state.hudT = 6;
@@ -265,9 +265,10 @@ export class PlanetGame {
     const S = Math.log10(hole.r);
     el('size').innerHTML = `${TIERS[tier - 1].name} · <b>${KM(hole.r)}</b> · S ${S.toFixed(2)}`;
     // §4.5: the tier goal until T3, the planet % from T3 (both), then the % alone from T4 (it takes over: the final tier is a crescendo)
-    el('eaten').hidden = tier < 3;
-    el('eaten').innerHTML = `Land eaten <b>${(this.world.bite.landEaten * 100).toFixed(this.world.bite.landEaten < 0.001 ? 4 : this.world.bite.landEaten < 0.1 ? 2 : 1)}</b>%`;
-    el('left').hidden = tier > 3;
+    const le = this.world.bite.landEaten;
+    el('eaten').hidden = false;
+    el('eaten').innerHTML = `Land eaten <b>${(le * 100).toFixed(le < 0.001 ? 4 : le < 0.1 ? 2 : 1)}</b>%`;
+    el('left').hidden = !F.on;
     el('left').innerHTML = g ? `${g.name} — <b>${F.goalLeft}</b> left` : F.goalTotal ? `${F.goalNames?.[tier] ?? 'Goal'} <b>cleared</b>` : `<b>${(P3.speed(hole.r) / 1000).toFixed(2)}</b> km/s`;
     const dc = el('defcon'); dc.hidden = false; // (the director sets state.defcon in step 9: 5 = calm .. 1)
     [...dc.querySelectorAll('i')].forEach((pip, i) => pip.classList.toggle('on', i >= (state.defcon ?? 5) - 1));
@@ -304,6 +305,14 @@ export class PlanetGame {
         for (; n < 900 && !(e.falling && e.fallT / e.fallDur > frac); n++) this.run(1, () => { const l = Math.hypot(e.x, e.z) || 1; return [e.x / l, e.z / l]; });
         st.playing = false; return { n, T: e.fallT / e.fallDur, name: e.name, rho: e.tier | 0 };
       },
+      /** §12.1 limb test: degrees of margin by which the horizon is inside the frame (> 1 required) at radius r (default: now), landscape. */
+      limb(r = hole.r) {
+        const cam = ctx.camera, portrait = Math.max(1, 1.2 / cam.aspect) ** 0.7, cd = P3.camDist(r) * portrait * ctx.LENS, p = P3.pitch(r);
+        const hz = Math.cos(p) * cd, hc = Math.sin(p) * cd, view = Math.atan2(Math.sin(p) * cd, hz + 0.14 * cd * P3.aim(r) / 4), half = cam.fov / 2 * Math.PI / 180;
+        // the camera sits hz behind the hole and hc above it, so the planet's local horizon is tilted away from the render horizontal: the limb is at atan2(R + hc, hz) - asin(R / |C|) below it
+        const horizon = Math.atan2(R + hc, hz) - Math.asin(R / Math.hypot(R + hc, hz));
+        return +(((horizon - (view - half)) * 180) / Math.PI).toFixed(2);
+      },
       /** Set the hole radius (m) at the current spot. */
       setR(m) { hole.area = Math.PI * m * m; },
       /** Jump to a planet direction ({x,y,z}); screen-up toward `toward`. */
@@ -337,15 +346,16 @@ export class PlanetGame {
         }
         W.placeAt(found, { x: Math.random() - 0.5, y: Math.random() - 0.5, z: Math.random() - 0.5 });
         let credit = 0, land = 0, swept = 0, n = 0;
-        const v = 0.6 * rm;
+        const v = P3.speed(rm);
+        let expect = 0; // sum of swept x sqrt(hcol / 1 km) over the land the hole drove over (the doc's G * 2 r v * f * sqrt(h), before G)
         for (let t = 0; t < secs; t += dt) {
           const q = W.eff(0, 0);
           W.moveHole(0, -v * dt);
           const c = W.bite.chew(W.hdir, rm, dt, v * dt);
           credit += c; swept += 2 * rm * v * dt; n++;
-          if (q.h > 0) land++;
+          if (q.h > 0) { land++; expect += (2 * rm * v * dt + (n === 1 ? Math.PI * rm * rm : 0)) * Math.sqrt((q.h + P3.crust) / 1000); } // (the first frame eats the whole disc once)
         }
-        const out = { r: rm, credit_m2_per_s: credit / secs, swept_m2_per_s: swept / secs, ratio: credit / swept, landFrac: land / n, visited: W.bite.visited };
+        const out = { r: rm, v, credit_m2_per_s: credit / secs, swept_m2_per_s: swept / secs, ratio: credit / swept, expect_ratio: expect / swept, vs_expect: credit / (expect || 1), growth_pct_per_s: 100 * credit * P3.g(rm) / secs / (Math.PI * rm * rm), landFrac: land / n, visited: W.bite.visited };
         W.holeQ.copy(saveQ); W.hdir.set(0, 1, 0).applyQuaternion(W.holeQ);
         W.bite.rem.set(saveBite.rem); W.bite.ov.set(saveBite.ov); W.bite.rem8.set(saveBite.rem8); W.bite.sum = saveBite.sum; W.bite.tex.needsUpdate = true;
         return out;

@@ -1,3 +1,4 @@
+import { P3 } from './phase3.js';
 // Playtest bot + no-dead-end check (PLAN.md rule 2): a greedy player that never gets trapped
 // should never starve. Load the game with ?bot, then call __runBot(seconds) (headless, via __tick).
 // Set window.__sloppy = true for a careless player (no dodging, eats poison, stalls) who SHOULD sometimes die.
@@ -285,75 +286,63 @@ window.__regionSuite = async (n = 4, seconds = 1200, who = 'human', dt = 1 / 30,
  * 0.45-1 s, picks among the best 3, wobbles a little) or 'greedy' (re-plans every frame, always the best).
  */
 export function planetSteer(who = 'human') {
-  const s = { next: 0, target: null, wob: 0, idleUntil: 0, stuckAt: 0, stuckP: null, side: 0, sideUntil: 0 };
-  const share = (t, r) => { const k = Math.min(1, Math.max(0, (t / r - 0.1) / 0.4)); return 0.06 + 0.94 * k * k * (3 - 2 * k); };
+  const s = { next: 0, heading: Math.random() * 6.283, wob: 0, idleUntil: 0, stuckAt: 0, stuckP: null, side: 0, sideUntil: 0 };
+  let dir = null;
   return (hole) => {
     const P = window.__planet;
     if (!P) return [0, 0];
-    const F = P.food, state = P.ctx.state, t = state.time, r = hole.r, human = who === 'human';
+    const W = P.W, B = W.bite, state = P.ctx.state, t = state.time, r = hole.r, human = who === 'human';
     const dbg = (window.__botDbg ??= { stuck: 0, goal: 0, eat: 0, explore: 0 });
     if (human && t < s.idleUntil) return [0, 0];
     if (t < s.sideUntil) return [Math.cos(s.side), Math.sin(s.side)];
-    // stuck against a wall (or the sea edge)? every 3 s: moved < 0.4 r while steering => turn away for 2 s
+    // stuck against a wall? every 3 s: moved < 0.4 r while steering => turn away for 2 s
     if (t > s.stuckAt) {
-      const here = P.W.hdir;
-      if (s.stuckP && Math.acos(Math.min(1, here.dot(s.stuckP))) * 6371000 < 0.4 * r && s.target) { dbg.stuck++; s.side = Math.random() * 6.283; s.sideUntil = t + 2; s.target = null; }
+      const here = W.hdir;
+      if (s.stuckP && Math.acos(Math.min(1, here.dot(s.stuckP))) * 6371000 < 0.4 * r) { dbg.stuck++; s.side = Math.random() * 6.283; s.sideUntil = t + 2; }
       s.stuckP = here.clone(); s.stuckAt = t + 3;
     }
     if (t >= s.next) {
       s.next = t + (human ? 0.45 + Math.random() * 0.55 : 0);
       if (human && Math.random() < 0.04) { s.idleUntil = t + 0.3 + Math.random() * 0.5; return [0, 0]; }
-      const g = F.nextGoal(hole), gd = g ? g.d : 0, far = g && gd > 9 * r;
-      const cands = [];
-      for (const e of F.recs) {
-        if (!e.alive || e.falling || e.tier >= 0.9 * r || e.d > 14 * r) continue;
-        if (human && e.tier < 0.04 * r) continue;
-        let v = e.tier * e.tier * share(e.tier, r) * (e.kind === 'forest' ? 0.4 : 1);
-        if (e.tier < 0.12 * r) v = e.tier * e.tier * 0.15;
-        let sc = v / (e.d + 2 * r);
-        if (far) { const along = (e.x * g.x + e.z * g.z) / ((e.d || 1) * (gd || 1)); sc *= 0.55 + 0.45 * Math.max(0, along); } // (heading for a far goal: a mild pull, so food ahead wins ties)
-        if (e.goal && e.tier < 0.95 * r) sc *= 2;
-        cands.push([sc * (human ? 0.85 + 0.3 * Math.random() : 1), e]); // (a little taste: not always the arithmetic best)
+      // R1-R3 stand-in (R4 replaces it with unit scoring): 24 bearings x rings out to 24 r; score = land left (walls count as nothing), near rings weigh more, a bonus for going on
+      dir ??= W.hdir.clone();
+      const D = P3.depth(r) * P3.wallK; let best = -1, bs = -1e9;
+      for (let k = 0; k < 24; k++) {
+        const a = (k / 24) * 6.283185;
+        let sc = 0;
+        for (const m of [0.8, 1.8, 3.5, 7, 14, 24]) {
+          const c = W.dirAt(Math.cos(a) * m * r, Math.sin(a) * m * r, dir), l = B.landAt(dir);
+          if (l > 0) sc += (B.heightAt(dir) > D ? 0.1 : l) / (0.4 + m * 0.5);
+        }
+        sc *= 1 + 0.35 * Math.cos(a - s.heading) * (human ? 1 : 0.5) + (human ? (Math.random() - 0.5) * 0.3 : 0);
+        if (sc > bs) { bs = sc; best = a; }
       }
-      cands.sort((a, b) => b[0] - a[0]);
-      // commit to the current pick unless something is clearly better (re-scored from the moving hole, picks flip-flopped between two far meals)
-      const cur = s.target && cands.find((c) => c[1] === s.target);
-      if (!cur || cands[0][0] > cur[0] * 1.5) s.target = cands.length ? cands[0][1] : null;
-      s.wob = human ? (Math.random() - 0.5) * 0.3 : 0;
-      s.far = far; s.g = g;
+      s.heading = bs > 0 ? best : s.heading + (Math.random() - 0.5) * 0.4; (bs > 0 ? dbg.eat++ : dbg.explore++);
     }
-    window.__botTarget = s.target;
-    let tx, tz;
-    if (s.target && s.target.alive && !s.target.falling) { tx = s.target.x; tz = s.target.z; dbg.eat++; }
-    else if (s.g && s.g.e.alive) { tx = s.g.e.x; tz = s.g.e.z; dbg.goal++; }
-    else { dbg.explore++; s.head = (s.head ?? Math.random() * 6.283) + (Math.random() - 0.5) * 0.1; tx = Math.cos(s.head) * r; tz = Math.sin(s.head) * r; }
-    let x = tx, z = tz;
-    const l = Math.hypot(x, z) || 1, c = Math.cos(s.wob), n = Math.sin(s.wob);
-    [x, z] = [(x * c - z * n) / l, (x * n + z * c) / l];
-    return [x, z];
+    return [Math.cos(s.heading), Math.sin(s.heading)];
   };
 }
 
 /**
- * `__planetBot(seconds, who)`: from the ?planet start, run the bot for `seconds` of game time (headless). Returns the log (every 30 s: tier, r,
- * belly, goal, land, income so far), the tier-up times and the ledger of growth by source.
+ * `__planetBot(seconds, who)`: from the ?planet start, run the bot for `seconds` of game time (headless), stopping at the win (land >= 99.5%)
+ * or the time. Returns the log (every 30 s: tier, r, belly, land, income so far), the tier-up times and the ledger of growth by source.
  */
 window.__planetBot = (seconds = 600, who = 'human', dt = 1 / 30) => {
   const log = [], P = window.__planet, state = P.ctx.state, hole = P.ctx.hole, t0 = state.time;
   const was = window.__bot, wh = window.__headless;
   window.__bot = planetSteer(who); window.__headless = true; window.__botDbg = { stuck: 0, goal: 0, eat: 0, explore: 0 };
-  const f = (v) => Math.round(v), km = (m) => (m / 1000).toFixed(2);
-  let last = -1, minBelly = 1;
-  for (let t = 0; t < seconds; t += dt) {
+  const f = (v) => Math.round(v), km = (m) => (m / 1000).toFixed(1);
+  let last = -1, minBelly = 1, t = 0;
+  for (; t < seconds; t += dt) {
     window.__tick(dt);
     minBelly = Math.min(minBelly, state.belly);
     const k = Math.floor(t / 30);
-    if (k !== last) { last = k; const L = state.ledger, g = P.food.nextGoal(hole); log.push(`${f(t)}s T${state.tier} r=${km(hole.r)}km belly=${state.belly.toFixed(2)} goal=${g ? g.name + (g.fits ? '' : '*') : '-'}(${P.food.goalLeft}) land=${(state.land * 100).toFixed(3)}% meals=${L.ate}+${L.crumbs} +meal ${f(L.meal / 1e6)} +land ${f(L.land / 1e6)} +crumb ${f(L.crumb / 1e6)} fed ${f(L.fed / 1e6)} starve ${f(L.starve / 1e6)} (Mm2)`); }
-    if (state.tier >= 4) break;
+    if (k !== last) { last = k; const L = state.ledger; log.push(`${f(t)}s T${state.tier} r=${km(hole.r)}km belly=${state.belly.toFixed(2)} land=${(state.land * 100).toFixed(2)}% pop=${((state.pop || 0) / 1e9).toFixed(2)}B +land ${f(L.land / 1e9)} +tear ${f((L.tear || 0) / 1e9)} +pull ${f((L.pull || 0) / 1e9)} fed ${f(L.fed / 1e9)} starve ${f(L.starve / 1e9)} (Gm2)`); }
+    if (state.land >= 0.995) break;
   }
   window.__bot = was; window.__headless = wh;
   const L = state.ledger, tierAt = Object.fromEntries(Object.entries(state.tierAt || {}).map(([k, v]) => [k, f(v - t0)]));
-  log.push(`tierAt ${JSON.stringify(tierAt)} dbg ${JSON.stringify(window.__botDbg)} minBelly ${minBelly.toFixed(2)}`);
+  log.push(`${state.land >= 0.995 ? 'WON' : 'time up'} ${f(t)}s tierAt ${JSON.stringify(tierAt)} dbg ${JSON.stringify(window.__botDbg)} minBelly ${minBelly.toFixed(2)}`);
   log.push(`ledger ${JSON.stringify(Object.fromEntries(Object.entries(L).map(([k, v]) => [k, f(v / 1e3) + 'k'])))}`);
   return log;
 };

@@ -3,53 +3,55 @@
 const lerp = (a, b, k) => a + (b - a) * k;
 const KM = 1000;
 
-// scale tiers (§4.1): [floor r (m), name card]
+// scale tiers (docs/PHASE3.md §12.1): [floor r (m), name card]
 export const TIERS = [
-  { n: 1, r: 1400, name: 'COASTLANDS' },
-  { n: 2, r: 6 * KM, name: 'NATIONS' },
-  { n: 3, r: 25 * KM, name: 'CONTINENT' },
-  { n: 4, r: 110 * KM, name: 'ORBIT' },
-  { n: 5, r: 480 * KM, name: 'THE WORLD' },
+  { n: 1, r: 40 * KM, name: 'REGIONS' },
+  { n: 2, r: 150 * KM, name: 'NATIONS' },
+  { n: 3, r: 450 * KM, name: 'CONTINENTS' },
+  { n: 4, r: 1200 * KM, name: 'THE WORLD' },
 ];
-// anchor points of the smooth ramps (pitch in degrees, relief exaggeration E): r in metres, linear in log r between anchors
-const RAMP = [
-  [1400, 55, 1.0], [6 * KM, 55, 1.5], [25 * KM, 47, 3.0], [110 * KM, 38, 6.0], [480 * KM, 33, 6.0], [1800 * KM, 33, 6.0],
+// smooth ramps: r in metres, smoothstep in log r between anchors. VIEW = [r, pitch (deg), relief exaggeration E, aim (deg: the camera looks this far above the hole, so the limb is in frame)]
+const VIEW = [
+  [40 * KM, 28, 3, 7], [150 * KM, 36, 4, 4], [450 * KM, 40, 6, 0], [1200 * KM, 36, 7, 0], [2400 * KM, 32, 7, 0],
 ];
-function ramp(r, col) {
-  if (r <= RAMP[0][0]) return RAMP[0][col];
-  for (let i = 1; i < RAMP.length; i++) {
-    if (r <= RAMP[i][0]) {
-      const k = Math.log(r / RAMP[i - 1][0]) / Math.log(RAMP[i][0] / RAMP[i - 1][0]);
-      return lerp(RAMP[i - 1][col], RAMP[i][col], k * k * (3 - 2 * k));
+// land credit G(r): the §12.1 anchors (swath-only sim values)
+const GRAMP = [[40 * KM, 0.06], [450 * KM, 0.065], [1000 * KM, 0.09], [1600 * KM, 0.2], [2600 * KM, 0.3]];
+function ramp(tab, r, col) {
+  if (r <= tab[0][0]) return tab[0][col];
+  for (let i = 1; i < tab.length; i++) {
+    if (r <= tab[i][0]) {
+      const k = Math.log(r / tab[i - 1][0]) / Math.log(tab[i][0] / tab[i - 1][0]);
+      return lerp(tab[i - 1][col], tab[i][col], k * k * (3 - 2 * k));
     }
   }
-  return RAMP.at(-1)[col];
+  return tab.at(-1)[col];
 }
 
 export const P3 = {
-  // movement: 0.6 r/s keeps the screen scrolling at the speed of Phase 2 at 60 m (§4.5). The 40 m/s P2 cap does not apply.
-  speed: (r) => 0.6 * r,
-  turn: (r) => 0.45, // steering smoothing time constant (s), held at every size
-  pitch: (r) => ramp(r, 1) * Math.PI / 180,
-  relief: (r) => ramp(r, 2),
+  // movement (§12.1): 24 km/s at the start, 585 km/s at 2.4k km. NOT a constant 0.6 r/s: the sweep (2 r v) grows with r^2 and the slowing screen speed is the "mass" cue.
+  speed: (r) => 0.6 * r * (r / (40 * KM)) ** -0.22,
+  turn: (r) => 0.45 * (r / (40 * KM)) ** 0.14, // steering smoothing time constant (s): the hole gets heavier (0.8 s at 2.4k km)
+  pitch: (r) => ramp(VIEW, r, 1) * Math.PI / 180,
+  relief: (r) => ramp(VIEW, r, 2),
+  aim: (r) => ramp(VIEW, r, 3), // degrees
+  g: (r) => ramp(GRAMP, r, 1),
   tier: (r) => { let t = 1; for (const q of TIERS) if (r >= q.r * 0.999 || q.n === 1) t = q.n; return t; },
   tierName: (r) => TIERS[P3.tier(r) - 1].name,
   camDist: (r) => 14 + 8 * r, // x portrait x LENS in the game
-  // credit (§2.5, §4.5)
-  gLand: [0, 0.012, 0.016, 0.022, 0.038, 0.06], // by tier (bot runs: T3 was 2.9 min at 0.028 with meals 0.9, 6 min at 0.020)
   crust: 300, // C: m of crust under every land column (lowlands are not free)
   chewT: 1.2, // s to chew one bite depth
-  depth: (r) => 0.5 * r, // D(r): bite depth
-  wallK: 4, // a column taller than wallK * D(r) = 2 r is a wall
+  depth: (r) => 0.03 * r, // D(r): bite depth (§12.2)
+  wallK: 4, // a column taller than wallK * D(r) = 0.12 r is a wall
   texelBudget: 14000, // bite-map texels visited per frame (the doc's 40k measured ~6 ms in JS: 150 ns/texel; round robin keeps it exact on average)
-  capR: 110 * KM, // patch -> globe only, rim -> shader cap (one-way)
-  patchMax: 110 * KM,
-  // belly / decay (stub until food.js): land credit tops the belly up 1:1 in area terms
+  capR: 150 * KM, // patch -> globe only, rim -> shader cap (one-way)
+  patchMax: 150 * KM,
+  // belly / decay: land credit tops the belly up 1:1 in area terms
   bellyDrain: 1 / 30, meal: 0.06, decayFed: 0.0010, decayStarving: 0.008,
-  oceanSpeed: (tier) => (tier < 3 ? 0.85 : tier === 3 ? 0.92 : 1), // (§3: 0.6 / 0.85 felt like wading: the first crossing from the islet is 10-14 r)
+  oceanSpeed: (tier) => (tier < 3 ? 0.85 : tier === 3 ? 0.92 : 1), // (§3: 0.6 / 0.85 felt like wading)
   oceanDrain: (tier) => (tier < 3 ? 1.1 : tier === 3 ? 1.05 : 1),
   feast: 1, // land-credit multiplier (?feast=N overrides: balance knob)
-  // food (§4.5): meals grow you `growth[tier]` of a Phase 1 bite x growthShare; crumbs (< 0.12 r) a little and keep the belly up
-  growth: [0, 1.7, 1.1, 1.0, 0.8, 0.7], crumbGrowth: 0.4, crumb: 0.02, floorK: 0.7, // (the doc's 0.8..0.5 left a bot ~4x short of its pace: bot runs, docs/BALANCE.md)
-  startR: 1400,
+  // food.js knobs (food leaves in R4)
+  growth: [0, 1.7, 1.1, 1.0, 0.8, 0.7], crumbGrowth: 0.4, crumb: 0.02, floorK: 0.7,
+  collapseK: 1.0, // credit multiplier on torn-off land (§12.3)
+  startR: 40 * KM,
 };

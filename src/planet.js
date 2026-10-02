@@ -1,7 +1,7 @@
 // Phase 3 world (docs/PHASE3.md §2): the hole stays at the render origin and the planet turns under it.
 //   holeQ  maps the hole's local frame (x right, y up, z toward the camera) to planet space; moveHole() rotates it incrementally
 //          (no lat/long, so no poles). planet.group.quaternion = holeQ^-1, position = (0, -(R + h0), 0).
-//   patch  the local detail heightfield for r < 110 km: 129^2 vertices on the sphere, built in 3 ms slices and swapped in whole.
+//   patch  the local detail heightfield for r < 150 km: 129^2 vertices on the sphere, built in 3 ms slices and swapped in whole.
 //   trail  a cosmetic fine map of where the hole has been (the wound is readable at 1.4 km because of it).
 // Also: enter()/leave() = the §2.7 render fixes (far/near, sky, fog, AO, exposure) so Phase 3 can't regress Phase 1/2.
 import * as THREE from 'three/webgpu';
@@ -114,12 +114,14 @@ export class PlanetWorld {
     g.u.uClouds.value = 0.5 + 0.5 * SM(8000, 100000, r);
     if (this.capMode) g.setHole(0, this.hdir, r / R); else g.setHole(0, this.hdir, 0);
     // wound depth: the patch's trail sinks ~0.6 r_build; the bite map 3 km (x E applied by the shader's own height)
-    g.u.uWoundG.value = 3000;
+    const wg = this.patchInfo && !this.capMode ? 0.6 * this.patchInfo.rB : Math.min(60000, Math.max(3000, 0.08 * r)); // (§12.1: while the patch exists tears sink as deep as the swath)
+    this.woundG = this.woundG === undefined ? wg : this.woundG + (wg - this.woundG) * Math.min(1, dt * 2);
+    g.u.uWoundG.value = this.woundG;
     g.u.uBiteWp.value = SM(1, 3, r / 9800);
     // close-ground pattern scale: ~0.6 r per field, in cross-fading octaves (so it never swims as r grows)
     const lam = Math.max(2, 0.6 * r), lg = Math.log2(lam), L0 = Math.floor(lg);
     g.u.uGcellA.value = 5.0e6 / 2 ** L0; g.u.uGfr.value = lg - L0;
-    g.u.uGroundK.value = 1 - SM(25000, 160000, r);
+    g.u.uGroundK.value = 1 - SM(1500, 14000, r); // (§12: fields, hedges, canopy and street grids are gone by 14 km: a landmass is read as biomes and relief)
     this.updatePatch(dt, hole);
     g.update(camera, dt, viewH);
   }

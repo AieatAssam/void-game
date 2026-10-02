@@ -77,6 +77,9 @@ export class BiteMap {
     out.k = f * B * B + out.j * B + out.i;
     return out;
   }
+  /** Land left under a direction: remaining fraction 0..1 for land, -1 for the sea; `h` (m) is the land height. */
+  landAt(d) { const t = this.texel(d, _t); return this.hm[t.k] === OCEAN ? -1 : this.rem[t.k] / 65535; }
+  heightAt(d) { const t = this.texel(d, _t); return this.hm[t.k] === OCEAN ? 0 : this.hm[t.k]; }
   /** Remaining land fraction under a direction (1 = untouched, ocean = 1). */
   remAt(d) { const t = this.texel(d, _t); return this.hm[t.k] === OCEAN ? 1 : this.rem[t.k] / 65535; }
 

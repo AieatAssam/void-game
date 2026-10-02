@@ -467,7 +467,7 @@ export function planetMaterial({ surf, night, bite, trail = null, map = null, gt
         const riv = float(1).sub(sstep(hw.mul(0.8), hw.mul(1.4), riverPx)).mul(clamp(wide.div(pxM.mul(1.3)), 0.3, 1)).mul(sstep(0.25, 0.42, M)).mul(float(1).sub(urE)).mul(sstep(0.1, 0.25, Te)).mul(sstep(8, 30, e));
         const lk = mx_noise_float(dir.mul(27).add(vec3(7.1, 3.3, 1.9))).add(nz.a.sub(0.5).mul(0.25));
         const lake = sstep(0.5, 0.56, lk).mul(sstep(320, 60, e)).mul(sstep(14, 40, e)).mul(sstep(0.3, 0.45, M)).mul(float(1).sub(urE)).mul(u.uGroundK);
-        wet.assign(max(riv, lake));
+        wet.assign(max(riv, lake).mul(u.uGroundK)); // (rivers are fixed-pixel lines: black scratches from 40 km up, where a river is a few px)
         wetD.assign(sstep(0.5, 0.75, lk).mul(lake.greaterThan(0.01).select(1, 0)));
       }
       If(wet.greaterThan(0.01), () => {
