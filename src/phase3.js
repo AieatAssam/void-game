@@ -57,3 +57,13 @@ export const P3 = {
   collapseK: 0.3, // credit multiplier on torn-off land (§12.3; 1.0 gave a 60% tear share and a 9 min game; 0.3 -> ~35%, 0.2 -> ~23% but 29 min games)
   startR: 40 * KM,
 };
+
+// Threat tuning (docs/PHASE3-REVIEW.md A9): damage is the larger of the old fixed fraction and `k` seconds of current income (state.gRate), so a hit costs the same
+// number of seconds of progress at every tier. Bonuses are the area multipliers for swallowing the weapons (x mods.gulp).
+export const T3 = {
+  nukeK: 15, rodK: 15, bomberK: 8, // seconds of income lost to a hit
+  nukeHit: 0.07, rodHit: 0.08, bomberHit: 0.06, firstHit: 0.07, // floors (the scripted first ICBM is capped at firstHit)
+  nukeGulp: 0.03, rodGulp: 0.02, satGulp: 0.01,
+  falloutLife: 45, falloutLand: 0.5, grace: 14,
+  satEat: 0.7, // a satellite is swallowed when its subpoint passes within this x r of the hole
+};

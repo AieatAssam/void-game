@@ -8,7 +8,7 @@
 import * as THREE from 'three/webgpu';
 import { attribute, vec3, vec4, float, positionLocal, normalView, normalWorld, mx_noise_float, mix, smoothstep, pow, abs, exp, uniform } from 'three/tsl';
 import { R } from './planetgen.js';
-import { P3, TIERS } from './phase3.js';
+import { P3, TIERS, T3 } from './phase3.js';
 import { spriteCloud } from './fx.js';
 import { sunDir } from './look.js';
 
@@ -128,10 +128,11 @@ function mushroomMaterial() {
 }
 
 const dangerPool = [];
-const sealedCss = `#sealed{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:radial-gradient(ellipse at center,#1a0c2ecc,#05020bf2);color:#fff3dd;font-family:system-ui,sans-serif;text-align:center;opacity:0;animation:sealin 1.2s ease-out forwards}
+export const sealedCss = `#sealed{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:radial-gradient(ellipse at center,#1a0c2ecc,#05020bf2);color:#fff3dd;font-family:system-ui,sans-serif;text-align:center;opacity:0;animation:sealin 1.2s ease-out forwards}
 #sealed h1{font-size:clamp(40px,9vw,92px);letter-spacing:.14em;margin:0;color:#ff5a47;text-shadow:0 0 30px #ff2a1a88}#sealed p{max-width:34em;margin:0;opacity:.85;line-height:1.45}#sealed div{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
 #sealed button{font:800 17px system-ui;padding:12px 26px;border-radius:999px;border:0;cursor:pointer;background:#c9a8ff;color:#1b0b3a;box-shadow:0 3px 0 #0006}#sealed button.alt{background:#fff3dd}
 @keyframes sealin{to{opacity:1}}
+#sealed.won h1{color:#c9a8ff;text-shadow:0 0 30px #8a5cffaa;font-size:clamp(32px,7vw,72px)}#sealed table{border-collapse:collapse;font-size:15px;opacity:.92}#sealed td{padding:3px 14px;text-align:left}#sealed td+td{text-align:right;font-weight:800;color:#e8dcff}
 #threat{position:fixed;left:50%;transform:translateX(-50%);z-index:6;pointer-events:none;display:flex;gap:10px;align-items:center;padding:6px 16px;border-radius:999px;font:800 13px system-ui,sans-serif;letter-spacing:.07em;color:#fff3dd;background:#2a0a14e6;box-shadow:0 0 0 1.5px #ff5a4799,0 0 22px #ff2a1a55;transition:opacity .2s;white-space:nowrap}
 #threat[hidden]{display:none}#threat b{color:#ffb27a}#threat.lock{background:#6a0612f0;box-shadow:0 0 0 2px #ff6a58,0 0 30px #ff2a1a99;animation:thr .5s infinite alternate}#threat.good{background:#2a1260ee;box-shadow:0 0 0 2px #c9a8ff,0 0 26px #8a5cff88}
 @keyframes thr{to{transform:translateX(-50%) scale(1.04)}}
@@ -200,7 +201,7 @@ export class Threat {
   }
   /** Lock time (s) so a ring of `need` extra metres... in radii: the hole must be able to leave `needR` r in lock - turn seconds at 0.9 v. */
   lockFor(needR, floor = 2.0) { const r = this.hole.r, v = P3.speed(r) / r; return Math.min(4.6, Math.max(floor, P3.turn(r) + needR / (0.9 * v))); }
-  notice(a) { if (a >= 1) this.quiet = 0; this.noto = Math.min(100, this.noto + a); }
+  notice(a) { if (a >= 1) this.quiet = 0; this.noto = Math.min(100, this.noto + a * (this.state.mods?.noto ?? 1)); }
   zoneAlloc() { for (let i = 0; i < 8; i++) if (!this.zoneUsed[i]) { this.zoneUsed[i] = true; return i; } return -1; }
   zoneFree(i) { if (i >= 0) { this.zoneUsed[i] = false; this.W.globe.u.uZoneP[i].value.y = 0; } }
   zoneSet(i, d, outer, inner, alpha, lock, kind) { if (i < 0) return; const u = this.W.globe.u; u.uZone[i].value.set(d.x, d.y, d.z, outer / R); u.uZoneP[i].value.set(inner / R, alpha, lock, kind); }
@@ -211,9 +212,10 @@ export class Threat {
   news(t) { this.ctx.news.say(t); }
 
   /** A damaging hit: capped at 25% of the area, and at 25% in any 30 s (past it a hit is a near miss). Returns the fraction taken. */
-  hurt(frac, why, key) {
+  hurt(frac, why, key, k = 0, cap = 0.25) {
     const { hole, state } = this;
-    frac = Math.min(frac, 0.25);
+    if (k) frac = Math.max(frac, Math.min(cap, k * (state.gRate || 0) / hole.area)); // (seconds of income: A9)
+    frac = Math.min(frac, cap) * (state.mods?.hurt ?? 1);
     this.hits = this.hits.filter((h) => this.t - h.t < 30);
     const sum = this.hits.reduce((a, h) => a + h.f, 0);
     if (sum + frac > 0.25 + 1e-9) { this.stats.mercy++; this.stats.near++; this.trauma(0.25); this.ctx.hint('Near miss — the world blinks'); return 0; }
@@ -265,8 +267,13 @@ export class Threat {
     const mul = surge || this.seal ? 0 : phase === 'build' ? 1 : phase === 'peak' ? 2 : 0, cap = surge || this.seal ? 0 : phase === 'build' ? 2 : phase === 'peak' ? 3 : 1;
     this.budget = Math.min(14, this.budget + (0.6 + 0.2 * (5 - dc)) * mul * dt);
     for (const k in this.cool) this.cool[k] -= dt;
-    const grace = FORCE ? 3 : 24;
+    const grace = FORCE ? 3 : T3.grace;
     if (this.t < grace || this.eventsHold || !state.playing) return;
+    if (!this.firstNuke && !FORCE && this.t < 70) { // the minute-one hook (A11): one ICBM aimed at the hole at any DEFCON, so the best moment in the game is guaranteed
+      for (let i = 0; i < 20 && !this.sites.length; i++) this.makeSite();
+      if (this.spawnNuke({ at: 'hole', first: true })) { this.firstNuke = true; this.ctx.hint('ICBM launched — dive into the inner circle to swallow it'); }
+      return;
+    }
     const live = this.nukes.filter((n) => n.on && n.phase === 'fly').length + this.lances.filter((l) => l.on && l.phase !== 'gone' && !l.past).length + this.strafes.filter((s) => s.on).length;
     if (live >= cap) return;
     const tryK = [];
@@ -338,7 +345,7 @@ export class Threat {
     for (const s of this.sites) { const d = W.distTo(s.dir); if (d < 5 * r || d > 40 * r) continue; const sc = Math.abs(d - 14 * r) + Math.random() * 6 * r; if (sc < best) { best = sc; site = s; } }
     if (!site) return false;
     const lock = this.lockFor(0.8, 2.0);
-    Object.assign(n, { uid: ++this.uid, on: true, phase: 'fly', age: 0, r0: r, B: 1.4 * r, inner: 0.5 * r, lock, T: lock + rnd(3.4, 4.6), locked: false, ox: 0, oz: 0, side: Math.random() < 0.5 ? -1 : 1, off0: o.at === 'hole' ? 0 : 0.6 * r, ux: 0, uz: -1, boomT: 0, out: '', site, puffT: 0, ashT: 0, ashN: 0, elevT: 0, capT: 0, core: false });
+    Object.assign(n, { uid: ++this.uid, on: true, phase: 'fly', age: 0, r0: r, B: 1.4 * r, inner: 0.5 * r, lock, T: lock + rnd(3.4, 4.6), locked: false, ox: 0, oz: 0, side: Math.random() < 0.5 ? -1 : 1, off0: o.at === 'hole' ? 0 : 0.6 * r, ux: 0, uz: -1, boomT: 0, out: '', site, puffT: 0, ashT: 0, ashN: 0, elevT: 0, capT: 0, core: false, first: !!o.first });
     
     n.from.copy(site.dir); n.to.copy(W.hdir);
     n.chord = W.distTo(site.dir); n.apex = Math.min(1.5e6, 0.18 * n.chord + 0.5 * r);
@@ -448,13 +455,13 @@ export class Threat {
     for (let i = 0; i < 14; i++) { const a = (i / 14) * 6.283 + rnd(0, 0.4), tg = tangentAt(v3.copy(n.to).normalize(), a, v4); v1.copy(n.pg).setLength(R + n.elev * W.E + 0.05 * r).addScaledVector(tg, 0.2 * n.B); this.smoke.spawn(v1, sv.copy(tg).multiplyScalar(0.8 * r).addScaledVector(v3, 0.05 * r), 0.6 * r, 1.4 * r, 4.5, DUST, 0.6, 0.45); } // (the rolling base ring)
     this.scar(n.to, 2.0 * n.B, 0.8 * r, 14, 0);
     this.scar(n.to, 1.2 * n.B, 0.2 * r, 90, 0); // (the scorch stays: its ring is short)
-    this.fall.push({ dir: n.to.clone(), R: 2 * r, t: 0, life: 30, zone: this.zoneAlloc() });
+    this.fall.push({ dir: n.to.clone(), R: 2 * r, t: 0, life: T3.falloutLife, zone: this.zoneAlloc() });
     if (this.fall.length > 2) { const o = this.fall.shift(); this.zoneFree(o.zone); }
     const near = Math.max(0.12, 1 - dist / (8 * r));
     this.sfx.nukeBoom(Math.min(1, 0.5 + 0.5 * near), delay);
     this.screenFlash(0.18 + 0.5 * near, '#fff4dc', 320);
     this.trauma(0.2 + 0.4 * near);
-    if (n.out === 'hit') { this.hurt(0.07, 'Nuclear airburst!', 'nuke'); this.notice(6); this.news('An ICBM detonates over the void: the blast rim scorches it'); }
+    if (n.out === 'hit') { this.hurt(T3.nukeHit, 'Nuclear airburst!', 'nuke', n.first ? 0 : T3.nukeK, n.first ? T3.firstHit : 0.25); this.notice(6); this.news('An ICBM detonates over the void: the blast rim scorches it'); }
     else this.news('An ICBM detonates harmlessly — you slipped the ring');
   }
   /** THE moment: the warhead drops into the well, the mushroom inverts and is sucked down; a lilac ring, a choir, Frenzy. */
@@ -468,7 +475,7 @@ export class Threat {
     for (let i = 0; i < 18; i++) { const a = (i / 18) * 6.283; v2.copy(v1).addScaledVector(tangentAt(W.hdir, a, v3), 1.1 * r); this.glow.spawn(v2, null, 0.3 * r, 0.08 * r, 0.7, C(0xc9a8ff, 2.4), 1.0, 1.5); }
     this.sfx.reverseGulp(); this.screenFlash(0.7, '#e8dcff', 420);
     state.hitstop = Math.max(state.hitstop || 0, 0.15); state.slowmo = 0.5; state.slowT = 0.6 * 0.5 + 0.3; this.trauma(0.5);
-    const a0 = hole.area; hole.area *= 1.03; state.belly = Math.min(1, state.belly + 0.25); state.ledger.nukeGulp = (state.ledger.nukeGulp || 0) + (hole.area - a0);
+    const a0 = hole.area; hole.area *= 1 + T3.nukeGulp * (state.mods?.gulp ?? 1); state.belly = Math.min(1, state.belly + 0.25); state.ledger.nukeGulp = (state.ledger.nukeGulp || 0) + (hole.area - a0);
     state.frenzy = 6; this.notice(10);
     this.ctx.card('NUKE SWALLOWED', 'the void eats the bomb: Frenzy'); this.news('The void swallowed an ICBM whole'); this.ctx.hint('FRENZY — speed up, bite deeper');
     n.pulled = true;
@@ -488,7 +495,7 @@ export class Threat {
       if (f.mk) f.mk.r = f.R;
     }
     for (const f of this.fall) if (f.t > f.life - 0.01 && f.mk) { f.mk.remove(); f.mk = null; }
-    if (inside && !state.fallout) this.ctx.hint('Fallout: hunger ×1.8, land counts ×0.7 — leave the zone');
+    if (inside && !state.fallout) this.ctx.hint('Fallout: hunger ×1.8, land counts ×0.5 — leave the zone');
     state.fallout = inside;
   }
 
@@ -498,8 +505,9 @@ export class Threat {
     const lock = this.lockFor(0.5, 2.0), Tfire = Math.max(6.6, lock + 3.2), om = 0.034;
     Object.assign(l, { uid: ++this.uid, on: true, phase: 'orbit', age: 0, r0: r, B: 1.0 * r, inner: 0.3 * r, lock, Tfire, om, th0: -om * Tfire, locked: false, past: false, ox: 0, oz: 0, side: Math.random() < 0.5 ? -1 : 1, off0: o.at === 'hole' ? 0 : 0.55 * r, ux: 0, uz: -1, rodT: -1, eaten: 0, alt: Math.max(260e3, 0.8 * r), out: '' });
     // the orbit plane holds the hole's position and the screen's top: the satellite comes down the frame toward you
-    const br = rnd(-0.9, 0.9); W.dirAt(Math.sin(br) * 2e4, -Math.cos(br) * 2e4, v1); v1.addScaledVector(W.hdir, -v1.dot(W.hdir)).normalize();
-    l.a.copy(W.hdir); l.b.copy(v1).negate(); l.n.crossVectors(l.a, l.b).normalize(); l.to.copy(W.hdir);
+    // the ground track runs 2.5-4 r to the side of the hole (A8): swallowing the satellite is a detour, not a free ride; the designator still aims at the hole
+    const br = rnd(-0.9, 0.9), ox = l.side * rnd(2.5, 4) * r; W.dirAt(ox, 0, l.a); W.dirAt(ox + Math.sin(br) * 2e4, -Math.cos(br) * 2e4, v1); v1.addScaledVector(l.a, -v1.dot(l.a)).normalize();
+    l.b.copy(v1).negate(); l.n.crossVectors(l.a, l.b).normalize(); l.to.copy(W.hdir); l.gd = 9;
     l.zone = this.zoneAlloc();
     l.mk = this.map?.addMarker({ kind: 'sat', dir: l.a, track: l.n, label: 'LANCE', color: '#9fe8ff' });
     this.stats.rods++; this.news('A kinetic-strike satellite swings into position'); this.ctx.hint(`Orbital strike incoming — ${KMs(l.B)} impact zone`);
@@ -520,8 +528,8 @@ export class Threat {
       this.satAt(l, th, l.pos);
       const eta = l.Tfire - l.age;
       // eat the satellite (r > 420 km) as it passes overhead
-      v3.copy(l.pos).normalize(); const gd = W.distTo(v3);
-      if (hole.r >= 420e3 && gd < 0.9 * hole.r && !l.eaten) { this.eatSat(l); return; }
+      v3.copy(l.pos).normalize(); const gd = l.gd = W.distTo(v3);
+      if (hole.r >= 420e3 && gd < T3.satEat * hole.r && !l.eaten) { this.eatSat(l); return; }
       if (eta < l.lock + 1.3) { // designator: tracking, then locked
         if (eta > l.lock) {
           const sp = Math.hypot(hole.vx, hole.vz); if (sp > 0.05 * P3.speed(hole.r)) { l.ux = hole.vx / sp; l.uz = hole.vz / sp; }
@@ -579,7 +587,7 @@ export class Threat {
       this.stats.rodGulps++; v1.copy(W.hdir).multiplyScalar(R + Math.max(0, W.P.elevation(W.hdir, 3)) * W.E + 0.1 * r);
       this.glow.spawn(v1, null, 3 * r, 4 * r, 0.14, C(0xf0e4ff, 3), 3, 0); this.glow.spawn(v1, null, 1.2 * r, 2.8 * r, 0.7, C(0xa070ff, 2.2), 1.6, 0.2);
       this.scar(W.hdir, 3.4 * r, 3.2 * r, 3, 2); hole.shockwave(); this.sfx.tink(); this.sfx.choir(0.5); this.screenFlash(0.45, '#e8dcff', 320);
-      state.hitstop = Math.max(state.hitstop || 0, 0.12); this.trauma(0.3); const a0 = hole.area; hole.area *= 1.02; state.belly = Math.min(1, state.belly + 0.15); state.ledger.rodGulp = (state.ledger.rodGulp || 0) + (hole.area - a0); state.frenzy = 6;
+      state.hitstop = Math.max(state.hitstop || 0, 0.12); this.trauma(0.3); const a0 = hole.area; hole.area *= 1 + T3.rodGulp * (state.mods?.gulp ?? 1); state.belly = Math.min(1, state.belly + 0.15); state.ledger.rodGulp = (state.ledger.rodGulp || 0) + (hole.area - a0); state.frenzy = 6;
       this.ctx.card('ROD CAUGHT', 'the void swallowed a lance: Frenzy'); this.news('The void swallowed an orbital rod'); this.notice(6);
       return;
     }
@@ -590,13 +598,13 @@ export class Threat {
     for (let i = 0; i < 7; i++) { v3.copy(v1).setLength(R + l.elev * W.E + r * (0.2 + i * 0.35)); this.smoke.spawn(v3, vel3(v2.copy(l.to).normalize(), rnd(-0.2, 0.2) * r, rnd(-0.2, 0.2) * r, 0.12 * r, sv), 0.7 * r, 1.4 * r, 5, i < 3 ? SMOKE0 : ASH, 0.5, 0.5); }
     this.scar(l.to, 1.6 * r, 3.0 * r, 14, 1); this.scar(l.to, 0.9 * r, 0.2 * r, 80, 1);
     const near = Math.max(0.12, 1 - dist / (8 * r)); this.sfx.nukeBoom(0.35 + 0.4 * near, Math.min(1.2, dist / (12 * r))); this.screenFlash(0.1 + 0.4 * near, '#fff', 260); this.trauma(0.2 + 0.4 * near);
-    if (l.out === 'hit') { this.hurt(0.08, 'Orbital strike!', 'rod'); this.notice(5); }
+    if (l.out === 'hit') { this.hurt(T3.rodHit, 'Orbital strike!', 'rod', T3.rodK); this.notice(5); }
   }
   eatSat(l) {
     const { hole, state } = this, r = hole.r; l.eaten = 1; l.phase = 'eaten'; l.eatT = l.age; this.stats.sats++;
     if (l.zone >= 0) this.zoneFree(l.zone); l.zone = -1; l.beam.hide(); l.mk?.remove(); l.mk = null; l.past = true;
     this.glow.spawn(l.pos, null, 0.3 * r, 1.4 * r, 0.5, C(0xdff6ff, 3), 1.6, 0); this.sfx.tink(); state.hitstop = Math.max(state.hitstop || 0, 0.08); this.trauma(0.15);
-    const a0 = hole.area; hole.area *= 1.02; state.ledger.sat = (state.ledger.sat || 0) + (hole.area - a0); state.belly = Math.min(1, state.belly + 0.1);
+    const a0 = hole.area; hole.area *= 1 + T3.satGulp * (state.mods?.gulp ?? 1); state.ledger.sat = (state.ledger.sat || 0) + (hole.area - a0); state.belly = Math.min(1, state.belly + 0.1);
     this.news('The void swallows a kinetic-strike satellite as it passes overhead'); this.ctx.hint('Satellite swallowed'); this.notice(4);
   }
   finishLance(l) { l.on = false; l.sat.visible = false; l.orbit.hide(); l.beam.hide(); l.rod.hide(); if (l.zone >= 0) this.zoneFree(l.zone); l.zone = -1; l.mk?.remove(); l.mk = null; }
@@ -647,7 +655,7 @@ export class Threat {
       }
       if (!s.hit) { // the hole under the sweep
         const hd = W.hdir, across = Math.asin(Math.max(-1, Math.min(1, hd.dot(s.n)))) * R, along = Math.atan2(hd.dot(s.e2), hd.dot(s.e1)) * R;
-        if (Math.abs(across) < s.hw && Math.abs(along - head * s.len) < 1.2 * r) { s.hit = true; this.stats.strafeHits++; this.hurt(0.06, 'Carpet bombed!', 'bomber'); this.notice(4); }
+        if (Math.abs(across) < s.hw && Math.abs(along - head * s.len) < 1.2 * r) { s.hit = true; this.stats.strafeHits++; this.hurt(T3.bomberHit, 'Carpet bombed!', 'bomber', T3.bomberK); this.notice(4); }
       }
     }
     if (s.age > s.tel + s.run + 1.8) this.finishStrafe(s);
@@ -690,6 +698,9 @@ export class Threat {
     el.querySelector('#sl-new').onclick = () => { location.reload(); };
   }
 
+  /** The world is eaten (A3): the director stops, the weapons go. */
+  stand() { this.clear(); this.disabled = true; this.sealOn = false; }
+
   /** Back to calm (a retry from a checkpoint, or reset()). */
   clear() {
     for (const n of this.nukes) if (n.on) this.finish(n);
@@ -715,9 +726,10 @@ export class Threat {
     for (const n of this.nukes) if (n.on && n.phase === 'fly') pick(n.T - n.age, `ICBM · <b>${KMs(n.B)}</b> blast · impact <b>${Math.max(0, n.T - n.age).toFixed(1)} s</b>${n.locked ? ' · LOCKED' : ''}`, n.locked ? 'lock' : '');
     for (const l of this.lances) if (l.on && l.phase === 'orbit' && l.Tfire - l.age < l.lock + 1.3) pick(l.Tfire - l.age, `ORBITAL LANCE · <b>${KMs(l.B)}</b> impact · <b>${Math.max(0, l.Tfire - l.age).toFixed(1)} s</b>${l.locked ? ' · LOCKED' : ''}`, l.locked ? 'lock' : '');
     for (const s of this.strafes) if (s.on && s.age < s.tel + s.run) pick(Math.max(0, s.tel - s.age), `AIR STRIKE · line ${KMs(2 * s.hw)} wide · <b>${Math.max(0, s.tel - s.age).toFixed(1)} s</b>`, s.age > s.tel * 0.5 ? 'lock' : '');
+    for (const l of this.lances) if (l.on && l.phase === 'orbit' && !l.eaten && this.hole.r >= 420e3 && l.gd < 4 * this.hole.r) pick(l.Tfire - l.age + 3, 'SATELLITE OVERHEAD · swallow it for a bonus', 'good');
     if (this.seal) { txt = `SEALING · grow past <b>${KMs(0.75 * this.floorR())}</b> · <b>${this.seal.left.toFixed(0)} s</b>`; cls = 'lock'; }
     else if (!txt && state.frenzy > 0) { txt = `FRENZY · <b>${state.frenzy.toFixed(0)} s</b>`; cls = 'good'; }
-    else if (!txt && state.fallout) { txt = 'FALLOUT · hunger ×1.8 · land ×0.7'; }
+    else if (!txt && state.fallout) { txt = 'FALLOUT · hunger ×1.8 · land ×0.5'; }
     else if (!txt && state.surge) { txt = 'HUNGER SURGE · land counts ×1.5'; cls = 'good'; }
     const el = this.lineEl; el.hidden = !txt || !state.playing && !this.seal;
     if (!el.hidden) { if (el.dataset.t !== txt) { el.innerHTML = txt; el.dataset.t = txt; } if (el.className !== cls) el.className = cls; const hud = document.getElementById('hud'); el.style.top = `${(hud ? hud.getBoundingClientRect().bottom : 44) + 8}px`; }

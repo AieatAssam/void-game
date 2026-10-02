@@ -287,7 +287,7 @@ document.body.append(draftEl, perksEl);
 function openDraft() {
   if (!state.playing || state.draft || !state.draftsDue) return;
   state.draftsDue--;
-  const opts = offerPerks(state.seed, state.drafts++, state.perks);
+  const opts = offerPerks(state.seed, state.drafts++, state.perks, state.phase === 3);
   if (!opts.length) return;
   if (BOT) { takePerk(opts[0]); return; } // the playtest bot takes the first offer, instantly
   state.draft = opts;
@@ -318,8 +318,8 @@ addEventListener('keydown', (e) => {
   if (state?.draft && i >= 0 && i < state.draft.length) { e.preventDefault(); e.stopImmediatePropagation(); takePerk(state.draft[i]); }
 }, true);
 function perkChips() {
-  perksEl.replaceChildren(...state.perks.map((id) => Object.assign(document.createElement('span'), { textContent: PERKS[id].icon, title: `${PERKS[id].name}: ${PERKS[id].desc}` })));
-  perksEl.hidden = !state.perks.length;
+  perksEl.replaceChildren(...state.perks.filter((id) => !!PERKS[id].p3 === (state.phase === 3)).map((id) => Object.assign(document.createElement('span'), { textContent: PERKS[id].icon, title: `${PERKS[id].name}: ${PERKS[id].desc}` })));
+  perksEl.hidden = !perksEl.childNodes.length;
 }
 
 const URL_SEED = new URLSearchParams(location.search).get('seed');
@@ -1085,6 +1085,8 @@ const planetCtx = () => planetCtxObj ??= ({
   THREE, Q, renderer, post, camera, scene, look, sun, LENS, baseFov: FOV, sparks, debris, wisps, birds, news, sfx, fpsEl, perf,
   get hole() { return hole; }, get state() { return state; }, get city() { return city; },
   steer, flash, hint, assets, edgeArrow,
+  /** Phase 3's pay (docs/PHASE3-REVIEW.md A3): 40 + 2 per minute under 30 + 5 per ICBM swallowed. */
+  bankPlanet(st) { const pay = Math.round(40 + 2 * Math.max(0, 30 - st.time / 60) + 5 * (st.nukesSwallowed || 0)); save.dust += pay; persist(); return pay; },
   draft() { state.draftsDue++; if (BOT || window.__headless) { openDraft(); if (state.draft) takePerk(state.draft[0]); } else setTimeout(openDraft, 1100); }, // (bots take the first offer at once, as the town's drafts do)
   card(small, big) { levelEl.innerHTML = `<small>${small}</small><b>${big}</b>`; levelEl.classList.remove('show'); void levelEl.offsetWidth; levelEl.classList.add('show'); bannerUntil = performance.now() + 1800; },
   stage: (t, p = 0.5) => setLoad(t, p),

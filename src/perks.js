@@ -21,9 +21,22 @@ export const PERKS = {
   crave: { name: 'Picky Eater', icon: '🍽️', desc: 'Cravings need one fewer item.', apply: (m) => { m.craveNeed -= 1; } },
 };
 
+// Phase 3 pool (docs/PHASE3-REVIEW.md A7): `p3: true` perks are offered only on the planet, and the planet shows only these.
+export const PLANET_PERKS = {
+  jaws: { p3: true, name: 'Tectonic Jaws', icon: '🪨', desc: 'Bite 25% deeper: ridges and walls give way sooner.', apply: (m) => { m.depth *= 1.25; } },
+  core: { p3: true, name: 'Deep Core', icon: '🕳️', desc: 'Tall land is worth more: height counts for more in every bite.', apply: (m) => { m.hcol = 0.65; } },
+  tow: { p3: true, name: 'Undertow', icon: '🌊', desc: 'Cross the sea 20% faster.', apply: (m) => { m.sea *= 1.2; } },
+  tidal: { p3: true, name: 'Tidal Pull', icon: '🧲', desc: 'Remnants and isles are pulled in from 35% further.', apply: (m) => { m.pull *= 1.35; } },
+  void: { p3: true, name: 'Hardened Void', icon: '🛡️', desc: 'Weapons hurt 30% less.', apply: (m) => { m.hurt *= 0.7; } },
+  silent: { p3: true, name: 'Silent Running', icon: '🤫', desc: 'Humanity notices you 30% slower.', apply: (m) => { m.noto *= 0.7; } },
+  orbital: { p3: true, name: 'Orbital Appetite', icon: '☄️', desc: 'Swallowed nukes, rods and satellites feed you 50% more.', apply: (m) => { m.gulp *= 1.5; } },
+  fission: { p3: true, name: 'Fission', icon: '⚡', desc: 'Torn-off land feeds you 25% more.', apply: (m) => { m.tear *= 1.25; } },
+};
+Object.assign(PERKS, PLANET_PERKS);
+
 export function baseMods() {
   return { vehicleGrow: 1, plantGrow: 1, peopleGrow: 1, vacDecay: 1, pull: 1, hunger: 1, comboT: 0, comboPay: 1, hurt: 1, noto: 1,
-    speed: 1, chain: 1, fireworksNoto: 1, capsules: 1, rivalHunger: 1, rivalMeal: 1, craveNeed: 0 };
+    speed: 1, chain: 1, fireworksNoto: 1, capsules: 1, rivalHunger: 1, rivalMeal: 1, craveNeed: 0, depth: 1, hcol: 0.5, sea: 1, gulp: 1, tear: 1 };
 }
 
 /**
@@ -33,9 +46,9 @@ export function baseMods() {
 export const DRAFT_AT = new Set([1, 3, 5]);
 
 /** Three distinct perks for draft #k of a run (seeded; already-taken perks are never offered again). */
-export function offerPerks(seed, k, taken) {
+export function offerPerks(seed, k, taken, planet = false) {
   const r = rng((seed ^ 0xd4af7) + k * 7919);
-  const pool = Object.keys(PERKS).filter((id) => !taken.includes(id));
+  const pool = Object.keys(PERKS).filter((id) => !taken.includes(id) && !!PERKS[id].p3 === planet);
   const out = [];
   while (out.length < 3 && pool.length) out.push(pool.splice(Math.floor(r() * pool.length), 1)[0]);
   return out;

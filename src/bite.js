@@ -116,7 +116,7 @@ export class BiteMap {
    * Chew the land under a hole disc for dt seconds. c = unit direction (planet space), r = radius (m), moved = metres travelled
    * this frame. Returns the credit in m2 (already x land share, not x G). Visits at most P3.texelBudget texels, round robin.
    */
-  chew(c, r, dt, moved) {
+  chew(c, r, dt, moved, hExp = 0.5) {
     const t0 = performance.now(), { B, rem, ov, hm, area, tau: tauT, tanT, rem8, lf } = this;
     const lv = lf?.lv, l0 = lv?.[0].left, l1 = lv?.[1].left, l2 = lv?.[2].left, l3 = lv?.[3].left, l4 = lv?.[4].left, pu1 = lf?.pu[1], pu2 = lf?.pu[2], pu3 = lf?.pu[3], pu4 = lf?.pu[4];
     const { tflag, touched: tlist, nIdx, nRow } = this, night = this.bake.night, fl = this.bake.N * this.bake.N;
@@ -199,7 +199,7 @@ export class BiteMap {
           if (r8 !== rem8[kk]) { rem8[kk] = r8; touched = true; }
           const dd = dq / 65535, da = dd * ar;
           remArea += da;
-          credit += da * 1e6 * Math.sqrt(hcol / 1000);
+          credit += da * 1e6 * (hExp === 0.5 ? Math.sqrt(hcol / 1000) : Math.pow(hcol / 1000, hExp));
           if (lf) { // the units (§12.3): the parcel and its four ancestors lose da; the parcel is marked for the tear check
             const pk = lf.pk(f, i, j);
             l0[pk] -= da; l1[pu1[pk]] -= da; l2[pu2[pk]] -= da; l3[pu3[pk]] -= da; l4[pu4[pk]] -= da;
@@ -236,11 +236,11 @@ export class BiteMap {
   }
 
   /** Every ~0.35 s: remnants (left < 0.5 area0 and < 0.08 pi r^2) and whole isles (area0 < 0.08 pi r^2) with their centroid within 3 r tear off untouched. */
-  pullCheck(c, r, now) {
+  pullCheck(c, r, now, pullK = 1) {
     const lf = this.lf;
     if (!lf || !this.tearOn || now < this.pullAt) return;
     this.pullAt = now + 0.35;
-    const lim = 0.08 * Math.PI * (r / 1000) ** 2, cosR = Math.cos(Math.min(3, (3 * r) / R));
+    const lim = 0.08 * Math.PI * (r / 1000) ** 2, cosR = Math.cos(Math.min(3, (3 * r * pullK) / R));
     for (let L = 4; L >= 1; L--) {
       const v = lf.lv[L], cc = v.c;
       for (let u = 0; u < v.n; u++) {

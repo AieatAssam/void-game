@@ -4,16 +4,17 @@
 // Step 6/R4 (§12): the land is the meal (src/landforms.js units), growth, belly/decay, the goal chain + arrow + HUD, the unit ladder. Not here yet: ascension (8), threats (9).
 import * as THREE from 'three/webgpu';
 import { PlanetWorld } from './planet.js';
-import { P3, TIERS } from './phase3.js';
+import { P3, TIERS, T3 } from './phase3.js';
 import { R } from './planetgen.js';
 import { sunDir } from './look.js';
 import { loadPack } from './assets.js';
 import { modsFor } from './perks.js';
 import { PlanetMap } from './planetmap.js';
-import { Threat } from './threat.js';
+import { Threat, sealedCss } from './threat.js';
 import { save, persist } from './meta.js';
 
 const KM = (m) => (m >= 1e5 ? `${(m / 1000).toFixed(0)} km` : m >= 1e4 ? `${(m / 1000).toFixed(1)} km` : `${(m / 1000).toFixed(2)} km`);
+const SUN_R = new THREE.Vector3(-0.75, 0.6, 0.3).normalize(); // low sun over the left shoulder (render space): relief reads; it follows the hole, so the play area is always lit (review B2)
 const qs = new URLSearchParams(location.search);
 const num = (k, d) => (qs.has(k) && qs.get(k) !== '' && Number.isFinite(+qs.get(k)) ? +qs.get(k) : d);
 const _qi = new THREE.Quaternion(), _v = new THREE.Vector3(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _n2 = new THREE.Vector3();
@@ -58,7 +59,7 @@ export class PlanetGame {
     if (qs.get('view') === 'pole') W.placeAt(new THREE.Vector3(0, 1, 0));
     else if (qs.get('at') === 'city') W.placeAt(W.P.city, W.P.startDir); // (debug: the mainland)
     else W.placeAt(W.P.startDir, W.P.city);
-    W.setSunRender(_s.set(-0.75, 0.6, 0.3)); // low sun over the left shoulder: relief reads
+    W.setSunRender(SUN_R);
   }
 
   /** The swap: the town / region goes, the planet is the scene, the hole is dropped in at r0. cinematic: the ascension keeps the HUD and the controls off until it is done. */
@@ -123,6 +124,7 @@ export class PlanetGame {
   frame(dt, ctx) {
     const t0 = performance.now(), W = this.world, { state, hole, camera, post, renderer, look, sun } = ctx;
     if (!W) return;
+    if (!state.playing || state.asc) ctx.sfx.grind.stop();
     if (state.playing) {
       state.time += dt;
       this.step(dt, ctx);
@@ -159,6 +161,7 @@ export class PlanetGame {
     if (Math.abs(camera.far - far) > far * 0.05 || Math.abs(camera.near - near) > near * 0.1) { camera.far = far; camera.near = near; camera.updateProjectionMatrix(); }
     // ---- the world: group placement, patch, bite upload; then the hole itself (it sits on the ground under it)
     const tw = performance.now();
+    W.setSunRender(SUN_R); // (the sun rides with the hole: no night side to play on; the far globe still has its terminator)
     W.update(dt, hole, camera, renderer.domElement.height);
     this.cpu.world = performance.now() - tw;
     state.asc?.afterWorld(W, camera);
@@ -191,15 +194,16 @@ export class PlanetGame {
 
   /** The game step: steering, terrain rules (§3), the bite (§2.5), growth, belly. */
   step(dt, ctx) {
-    const W = this.world, { state, hole } = ctx, r = hole.r, tier = P3.tier(r), D = P3.depth(r) * (state.frenzy > 0 ? 2 : 1); // (Frenzy: bite twice as deep)
+    const W = this.world, { state, hole } = ctx, r = hole.r, tier = P3.tier(r), D = P3.depth(r) * (state.mods?.depth ?? 1) * (state.frenzy > 0 ? 2 : 1); // (Frenzy: bite twice as deep)
     const [sx, sz] = window.__bot ? window.__bot(hole, ctx.city) : ctx.steer();
     const kv = 1 - Math.exp(-dt / P3.turn(r));
     hole.sx = (hole.sx || 0) + (sx - (hole.sx || 0)) * kv;
     hole.sz = (hole.sz || 0) + (sz - (hole.sz || 0)) * kv;
     // what is under the hole: height x what is left of it
-    const here = W.eff(0, 0);
+    const here = W.eff(0, 0), Ek = 1 + (W.E - 1) * smooth(40e3, 450e3, r); // (A10: the walls and the drag compare the height the player SEES (x E, ramped in), so a summit stays a summit past T1)
+    here.e *= Ek;
     let mult = 1;
-    if (here.h < 0) mult = P3.oceanSpeed(tier); // the sea: no credit, slower while small
+    if (this.wetPrev) mult = P3.oceanSpeed(tier) * (state.mods?.sea ?? 1); // the sea: no credit, slower while small (wet = the centre is at sea AND the disc ate nothing last frame: a coast is not the sea)
     else if (here.e < D) mult = 1.1; // lowland feast
     else if (here.e < P3.wallK * D) mult = 1 - 0.5 * (here.e - D) / (3 * D); // ridge drag: eaten from the top down over several passes
     const slow = state.slow > 0 ? 0.45 : 1;
@@ -208,10 +212,10 @@ export class PlanetGame {
     let dx = (hole.sx * speed + kick.x * r / 60) * dt, dz = (hole.sz * speed + kick.z * r / 60) * dt;
     kick.x *= Math.max(0, 1 - dt * 5); kick.z *= Math.max(0, 1 - dt * 5);
     // walls: a column taller than 2 r can't be bitten: slide along it (x only, then z only, else stop)
-    const wallAt = (x, z) => { const q = W.eff(x, z); return q.e > P3.wallK * D && q.e > here.e ? q.e : 0; }; // (never trapped: downhill is always open)
+    const wallAt = (x, z) => { const q = W.eff(x, z); q.e *= Ek; return q.e > P3.wallK * D && q.e > here.e ? q.e : 0; }; // (never trapped: downhill is always open)
     let w = dx || dz ? wallAt(dx, dz) : 0;
     if (w) {
-      if (state.time > (state.wallHint || 0)) { state.wallHint = state.time + 6; ctx.hint(`Too tall — grow to ${KM(w / (P3.wallK * 0.03))}`); }
+      if (state.time > (state.wallHint || 0)) { state.wallHint = state.time + 6; ctx.hint(`Too tall — grow to ${KM(w / Ek / (P3.wallK * 0.03))}`); }
       const wx = dx ? wallAt(dx, 0) : 0, wz = dz ? wallAt(0, dz) : 0;
       if (!wx) dz = 0; else if (!wz) dx = 0; else { dx = 0; dz = 0; }
       state.walls = (state.walls || 0) + 1;
@@ -223,13 +227,13 @@ export class PlanetGame {
     const L = state.ledger;
     // the bite: credit = the decrease of the land left (§2.5)
     const tb = performance.now();
-    const credit = W.bite.chew(W.hdir, r, dt, moved);
+    const credit = W.bite.chew(W.hdir, r, dt, moved, state.mods?.hcol ?? 0.5);
     W.bite.upload();
     this.cpu.bite = performance.now() - tb;
     // tear-offs and the pull-in (§12.3): the units the disc touched, the remnants within reach; their credit is not land credit under the ocean rule
     const B = W.bite;
-    B.tearCheck(W.hdir, r); B.pullCheck(W.hdir, r, state.time); B.stepTears(dt);
-    const G = P3.g(r) * P3.feast * (state.fallout ? 0.7 : 1) * (state.surge ? 1.5 : 1), tc = B.cTear * G, pc = B.cPull * G; // (fallout x0.7, Hunger Surge x1.5: threat.js)
+    B.tearCheck(W.hdir, r); B.pullCheck(W.hdir, r, state.time, state.mods?.pull ?? 1); B.stepTears(dt);
+    const G = P3.g(r) * P3.feast * (state.fallout ? T3.falloutLand : 1) * (state.surge ? 1.5 : 1), tc = B.cTear * G * (state.mods?.tear ?? 1), pc = B.cPull * G; // (fallout x0.5, Hunger Surge x1.5: threat.js)
     if (tc + pc > 0) { const a0 = hole.area; hole.area += tc + pc; state.belly = Math.min(1, state.belly + (tc + pc) / (a0 * P3.meal)); L.tear = (L.tear || 0) + tc; L.pull = (L.pull || 0) + pc; }
     for (const ev of B.events) this.swallow(ev, ctx);
     B.events.length = 0;
@@ -246,7 +250,9 @@ export class PlanetGame {
     }
     this.rim = (this.rim || 0) + (Math.min(1, (credit * P3.g(r) * P3.feast) / (Math.max(dt, 1e-3) * hole.area) * 40) - (this.rim || 0)) * Math.min(1, dt * 3);
     W.globe.u.uRim.value = this.rim;
-    const dA = credit * G * (here.h < 0 ? 0 : 1);
+    ctx.sfx.grind.set(state.won ? 0 : this.rim, tier); // (A4: the grind swells on land, falls to silence over the sea)
+    const dA = credit * G; // (ocean texels already give 0 credit: the old centre-at-sea multiplier threw a third of the T4 swath away)
+    this.wetPrev = here.h < 0 && credit <= 0;
     if (dA > 0) {
       const a0 = hole.area;
       hole.area += dA;
@@ -256,7 +262,7 @@ export class PlanetGame {
     this.goalTick(ctx, dt);
     this.threat?.update(dt, ctx);
     // belly and decay (§4.5): a full belly lasts 30 s; fed 0.1%/s, starving 0.8%/s
-    const oceanDrain = here.h < 0 ? P3.oceanDrain(tier) : 1;
+    const oceanDrain = this.wetPrev ? P3.oceanDrain(tier) : 1;
     const hunt = B.landEaten >= 0.97; // §12.4: no decay in the hunt (the last specks of land are a chase, not a famine)
     if (!hunt) state.belly = Math.max(0, state.belly - P3.bellyDrain * oceanDrain * (state.fallout ? 1.8 : 1) * (state.mods?.hunger ?? 1) * dt);
     const dr = hunt ? 0 : (state.belly > 0 ? P3.decayFed : P3.decayStarving) * dt * Math.min(1, Math.max(0, (0.97 - B.landEaten) / P3.huntSoft)), a1 = hole.area; // (decay fades out over the last 30% of the land: the remaining land is far apart, and a hole that starves on the crossings never reaches it)
@@ -267,6 +273,7 @@ export class PlanetGame {
     hole.bump = Math.max(0, (hole.bump || 0) - dt * 2);
     state.best = Math.max(state.best || 0, hole.r);
     state.land = W.bite.landEaten;
+    state.gRate = (state.gRate || 0) + ((dA + tc + pc) / Math.max(dt, 1e-3) - (state.gRate || 0)) * Math.min(1, dt / 10); // (EMA of income, area/s, tau 10 s: the threats' damage is a number of seconds of it)
     state.shake = Math.max(0, state.shake - dt * 1.5);
     if (state.slowT > 0 && (state.slowT -= dt) <= 0) state.slowmo = 1;
     // tier-up (§6.1): hitstop, a slow beat, the name card
@@ -293,7 +300,7 @@ export class PlanetGame {
     let cls = ev.L === 0 ? 0 : ev.L === 1 ? 1 : ev.L === 2 ? 2 : ev.L === 3 ? (ev.area0 < 3e5 ? 1 : 3) : (ev.area0 < 3e5 ? 1 : 4);
     if (rEq < 0.12 * r) cls = 0; // (a speck beside this hole)
     else if (rEq < 0.3 * r) cls = Math.min(cls, 1);
-    if (cls === 0) return;
+    if (cls === 0) { if (rEq > 0.04 * r) ctx.sfx.pebble(); return; } // (a parcel: a dry crackle)
     this.threat?.notice([0, 1, 3, 6, 10][cls]);
     const fx = this.fx ??= { hitAt: -9, hitCls: 0, pull: 0, pullT: 9, tok: 3, tokAt: 0 }, pull = ev.kind === 'pull';
     fx.tok = Math.min(3, fx.tok + (t - fx.tokAt) * 2); fx.tokAt = t; // effect tokens: 2 a second, 3 banked (a cascade of tears is one big event to the eye)
@@ -331,6 +338,20 @@ export class PlanetGame {
     if (!show) return;
     if (cls === 1) sfx.tear(k); else if (cls === 2) { sfx.tear(k); sfx.rumble(k, 0.15 + dl); } else if (cls === 3) { sfx.choir(k); sfx.rumble(k, 0.2 + dl); } else sfx.swell();
     if (ev.pop > 5e5 && !pull && (cls >= 2 || news.queue.length < 2)) { const pp = ev.pop >= 1e9 ? `${(ev.pop / 1e9).toFixed(1)} B` : ev.pop >= 1e6 ? `${(ev.pop / 1e6).toFixed(0)} M` : `${(ev.pop / 1e3).toFixed(0)} k`; news.say(cls === 3 ? `${ev.name} is gone — ${pp} swallowed` : `${ev.name} swallowed — ${pp} evacuated`); }
+  }
+
+  /** The win screen (A3): a results overlay in the Sealed overlay's style. Continue = free roam (the director stays off), New run = a fresh load. */
+  resultsUi(ctx) {
+    const { state, hole } = ctx, st = this.threat?.stats || {}, tm = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+    if (!document.getElementById('threat-css')) document.head.append(Object.assign(document.createElement('style'), { id: 'threat-css', textContent: sealedCss }));
+    document.getElementById('sealed')?.remove();
+    const tiers = [1, 2, 3, 4].map((n) => state.tierAt?.[n] != null ? `T${n} ${tm(state.tierAt[n])}` : '').filter(Boolean).join(' · ');
+    const rows = [['Time', tm(state.time)], ['People swallowed', popStr(state.pop || 0)], ['Peak size', KM(state.best || hole.r)], ['Tiers', tiers], ['ICBMs swallowed', `${st.swallowed || 0} / ${st.nukes || 0}`], ['Rods caught', `${st.rodGulps || 0} / ${st.rods || 0}`], ['Satellites', st.sats || 0], ['Hits taken', st.hits || 0], ['Dust earned', `+${state.dust || 0}`]];
+    const el = Object.assign(document.createElement('div'), { id: 'sealed', className: 'won' });
+    el.innerHTML = `<h1>THE WORLD IS EATEN</h1><table>${rows.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('')}</table><div><button id="rs-go">Continue (free roam)</button><button class="alt" id="rs-new">New run</button></div>`;
+    document.body.append(el);
+    el.querySelector('#rs-go').onclick = () => el.remove();
+    el.querySelector('#rs-new').onclick = () => { const u = new URL(location.href); u.searchParams.delete('r'); location.href = u.href; };
   }
 
   /** The Sealed checkpoint (§8): the bite map and the hole's frame at the latest tier-up (6 MB, memory only). */
@@ -373,7 +394,10 @@ export class PlanetGame {
     }
     G.frac = pr.frac;
     if (G.g.kind === 'world' && pr.cleared && !state.won) {
-      state.won = true; state.goalDone[4] = state.time; save.worlds = (save.worlds || 0) + 1; persist(); ctx.card('THE WORLD IS EATEN', `${popStr(state.pop || 0)} swallowed`); news.say('Nothing is left. The void is the world.'); sfx.levelUp();
+      state.won = true; state.goalDone[4] = state.time; save.worlds = (save.worlds || 0) + 1; ctx.card('THE WORLD IS EATEN', `${popStr(state.pop || 0)} swallowed`); news.say('Nothing is left. The void is the world.'); sfx.levelUp();
+      this.threat?.stand(); ctx.edgeArrow('town', null); sfx.grind.stop();
+      state.dust = ctx.bankPlanet?.(state) || 0; // (banked once: Phase 3's pay, persisted)
+      setTimeout(() => this.resultsUi(ctx), window.__headless || window.__bot ? 0 : 2200);
     }
     G.hunt = W.bite.landEaten >= 0.97 && !state.won;
     G.tgt = state.won ? null : lf.target(G.hunt ? world : G.g, W.hdir, hole.r, G.hunt);
@@ -561,6 +585,7 @@ export class PlanetGame {
   }
 
   leave(ctx) {
+    ctx.sfx.grind.stop();
     this.threat?.dispose(); this.threat = null;
     this.map?.dispose(); this.map = null;
     for (const id of ['stars', 'eaten', 'left']) { const e = document.getElementById(id); if (e) e.hidden = false; }

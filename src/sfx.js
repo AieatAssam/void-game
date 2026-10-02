@@ -244,3 +244,27 @@ export function chord() {
   [98, 147, 196, 294, 392, 587].forEach((f, i) => { tone('sine', f, f * 1.003, 4.6, 0.11 - i * 0.008, i * 0.07); tone('triangle', f * 2.002, f * 2, 3.8, 0.025, 0.2 + i * 0.07); });
   tone('sine', 49, 48.5, 5, 0.35);
 }
+
+// ---------- Phase 3 swath (docs/PHASE3-REVIEW.md A4): the grind of the land being eaten, one persistent node graph ----------
+let gr = null;
+/** grind.set(level 0..1, tier): a looped noise through a lowpass plus a sub sine; swells with the credit rate, drops a step per tier; stop() fades it out. All nodes are built once. */
+export const grind = {
+  set(level, tier = 1) {
+    if (!ctx || muted) { if (gr) gr.g.gain.value = 0; return; }
+    if (!gr) {
+      if (!noiseBuf) noise(0.01, 100, 0.0001);
+      const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain(), sub = ctx.createOscillator(), sg = ctx.createGain();
+      src.buffer = noiseBuf; src.loop = true; f.type = 'lowpass'; sub.type = 'sine'; g.gain.value = 0; sg.gain.value = 0.5;
+      src.connect(f).connect(g); sub.connect(sg).connect(g); g.connect(master); src.start(); sub.start();
+      gr = { g, f, sub };
+    }
+    const t = ctx.currentTime, l = Math.max(0, Math.min(1, level)), step = Math.pow(0.82, tier - 1);
+    gr.g.gain.setTargetAtTime(l * l * 0.55, t, 0.12); // (squared: a light touch is a whisper, a full bite a rumble)
+    gr.f.frequency.setTargetAtTime((180 + 420 * l) * step, t, 0.12);
+    gr.sub.frequency.setTargetAtTime(55 * step, t, 0.3);
+  },
+  stop() { if (gr && ctx) gr.g.gain.setTargetAtTime(0, ctx.currentTime, 0.1); },
+};
+let lastPebble = 0;
+/** A parcel crumbles: a tiny dry crackle (throttled to 4 Hz). */
+export function pebble() { if (!ctx || ctx.currentTime - lastPebble < 0.25) return; lastPebble = ctx.currentTime; noise(0.12, 3200, 0.12); tone('triangle', 260, 90, 0.08, 0.05); }
