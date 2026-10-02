@@ -1,0 +1,630 @@
+# Phase 3 — Planetary: the hole eats the world
+
+Phase 2 ends when the capital falls. Today that's the win. In Phase 3 the island **crumbles into the hole**, the camera
+climbs out through the clouds and the atmosphere, and the player sees for the first time that the island was a speck off
+the coast of a continent on a whole planet. The hole then eats its way up the scale: towns, cities, nations, mountain
+ranges, continents, the satellites overhead and finally the Moon, until **no land is left**. Humanity answers with
+everything it has: bombers, fleets, nukes, orbital kinetic strikes, orbital lasers, a planetary lid, and at the very end
+a planet-cracker.
+
+This is a build-ready design: core representation, terrain height as gameplay, the size ladder, adversity, camera, HUD
+and audio, visuals, budgets, balance and a build order in three shippable passes. Numbers are starting values for the bot
+balance pass (docs/BALANCE.md). Distances are metres in code and km in this text.
+
+---
+
+## 0. Decisions at a glance
+
+| Question | Decision |
+|---|---|
+| Planet | One Earth-sized sphere, R = 6371 km, procedurally generated per run seed (≈29% land, ~40 nations, 8.1 billion people). Fictional. |
+| Representation | **The hole stays at the local origin, and the planet turns under it.** `planet.group` is rotated by the inverse of the hole's orientation quaternion `holeQ` and translated by (0, −R − h, 0). Everything near the hole sits in precise float range, and the existing camera, `hole.update`, the hole cut and the screen-relative steering keep working. |
+| Geometry | A **globe** (a displaced cube-sphere: one draw) plus a **local patch** around the hole (a 129² CPU heightfield bent onto the sphere, rebuilt in 3 ms slices and leapfrogged) while the hole is under 110 km. Above that, the globe alone. |
+| Land state | One authoritative CPU array, the **bite map**: 6 cube faces × 1024² `Uint8`, the remaining fraction of each texel's land column. Growth credit, the HUD land %, the minimap and the win condition all read it. Credit = its decrease, so total credit can never exceed total land. The fine trail at small sizes is cosmetic only. |
+| Scale | Phase 3 starts at **r ≈ 1.4 km**: the hole swallows the island, area for area. It ends near **1.5–1.8k km**, ×1200 in radius, ~27 ladder steps of 1.3×, in **5 scale tiers**. (Arithmetic in §4.5. The Moon is made edible by a scripted capture, not by size.) |
+| Speed | **0.6 r/s** (Phase 2 at 60 m is 0.67 r/s), so the screen always scrolls at the same rate. The 40 m/s `P2.speed` cap does not apply in Phase 3. |
+| Height | **Bite depth D(r) = 0.5 r.** A land column taller than 4D can't be bitten (wall, slide along it). Between D and 4D it drags and is eaten from the top down over several passes. Below D it's a lowland feast. |
+| Food | Hierarchical, deterministic, procedural: cube-face quadtree cells spawn settlements and units sized to the levels that match the current r. There is always something at 0.1–0.95 r and something at 1–1.6 r on screen. |
+| Threat | A DEFCON 5→1 director (army.js patterns) with a budget, a tension cycle and a mercy cap. Every attack is telegraphed ≥ 1.5 s; no hit > 25%. Nukes and kinetic rods can be **swallowed** for a payoff. |
+| Loss | **Sealed** (the Phase 2 rule, scaled): starve below 0.7× the current checkpoint and a lid comes down. **Per-tier checkpoints**: retry the tier at its floor; a 25-minute run never resets to the town. |
+| Length | Town 4–8 min + island 5–10 min + planet 18–24 min ≈ **30–40 min** campaign. ~3.5–4.5 min per tier, 2–3 min loops inside it. |
+| Test flag | `?planet` jumps straight in at 1.4 km (as `?region` does). `?planet&r=50000` starts at 50 km, `?tier=4`, `?defcon=2`, `?noarmy`, `?norivals`, `?nophase3`. |
+
+---
+
+## 1. What we take from other games
+
+| Game | Device | What we do |
+|---|---|---|
+| Katamari Damacy / Forever | Continuous growth with fixed screen framing; old obstacles become snacks; the ending turns the ball into a star | Camera distance ∝ r, so the hole is always the same size on screen. The emptied island becomes the first wound. Finale: the planet collapses into a **void star**. |
+| Hole.io / Donut County | A readable rim, things tipping in, short set pieces | Keep the rim and the tipping fall up to 110 km, then a shader cap with the same rim colour. |
+| Osmos | Size relative to *you* is the whole language | Food smaller than 0.95 r gets a faint lilac edge glow at small screen sizes; things bigger than you get a red-tinted outline on the minimap. |
+| Spore (space stage zoom) | One continuous zoom from ground to orbit, with icons taking over as things shrink | The Ascension pull-out is one continuous log-zoom. Things under 3% of r stop drawing as meshes and survive as decals, lights and icons. |
+| Outer Wilds | Altitude changes the sky (blue → black, stars, a visible limb) | Sky, haze and stars are driven by camera altitude, not by the time-of-day preset. |
+| Super Mario Galaxy | Exaggerated curvature makes "planet" read instantly | Vertical exaggeration E grows with the tier (×1 → ×6), and the camera pitch lowers so the curved horizon is on screen from Tier 2. |
+| Solar Smash | Planetary destruction reads through molten cross-sections, craters and orbital weapons with tracers | The eaten land is a glowing wound with strata walls. Lasers and rods come from visible satellites on drawn orbits. Impact decals sit on the globe. |
+| Just Cause | Layered explosions: flash → fireball → shock ring → smoke column → debris | Every big detonation is five layers on fixed timings (§5.3). |
+| Kerbal Space Program | Trajectories drawn as arcs over a globe | ICBM arcs and satellite orbits are drawn on the minimap globe and in the main view. |
+| Titanfall 2 / Horizon | Huge things in the sky, with parallax against the near ground | The Moon, orbital platforms and the Aegis ring hang in the sky. Cloud wisps pass between camera and ground (`Wisps`, reused). |
+| Black & White | The giant's scale is read against tiny people | Streams of evacuation traffic, rockets leaving the atmosphere, and the population counter in billions. |
+
+---
+
+## 2. The core representation
+
+### 2.1 Frames and transforms (`src/planet.js`)
+
+- **The hole's frame:** `holeQ` (a quaternion) maps the local frame (x right, y up, z toward the camera) to planet space.
+  Moving by the local tangent step (dx, dz) rotates the frame about the local axis (dz, 0, −dx)/|d| by angle |d|/R:
+  `holeQ.multiply(qAxisAngle(axis, |d| / R))`, then normalize. There are no lat/long and no pole singularities. Screen-up
+  stays the frame's −z, so the controls never flip; geographic north drifts as you travel, which is correct parallel
+  transport. The minimap is track-up with an N tick.
+- **Render placement:** `planet.group.quaternion = holeQ⁻¹`, `planet.group.position = (0, −(R + h₀), 0)`, where h₀ is the
+  ground height under the hole (eased, ×E). The hole sits at (0, 0, 0) every frame (`hole.x = hole.z = 0`). main.js still
+  integrates `hole.x/z`, then calls `planet.moveHole(hole.x, hole.z)`, which converts the displacement and zeroes them.
+  float32 precision at 6.4·10⁶ m is ~0.5 m. The smallest Phase 3 food is ~140 m, so this is invisible.
+- **Entity coordinates:** an entity stores a unit direction `dir` (planet space) and altitude `alt`. For the ~300
+  entities near the hole, `planet.update` writes local **azimuthal-equidistant** coordinates (`e.x`, `e.z` =
+  great-circle angle × R along the local bearing), so every flat-world distance test (`dx² + dz² < …`) is an exact
+  great-circle test at any r. Instance matrices are written in planet space under `planet.group`.
+- **City-shaped surface:** `Planet` exposes the duck-typed surface `frame()`, `edgeArrow`, `humanBot` and rivals use on
+  `Region`. The full list comes from `grep -o "city\.[a-zA-Z_]*" src/main.js`:
+  - **Real implementations:** `entities`, `settlements` (tier goals, §4.3), `capital` (null), `target(hole)`,
+    `targetScore`, `buildingsLeft`, `groundY`, `groundSpan`, `groundTilt`, `surfaceSpeed`, `surface` (status text),
+    `budget`, `update(dt, holes, jammed)`, `events` (falls / tooBig: these drive hitstop, gulps and dust), `evacuate`,
+    `dispose`, `group`, `mood`.
+  - **Inert stubs:** `mixers` [], `syncBatches()` no-op, `cullTraffic()` no-op, `smokers` [], `scaleK` 1, `half` ∞,
+    `bound` ∞, `alarm`, `tiles` [], `reveal` null, `shadowCam`.
+
+  **`frame()` edits** (each a `state.phase === 3` branch):
+  - **Edge clamp:** `lim` at main.js:1542 = ∞. `city.half` is used outside Phase 2, and an undefined `half` turns the
+    hole position into NaN.
+  - **Coast/mountain block** (1547) is skipped; walls are §3.
+  - **Velocity order:** `planet.moveHole()` runs **after** `hole.vx/vz` is computed (1562–1563). Otherwise the
+    velocity reads 0, which breaks the camera lead, nuke aim prediction and the bots.
+  - **Knock-back:** `state.kick` scales with r (×0.6 r/s instead of a fixed 60 m/s).
+  - **Quiet stand-ins** (`quietEvents` and friends in phase2.js) for `grass`, `powerups` (no capsules in Phase 3: perks
+    and Frenzy cover it), `rubble`, and `rivals` until step 12.
+  - **Threat readout:** threat.js exposes `stars = 5 − DEFCON`, so the existing "stars went up" flash, `starAt` and
+    `city.alarm` still read "a bigger number means more threat".
+
+### 2.2 The planet generator (`src/noise.js`, `src/planetgen.js`, `src/planet.worker.js`)
+
+`makeNoise` and `smooth` move from terrain.js to a pure `src/noise.js` (terrain.js imports them back; no behaviour
+change). It gains **3D Perlin** `noise3`, `fbm3` and `ridged3`: the existing noise is 2D, and 2D noise on cube faces seams.
+
+`planetgen.js` is pure. It imports no three and no DOM, so the worker and the main thread share it:
+- `elevation(dir)` (metres): continents = domain-warped `fbm3` at 1.3 cycles/R, thresholded so ≈29% of the area is above
+  sea level. Mountain belts are `ridged3` along plate seams (|fbm3| < 0.08 bands), up to 8.8 km. Shelves go to −200 m,
+  abyss to −5 km, with volcano cones (§3) added. Detail octaves continue down to 150 m wavelength, so the live `heightAt`
+  is the full function. About 2 µs a call: the gameplay and patch builds call this directly. Nothing reads heights back
+  from the GPU.
+- `biome(dir, e)`: latitude + moisture fbm → ice, tundra, taiga, temperate, steppe, desert, savanna, jungle, alpine
+  rock/snow.
+- `habitability(dir, e, biome)`: low, coastal, temperate → the city density used by food.js and the night lights.
+- `nation(dir)`: nearest of ~40 seeded land points (Voronoi) → nation id, name and capital.
+- Cube mapping uses a **tan-warped cube** (`u' = (4/π)·atan(u)`): texel areas vary ~1.4× instead of 5×, and the same
+  ~12 lines are used in JS and TSL.
+- `startDir`: a temperate shelf-sea point 12–20 km off a continent coast with a habitability ≥ 0.6 city within 60 km. The
+  generator plants an islet of radius 1.4 km there. That islet *is* the Phase 2 island at planet scale.
+
+The worker (`new Worker(new URL('./planet.worker.js', import.meta.url), { type: 'module' })`) bakes:
+
+| Texture | Format | Contents |
+|---|---|---|
+| `surf` | `DataArrayTexture` 6 × 512², RGBA8 | R height (signed, 40 m steps), G biome, B moisture, A nation edge (borders as faint lines at T3) |
+| `night` | `DataArrayTexture` 6 × 512², RG8 | R city light density (habitability × population noise), G cloud cover (fbm3, 3 octaves) |
+
+Bake: 2 × 1.57 M samples, ~1.5–3 s in the worker. It starts when Phase 2 begins (`breakout` → `planet.prebake(seed)`),
+so it's long done by the capital. `?planet` shows "Forming the world…" for that time. Results are transferred as
+`ArrayBuffer`s; the textures are created on the main thread.
+
+### 2.3 The globe
+
+- A cube-sphere of 6 × N² quads (N = 128 high, 96 medium, 64 low: 196k / 110k / 49k tris), unit radius, one
+  `BufferGeometry`, one draw. The vertex shader displaces it by `surf.R × E` (ocean clamped to sea level) and sinks eaten
+  land by the bite map (§2.5).
+- `planetMaterial` (TSL, `MeshBasicNodeMaterial` with hand-written lighting, `fog: false`) is shared by the globe, the
+  patch and the minimap globe through a `uLocal` uniform:
+  - **land:** biome ramp × macro `fbm3` variation, slope rock, altitude snow, and a farmland patchwork (`mx_worley`) on
+    T1–T2 lowlands.
+  - **ocean:** depth colour from height, GGX sun glint, Fresnel to the sky colour, two octaves of wave-normal noise at T1–T2.
+  - **lighting:** Lambert + wrap from the sun, hemi fill, cloud shadows (`night.G` sampled along the sun direction).
+  - **night side:** `night.R` city lights × (1 − daylight), warm sodium colour, flicker-free. Lights in eaten land go out
+    (× bite map).
+  - **aerial perspective:** in-material haze by view distance through the atmosphere: density × exp(−camera altitude /
+    8 km). The scene `fogNode` is set to null in Phase 3 (`aerialFog` uses max(y, 0) and would fog the globe at y ≈ −R
+    solid).
+  - **wound** (§2.5) and the **hole cap** (§2.6).
+- Under the patch the globe is discarded inside 0.9 × the patch radius (one angular test). The patch skirt dips 0.3%
+  below the globe, so the seam never shows sky.
+
+### 2.4 The local patch (T1–T3, r < 110 km)
+
+The globe's vertices are 78–156 km apart: far too coarse for a 1.4 km hole. The patch is the Phase 2 terrain idea
+carried onto the sphere:
+- A 129² grid (97² on low) covering **L = 28 r**, radially warped so it's denser at the middle, built on the CPU in
+  `planet.patchGen()` (a generator) at an **anchor** direction. Per vertex it stores the planet-space unit direction and
+  the real height. The vertex shader computes `dir × (R + h·E)` in planet space, so E can change without a rebuild.
+- **Leapfrog:** two patch meshes. Start building the next one (`slicer(3)` from region.js, ~10 slices: 16.6k ×
+  `heightAt` ≈ 35 ms) when the hole is more than 4 r from the anchor, or r has changed by more than 1.25×. Cross-fade
+  over 0.4 s with a dithered alpha ramp. At 0.6 r/s a 4 r drift takes 6.7 s; the build takes ~0.2 s.
+- A per-patch 512² **city map** canvas (CPU 2D: city footprints, street-grid strokes, road lines between neighbouring
+  settlements), painted at build time (~3 ms) and uploaded as a texture. The patch shader uses it for pavement colour, by
+  day, and lit grids, by night.
+- A per-patch 512² `R8` **fine trail** (cosmetic): eaten depth in units of 4D(r_build), stamped every frame where the
+  hole is (π(r/texel)² ≈ 1000 texels) and re-rasterized at rebuild from a ring buffer of the last 4096 stamps `{dir, r,
+  depth}`. Its texel is 0.055 r: 77 m at the start.
+
+### 2.5 The bite map: eating land (`src/bite.js`)
+
+- `rem`: `Uint8Array` 6 × 1024², 255 = untouched land. Ocean texels are 0 and never count. The texel is ~9.8 km. A CPU
+  copy lives in a `DataArrayTexture` (R8); dirty faces upload via `addLayerUpdate(face)`, at most 10 Hz (three r186
+  `DataArrayTexture.addLayerUpdate`, handled by both backends: checked in `node_modules/three/src`).
+- Static per texel (built once from the `surf` bake): `area` (km², from the tan-warped cube) and `hcol = max(0, e) + C`
+  with **C = 300 m** of crust, so lowlands are not free.
+- **Chew** (per hole, per frame, over texels the disc touches, by great-circle distance):
+  - **Coverage** `cov` = the disc ∩ texel area fraction. Below r = 2 texels (all of T1, most of T2) compute it by 4×4
+    supersampling. Above that, use 1 inside r − t/2 and linear across the edge.
+  - **Chew:** `Δrem = min(cov · dt · D(r) / (T_chew · hcol), rem − (1 − ov)·rem₀)`, with **D(r) = 0.5 r** and
+    **T_chew = 1.2 s**. `ov` is the fraction of the texel the hole has *ever* overlapped: an 8-bit per-texel `seen` array
+    whose overlap only grows. So a hole parked in a 96 km² texel can only eat the part its disc has actually covered,
+    never land outside it.
+  - **Feel:** a moving hole crosses a texel in ≈ 2r / 0.6r = 3.3 s, so it eats a column ≈ 1.4 r deep in one pass. A
+    parked hole grinds D every 1.2 s.
+  - **Calibration test (step 5):** the measured credit rate on flat land ≈ `G_land · 1.2 r² · f_land · √(hcol)`, within
+    ±20%, at r = 1.4, 10 and 100 km.
+- **Credit:** `dA = G_land(tier) · Σ Δrem · area · √(hcol / 1 km)`. Mountains pay √h more per area but take h/D longer:
+  lowlands grow you fast, mountains are slow, rich meals.
+- **Budget:** at r = 2000 km the disc covers ~130k texels. bite.js visits at most **40k texels a frame**, round-robin over
+  the disc's rows, with each row's dt accumulated (≈0.4 ms). This is exact on average, and the 1.2 s chew hides the
+  latency.
+- **Land %** = 1 − Σ rem·area / Σ area₀ (by area, tracked incrementally). This feeds the HUD, the minimap ring, the news
+  and the win (§4.4).
+- **Rivals chew too**, with the same code and their own credit. Their eaten land is gone for everyone.
+- **Look of the wound:** eaten land sinks to `−(woundDepth)` (3 km × E) plus the fine trail on the patch. The walls show
+  strata (the banded soil colours of the void shader in hole.js, rescaled to km) over a glowing mantle floor: lilac at
+  the rim, molten orange deeper (emissive, so it blooms). A crack band glows outside the edge (the `rimCracks` idea in
+  angular units). At the coast, the sea stops at the wound edge with a bright meniscus (stylised: the void holds the sea
+  back). On the night side the wounds are the brightest thing on the planet.
+
+### 2.6 The hole on a sphere
+
+- **r < 110 km (T1–T3):** the existing `Hole` meshes (well, rim, swirl, wave) at the origin, with the rim tilted by
+  `groundTilt` (from planet heights at ±0.5 r). The cap's sagitta R(1 − cos(r/R)) is under 1 km here, hidden by the rim's
+  thickness (y-scale r·0.35).
+- **r ≥ 110 km (T4–T5):** the sagitta grows (20 km at 500 km, 310 km at 2000 km), so the flat meshes would float. Hide
+  `well`, `rim` and `swirl` (`hole.capMode = true`). The planet shader draws the hole as a **spherical cap**: an angular
+  test against a `holeCaps` uniform array (vec4: dir, cos(angle); player + rivals, `MAX_HOLES` = 5). Inside, it ports
+  `voidMaterial`'s colours, spiral arms and stars to angular coordinates. The rim is a glowing band at the cap edge, and
+  the shockwave is an expanding angular ring.
+- `holeField` (the flat vec3(x, z, r) cut) keeps working for the patch, since the hole is at the origin. Rivals near
+  you use local coordinates; far rivals are cap-only.
+
+### 2.7 Precision, sky, fog, shadows: fixed at the swap
+
+| Phase 2 setting | Phase 3 replacement |
+|---|---|
+| `camera.far = max(1600, 4·camDist)` (clips the horizon: √(2Rh) ≈ 500 km at 20 km altitude) | `far = max(4·camDist, 1.2·√(2R·alt + alt²))`, `near = 0.02·camDist`. The near/far ratio stays ≤ 1500. |
+| `SkyMesh` scaled to 4000 m (the camera starts ~17 km up, outside it) | Sky dome follows the camera, `scale = 0.9·far`. It fades out between 60 and 250 km altitude; the star field and Milky Way band fade in over the same range. |
+| `scene.fogNode = aerialFog()` | null. Haze lives in `planetMaterial`. |
+| Sun shadows (near 20 / far 320, sun 150 m out) | **Off** for the whole of Phase 3 (`sun.castShadow = false` at the swap). Relief reads through normals, AO and cloud shadows. This saves the whole shadow pass. |
+| `viewScale = camDist/45`, `post.setViewScale(camDist/130)`: unbounded | Clamp `viewScale` to ≤ 8. AO fades out between 300 and 600 km altitude via a new `post.aoMix` uniform (no rebuild). If the AO pass can't be skipped when the mix is 0, run the one `post.build()` without AO during the T3→T4 tier-up slow-mo (quality.js notes that a rebuild freezes Safari: only ever under a cinematic). |
+| Directional sun fixed per preset | The sun is fixed in planet space (≈ 23° tilt, so there's a terminator). Render-space sun = `holeQ⁻¹ · sunPlanet` each frame, so travelling to the night side makes it night. `applyTime` gets a `planet` preset (exposure, LUT). |
+
+---
+
+## 3. Terrain height as gameplay
+
+| Rule | Formula / number | Feel |
+|---|---|---|
+| Bite depth | D(r) = 0.5 r | A 1.4 km hole chews 700 m a pass; a 20 km hole chews 10 km, so the tallest peak goes in one gulp. |
+| Effective height under the hole | e_eff = elevation(dir) × rem(texel) | Mountains you've sliced stay lower. |
+| **Wall** | e_eff > 4D = 2 r → slide along, as Phase 2's `mountain > 0.22` slide does (try x-only, then z-only, else stop). Hint "Too tall — grow to {e_eff/2} km". | At 1.4 km, anything over 2.8 km is a wall. An 8.8 km summit walls you until r = 4.4 km. |
+| **Ridge drag** | D < e_eff < 4D → speed × (1 − 0.5·(e_eff − D)/3D) | Eaten in slices from the top: every pass lowers it ~1.4 r. |
+| **Lowland feast** | e_eff < D → speed × 1.1 | Plains, river valleys and coastal flats are your roads. |
+| Slope | Phase 2's `hill` rule (×0.62–1.2 up/down), from `groundTilt` | Unchanged feel. |
+| **Ocean** | No credit; speed × 0.6 and belly drain × 1.4 below T3, × 0.85 / × 1.15 at T3, normal from T4 (the hole "drinks" across) | Crossings are a cost while small and nothing at all once you're continental. |
+| **Ice caps and shelves** | Land with C = 600 m (thick), biome ice; credit × 1.2 | A polar detour pays at T4–T5. |
+| **Volcanoes** | Cones 5–40 km wide, +1–5 km, entities with a crater. Telegraphed eruptions (§5). Eat one while it erupts → **Magma Surge**: 8 s of D × 2 and speed × 1.3. | A hazard that becomes a boost. |
+| **Altitude-dependent threats** | Flak belts: AA batteries ring mountain passes (T1–T2: a toll of 1.5% when you cross a pass with an active belt; edible). Storm fronts over oceans (T2–T3): a visual cloud wall that cuts minimap visibility. Orbital weapons target lowlands first: open plains are exposed, and ridges give 30% cover (rods aimed at you while on a ridge scatter wider). | Height is a choice: high ground is slow but safer, lowlands are fast but exposed. |
+| Sea level | Fixed: the void holds the sea at the wound edge. No flooding simulation. | Cut: flooding would mean reshaping the ocean per frame for no gameplay. |
+| **Tsunamis** (adversity) | Eating more than 60 km of coastline in 20 s, or a nuke hitting the sea, launches a wave ring (§5). | Scale feedback that bites back. |
+
+The gating is a ladder rule for terrain, the same in spirit as "tier < 0.95 r": a wall is always a promise ("grow to X").
+It never hard-blocks the map, because there is always a lower pass or a coast around it. The generator checks this: a
+flood fill from `startDir` at e < 2.8 km must reach ≥ 60% of the land.
+
+---
+
+## 4. Growth ladder, tiers and pacing
+
+### 4.1 Scale tiers
+
+S = log₁₀(r / 1 m). Each tier is ~×4.3 in radius (≈5.5 ladder steps, ~×18.5 in area).
+
+| Tier | r (km) | S | camDist | Pitch | E (relief ×) | Name card |
+|---|---|---|---|---|---|---|
+| T1 | 1.4–6 | 3.15–3.8 | 17–72 km | 55° (as Phase 2) | 1 | **COASTLANDS** |
+| T2 | 6–25 | 3.8–4.4 | 72–300 km | 55 → 47° | 1.5 | **NATIONS** |
+| T3 | 25–110 | 4.4–5.04 | 300–1300 km | 47 → 38° | 3 | **CONTINENT** |
+| T4 | 110–480 | 5.04–5.68 | 1300–5700 km | 38 → 33° | 6 | **ORBIT** |
+| T5 | 480–1800 | 5.68–6.25 | 5700–21500 km | 33° | 6 | **THE WORLD** |
+
+`camDist` stays `(14 + 8r)·portrait·LENS` (FOV 26°, LENS ≈ 1.49). Pitch and E lerp on r within the tier, so there are
+no pops. At 1800 km the globe fills most of the 26° view. Only patch → globe-only (110 km), rim → cap (110 km) and the
+AO rebuild are discrete. All three happen under the T4 tier-up slow-mo and are **one-way**: a hit that drops r back
+below 110 km afterwards (the mercy cap allows 25%) does not switch them back, so there are no flip-flops and no rebuild
+freeze outside a cinematic. A checkpoint restore below T4 is the only way back.
+
+### 4.2 Food at each tier: always something smaller and larger
+
+| Tier | Crumbs (< 0.12 r: no fanfare, as in Phase 2) | Meals (0.3–0.95 r) | Bigger, the fear (1–1.6 r+) | Ambient scale cues |
+|---|---|---|---|---|
+| T1 | villages, cargo ships, oil rigs, forest clumps, AA batteries | towns, airports, carrier groups, silo fields | cities, 3–5 km peaks (walls), rival holes | traffic streams on highways, contrails, ferry wakes |
+| T2 | towns, ships, silo fields | cities, naval armadas, volcanoes, the first spaceports | metros, the tallest ranges, a bigger rival | night grids, bomber contrail lines, storm fronts |
+| T3 | cities, fleets, volcanoes | metros, megacities, nation capitals | megalopolis strips (100–300 km), **The Maw** (a rival at 1.3× you) | ICBM arcs over the limb, border lines, hurricanes |
+| T4 | megacities, launch pads, LEO satellites (alt 400 km: eaten once r > 420 km, as they pass) | megalopolis strips, ice shelves, evacuation rockets, **Aegis** platforms | the Aegis ring, continents (land), **World-Eater** (a rival at 1.4×) | rockets leaving the atmosphere, orbit lines, the ISS |
+| T5 | islands, ice shelves, orbital debris | continent lobes (land), the planet-cracker's power stations, **Moon fragments** | **the Moon** (radius 1737 km: bigger than you all tier), World-Eater | the Moon looming, a debris ring forming, the night side going dark |
+
+**The Moon** is never eaten whole by size (r peaks ~1.5–1.8k km). At 90% land eaten, the hole's pull drags it into a
+low orbit, where it breaks up at the Roche limit (a 6 s cinematic beat). It rains fragments sized 0.3–0.9 r for ~40 s:
+the last "larger thing" becomes the last feast.
+
+**Hierarchical procedural food (`src/food.js`).** The cube faces form a quadtree: level L cells are s_L = 10,007 km / 2ᴸ.
+Each land cell at level L holds 0–3 items of radius log-uniform in [s_L/48, s_L/16], seeded by
+`hash(seed, face, L, i, j)` and weighted by habitability. Sea cells hold ships, fleets and rigs; arid inland cells hold silo
+fields (T2+); plate seams hold volcanoes; equatorial coasts hold spaceports (T3+). Kind follows size: < 0.4 km village,
+rig or ship; 0.4–3 km town, airport, carrier group or silos; 3–20 km city, armada, volcano or spaceport; 20–90 km metro or
+megacity; 90–400 km megalopolis strip; ice shelves and orbital items are separate lists.
+- **Active levels:** those with s_L in [4.8 r, 25.6 r] (≈2.4 levels). Cells within the view radius 25 r → ~150 cells →
+  ~300 live entities in a pool. Items spawn when their cell enters the view and despawn beyond 30 r.
+- **Persistence without storage:** regeneration is deterministic. An `eaten` `Set` of item hashes, plus "not spawned where
+  rem < 0.5", means what you ate stays eaten, at every level. A city at level L sits on land, so eating it carves the land
+  under all its children.
+- **Ladder guarantee:** after each spawn pass, if fewer than 3 meals (0.3–0.95 r) lie within 25 r, or no "bigger" thing lies
+  within 15 r, a **filler** item of the missing kind spawns at the nearest suitable land cell ahead (the Phase 1 snack-floor
+  rule). Food spacing is authored in units of r: the next goal is always 20–40 s of travel (12–24 r at 0.6 r/s).
+- **Rendering by screen size:** items under 3% of r draw nothing (the decal and lights carry them). Cities use the
+  **skyline kit**: one or two `InstancedMesh`es of procedural boxes (10 tris each; tower, slab, setback and dome variants
+  merged into one geometry with a per-instance variant attribute). A city of radius s gets ≤ 400 boxes with footprint
+  ≈ s/12 and height 0.2–3× footprint. Big cities draw blocks, not buildings, which is itself a scale cue. Ships, silos,
+  pads, rockets and platforms are GLBs (§6.4) at **readability scale** (≥ 12 px on screen).
+- **Eating a city:** one entity with tier = its radius. On the fall, its boxes crumble toward the hole over 1.5–3 s (CPU
+  instance matrices, ≤ 2000 per frame) with Phase 2's dust ring scaled to km (`debris.dustRing`).
+
+### 4.3 Tier goals (what the arrow points at)
+
+Phase 2's settlement machinery is reused as **objectives**. `planet.settlements` is a short list of goal clusters for
+the current tier, built by food.js, each with `list`, `left`, `total`, `name`, `kind`, `x/z` (local) and `r`. The arrow
+(`nextSettlement`), "X is gone" banners, news and perk drafts work unchanged.
+
+| Tier | Goals (cleared → banner + draft) |
+|---|---|
+| T1 | The 4 towns and the coastal city nearest the landing ("Port Ardent has fallen") |
+| T2 | The home nation: its cities + capital (nation id from `planetgen.nation`) |
+| T3 | Three nations' capitals + megacities, and the Maw |
+| T4 | The Aegis (6 platforms), 2 spaceports during the evacuation, and one continent below 50% |
+| T5 | Land to 99.5% (§4.4), plus the Moon (optional, star challenge) |
+
+Tier-ups happen on **size** (r ≥ the next floor), not on goals. Goals are guidance and payout, so they can never be a
+dead end.
+
+### 4.4 Win, hunt and ending
+
+- **Win:** land eaten ≥ 99.5%.
+- **Hunt mode** (Phase 2's rule, main.js:1524) from 97%: no belly drain, no decay. The arrow points at the largest
+  remaining land texel cluster (bite.js keeps a coarse 64² per face "land left" summary, updated at 2 Hz). Islands
+  smaller than 0.05 r within 3 r crumble into the hole by themselves: no islet-hunting.
+- **Finale (≈ 20 s, skippable after the first time):** (1) hitstop 0.3 s, silence; (2) the last coast crumbles; (3) any
+  Moon fragments still in orbit rain in at once; (4) the planet's crust caves:
+  `uCollapse` shrinks the globe radius toward the hole over 6 s, the atmosphere tears into streamers, and the camera pulls
+  out 4×; (5) a **void star**: a black disc with an accretion ring (the hole's swirl shader on a ring mesh), a lensing halo
+  and the sun's light bending around it; (6) the card "WORLD EATEN · 23:41 · 8,104,551,203 swallowed".
+- **Results / legacy:** run dust from Phase 3 meals, nations (+20 each), the Moon (+60) and the world (+150). Save
+  `save.worlds++`, best world time, a "Void Star" skin at the first world. `bankTown` is unchanged; Phase 2 banks at
+  ascension the way the town banks at breakout.
+- **NG+ ("New World"):** a fresh seed and planet, existing Heat levels apply, and a **legacy perk** carries over (pick 1
+  of 3 at the start of the next world). Replays can start at the planet from the menu once one world is eaten
+  (`?planet` for players).
+
+### 4.5 Pacing numbers (`P3` in `src/phase3.js`)
+
+| Knob | Value | Note |
+|---|---|---|
+| `speed(r)` | 0.6 r/s × surface × hill | Continuous with Phase 2 at 60 m. |
+| `turn(r)` | 0.45 s | P2's value at 60 m, held. |
+| `growth` (meals) | T1 0.8 · T2 0.75 · T3 0.7 · T4 0.6 · T5 0.5 × `growthShare` | Meals matter less as land takes over. |
+| `G_land` | T1 0.012 · T2 0.018 · T3 0.028 · T4 0.038 · T5 0.06 | At 70% land under you, a pure land run grows ~0.3%/s at T1 and ~1.6%/s at T5. |
+| End size (check) | T5 starts at 0.72 M km² of hole. Land credit ≈ 0.06 × ~137 M km² left × ~0.9 (√h) ≈ +7.4 M; Moon fragments ≈ +0.8 M; less decay → **r_end ≈ 1.5–1.8k km**. | The bot suite verifies this; it is a check, not a target. |
+| Belly | drain 1/30 s; meal 0.06 of area; land credit tops it up 1:1 in area terms; crumbs +2% | |
+| Decay | fed 0.0010/s, starving 0.008/s | |
+| Income split (target, from the ledger) | T1 meals 65 / land 25 / other 10 · T2 55/35/10 · T3 45/45/10 · T4 30/50/20 · T5 15/75/10 | "Other" = nukes and rods swallowed, rivals, space food. |
+| Per tier | ×18.5 area ≈ 74 bites of 4% ≈ one every 3.2 s over ~4 min | A 2–3 min loop: goal → set piece → tier-up. |
+| Land % by tier end (expected) | T1 < 0.01 · T2 0.1 · T3 1.5 · T4 8 · T5 100 | Global land % stays tiny until T4. The HUD shows the **tier goal** until T3, then the planet %, which takes over at T4. That is honest, and it makes the final tier a crescendo. |
+| Rival meal | 0.6 × its area (as now) | |
+| Seal | critical 0.7 × checkpoint floor, recover 0.75, dead 0.55, 14 s | army.js `sealWatch`, scaled. |
+
+---
+
+## 5. Adversity
+
+### 5.1 The director (`src/threat.js`, the `Army` pattern)
+
+- **DEFCON 5 → 1** is the threat level shown on the HUD. Like `Army.update`, it's the max of a size floor (5 at 1.4 km,
+  4 at 4 km, 3 at 10 km, 2 at 40 km, 1 at 200 km) and notoriety (`notice()` per meal, decaying after 6 s quiet).
+- **Budget:** points refill at 0.6 + 0.2 × (5 − DEFCON) per s. Each attack costs points (table) and has its own cooldown.
+- **Tension cycle (75 s):** build 45 s (refill × 1, ≤ 2 telegraphs live), peak 15 s (× 2, ≤ 3 live), relax 15 s (× 0,
+  ≤ 1 live). The peak lines up with a goal approach where it can (the director peeks at `nextSettlement`).
+- **Fairness:** every telegraph is ≥ 1.5 s *locked* (it doesn't move after it locks), and no single hit is > 25%. A
+  **mercy cap** allows ≤ 25% total size loss in any 30 s window; past it, hits become near misses (shake only).
+  Nothing blocks movement; every ground or sea unit is edible; everything else is temporary.
+- **Comeback:** below 0.85 × the checkpoint floor the director goes to *relax* and "Hunger Surge" turns on (food in view
+  grows you × 1.5). A swallowed nuke or rod also gives **Frenzy** (6 s, speed × 1.3, D × 2).
+
+### 5.2 The roster
+
+| Unit | DEFCON / tier | Telegraph | Behaviour | Counter / power fantasy | Cost (budget · perf) |
+|---|---|---|---|---|---|
+| **Bomber wings** | 5 · T1–T2 | strafe line across the view, 2.5 s (`jetStrike`, scaled) | carpet of blasts along the line, 6% | get off the line; wings fly off (temporary) | 3 · 1 instanced draw + puffs |
+| **Carrier groups / armadas** | 4 · T1–T3 | ships visible; launch flash, then a cruise missile salvo whose rings track for 2 s then lock 1.5 s | 3–6 rings, 4% each | **edible**: eat the fleet to stop the salvos (a combo) | 3 per salvo · ships instanced |
+| **AA belts** | 4 · T1–T2 | flak puffs over passes | 1.5% toll per crossing | edible batteries | 2 · puffs |
+| **ICBM nukes** | 3 · T2–T4 | a **launch** contrail rises from a silo field (often over the horizon: the arc is drawn); a ring appears and tracks your predicted position until 2 s before impact, then locks. Flight 6–9 s. | airburst: 7% if your rim is in the blast ring (2 r) + **fallout** zone (2 r, 30 s: belly drain × 1.8, land credit × 0.7) | **Swallow it**: if your *centre* is within 0.5 r of the impact point at detonation (the inner lilac circle), it falls into the void: +3% growth, Frenzy, the best moment in the game. A swallow **overrides** the blast: no damage, no fallout. Silo fields are edible snacks: eat them to stop launches from that region. | 6 · contrail ribbon + ring + mushroom mesh |
+| **MIRV** | 2 · T3–T4 | one arc that splits at apex into 6 rings, 3 s locked | 6 × 4%, cap 15% per salvo | each child can be swallowed (inner circle 0.4 r) | 10 |
+| **Kinetic lance** ("rods from god") | 2 · T3–T5 | a satellite on a drawn orbit; a red designator beam to the ground, 2.0 s locked | a white-hot rod, crater decal, 8% | dodge; inner gulp 0.3 r → +2%; from r > 420 km **eat the satellite** as it passes overhead | 5 · line + flash |
+| **Orbital laser platform** | 2 · T4–T5 | beam warms 2 s at a point 6 r away, then sweeps toward you at 0.35 r/s (slower than you) | 2%/s drain + 0.5 s jam while in the beam | outrun or circle it; bait it across a **rival**; the platform drops to 300 km to re-aim, where it's edible | 8 · beam quad + scorch decal |
+| **Tsunami** | 3 · T2–T4 | a visible wave front (foam ring, sea bulge) at 0.4 r/s from the cause | crossing the front: 3% + kick | it wrecks the coast it reaches: towns there become rubble fields worth 1.5× | 4 (or triggered) · ring mesh |
+| **Volcano eruption** | 3 · T2–T3 | 3 s rumble + smoke column | lava-bomb rings (4%), an ash zone (speed × 0.7, view dims) | eat it while it erupts → Magma Surge | 4 · plume sprites |
+| **Rival holes** | T1 (2 breakouts), T3 Maw (1.3×), T4–T5 World-Eater (1.4×) | names on the minimap with a red ring when bigger | as `rivals.js` (hunt food, chase smaller, flee bigger), now on the sphere and chewing land | eat one → 60% of its area; let it pre-chew a continent for you | rival meshes + cap uniforms |
+| **The Aegis** (the planet-scale Capper) | 1 · T4 boss | six lid platforms descend from orbit to 200 km over 8 s in a hexagon, then a closing ring 3 r → r over 6 s | inside the ring 2 s → 12% + eject (like `capper`) | the descended platforms are **edible**: eat all six = "Aegis broken" (+8%, draft) | 30, once · 6 GLB instances + ring |
+| **Evacuation rockets** | — · T4 | spaceports launch waves (news: "Exodus begins") | not hostile: **food** while they climb, if r > their altitude | the "small thing in space" | 0 · trail ribbons |
+| **Planet-cracker** ("Last Resort") | 1 · T5 | a world countdown of 30 s, a beam charging on the far-side megastructure, three power stations marked on the minimap; at 0 a 2 r ring locks for 4 s | 20% (≤ 25%) + a crater wound | eat the three stations in time and it **fizzles** (the best set piece of the endgame), or dodge the ring | 40, once |
+| **Sealing lid** (loss) | any | warning + countdown (army.js `sealWatch`) | T1–T3: a Void Lid Mk III dropped from orbit; T4–T5: the Aegis's last platform | grow back past 0.75 × the floor in 14 s | — |
+
+Cut (low value per line of code): giant mecha and kaiju (scale is wrong: anything that walks is a crumb at 6 km), sea-level
+flooding, anti-matter beyond the cracker.
+
+### 5.3 Feel-of-power catalog
+
+| You swallow | Hitstop | Shake (trauma) | Slow-mo | Visual layers | Audio |
+|---|---|---|---|---|---|
+| a town / ship | — | 0.1 | — | dust ring | gulp (pitched by tier) |
+| a city ≥ 0.6 r | 0.08 s | 0.3, rolling | — | boxes pancake toward the rim, dust front, lights wink out | low gulp + sub thump |
+| a mountain (a pass that removes > 2 km) | 0.06 s | 0.25 | — | rock spray, snow puff, strata wall glows | grinding rumble |
+| **a nuke mid-air** | 0.15 s | 0.5 | 0.5× for 0.6 s | white flash *inside* the well, the mushroom inverts and is sucked down, a lilac shock ring outward | boom reversed into a gulp, choir hit |
+| a satellite / rocket | 0.08 s | 0.15 | — | the streak bends and falls in, sparks | high "tink" then whoosh |
+| the Aegis's last platform | 0.2 s | 0.6 | 0.4× for 1 s | the ring shatters into falling segments | metal groan + choir |
+| a rival | 0.12 s | 0.4 | — | as now (`sparks.burst`) plus a cap flash | star + sub drop |
+| the Moon breaking up (Roche) / its last fragment | 0.3 s | 0.8 | 0.3× for 2 s | a debris ring, the moonlight goes out | silence → organ swell |
+
+Every big detonation layers on fixed offsets (the Just Cause recipe): flash (0 ms, 1 frame of additive white over 3 r) →
+fireball sprite (0–400 ms) → shock ring (an expanding ground decal at 0.8 r/s, plus a screen-space ripple when close) →
+smoke column / mushroom mesh (0.3–6 s) → debris rain (puffs). **Shake budget:** trauma decays at 1.5/s, and new shakes
+add at most 0.6 per 1.5 s. Shake is a low-frequency roll (camera rotation) above 0.3 trauma, never jitter.
+**Sound travels:** a far detonation's boom is delayed by min(1.2 s, dist / 12 r).
+
+---
+
+## 6. Camera, controls, HUD, audio, visuals
+
+### 6.1 Camera
+
+- The existing camera block (main.js ~1779–1795), with: pitch from `P3.pitch(r)` (table §4.1); far/near as §2.7; target
+  = the origin plus a lead of 0.15 × camDist along the velocity (the hole no longer lerps across the screen); FOV 26°
+  fixed, plus a +4° punch-out for 0.8 s at tier-ups.
+- Layered by altitude: cloud wisps (`Wisps`, reused; their 260–520 m fade becomes a fade by camDist/r), the cloud shell
+  at 8 km (from the `night.G` bake; faded within 2.5 r of the hole so the play area stays clear), the atmosphere shell, the
+  stars. Parallax between the wisps and the ground is the strongest height cue (Phase 2 finding).
+- **Tier-up beat:** hitstop 0.25 s → slow-mo 0.4× for 1.5 s → name card (existing `levelEl`) → news line → a perk
+  draft (existing `openDraft`). Any expensive one-off switch (globe-only, cap mode, AO rebuild) happens under it.
+
+### 6.2 Controls on a sphere
+
+Input is unchanged: `steer()` / `__bot` return a screen-relative (sx, sz). `frame()` integrates `hole.x/z` as now
+(speed from `P3.speed`), then `planet.moveHole(hole.x, hole.z)` applies the rotation in §2.1 and zeroes them. Walls are
+the Phase 2 slide (try the x-only move, then the z-only move, testing `e_eff` at the would-be centre). `state.kick`
+(knock-back) passes through the same path. There are no poles and no gimbal: only an incremental quaternion. Renormalize
+every frame.
+
+### 6.3 HUD and the planet minimap (`src/planetmap.js`)
+
+- **Minimap = a small GPU globe.** A separate `THREE.Scene` holds a 32²-per-face cube-sphere sharing `planetMaterial`
+  (`uLocal = 0`: no detail octaves, no clouds) and a thin atmosphere ring. An orthographic camera looks straight down
+  the hole's up axis (track-up: the hole is at the centre, so you see your hemisphere). It renders **after**
+  `post.render()` into a scissored 200 px viewport with `autoClear = false`: ~3 draws, ~0.2 ms GPU. A 2D canvas above
+  it draws the overlays:
+  - you (lilac) and rivals (red ring when bigger than you);
+  - threats: nuke arcs with an ETA, satellites, orbit tracks with the back half dashed, the Aegis;
+  - the goal ring;
+  - edge chevrons for far-side items;
+  - an N tick;
+  - a **land-eaten arc gauge** around the rim.
+  Must be verified on the WebGL2 fallback (`?webgl`) as part of its step. The current per-pixel canvas bake (~118k px
+  at dpr 2) can't redraw a turning globe at 12 Hz.
+- **HUD top centre:** tier name and S, then the goal ("Nation of Valoria — 3 cities left") until T3, then **"Land eaten
+  12.4%"** with a planet icon. DEFCON pips replace the ★ stars, and the threat line names the live attack with a
+  countdown ("ICBM — impact 4.2 s").
+- The news ticker (`News`) continues, with the population counter in billions. Example lines: "World Defense Council
+  authorises nuclear response", "Exodus: first evacuation rockets leave Equatoria".
+
+### 6.4 Audio (sfx.js)
+
+| Layer | Implementation |
+|---|---|
+| World bus | All diegetic sfx route through `world` Gain → BiquadFilter (lowpass). Cutoff: 18 kHz at T1 → 2 kHz at T3 → 400 Hz in space (camera alt > 100 km), −8 dB. "No sound in space", but the rumble is still felt. |
+| Sub drone | 38–55 Hz sine + brown noise, gain ∝ tier, pitched down per tier: the planet's groan. |
+| Big events | `boom(k)` gets a sub tail (k ≥ 2), a delayed arrival (§5.3) and a reverse-gulp variant for swallows. |
+| Choir / organ pad | Two detuned saw voices through a formant bandpass: tier-ups, the Aegis, the Moon, the finale. |
+| Alarms | Phase 2's `airRaid` and `bells` → a global "emergency broadcast" tone + DEFCON klaxon (one per level change). |
+| Ascension | wind rush (filtered noise rising) → silence at 100 km → a single sustained chord swell. |
+
+### 6.5 Visual quality plan
+
+| Feature | How | Cost | Tier |
+|---|---|---|---|
+| Atmosphere shell | A sphere at R × 1.025 (exaggerated), BackSide, additive. Analytic single scatter: 4-sample Rayleigh + Mie (the O'Neil/GPU Gems 2 form) along the view ray through the shell, sun from the shared `sunDir` | 1 draw, ~0.3 ms at 1080p | all (low: 2 samples) |
+| Cloud layer | A shell at R + 8 km sampling `night.G` with a slow rotation offset; soft edge; shadow term in `planetMaterial` | 1 draw | med/high (low: shadows only) |
+| City lights | `night.R` × dark side, plus the patch city map for close range | in material | all |
+| Ocean glint + Fresnel | In `planetMaterial` | in material | all |
+| Terminator | Wrap lighting + atmosphere tint at the limb, warm band | in material | all |
+| Wound | §2.5; emissive → bloom (existing post bloom) | in material | all |
+| Stars + Milky Way | 4k `Points` (`spriteCloud` style) + a band shader on a camera-centred sphere, faded in by altitude | 2 draws | all |
+| Moon | Sphere (64²) + procedural craters (`mx_worley`) + a far-side bake; real size, at 12 R (fiction: closer, so it looms) | 1 draw | all |
+| Light shafts | Existing post shafts (half res), on at T3+ when the sun is near the limb | existing | high |
+| AO | Existing; clamped scale, fades out at 300–600 km | existing | per tier |
+| Bloom, LUT, grain, SMAA | Existing pipeline, unchanged; `planet` LUT preset | existing | — |
+| Readability | Lilac edge on edible food < 12 px, red for bigger; adversary models at readability scale | instanced | all |
+
+**Baked vs runtime:** height, biome, moisture, nation edges, light density and clouds are baked once in the worker (§2.2).
+The bite map, the patch, the city map and the fine trail are runtime. Nothing is cached across sessions: the bake is fast
+enough, and it's seed-specific.
+
+### 6.6 Models (Blender, `blender/assets/*.py`, a `PLANET` list in build_all.py, pack `planet`)
+
+Most planetary food is procedural (skyline boxes, decals, land). Models are for adversity and space, where silhouettes
+sell the fiction. Shown at readability scale, so LOD0 budgets are small.
+
+| # | Model | Real size | LOD0 tris | Worth it because |
+|---|---|---|---|---|
+| 1 | `icbm` (with a plume socket) | 35 m | 1.2k | the nuke arc's hero |
+| 2 | `missile_silo` (an open hatch, a field of 6 instanced) | 20 m | 0.8k | edible snack, launch source |
+| 3 | `aircraft_carrier` | 330 m | 3k | fleets read instantly |
+| 4 | `destroyer` | 150 m | 1.5k | fleet escort |
+| 5 | `cargo_ship` (containers) | 300 m | 1.5k | T1 crumbs at sea |
+| 6 | `oil_rig` | 100 m | 1.5k | sea crumbs |
+| 7 | `bomber` (flying wing) | 50 m | 1k | strike wings (`jet.glb` reused for fighters) |
+| 8 | `kinetic_sat` (rod platform, solar wings) | 40 m | 1.5k | orbital lance source |
+| 9 | `laser_platform` (ring + lens) | 120 m | 2.5k | orbital laser |
+| 10 | `aegis_platform` (a hex lid segment with thrusters) | 60 km (fiction) | 3k | T4 boss, edible |
+| 11 | `rocket` (evacuation heavy lifter) | 110 m | 1.5k | food in space |
+| 12 | `launch_pad` (tower + pad + tanks) | 400 m | 2.5k | spaceport goal |
+| 13 | `space_station` (truss + modules + panels) | 110 m | 3k | the ISS beat |
+| 14 | `mushroom_cloud` (toy-styled, vertex colour, rings) | unit | 2k | animated by scale/shader: better than a billboard from oblique views |
+| 15 | `cracker` (the planet-cracker array + 3 power stations) | 300 km (fiction) | 4k | the T5 set piece |
+| 16 | `aa_battery` | 30 m | 0.8k | flak belts, edible |
+
+16 models, ~31k LOD0 tris total. Same pipeline (`tools/optimize.mjs` → meshopt, LOD1/LOD2, manifest extras with
+`tier` in metres). The ladder check doesn't apply: they're adversaries or set pieces, not ladder food. Reused:
+`jet`, `chinook`, `cooling_tower` (nuclear plants), `capper` (the Mk III lid). **Not modelled:** cities, mountains,
+volcanoes, forests, ice, the Moon, clouds and mecha (procedural or cut).
+
+### 6.7 Performance budgets
+
+Reference: Phase 2 holds 58–60 fps at 100–120 draws and 0.5–1.85M tris (Apple Silicon, high). Phase 3 has **no shadow
+pass**, which buys headroom for the atmosphere.
+
+| Per frame | T1–T2 | T3 | T4–T5 |
+|---|---|---|---|
+| Draws (high / low) | ≤ 75 / 55 | ≤ 75 / 55 | ≤ 60 / 45 |
+| Triangles (high / low) | ≤ 1.0M / 0.45M | ≤ 0.9M / 0.4M | ≤ 0.5M / 0.25M |
+| Instanced skyline boxes | ≤ 30k / 12k | ≤ 20k / 8k | — |
+| CPU game step | ≤ 4 ms: bite ≤ 0.6, food ≤ 1.2, threat ≤ 0.4, patch build ≤ 3 ms slices | same | same |
+| GPU extras | patch ×2 during the cross-fade, AO on | AO fading out, shafts (high) | atmosphere + clouds + stars, AO off |
+| Texture memory | surf 6 MB + night 3 MB + bite 6 MB + city map 1 MB + trail 0.25 MB ≈ 17 MB | | |
+| Long tasks | none > 50 ms outside cinematics; ascension worst frame ≤ 200 ms (Phase 2's breakout bar) | | |
+
+Draw breakdown (T1, high): globe 1, patch 2, atmosphere 1, clouds 1, stars 2, moon 1, skyline 2, food GLBs ~10, rings and
+decals 4, FX sprites ~6, contrails 2, hole 5, rivals 3 × 5, minimap 3, orbit lines 1 ≈ 57. Measure with `?planet&fps&nowatch`
+and the `__perf()` hitch log (perfTag gains `p3`, `tier N`, `patch build`), on WebGPU and `?webgl`, high and `?q=low`.
+
+---
+
+## 7. Ascension: the Phase 2 → 3 transition (the biggest wow)
+
+Triggered where `endRun(true, 'capital')` is today (main.js:1615), if `phase3Run()`. `PHASE3 = !nophase3 && (!BOT ||
+START_PLANET)`, mirroring `PHASE2` (main.js:163), so the existing region suites and BALANCE tables keep their win.
+`bankRegion()` first (as `bankTown` does at breakout). The planet bake started at the Phase 2 breakout. Its meshes are
+built in 3 ms slices during Phase 2 (`planet.prebuild()`, beside `prebuildRegion`), and `post.precompile(planet.group)`
+runs under shot 2.
+
+| t (s, real) | Shot | What happens | Under the hood |
+|---|---|---|---|
+| 0.0–0.4 | **Silence** | Hitstop on the last capital piece, audio ducks to a low drone | `state.hitstop = 0.3` |
+| 0.4–2.6 | **The island breaks** | A crack ring races out to the coast (rimCracks at `coastR`); terrain sectors sag toward the hole (a `uSink` uniform in the terrain material: sink ∝ 1 − dist/coastR × t); dust rings from the coast; the sea pours over the coast in white waterfall sprites. Slow-mo 0.3. Camera at the kaiju low angle (Phase 2 `finale`), climbing. | `debris.dustRing` ×4 (Phase 2 timings); precompile planet meshes one per frame |
+| 2.6–4.6 | **The surge** | The hole swallows the island: r 60 m → r₀ = √(r² + mean(coastR)²) ≈ 1.4 km (area for area), lilac flash, the whole island sinks into the well | `state.surgeTo`; region sectors `uSink` → 1 |
+| 4.6–8.6 | **The pull-out** | One continuous log-zoom: altitude = 1 km × 24,000^(t/4), up to ~24,000 km. Through the cloud deck (wisps pass the lens at ~2 and 8 km), the sky goes from blue to indigo to black, stars fade in, the horizon bends into a limb, and the island's wound is a lilac dot by a continent's coast. Pitch eases 55° → 25°, FOV 26° → 22° (a slight dolly-zoom). | **World swap at alt 60 km** (the island is < 40 px, under the flash): dispose the Region, scene `fogNode` null, shadows off, sky follows the camera, planet group in. Wind rush → silence at 100 km. |
+| 8.6–11 | **The reveal** | Hold on the whole planet: slow orbit, the sun breaking over the limb (shafts on high), the Moon in frame. Card **"PHASE 3 — THE WORLD"**. News: "Void entity visible from orbit — global emergency declared". | Chord swell; precompile food and threat meshes |
+| 11–14 | **The plunge** | Log-zoom back down to the T1 camDist, with the world turning so the hole is at the top. Control returns with the arrow pulsing at Port Ardent. | `state.slowmo = 1`, `state.phase = 3`, `planetMap.start()` |
+
+`?planet` runs the same setup without the cinematic (like `breakout(true)`): build the town as now, bake (loading line),
+dispose the town, place the hole at `startDir` at r₀ (or `?r=`), and set the tier from r.
+
+---
+
+## 8. Balance and bot testing
+
+- **Bots on the planet:** `humanBot` and the greedy bot work unchanged through the duck-typed surface (§2.1). They
+  target `planet.entities` in local coordinates, follow `__nextSettlement`, and sidestep rings. Additions:
+  - **Rings:** nuke rings get an "inner gulp" flag; the greedy bot dives for it, the human-like bot does so 1 time in 3.
+  - **Walls:** the bot reads the "Too tall" hint as "go around": `__botDbg` counts wall slides.
+- **`__planetSuite(n, secs, who)`** (bot.js, after `__regionSuite`): fixed seeds `?planet&bot&seed=N`, one line per run.
+  It prints tier times, land %, the cause of death, and the growth ledger extended with `land`, `meal`, `nuke`, `rival`,
+  `space` and `fallout` losses.
+- **`__planetLadder()`:** samples 20 random spots per tier and asserts ≥ 3 meals in 0.3–0.95 r within 25 r, ≥ 1 bigger
+  item within 15 r, and no 1.3× size gap empty between 0.1 r and 1.6 r. Run in CI-style headless with `tools/botrun.mjs`
+  (its query string takes `&planet`).
+- **Headless runs:** `botrun.mjs` calls the town bot `__runBot`, and the region needed `__regionBot`, so Phase 3 adds
+  `__planetBot(seconds)` (bot.js, the `__regionBot` loop over the planet), and botrun.mjs gains a 4th argument
+  `who = town|region|planet` to pick the entry. With `?planet&bot`, the worker bake and `planet.build()` finish
+  **before** `#menu` is shown, so the bot never starts on a half-built world. The bot loop steps frames back to back:
+  only visuals may be sliced or async (patch meshes, city maps, mask uploads). Gameplay state (`heightAt`, the bite map,
+  food spawn) is synchronous. Then `tools/balance.mjs '&planet' 1800 8 planet` (balance.mjs forwards the argument).
+- **Targets:**
+  - human-like bot: Phase 3 in 18–26 min on ≥ 6/8 seeds; each tier 3–5 min; no tier > 7 min.
+  - greedy bot: ≥ 14 min (the floor).
+  - careless bot: sealed at least once on ≥ 3/8 seeds.
+  - mercy cap triggers < 2 times per run.
+  - ≥ 1 nuke swallowed per run (human-like).
+- **Checkpoint cost:** a Sealed loss offers "Retry tier N" (the bite map is restored from an in-memory `rem.slice()`
+  taken at the tier-up; r = floor; belly full; half the tier's dust kept) or "New run". The snapshot is 6 MB, in memory
+  only: closing the tab ends the run.
+
+---
+
+## 9. Build order (each step ends in a commit and is testable on its own)
+
+**Pass 1: vertical slice** (planet, hole on the sphere, ascension, minimap, 3 adversaries). Shippable: a short planetary
+epilogue that ends at T3 with "to be continued" if the later steps aren't in.
+
+| # | Step | Test |
+|---|---|---|
+| 1 | This design | — |
+| 2 | `src/noise.js`: move `makeNoise` and `smooth` out of terrain.js, add `noise3/fbm3/ridged3` | Screenshots identical (`tools/shot.mjs`); `__regionSuite(2)` unchanged |
+| 3 | `planetgen.js` + `planet.worker.js` + the globe and `planetMaterial` (land, ocean, lighting, night lights), with the **`?planet=view`** debug orbit camera | A lit globe with continents, ~29% land; bake < 3 s (console); 60 fps |
+| 4 | `planet.js`: `holeQ`, `moveHole`, the leapfrog patch, the §2.7 fixes (far/near, sky follow, fog null, shadows off, clamps), `P3.speed/turn/pitch`, **`?planet`** start at r₀ by the coast | Drive for 2 min over coast and mountains: no swimming, no seams, no pole flip (`?planet&view=pole` start); `__perf` has no long tasks |
+| 5 | `bite.js`: the bite map, chew, credit, land %, wall/drag/feast, the wound look (globe + patch fine trail) | `__planetLand()` drops as you eat; a mountain walls at 1.4 km and gives at 4.4 km (`?planet&r=4500`); the credit-rate calibration (§2.5) holds at 1.4 / 10 / 100 km; a parked hole stops crediting once its disc is eaten |
+| 6 | `food.js` (T1–T3): hierarchical spawn, the skyline kit, swallow + crumble, belly/decay `P3`, tier goals + arrow, hunt mode, `__planetLadder()`, `__planetBot` + the botrun/balance `who` argument | Ladder check passes on 8 seeds; the human-like bot climbs T1 → T2 |
+| 7 | `planetmap.js`: the GPU mini globe + overlays + land gauge | WebGPU **and** `?webgl`; ≤ 0.3 ms GPU |
+| 8 | Ascension cinematic, `PHASE3`/`?nophase3` gating, `bankRegion`, checkpoints + Sealed | Real cinematic via `__ascend(false)`; worst frame ≤ 200 ms; `__regionSuite` still reports wins |
+| 9 | `threat.js`: DEFCON director + bombers (`jetStrike` scaled), ICBM nukes (arc, ring, mushroom, fallout, **swallow**), kinetic lances | `?planet&defcon=2`: telegraph ≥ 1.5 s locked; mercy cap logged; a nuke swallow pays |
+
+**Pass 2: scale and adversity** (the full 5-tier campaign).
+
+| # | Step | Test |
+|---|---|---|
+| 10 | Tiers T4–T5: globe-only switch, `hole.capMode` + shader cap, pitch/E ramps, tier-up beats + drafts, space food (satellites, rockets, ISS) | `?planet&r=150000` and `r=900000`: the cap reads, 60 fps; tier-up switch under the slow-mo, no hitch in `__perf` |
+| 11 | Visuals: atmosphere shell, clouds + shadows, stars + Milky Way, Moon, ocean glint, wound strata/mantle, terminator, shafts | A/B screenshots per tier in `docs/screens/phase3-*.jpg`; GPU cost per feature with `?off=` flags |
+| 12 | Adversity: fleets + cruise missiles, AA belts, MIRV, orbital laser, tsunamis, volcanoes + Magma Surge, the Aegis boss, planet rivals (`rivals.js` planet mode: quaternion positions, chewing; Maw, World-Eater) | `__planetSuite(4, 1800)`: every unit appears in a run; deaths come only from Sealed or a bigger rival |
+| 13 | Finale (Moon, collapse, void star), results/legacy, NG+ entry, star challenges ("Swallow 5 nukes", "Eat the Moon") | `?planet&r=1500000&land=0.89` plays the Moon break-up and reaches the end card |
+| 14 | Balance pass (§8 targets), BALANCE.md section | Suite table in docs |
+
+**Pass 3: models, audio, polish, perf.**
+
+| # | Step | Test |
+|---|---|---|
+| 15 | 16 models (§6.6), pack `planet`, gentle loading during Phase 2 | Gallery review beside each other; `npm run optimize` |
+| 16 | Audio bus, sub drone, choir pad, delayed booms, space lowpass | Listen-through of the ascension and a nuke swallow |
+| 17 | Perf pass on the real device (PERFORMANCE.md method: visible window, `nowatch`, WebGPU + WebGL2, high + low) + a premium visual pass + README screenshots (crediting Hole.io as now) | Budgets in §6.7 met; PERFORMANCE.md "Phase 3" table |
+
+---
+
+## 10. Risks and cuts
+
+| Risk | Mitigation |
+|---|---|
+| **Patch ↔ globe seams and swimming** (two geometries, an exaggeration that changes, the leapfrog) | Real heights per vertex with E applied in the shader; the patch skirt + a globe discard disc; cross-fade only between patches built from the same function. Step 4 tests it before anything else is built on top. |
+| **Pacing collapse at the ends** (land % flat until T4, then all of it in T5; T1 starved if food density is off) | Tier goals carry T1–T3; `__planetLadder` and filler spawns guarantee food; `G_land` per tier is the main knob; hunt mode from 97%. Bot targets per tier, not just per run. |
+| **First-sight shader builds / long tasks** at ascension and tier-ups (PERFORMANCE.md's open issue) | Few new pipelines by design: one `planetMaterial` for globe, patch and minimap; instanced food per kind; precompile under shots 2–4; one-off switches only under slow-mo. |
+| **CPU cost of the bite map at large r** (130k texels under the disc) | 40k texels a frame round-robin; dirty-face uploads ≤ 10 Hz; a 64² summary for hunt and the minimap. |
+| **Readability at planetary scale** (attacks and food too small to see, night-side play) | Readability scale for every adversary, edible/bigger edge tints, rings sized in r, minimap arcs with an ETA, rim glow + city lights at night. |
+| **Scope** | Pass 1 alone is a shippable epilogue. Cuts in order, if needed: tsunamis → volcano eruptions → MIRV → orbital laser → Moon finale (keep the void star) → ice-cap credit bonus. |
