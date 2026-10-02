@@ -38,6 +38,7 @@ const CSS = `
 #ascflash{position:fixed;inset:0;z-index:31;pointer-events:none;opacity:0;background:radial-gradient(circle at 50% 55%,#fff 0%,#e9dcff 35%,#a77cff 80%,#7a4cff 100%)}
 .edge-arrow.pulse b{animation:ascpulse .7s ease-in-out infinite alternate}
 @keyframes ascpulse{from{transform:scale(1);filter:brightness(1)}to{transform:scale(1.35);filter:brightness(1.8)}}
+#news{z-index:35}
 #hud.ascin{animation:aschud 1.2s ease-out both}
 @keyframes aschud{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}`;
 
@@ -51,24 +52,31 @@ function crackDisc(groundY, radius, ox, oz) {
       pos[o] = x; pos[o + 1] = groundY(x + ox, z + oz) + 0.35 + r * 0.0006; pos[o + 2] = z;
     }
   }
-  for (let j = 0; j < NR; j++) for (let i = 0; i < NA; i++) { const a = j * (NA + 1) + i, b = a + 1, c = a + NA + 1, d = c + 1; idx.push(a, c, b, b, c, d); }
+  for (let j = 0; j < NR; j++) for (let i = 0; i < NA; i++) { const a = j * (NA + 1) + i, b = a + 1, c = a + NA + 1, d = c + 1; idx.push(a, b, c, b, d, c); } // (wound to face up)
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx);
-  const u = { uFront: uniform(0), uHot: uniform(0), uW: uniform(2) }; // front: how far the cracks have run (m); hot: the lilac glow along them; w: a crack's half width (m, scales with the camera)
+  const u = { uFront: uniform(0), uHot: uniform(0), uW: uniform(2), uVis: uniform(1) }; // front: how far the cracks have run (m); hot: the lilac glow along them; w: a crack's half width (m, scales with the camera)
   const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
   const p0 = positionLocal.xz, nz = (x, y, z) => mx_noise_float(vec3(x, y, z));
-  const q = p0.add(vec2(nz(p0.x.mul(0.012), p0.y.mul(0.012), 3.1), nz(p0.x.mul(0.012).add(9), p0.y.mul(0.012), 5.7)).mul(u.uW.mul(9))); // (domain warp: jagged lines)
-  const r = length(q), a = atan(q.y, q.x), N = 13, sector = float(Math.PI * 2 / N), k = a.div(sector).add(0.5), id = floor(k);
-  const dSpoke = abs(k.sub(id).sub(0.5)).mul(sector).mul(r), reach = u.uFront.mul(hash(id.add(3)).mul(0.5).add(0.5)); // (each spoke runs its own length)
-  const spokeD = mix(float(1e4), dSpoke, step(r, reach).mul(step(12, r)));
-  let dMin = spokeD;
+  // domain warp in two octaves: jagged, shattered-glass lines instead of a diagram
+  const warp = vec2(nz(p0.x.mul(0.012), p0.y.mul(0.012), 3.1), nz(p0.x.mul(0.012).add(9), p0.y.mul(0.012), 5.7)).mul(u.uW.mul(5)).add(vec2(nz(p0.x.mul(0.045), p0.y.mul(0.045), 1.3), nz(p0.x.mul(0.045).add(4), p0.y.mul(0.045), 8.1)).mul(u.uW.mul(1.8)));
+  const q = p0.add(warp), r = length(q), a = atan(q.y, q.x);
+  // spokes: a main family (13, each its own length) and a branching family (31, short, half of them missing); thick at the hole, thin at the tip
+  const spokes = (N, seed, reachK, keep) => {
+    const sector = float(Math.PI * 2 / N), k = a.div(sector).add(0.5), id = floor(k), h = hash(id.add(seed));
+    const reach = u.uFront.mul(h.mul(0.5).add(0.5)).mul(reachK), taper = mix(float(1.7), float(0.45), min(r.div(reach.max(1)), 1));
+    return mix(float(1e4), abs(k.sub(id).sub(0.5)).mul(sector).mul(r).div(taper), step(r, reach).mul(step(12, r)).mul(step(keep, h)));
+  };
+  let dMin = min(spokes(13, 3, 1, 0), spokes(31, 11, 0.42, 0.45));
   for (const [R0, s] of [[110, 1], [260, 2], [470, 3], [760, 4], [1100, 5], [1500, 6]]) { // (broken rings: a crack that stops, picks up again)
-    const here = step(R0, u.uFront).mul(step(0.3, nz(a.mul(2.6), float(s), float(4.4)).mul(0.5).add(0.5)));
+    const here = step(R0, u.uFront).mul(step(0.34, nz(a.mul(2.6), float(s), float(4.4)).mul(0.5).add(0.5)));
     dMin = min(dMin, mix(float(1e4), abs(r.sub(R0)), here));
   }
-  const core = float(1).sub(smoothstep(u.uW.mul(0.7), u.uW, dMin)), glow = float(1).sub(smoothstep(u.uW, u.uW.mul(5), dMin)).mul(u.uHot);
-  m.colorNode = vec4(mix(vec3(0.78, 0.5, 1.0).mul(2.2), vec3(0.02, 0.015, 0.03), core), 1);
-  m.opacityNode = max(core.mul(0.95), glow.mul(0.55));
+  const core = float(1).sub(smoothstep(u.uW.mul(0.5), u.uW.mul(0.8), dMin)), glow = float(1).sub(smoothstep(u.uW.mul(0.8), u.uW.mul(2.6), dMin)).mul(u.uHot);
+  // the ground inside the front sags into shadow toward the hole (a cheap stand-in for a real sink: a dark, soft fill that deepens with the front)
+  const fill = float(1).sub(smoothstep(u.uFront.mul(0.15), u.uFront.add(80), length(p0))).mul(0.4);
+  m.colorNode = vec4(mix(mix(vec3(0.015, 0.01, 0.03), vec3(0.6, 0.36, 1.0).mul(1.8), min(glow.mul(2.4), 1)), vec3(0.02, 0.015, 0.03), core), 1);
+  m.opacityNode = max(max(core.mul(0.95), glow.mul(0.5)), fill).mul(u.uVis);
   const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 3;
   return { mesh, u };
 }
@@ -115,7 +123,9 @@ export class Ascension {
       const home = this.home, up = clamp((t - T.swap) / (T.pull - T.swap)), ur = clamp((t - T.reveal) / (T.end - T.reveal)), dView = this.viewDist;
       if (t < T.pull) { // the pull-out: one log-zoom, the pitch easing to the reveal's, the lens narrowing as the camera recedes
         const s = 1 - (1 - up) ** 2.4; // (out-ease: the rip out of the pit is fast, the arrival at the planet gentle)
-        c.dist = lg(D_SWAP, dView, s); c.pitch = lerp(0.96, this.revPitch, s); c.yaw = lerp(this.yawSwap, this.revYaw, s); c.fov = lerp(44, this.revFov, eo(up)); c.aimK = sm(0.25, 1, up);
+        c.dist = lg(D_SWAP, dView, s); c.pitch = lerp(lerp(0.96, 0.3, sm(0, 0.35, s)), this.revPitch, sm(0.5, 1, s));
+        // (the camera lowers to a grazing angle through the first 90 km: the horizon is in frame, the sky goes blue -> indigo -> black above it; then it rises to the reveal's)
+        c.yaw = lerp(this.yawSwap, this.revYaw, s); c.fov = lerp(44, this.revFov, sm(0.3, 1, up)); c.aimK = sm(0.25, 1, up);
       } else if (t < T.reveal) { // the hold: a slow orbit and a creeping dolly
         const h = (t - T.pull) / (T.reveal - T.pull);
         c.dist = dView * (1 + 0.035 * h); c.pitch = this.revPitch + 0.02 * h; c.yaw = this.revYaw + 0.22 * h; c.fov = this.revFov; c.aimK = 1;
@@ -146,6 +156,7 @@ export class Ascension {
     this.t += Math.min(raw, 0.1) / (window.__ascK ?? this.k);
     const t = this.t;
     this.once('start', 0, () => {
+      this.ctx.news.queue.length = 0;
       sfx.duck(0.1, 0.2); sfx.drone(3.4, 0.5);
       state.slowmo = 0.04; this.shake = 0.2; // (the freeze: the hit-stop on the last capital piece)
       this.hideHud();
@@ -158,6 +169,7 @@ export class Ascension {
       this.debris.dustRing(hole.x, 1, hole.z, rr, v, n, size, life, col, 0.7); hole.shockwave(); this.shake = Math.max(this.shake, 0.7); sfx.boom(0.8);
     });
     this.once('surge', T.brk, () => { state.slowmo = 0.5; sfx.surge(2.3); sfx.duck(1, 0.3); this.shake = 1; });
+    this.once('clear', T.brk + 0.25, () => { for (let i = 0; i < this.debris.plife.length; i++) this.debris.plife[i] = Math.min(this.debris.plife[i], 0.6); }); // (the dust rings of the breaking island fade before the pit swallows them)
     this.shake = Math.max(0, this.shake - raw * (t < T.brk ? 0.25 : 0.12));
     const D = window.__ascDbg; // (dev: price the parts of the region stage: window.__ascDbg = { debris: false, cracks: false, water: false, city: false, terrain: false, hole: false })
     if (D && this.stage === 'region') {
@@ -176,7 +188,7 @@ export class Ascension {
   regionFrame(raw, t) {
     const { hole, state, debris } = this, S = this.cracks.u;
     const u = clamp((t - T.hold) / 2.1);
-    S.uFront.value = 4 + (this.coast + 160) * eo(u) ** 1.4; S.uHot.value = 1 - sm(0.7, 1, (t - T.brk) / 0.8); S.uW.value = Math.max(1.4, this.cam.dist * 0.0032) * (1 + 1.2 * sm(0.3, 1, u));
+    S.uFront.value = 4 + (this.coast + 160) * eo(u) ** 1.4; S.uHot.value = 1 - sm(0.7, 1, (t - T.brk) / 0.8); S.uVis.value = 1 - sm(T.brk + 0.1, T.brk + 1.3, t); // (the pit takes the cracks) S.uW.value = Math.max(1.0, this.cam.dist * 0.0021) * (1 + 0.8 * sm(0.3, 1, u));
     this.cracks.mesh.position.set(hole.x, 0, hole.z);
     // the sea pours over the coast: white fans of water sliding in and down
     if (t > 0.9 && t < 4.6 && (this.pourT = (this.pourT || 0) - raw) < 0) {
@@ -222,18 +234,19 @@ export class Ascension {
     const us = clamp((t - T.swap) / (T.surgeEnd - T.swap)), rr = lg(R_SWAP, P3.startR, eo(us));
     if (us < 1 || !this.did.has('surgeDone')) { hole.area = Math.PI * rr * rr; if ((this.chewT -= raw) <= 0 || us >= 1) { this.chewT = 0.05; this.surgeChew(rr); } }
     if (us >= 1) this.did.add('surgeDone');
-    this.once('ring', T.swap + 0.15, () => this.W.shock(this.W.hdir, 0.0012, 0.012, 2.4, 0.9)); // (the first ring across the planet's own land)
+    this.once('ring', T.swap + 0.15, () => this.W.shock(this.W.hdir, 0.0012, 0.012, 2.4, 0.5)); // (the first ring across the planet's own land)
     this.once('wind', T.swap + 0.3, () => sfx.windRush(3.6));
     this.once('quiet', T.pull - 0.9, () => sfx.duck(0.15, 1.2));
     this.once('reveal', T.pull, () => {
       this.news = true;
+      this.ctx.news.queue.length = 0; this.ctx.news.t = 0; // (the line that tells the world: nothing from the old country first)
       this.card('PHASE 3 — THE WORLD', 'The hole is global');
       this.ctx.news.say('Void entity visible from orbit — global emergency declared');
       sfx.unduck(1.2); sfx.chord();
       this.W.shock(this.W.hdir, 0.002, 0.3, 3.4, 1); // (a lilac ring spreading over the planet from the wound)
     });
     this.once('plunge', T.reveal, () => this.W.shock(this.W.hdir, 0.003, 0.35, 2.6, 0.8));
-    this.once('control', T.control, () => { state.playing = true; this.game.armRun(this.ctx, hole.r); this.showHud(); document.getElementById('hud').classList.add('ascin'); this.arrowT = 5; });
+    this.once('control', T.control, () => { console.info(`[ascend] control: r=${(hole.r / 1000).toFixed(1)} km`); this.game.map?.show(true); if (this.after) this.ctx.news.say(this.after); state.playing = true; this.game.armRun(this.ctx, hole.r); this.showHud(); document.getElementById('hud').classList.add('ascin'); this.arrowT = 5; });
     if (this.arrowT > 0) { this.arrowT -= raw; for (const el of document.querySelectorAll('.edge-arrow')) el.classList.toggle('pulse', this.arrowT > 0); }
     this.bars.style.transition = 'height 1.4s ease-out';
     if (t > T.reveal + 0.8) for (const i of this.bars.children) i.style.height = '0';

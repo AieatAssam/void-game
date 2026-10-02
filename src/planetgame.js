@@ -17,6 +17,8 @@ const qs = new URLSearchParams(location.search);
 const num = (k, d) => (qs.has(k) && qs.get(k) !== '' && Number.isFinite(+qs.get(k)) ? +qs.get(k) : d);
 const _qi = new THREE.Quaternion(), _v = new THREE.Vector3(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _n2 = new THREE.Vector3();
 const DUST = new THREE.Color(0xb3a48c);
+/** The camera backs off in a tall frame (phones see as much width as desktops), but less than the town does (^0.7): the planet's horizon has to stay in a tall frame, and a big hole reads best. */
+const portraitK = (aspect) => Math.max(1, 1.2 / aspect) ** 0.45;
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const popStr = (p) => (p >= 1e9 ? `${(p / 1e9).toFixed(p >= 1e10 ? 1 : 2)} B` : p >= 1e6 ? `${(p / 1e6).toFixed(0)} M` : `${(p / 1e3).toFixed(0)} k`);
 const km2Str = (a) => (a >= 1e6 ? `${(a / 1e6).toFixed(a >= 1e7 ? 0 : 1)} M km²` : `${Math.round(a / 1e3)}k km²`);
@@ -75,7 +77,7 @@ export class PlanetGame {
     if (!W.capMode && !W.patchInfo) W.buildPatchNow(r0); // (the cinematic built it behind Phase 2)
     W.update(0, hole, ctx.camera, innerHeight);
     this.hole = hole; this.ctxRef = ctx;
-    if (this.map) { this.map.show(true); this.map.place(W, hole); }
+    if (this.map) { this.map.show(!cinematic); this.map.place(W, hole); } // (the minimap waits for the end of the cinematic)
     state.sealed = false; state.over = false;
     state.pop = 0; state.ledger = { land: 0, tear: 0, pull: 0, fed: 0, starve: 0 }; state.tierAt = { 1: 0 }; state.goalDone = []; state.continents = 0; state.won = false; state.shake = 0; state.slowT = 0;
     this.camDist = 0;
@@ -136,7 +138,7 @@ export class PlanetGame {
       const hz = Math.cos(pitch) * camDist;
       camera.position.set(Math.sin(A.yaw) * hz, Math.sin(pitch) * camDist, Math.cos(A.yaw) * hz);
       camera.up.set(0, 1, 0);
-      camera.lookAt(0, -A.aimK * (R + W.h0), -A.aimF * camDist);
+      camera.lookAt(0, -A.aimK * (R + W.h0) + A.aimK * 0.2 * R, -A.aimF * camDist); // (the reveal looks a little above the planet's centre: the planet sits low, under the name card)
       if (A.roll) camera.rotateZ(A.roll);
       if (Math.abs(camera.fov - A.fov) > 1e-3) { camera.fov = A.fov; camera.updateProjectionMatrix(); }
     } else {
@@ -182,7 +184,7 @@ export class PlanetGame {
 
   /** The camera the game would use now at the hole's radius (the portrait stretch and LENS included): the ascension's plunge ends exactly here. */
   homeCam(ctx, r = ctx.hole.r) {
-    const portrait = Math.max(1, 1.2 / ctx.camera.aspect) ** 0.7;
+    const portrait = portraitK(ctx.camera.aspect);
     return { dist: P3.camDist(r) * portrait * ctx.LENS, pitch: P3.pitch(r), aimF: 0.14 * P3.aim(r) / 4, fov: ctx.baseFov };
   }
 
@@ -364,7 +366,7 @@ export class PlanetGame {
       if (!first) {
         ctx.card('Goal cleared', g.name);
         news.say(`${g.name} ${/provinces|nations/.test(g.kind) ? 'have' : 'has'} fallen — ${popStr(state.pop || 0)} swallowed so far`);
-        sfx.levelUp(); ctx.draft?.();
+        sfx.levelUp(); if (!qs.has('r')) ctx.draft?.(); // (?r=: a debug start has no perk drafts: the first goals clear in the first seconds and the popup froze the test)
       }
       G.g = lf.makeGoal(KINDS[++G.idx], W.hdir); pr = lf.progress(G.g);
     }
@@ -488,7 +490,7 @@ export class PlanetGame {
       W, ctx, P: W.P, globe: W.globe, bite: W.bite, camera: ctx.camera, game: self,
       /** §12.1 limb test: degrees of margin by which the horizon is inside the frame (> 1 required) at radius r (default: now), landscape. */
       limb(r = hole.r) {
-        const cam = ctx.camera, portrait = Math.max(1, 1.2 / cam.aspect) ** 0.7, cd = P3.camDist(r) * portrait * ctx.LENS, p = P3.pitch(r);
+        const cam = ctx.camera, portrait = portraitK(cam.aspect), cd = P3.camDist(r) * portrait * ctx.LENS, p = P3.pitch(r);
         const hz = Math.cos(p) * cd, hc = Math.sin(p) * cd, view = Math.atan2(Math.sin(p) * cd, hz + 0.14 * cd * P3.aim(r) / 4), half = cam.fov / 2 * Math.PI / 180;
         // the camera sits hz behind the hole and hc above it, so the planet's local horizon is tilted away from the render horizontal: the limb is at atan2(R + hc, hz) - asin(R / |C|) below it
         const horizon = Math.atan2(R + hc, hz) - Math.asin(R / Math.hypot(R + hc, hz));

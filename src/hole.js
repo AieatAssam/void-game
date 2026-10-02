@@ -31,7 +31,7 @@ function voidMaterial(skin) {
     const g = vec2(ang.mul(18), vP.y.add(u.uTime.mul(0.03)).mul(60));
     const h = hash(floor(g).add(vec2(2048, 4096)).dot(vec2(1, 8192)));
     const star = step(0.93, h).mul(smoothstep(0.5, 0, length(fract(g).sub(0.5)))).mul(sin(u.uTime.mul(3).add(h.mul(40))).mul(0.4).add(0.6));
-    col.addAssign(u.uStar.mul(star).mul(0.8).mul(smoothstep(0.05, 0.25, d)));
+    col.addAssign(u.uStar.mul(star).mul(0.8).mul(smoothstep(0.05, 0.25, d)).mul(float(1).sub(smoothstep(300, 1500, u.uDepth)))); // (a pit kilometres wide shows no lattice of stars: the ascension)
     // torn earth at the lip: road crust, then banded soil with pebbles, fading into the void
     const depthM = d.mul(u.uDepth);
     const n = mx_noise_float(vec3(ang.mul(6), depthM.mul(9), 0.5)).mul(0.5).add(0.5);
@@ -70,7 +70,8 @@ export class Hole {
     const fres = pow(clamp(float(1).sub(abs(dot(normalize(normalView), normalize(positionView.negate())))), 0, 1), 2.5);
     const shimmer = sin(time.mul(12).add(positionGeometry.x.mul(9)).add(positionGeometry.z.mul(7))).mul(0.5).add(0.5);
     this.rimMat.emissiveNode = rimCol.mul(float(0.55).add(this.ghostU.mul(fres.mul(2.4).add(shimmer.mul(0.6)))));
-    this.rimMat.opacityNode = float(1).sub(this.ghostU.mul(0.35).mul(shimmer));
+    this.rimFade = uniform(1); // (the ascension: the toy rim thins away as the lip becomes kilometres wide, leaving the thin glowing ring)
+    this.rimMat.opacityNode = float(1).sub(this.ghostU.mul(0.35).mul(shimmer)).mul(this.rimFade);
     this.rimMat.transparent = true;
     this.rim = assets.hole_rim.scene.clone();
     this.rim.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.material = this.rimMat; } });
@@ -148,6 +149,8 @@ export class Hole {
     this.rim.scale.set(r * p || 1e-3, Math.max(1, r * 0.35), r * p || 1e-3);
     this.ghost_.position.set(this.x, this.ry + 0.02, this.z);
     this.ghost_.scale.setScalar(r * p || 1e-3);
+    this.rimFade.value = 1 - THREE.MathUtils.smoothstep(r, 150, 700);
+    this.rim.visible = this.rimFade.value > 0.01;
     this.voidMat.userData.u.uTime.value = time;
     this.voidMat.userData.u.uDepth.value = depth;
     const vac = this.vac || 0;

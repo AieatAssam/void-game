@@ -1290,10 +1290,10 @@ async function ascend(fast = false) {
   if (!game) { state.ascending = false; state.playing = true; state.phase === 2 && endRun(true, 'capital'); return; }
   planetGame = game;
   rivals.hideLabels();
+  director.dispose(); rivals.dispose(); rivals = quietRivals(); // (the army's red rings and any rival go: nothing but the hole in this shot)
   minimap.stop();
   for (const el of Object.values(edgeArrows)) el.hidden = true;
   state.draft = null; draftEl.hidden = true; perksEl.hidden = true;
-  news.say(`${city.capital?.name || 'The capital'} has fallen — the country is gone · +${pay.total} void dust`);
   const ctx = planetCtx(), tB = performance.now();
   const asc = new Ascension({
     camera, hole, state, ctx, game, city: () => city, debris, sfx, fast,
@@ -1304,7 +1304,9 @@ async function ascend(fast = false) {
     card: (small, big) => ctx.card(small, big),
     done: () => { state.ascending = false; console.info('[ascend] done'); },
   });
+  asc.after = `${city.capital?.name || 'The capital'} has fallen, the country is gone · +${pay.total} void dust banked`;
   await post.precompile({ traverse: (f) => f(asc.cracks.mesh) }, 6000); // (the crack shader compiles before the clock starts, not on the frame the cracks appear)
+  await post.precompile({ traverse: (f) => { f(asc.wound.sprite); f(asc.decks.sprite); } }, 6000, game.around); // (the planet's two sprite shaders, in the planet's scene state: on WebGL each was 600 ms at the swap)
   state.asc = asc;
   console.info(`[ascend] start: bank ${(tB - tA).toFixed(0)} ms, cinematic set-up ${(performance.now() - tB).toFixed(0)} ms`);
 }
