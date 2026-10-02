@@ -401,6 +401,7 @@ export class PlanetGame {
   /** Ripe units (A5): at 2 Hz the best four go to zone slots 8-11 (lilac dashed rings) and the minimap; the best one gets a HUD label ("Kesport Peninsula · 58%"). */
   ripeTick(ctx, dt) {
     const W = this.world, lf = W.bite.lf, u = W.globe.u, { state, hole } = ctx, rp = this.ripe ??= [];
+    if (state.won && rp.length) { rp.length = 0; for (let i = 8; i < 12; i++) u.uZoneP[i].value.y = 0; this.ripeMk?.forEach((m) => m?.remove()); this.ripeMk = []; } // (the world is eaten: no rings)
     if (lf?.ready && !state.won && ((this.ripeT = (this.ripeT || 0) - dt) <= 0)) {
       this.ripeT = 0.5; lf.ripe(W.hdir, hole.r, rp, 4);
       for (let i = 0; i < 4; i++) {
