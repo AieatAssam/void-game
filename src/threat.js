@@ -140,7 +140,7 @@ const sealedCss = `#sealed{position:fixed;inset:0;z-index:50;display:flex;flex-d
 export class Threat {
   constructor(game, ctx) {
     this.game = game; this.ctx = ctx; this.W = game.world; this.hole = ctx.hole; this.state = ctx.state; this.sfx = ctx.sfx;
-    this.t = 0; this.budget = 3; this.noto = 0; this.quiet = 0; this.defcon = 5; this.base = 5; this.cool = { bomber: 6, nuke: 12, rod: 10 }; this.last = '';
+    this.uid = 0; this.t = 0; this.budget = 3; this.noto = 0; this.quiet = 0; this.defcon = 5; this.base = 5; this.cool = { bomber: 6, nuke: 12, rod: 10 }; this.last = '';
     this.hits = []; this.tAdd = 0; this.slots = { z: 0, s: 0 }; this.eventsHold = false; this.disabled = qs.has('noarmy') || qs.has('nothreat'); this.sealOn = !this.disabled;
     this.stats = { nukes: 0, swallowed: 0, hits: 0, near: 0, rods: 0, rodGulps: 0, sats: 0, strafes: 0, strafeHits: 0, mercy: 0, loss: 0, sites: 0, sealWarn: 0, surge: 0, locks: 0 };
     this.sites = []; this.nukes = []; this.lances = []; this.strafes = []; this.fall = []; this.seal = null; this.siteT = 4;
@@ -278,7 +278,7 @@ export class Threat {
   spawn(kind, opts = {}) {
     let ok = false;
     if (kind === 'bomber') ok = this.spawnStrafe(opts); else if (kind === 'nuke') ok = this.spawnNuke(opts); else if (kind === 'rod') ok = this.spawnLance(opts);
-    if (ok && !opts.force) { this.budget -= { bomber: 3, nuke: 6, rod: 5 }[kind]; this.cool[kind] = { bomber: 24 + rnd(0, 10), nuke: 24 + rnd(0, 10), rod: 30 + rnd(0, 10) }[kind]; }
+    if (ok && !opts.force) { this.budget -= { bomber: 3, nuke: 6, rod: 5 }[kind]; this.cool[kind] = { bomber: 42 + rnd(0, 14), nuke: 48 + rnd(0, 20), rod: 55 + rnd(0, 20) }[kind]; }
     return ok;
   }
 
@@ -335,7 +335,7 @@ export class Threat {
     for (const s of this.sites) { const d = W.distTo(s.dir); if (d < 5 * r || d > 40 * r) continue; const sc = Math.abs(d - 14 * r) + Math.random() * 6 * r; if (sc < best) { best = sc; site = s; } }
     if (!site) return false;
     const lock = this.lockFor(0.6, 2.0);
-    Object.assign(n, { on: true, phase: 'fly', age: 0, r0: r, B: 1.4 * r, inner: 0.5 * r, lock, T: lock + rnd(3.4, 4.6), locked: false, ox: 0, oz: 0, side: Math.random() < 0.5 ? -1 : 1, off0: o.at === 'hole' ? 0 : 0.8 * r, ux: 0, uz: -1, boomT: 0, out: '', site, puffT: 0, ashT: 0, ashN: 0, elevT: 0, capT: 0, core: false });
+    Object.assign(n, { uid: ++this.uid, on: true, phase: 'fly', age: 0, r0: r, B: 1.4 * r, inner: 0.5 * r, lock, T: lock + rnd(3.4, 4.6), locked: false, ox: 0, oz: 0, side: Math.random() < 0.5 ? -1 : 1, off0: o.at === 'hole' ? 0 : 0.8 * r, ux: 0, uz: -1, boomT: 0, out: '', site, puffT: 0, ashT: 0, ashN: 0, elevT: 0, capT: 0, core: false });
     if (o.at === 'hole') n.off0 = 0;
     n.from.copy(site.dir); n.to.copy(W.hdir);
     n.chord = W.distTo(site.dir); n.apex = Math.min(1.5e6, 0.18 * n.chord + 0.5 * r);
@@ -493,7 +493,7 @@ export class Threat {
   spawnLance(o = {}) {
     const { hole, W } = this, r = hole.r, l = this.lances.find((q) => !q.on); if (!l) return false;
     const lock = this.lockFor(0.5, 2.0), Tfire = Math.max(6.6, lock + 3.2), om = 0.034;
-    Object.assign(l, { on: true, phase: 'orbit', age: 0, r0: r, B: 1.0 * r, inner: 0.3 * r, lock, Tfire, om, th0: -om * Tfire, locked: false, past: false, ox: 0, oz: 0, side: Math.random() < 0.5 ? -1 : 1, off0: o.at === 'hole' ? 0 : 0.55 * r, ux: 0, uz: -1, rodT: -1, eaten: 0, alt: Math.max(260e3, 0.8 * r), out: '' });
+    Object.assign(l, { uid: ++this.uid, on: true, phase: 'orbit', age: 0, r0: r, B: 1.0 * r, inner: 0.3 * r, lock, Tfire, om, th0: -om * Tfire, locked: false, past: false, ox: 0, oz: 0, side: Math.random() < 0.5 ? -1 : 1, off0: o.at === 'hole' ? 0 : 0.55 * r, ux: 0, uz: -1, rodT: -1, eaten: 0, alt: Math.max(260e3, 0.8 * r), out: '' });
     // the orbit plane holds the hole's position and the screen's top: the satellite comes down the frame toward you
     const br = rnd(-0.9, 0.9); W.dirAt(Math.sin(br) * 2e4, -Math.cos(br) * 2e4, v1); v1.addScaledVector(W.hdir, -v1.dot(W.hdir)).normalize();
     l.a.copy(W.hdir); l.b.copy(v1).negate(); l.n.crossVectors(l.a, l.b).normalize(); l.to.copy(W.hdir);
@@ -722,8 +722,8 @@ export class Threat {
   /** Dangers for the bots (local frame, metres): circles { x, z, R, inner, eta, locked, kind } and strafe lines. */
   dangers(out = []) {
     out.length = 0; const o = this._o ??= {};
-    for (const n of this.nukes) if (n.on && n.phase === 'fly') { this.offsetOf(n.to, o); out.push({ kind: 'nuke', id: `n${n.i}`, x: o.x, z: o.z, R: n.B, inner: n.inner, eta: n.T - n.age, locked: n.locked, lock: n.lock }); }
-    for (const l of this.lances) if (l.on && l.phase === 'orbit' && l.Tfire - l.age < l.lock + 1.3) { this.offsetOf(l.to, o); out.push({ kind: 'rod', id: `l${l.i}`, x: o.x, z: o.z, R: l.B, inner: l.inner, eta: l.Tfire - l.age, locked: l.locked, lock: l.lock }); }
+    for (const n of this.nukes) if (n.on && n.phase === 'fly') { this.offsetOf(n.to, o); out.push({ kind: 'nuke', id: `n${n.uid}`, x: o.x, z: o.z, R: n.B, inner: n.inner, eta: n.T - n.age, locked: n.locked, lock: n.lock }); }
+    for (const l of this.lances) if (l.on && l.phase === 'orbit' && l.Tfire - l.age < l.lock + 1.3) { this.offsetOf(l.to, o); out.push({ kind: 'rod', id: `l${l.uid}`, x: o.x, z: o.z, R: l.B, inner: l.inner, eta: l.Tfire - l.age, locked: l.locked, lock: l.lock }); }
     for (const s of this.strafes) if (s.on && s.age < s.tel + s.run) {
       const hd = this.W.hdir, across = Math.asin(Math.max(-1, Math.min(1, hd.dot(s.n)))) * R; // (+ = the hole is on the normal's side)
       this.W.normalAt(s.n, v3); const ln = Math.hypot(v3.x, v3.z) || 1;
