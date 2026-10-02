@@ -290,3 +290,9 @@ export function aegisDescend() { tone('sine', 62, 61.2, 7, 0.45); tone('sine', 9
 export function aegisEat() { tone('square', 520, 150, 0.5, 0.2); tone('triangle', 1040, 260, 0.7, 0.14); noise(0.5, 5000, 0.3, 0, 1500); tone('sine', 90, 30, 0.9, 0.6); }
 /** The Aegis broken: a shatter, a boom, a choir. */
 export function aegisBreak() { noise(1.2, 6000, 0.5, 0, 800); boom(1); choir(1); reverseGulp(); tone('sine', 40, 22, 3.6, 0.8, 0.5); }
+/** The cracker charges: a stacked riser that climbs for `dur` s. */
+export function crackerCharge(dur = 30) { tone('sawtooth', 40, 220, dur, 0.1); tone('sawtooth', 60, 330, dur, 0.07); tone('sine', 30, 140, dur, 0.4); noiseUp(dur, 3000, 0.25); }
+/** The cracker fires: a white-out, then the largest boom there is. */
+export function crackerFire() { noise(0.4, 9000, 0.7); tone('sine', 58, 18, 5, 1.0, 0.1); noise(4, 500, 0.6, 0.15); tone('sawtooth', 80, 22, 3, 0.2, 0.15); boom(1); }
+/** The cracker starved of power: it winds down, then the void swallows the sound. */
+export function fizzle() { tone('sawtooth', 600, 40, 2.4, 0.2); tone('sine', 900, 60, 2.2, 0.15); reverseGulp(); choir(0.8); }
