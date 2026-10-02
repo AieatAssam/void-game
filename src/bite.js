@@ -116,7 +116,7 @@ export class BiteMap {
    * Chew the land under a hole disc for dt seconds. c = unit direction (planet space), r = radius (m), moved = metres travelled
    * this frame. Returns the credit in m2 (already x land share, not x G). Visits at most P3.texelBudget texels, round robin.
    */
-  chew(c, r, dt, moved, hExp = 0.5) {
+  chew(c, r, dt, moved, hExp = 0.5, opts = null) { // opts (a rival, src/planetrival.js): { budget, fr: { n }, pop, area, credit } - no tear flags, its own round-robin phase and texel budget, the player's counters untouched
     const t0 = performance.now(), { B, rem, ov, hm, area, tau: tauT, tanT, rem8, lf } = this;
     const lv = lf?.lv, l0 = lv?.[0].left, l1 = lv?.[1].left, l2 = lv?.[2].left, l3 = lv?.[3].left, l4 = lv?.[4].left, pu1 = lf?.pu[1], pu2 = lf?.pu[2], pu3 = lf?.pu[3], pu4 = lf?.pu[4];
     const { tflag, touched: tlist, nIdx, nRow } = this, night = this.bake.night, fl = this.bake.N * this.bake.N;
@@ -147,7 +147,7 @@ export class BiteMap {
       box.push([i0, i1, j0, j1]);
       total += (i1 - i0 + 1) * (j1 - j0 + 1);
     }
-    const stride = Math.max(1, Math.ceil(total / P3.texelBudget)), phase = this.frame++ % stride;
+    const stride = Math.max(1, Math.ceil(total / (opts ? opts.budget : P3.texelBudget))), phase = (opts ? opts.fr.n++ : this.frame++) % stride;
     const dtE = dt * stride, mvE = moved * stride, D = P3.depth(r), sweep = r > 0 ? Math.min(1, (2 * mvE) / (Math.PI * r)) : 0;
     const crust = P3.crust, chewK = D / P3.chewT;
     let credit = 0, remArea = 0, n = 0;
@@ -203,14 +203,16 @@ export class BiteMap {
           if (lf) { // the units (§12.3): the parcel and its four ancestors lose da; the parcel is marked for the tear check
             const pk = lf.pk(f, i, j);
             l0[pk] -= da; l1[pu1[pk]] -= da; l2[pu2[pk]] -= da; l3[pu3[pk]] -= da; l4[pu4[pk]] -= da;
-            if (!tflag[pk] && nT < MAXT) { tflag[pk] = 1; tlist[nT++] = pk; }
+            if (!opts && !tflag[pk] && nT < MAXT) { tflag[pk] = 1; tlist[nT++] = pk; }
             popAcc += da * night[(f * fl + nRow[j] + nIdx[i]) * 2];
           }
         }
       }
       if (touched) this.dirty[f] = 1;
     }
-    this.sum -= remArea; this.pop += popAcc * this.popK / 255; this.nTouched = nT;
+    this.sum -= remArea;
+    if (opts) { opts.pop = popAcc * this.popK / 255; opts.area = remArea; opts.credit = credit; return credit; }
+    this.pop += popAcc * this.popK / 255; this.nTouched = nT;
     this.credit = credit;
     this.visited = n; this.ms = performance.now() - t0;
     return credit;

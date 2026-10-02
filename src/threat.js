@@ -10,6 +10,7 @@ import { attribute, vec3, vec4, float, positionLocal, normalView, normalWorld, m
 import { R } from './planetgen.js';
 import { P3, TIERS, T3 } from './phase3.js';
 import { sunDir } from './look.js';
+import { Rivals } from './planetrival.js';
 import { smooth, rnd, _Y, v1, v2, v3, v4, v5, v6, qa, C, FIRE, SMOKE0, SMOKE1, ASH, DUST, KMs, tangentAt, sv, aim, vel3, slerp, Ribbon, Pool } from './threat/kit.js';
 
 const qs = new URLSearchParams(location.search);
@@ -80,6 +81,7 @@ export class Threat {
     const lg = new THREE.CylinderGeometry(1, 1, 0.1, 6), lm = new THREE.MeshStandardNodeMaterial({ color: 0x2b2733, roughness: 0.45, metalness: 0.8, emissive: 0x4a0a08, emissiveIntensity: 1.2 });
     this.lid = new THREE.Mesh(lg, lm); this.lid.visible = false; this.lid.frustumCulled = false; this.root.add(this.lid);
     this.registerCore();
+    this.rivals = new Rivals(this); this.register(this.rivals.kind());
     window.__threat = this.api();
     for (const o of [this.glow.sprite, this.smoke.sprite]) o.frustumCulled = false;
     try { await ctx.post.precompile(this.root, 6000, this.game.around); await ctx.post.precompile({ traverse: (f) => { f(this.glow.sprite); f(this.smoke.sprite); } }, 3000, this.game.around); } catch (e) { console.warn('threat precompile', e); }
@@ -89,7 +91,7 @@ export class Threat {
   show() { this.glow.sprite.visible = this.smoke.sprite.visible = true; }
 
   dispose() {
-    this.lineEl.remove(); this.flashEl.remove(); document.getElementById('sealed')?.remove();
+    this.rivals?.dispose(); this.lineEl.remove(); this.flashEl.remove(); document.getElementById('sealed')?.remove();
     this.ctx.scene.remove(this.glow.sprite, this.smoke.sprite); this.W.globe.group.remove(this.root);
     for (const m of this.map?.markers ?? []) m.remove?.();
     delete window.__threat;

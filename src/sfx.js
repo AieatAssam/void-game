@@ -268,3 +268,11 @@ export const grind = {
 let lastPebble = 0;
 /** A parcel crumbles: a tiny dry crackle (throttled to 4 Hz). */
 export function pebble() { if (!ctx || ctx.currentTime - lastPebble < 0.25) return; lastPebble = ctx.currentTime; noise(0.12, 3200, 0.12); tone('triangle', 260, 90, 0.08, 0.05); }
+
+// ---------- Phase 3 WP-B (docs/PHASE3-REVIEW.md): rivals, laser, MIRV, fleet, tsunami, volcano, Aegis, cracker, rockets ----------
+/** A rival rises: a long, detuned growl under the world. */
+export function rivalGrowl() { tone('sawtooth', 58, 36, 1.8, 0.2); tone('sawtooth', 61, 38, 1.8, 0.16); tone('sine', 40, 27, 2.2, 0.5); noise(1.6, 420, 0.3, 0.1); }
+/** A rival bites the hole: a crunch and a sub thud. */
+export function rivalBite() { noise(0.4, 2200, 0.55); tone('sine', 110, 26, 0.9, 0.9); tone('sawtooth', 160, 40, 0.5, 0.15); }
+/** A rival swallowed: the reversed boom into a gulp, then the choir. */
+export function rivalEaten() { reverseGulp(); choir(1); tone('sine', 36, 22, 3.4, 0.6, 0.7); }

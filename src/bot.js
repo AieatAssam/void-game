@@ -300,6 +300,13 @@ export function planetSteer(who = 'human') {
     if (th && state.playing) {
       const ds = th.dangers(s.buf ??= []), v = P3.speed(r); s.pick ??= {};
       for (const d of ds) {
+        if (d.kind === 'rival') { // a bigger rival: keep away (run until well clear: hysteresis); a smaller one: hunt it (greedy always, human 1 time in 2)
+          const dist = Math.hypot(d.x, d.z) || 1; s.fear ??= {};
+          if (d.big) { if (dist < d.R + (s.fear[d.id] ? 7 : 4) * r) { s.fear[d.id] = 1; dbg.flee = (dbg.flee || 0) + 1; return [-d.x / dist, -d.z / dist]; } s.fear[d.id] = 0; continue; }
+          s.hunt ??= {}; if (s.hunt[d.id] === undefined) s.hunt[d.id] = who === 'greedy' || Math.random() < 0.5;
+          if (s.hunt[d.id] && dist < 14 * r) { dbg.rival = (dbg.rival || 0) + 1; return [d.x / dist, d.z / dist]; }
+          continue;
+        }
         if (d.kind === 'sat') continue;
         if (d.kind === 'fall' || !d.locked || (human && d.eta > d.lock - 0.35)) continue;
         if (d.kind === 'line') { if (d.end > 0.3 && Math.abs(d.across) < d.hw + 0.35 * r) { dbg.dodge = (dbg.dodge || 0) + 1; return [Math.sign(d.across || 1) * d.nx, Math.sign(d.across || 1) * d.nz]; } continue; }
