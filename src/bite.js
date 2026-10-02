@@ -177,6 +177,10 @@ export class BiteMap {
     return credit;
   }
 
+  /** Snapshot / restore the whole bite state (calibration runs and the Sealed checkpoint, §12.7 R2). */
+  save() { return { rem: this.rem.slice(), ov: this.ov.slice(), rem8: this.rem8.slice(), sum: this.sum }; }
+  restore(sv) { this.rem.set(sv.rem); this.ov.set(sv.ov); this.rem8.set(sv.rem8); this.sum = sv.sum; this.tex.needsUpdate = true; }
+
   /** Push dirty faces to the GPU (<= 10 Hz). */
   upload(now = performance.now()) {
     if (now - this.lastUp < 100) return;

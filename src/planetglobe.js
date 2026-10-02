@@ -174,7 +174,8 @@ export function planetUniforms() {
     uWoundG: uniform(3000), // metres a fully eaten bite-map texel sinks
     uWoundP: uniform(800), // metres a full fine-trail texel sinks (patch)
     uBiteWp: uniform(0), // how much of the bite map the patch shows (0 while the hole is far smaller than a texel)
-    uGcellA: uniform(1e4), uGfr: uniform(0), uGroundK: uniform(1), // close-ground pattern scale: cells per face unit, octave blend, strength
+    uGcellA: uniform(1e4), uGfr: uniform(0), uGroundK: uniform(1), uGroundM: uniform(1), // (K: parcels, hedges, rows, street grids, lakes, rivers = the close ground; M: relief, woods, settlements = the km-scale ground that a landmass keeps)
+    // close-ground pattern scale: cells per face unit, octave blend, strength
     uPx: uniform(0.0005), // metres per pixel per metre of view distance
     uRoadW: uniform(230), // metres from a road line at which the patch map's road distance field reaches 0 (3 texels)
   };
@@ -368,7 +369,7 @@ export function planetMaterial({ surf, night, bite, trail = null, map = null, gt
       const rough = float(0.6).toVar(); // how much of the sky the ground sees (valleys and forest floors see less)
       const snowK = float(0).toVar(), urE = float(0).toVar(), woodK = float(0).toVar();
       if (GR) {
-        const gOn = u.uGroundK;
+        const gOn = u.uGroundK, gM = u.uGroundM;
         // ---- relief: slopes of baked fractals in metres (rolling hills on the lowlands, crags in the mountains), then the scans' normal maps
         const GM = RELIEF_GMAX * 2;
         const ridgeK = max(sstep(0.12, 0.5, slope), sstep(700, 2200, e)).toVar();
@@ -414,7 +415,7 @@ export function planetMaterial({ surf, night, bite, trail = null, map = null, gt
         bigCol = mix(bigCol, srgb(0.58, 0.54, 0.36), step(0.88, bigR));
         const bigEdge = float(1).sub(sstep(0.0, 0.3, fC.g)).mul(0.28);
         land.assign(mix(land, mix(bigCol, land.mul(0.5), bigEdge), bigK.mul(0.6)));
-        urE.assign(sstep(0.22, 0.58, urbV.add(nz.a.sub(0.5).mul(0.4))).mul(gOn)); // (settlement: a ragged edge, the suburbs fray into the fields)
+        urE.assign(sstep(0.22, 0.58, urbV.add(nz.a.sub(0.5).mul(0.4))).mul(gM)); // (settlement: a ragged edge, the suburbs fray into the fields)
         // ---- woods: stands (a few km), canopy clumps, glades; a conifer / broadleaf / jungle mix by climate
         const sn = nz.r.sub(0.5).mul(1.2).mul(0.6).add(nz.g.sub(0.5).mul(1.2).mul(0.4)); // stands: patches of a few km
         const cover = sstep(0.5, 0.9, M.add(cold.mul(0.15))).mul(1.2).add(sn.mul(0.8)).add(nm.mul(0.3)).sub(0.25).sub(cult.mul(0.4)).sub(urE.mul(0.5)); // wet land is wooded in patches; fields clear it
@@ -426,7 +427,7 @@ export function planetMaterial({ surf, night, bite, trail = null, map = null, gt
         can = mix(can, srgb(0.06, 0.22, 0.1), jung);
         const canL0 = float(0.55).add(cvv.r.mul(1.15)).mul(float(1).sub(cvv.b.mul(0.45))), canL = mix(float(1.18), canL0, fadeTo(450, pxM).mul(0.85).add(0.15)); // (the canopy tile is 1.5 km: it must be gone before a pixel is 60 m) // dark gaps, bright crown tops, glades
         const canopy = can.mul(canL);
-        woodK.assign(max(wood, woodV.mul(0.9)).mul(gOn));
+        woodK.assign(max(wood, woodV.mul(0.9)).mul(gM));
         land.assign(mix(land, canopy, woodK.mul(fadeTo(900, pxM).mul(0.8).add(0.2))));
         rough.assign(mix(rough, 0.35, woodK));
         // ---- the dry lands: sand and scree grain

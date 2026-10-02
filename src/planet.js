@@ -121,6 +121,7 @@ export class PlanetWorld {
     // close-ground pattern scale: ~0.6 r per field, in cross-fading octaves (so it never swims as r grows)
     const lam = Math.max(2, 0.6 * r), lg = Math.log2(lam), L0 = Math.floor(lg);
     g.u.uGcellA.value = 5.0e6 / 2 ** L0; g.u.uGfr.value = lg - L0;
+    g.u.uGroundM.value = 1 - SM(60000, 150000, r);
     g.u.uGroundK.value = 1 - SM(1500, 14000, r); // (§12: fields, hedges, canopy and street grids are gone by 14 km: a landmass is read as biomes and relief)
     this.updatePatch(dt, hole);
     g.update(camera, dt, viewH);

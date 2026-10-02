@@ -334,19 +334,21 @@ export class PlanetGame {
         const was = window.__bot, h = window.__headless; let t = 0;
         window.__bot = () => fn(t += dt); window.__headless = true; window.__tick(dt, n); window.__headless = h; window.__bot = was;
       },
-      /** Calibration (§2.5): a straight run over flat land at radius r (m): credit per second vs G * 1.2 r^2 * sqrt(hcol). */
-      cal(rm, secs = 20, dt = 1 / 30) {
-        const saveQ = W.holeQ.clone(), saveBite = { rem: W.bite.rem.slice(), ov: W.bite.ov.slice(), rem8: W.bite.rem8.slice(), sum: W.bite.sum };
-        // find a flat-ish stretch of land: sample directions until a long straight line stays on land below the wall height
-        let found = null;
-        for (let k = 0; k < 4000 && !found; k++) {
-          const z = Math.random() * 2 - 1, a = Math.random() * 6.283, s = Math.sqrt(1 - z * z), d = { x: Math.cos(a) * s, y: z, z: Math.sin(a) * s };
-          const e = W.P.elevation(d, 4);
-          if (e > 20 && e < 400) { found = d; }
+      /** Calibration (§2.5, §12.7 R1): a straight run of 8 r over the best land line found (land share >= 0.9 if the world has one) at radius r (m): credit per second vs 2 r v f sqrt(hcol). Restores the bite map. */
+      cal(rm, secs = 0, dt = 1 / 30) {
+        const saveQ = W.holeQ.clone(), saveBite = W.bite.save();
+        const v = P3.speed(rm), len = 8 * rm, steps = Math.ceil(len / (v * dt)); secs = steps * dt;
+        let best = null, bestF = -1;
+        for (let k = 0; k < 1500 && bestF < 0.9; k++) { // dry runs: only the land under the centre is sampled (no chewing)
+          const z = Math.random() * 2 - 1, a = Math.random() * 6.283, s = Math.sqrt(1 - z * z), d = { x: Math.cos(a) * s, y: z, z: Math.sin(a) * s }, tw = { x: Math.random() - 0.5, y: Math.random() - 0.5, z: Math.random() - 0.5 };
+          W.placeAt(d, tw);
+          let f = 0;
+          for (let i = 0; i < steps; i += 2) { W.moveHole(0, -v * dt * 2); if (W.bite.landAt(W.hdir) >= 0 && W.bite.heightAt(W.hdir) < 400) f++; }
+          f /= Math.ceil(steps / 2);
+          if (f > bestF) { bestF = f; best = [d, tw]; }
         }
-        W.placeAt(found, { x: Math.random() - 0.5, y: Math.random() - 0.5, z: Math.random() - 0.5 });
+        W.placeAt(best[0], best[1]);
         let credit = 0, land = 0, swept = 0, n = 0;
-        const v = P3.speed(rm);
         let expect = 0; // sum of swept x sqrt(hcol / 1 km) over the land the hole drove over (the doc's G * 2 r v * f * sqrt(h), before G)
         for (let t = 0; t < secs; t += dt) {
           const q = W.eff(0, 0);
@@ -357,7 +359,7 @@ export class PlanetGame {
         }
         const out = { r: rm, v, credit_m2_per_s: credit / secs, swept_m2_per_s: swept / secs, ratio: credit / swept, expect_ratio: expect / swept, vs_expect: credit / (expect || 1), growth_pct_per_s: 100 * credit * P3.g(rm) / secs / (Math.PI * rm * rm), landFrac: land / n, visited: W.bite.visited };
         W.holeQ.copy(saveQ); W.hdir.set(0, 1, 0).applyQuaternion(W.holeQ);
-        W.bite.rem.set(saveBite.rem); W.bite.ov.set(saveBite.ov); W.bite.rem8.set(saveBite.rem8); W.bite.sum = saveBite.sum; W.bite.tex.needsUpdate = true;
+        W.bite.restore(saveBite);
         return out;
       },
     };
