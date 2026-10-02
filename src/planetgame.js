@@ -432,7 +432,7 @@ export class PlanetGame {
       },
       /** Back to the start of the run (bite map, units, hole, ledger, trail): for balance sweeps in one page load. */
       reset() {
-        W.bite.restore(self.snap0); W.bite.jobs.length = 0; W.bite.events.length = 0; W.bite.tflag.fill(0); W.bite.nTouched = 0;
+        W.bite.restore(self.snap0); W.bite.jobs.length = 0; W.bite.events.length = 0; W.bite.tflag.fill(0); W.bite.nTouched = 0; W.bite.pullAt = 0; W.bite.stat = { tears: 0, pulls: 0, parcelTears: 0 }; self.rim = 0; self.dustMoved = 0;
         W.placeAt(W.P.startDir, W.P.city); W.h0Set = false; W.job = null; W.patchInfo = null; W.nStamps = 0; W.globe.trailData.fill(0); W.globe.trailTex.needsUpdate = true;
         W.capMode = false; hole.capMode = false; W.globe.hidePatch?.(); hole.area = Math.PI * self.r0 * self.r0; hole.sx = hole.sz = 0;
         Object.assign(state, { belly: 1, tier: P3.tier(self.r0), land: 0, time: 0, pop: 0, best: 0, walls: 0, goalDone: {}, tierAt: { 1: 0 }, shake: 0, slowT: 0, slowmo: 1, hitstop: 0, ledger: { meal: 0, crumb: 0, land: 0, fed: 0, starve: 0, ate: 0, crumbs: 0 } });

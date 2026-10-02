@@ -35,7 +35,8 @@ export const P3 = {
   relief: (r) => ramp(VIEW, r, 2),
   aim: (r) => ramp(VIEW, r, 3), // degrees
   gScale: 1, // global multiplier on the G ramp (balance knob)
-  g: (r) => P3.gScale * ramp(GRAMP, r, 1),
+  gRamp: GRAMP, // (mutable for sweeps: __P3.gRamp[0][1] = ...)
+  g: (r) => P3.gScale * ramp(P3.gRamp, r, 1),
   tier: (r) => { let t = 1; for (const q of TIERS) if (r >= q.r * 0.999 || q.n === 1) t = q.n; return t; },
   tierName: (r) => TIERS[P3.tier(r) - 1].name,
   camDist: (r) => 14 + 8 * r, // x portrait x LENS in the game
