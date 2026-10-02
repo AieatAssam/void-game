@@ -295,6 +295,20 @@ export function planetSteer(who = 'human') {
     if (!P) return [0, 0];
     const W = P.W, B = W.bite, lf = B.lf, state = P.ctx.state, t = state.time, r = hole.r, human = who === 'human', G = P.game.goal, R = 6371000;
     const dbg = (window.__botDbg ??= { stuck: 0, unit: 0, goal: 0, hunt: 0, wall: 0, idle: 0, tgt: '' });
+    // threats (src/threat.js): rings that have locked. Greedy dives into the inner circle (the swallow) whenever it can get there in time; human-like does so 1 time in 3 and reacts 0.35 s late; else it leaves the ring / the strafe band
+    const th = window.__threat?.t;
+    if (th && state.playing) {
+      const ds = th.dangers(s.buf ??= []), v = P3.speed(r); s.pick ??= {};
+      for (const d of ds) {
+        if (d.kind === 'fall' || !d.locked || (human && d.eta > d.lock - 0.35)) continue;
+        if (d.kind === 'line') { if (d.end > 0.3 && Math.abs(d.across) < d.hw + 0.35 * r) { dbg.dodge = (dbg.dodge || 0) + 1; return [Math.sign(d.across || 1) * d.nx, Math.sign(d.across || 1) * d.nz]; } continue; }
+        if (!(d.eta > 0.05)) continue;
+        const dist = Math.hypot(d.x, d.z) || 1;
+        if (s.pick[d.id] === undefined) { s.pick[d.id] = who === 'greedy' || Math.random() < 1 / 3; if (s.pick[d.id]) dbg.dive = (dbg.dive || 0) + 1; }
+        if (s.pick[d.id] && dist - 0.3 * d.inner <= v * d.eta * 0.9) { dbg.dodge = (dbg.dodge || 0) + 1; return dist < 0.3 * d.inner + v * 0.05 ? [0, 0] : [d.x / dist, d.z / dist]; } // (centre it, then sit still until it goes off)
+        if (dist < d.R * 1.15) { dbg.dodge = (dbg.dodge || 0) + 1; return [-d.x / dist, -d.z / dist]; }
+      }
+    }
     if (human && t < s.idleUntil) return [0, 0];
     if (t < s.sideUntil) return [Math.cos(s.side), Math.sin(s.side)];
     // stuck against a wall? every 3 s: moved < 0.4 r while steering => turn away for 2 s
@@ -369,14 +383,15 @@ function* botLoop(seconds, who, dt, run) {
     minBelly = Math.min(minBelly, state.belly);
     const k = Math.floor(t / 30);
     if (k !== last) { last = k; const L = state.ledger, d = window.__botDbg; log.push(`${f(t)}s T${state.tier} r=${km(hole.r)}km belly=${state.belly.toFixed(2)} land=${(state.land * 100).toFixed(2)}% pop=${((state.pop || 0) / 1e9).toFixed(2)}B +land ${f(L.land / 1e9)} +tear ${f((L.tear || 0) / 1e9)} +pull ${f((L.pull || 0) / 1e9)} fed ${f(L.fed / 1e9)} starve ${f(L.starve / 1e9)} (Gm2) | ${window.__planet.game.goal?.g.name ?? '-'} ${(100 * (window.__planet.game.goal?.frac ?? 0)).toFixed(0)}% | ${d.tgt} stuck ${d.stuck} wall ${d.wall}`); }
-    if (state.land >= 0.995) break;
+    if (state.land >= 0.995 || state.sealed) break;
     if (++n % 20 === 0) yield;
   }
   window.__bot = was; window.__headless = wh;
   const L = state.ledger, tierAt = Object.fromEntries(Object.entries(state.tierAt || {}).map(([k, v]) => [k, f(v - t0)])), goalAt = (state.goalDone || []).map((v) => f(v - t0));
-  log.push(`${state.land >= 0.995 ? 'WON' : 'time up'} ${f(t)}s tierAt ${JSON.stringify(tierAt)} goalAt ${JSON.stringify(goalAt)} dbg ${JSON.stringify(window.__botDbg)} minBelly ${minBelly.toFixed(2)} land ${(state.land * 100).toFixed(2)}% r ${km(hole.r)}km`);
+  const ts = window.__threat?.state().stats;
+  log.push(`${state.land >= 0.995 ? 'WON' : state.sealed ? 'SEALED' : 'time up'} ${f(t)}s tierAt ${JSON.stringify(tierAt)} goalAt ${JSON.stringify(goalAt)} dbg ${JSON.stringify(window.__botDbg)} minBelly ${minBelly.toFixed(2)} land ${(state.land * 100).toFixed(2)}% r ${km(hole.r)}km threats ${JSON.stringify(ts)}`);
   log.push(`ledger ${JSON.stringify(Object.fromEntries(Object.entries(L).map(([k, v]) => [k, f(v / 1e3) + 'k'])))}`);
-  run.done = true; run.won = state.land >= 0.995; run.time = t; run.tierAt = tierAt; run.tierLand = Object.fromEntries(Object.entries(state.tierLand || {}).map(([k, v]) => [k, +(v * 100).toFixed(1)])); run.r = hole.r; run.goalAt = goalAt; run.ledger = { ...L };
+  run.done = true; run.sealed = !!state.sealed; run.threat = ts; run.won = state.land >= 0.995; run.time = t; run.tierAt = tierAt; run.tierLand = Object.fromEntries(Object.entries(state.tierLand || {}).map(([k, v]) => [k, +(v * 100).toFixed(1)])); run.r = hole.r; run.goalAt = goalAt; run.ledger = { ...L };
 }
 window.__planetBot = (seconds = 600, who = 'human', dt = 1 / 30) => { const run = { log: [], done: false }; for (const _ of botLoop(seconds, who, dt, run)); return run.log; };
 window.__planetBotAsync = (seconds = 1800, who = 'human', dt = 1 / 30) => {
@@ -394,7 +409,7 @@ window.__planetSweep = async (n = 3, secs = 3000, who = 'human') => {
     const run = window.__planetBotAsync(secs, who);
     while (!run.done) await new Promise((r) => setTimeout(r, 300));
     const L = run.ledger, tot = L.land + L.tear + L.pull;
-    rows.push({ won: run.won, min: m(run.time), tierMin: Object.fromEntries(Object.entries(run.tierAt).map(([k, v]) => [k, m(v)])), tierLand: run.tierLand, goalMin: run.goalAt.map(m), rEnd: Math.round(run.r / 1000), share: [L.land, L.tear, L.pull].map((v) => Math.round((100 * v) / tot)), decay: Math.round((100 * (L.fed + L.starve)) / -tot) });
+    rows.push({ won: run.won, sealed: run.sealed, threat: run.threat, min: m(run.time), tierMin: Object.fromEntries(Object.entries(run.tierAt).map(([k, v]) => [k, m(v)])), tierLand: run.tierLand, goalMin: run.goalAt.map(m), rEnd: Math.round(run.r / 1000), share: [L.land, L.tear, L.pull].map((v) => Math.round((100 * v) / tot)), decay: Math.round((100 * (L.fed + L.starve)) / -tot) });
   }
   window.__sweepDone = true;
   return rows;

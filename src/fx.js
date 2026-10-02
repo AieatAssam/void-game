@@ -3,7 +3,7 @@ import * as THREE from 'three/webgpu';
 import { instancedBufferAttribute, vec4, uv, length, smoothstep, cameraProjectionMatrix, float, pow, abs, clamp, mix } from 'three/tsl';
 
 /** Camera-facing instanced sprites (WebGPU has no sized points): position/colour/size/alpha per instance. */
-function spriteCloud(n, { additive, world, bird = false }) {
+export function spriteCloud(n, { additive, world, bird = false }) {
   const pos = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage);
   const col = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage);
   const size = new THREE.InstancedBufferAttribute(new Float32Array(n).fill(0.3), 1).setUsage(THREE.DynamicDrawUsage);

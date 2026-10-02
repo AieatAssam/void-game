@@ -183,3 +183,45 @@ export function swell() {
 }
 /** A coastline torn away: surf roar. */
 export function surf() { noise(1.6, 1200, 0.22, 0.05, 250); }
+
+// ---------- Phase 3 threats (docs/PHASE3.md §5.3): all WebAudio synthesis; `delay` carries the sound's travel time ----------
+/** Filtered noise whose envelope RISES (a boom played backwards) and then cuts. */
+function noiseUp(dur, lp, vol, delay = 0) {
+  if (!ctx || muted) return;
+  if (!noiseBuf) noise(0.01, 100, 0.0001); // (builds the shared buffer)
+  const t = ctx.currentTime + delay, src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+  src.buffer = noiseBuf; src.loop = true; f.type = 'lowpass';
+  f.frequency.setValueAtTime(lp * 0.15, t); f.frequency.exponentialRampToValueAtTime(lp, t + dur);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + dur * 0.96); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+  src.connect(f).connect(g).connect(master); src.start(t); src.stop(t + dur + 0.02);
+}
+/** An ICBM leaves its silo: a rising roar and a low shudder (k 0..1 loudness: the silo's distance). */
+export function nukeLaunch(k = 1) { noise(2.4, 700 + 900 * k, 0.28 * k + 0.06); tone('sawtooth', 70, 160, 2.2, 0.07 * k); tone('sine', 48, 36, 2.0, 0.3 * k); }
+/** The target ring locks: three hard beeps. */
+export function lockBeep() { for (let i = 0; i < 3; i++) tone('square', 880, 880, 0.09, 0.1, i * 0.16); }
+/** DEFCON changed: a klaxon, faster and higher the closer to 1 (level 5..1). */
+export function klaxon(level = 3) {
+  const n = 6 - level, f = 380 + (5 - level) * 55;
+  for (let i = 0; i < n; i++) { tone('sawtooth', f, f * 0.7, 0.26, 0.09, i * 0.34); tone('square', f * 1.5, f * 1.1, 0.26, 0.03, i * 0.34); }
+}
+/** A detonation: the flash is silent, the boom arrives `delay` s later (k 0..1 size). */
+export function nukeBoom(k = 1, delay = 0) {
+  noise(0.35, 5000, 0.5, delay); noise(2.6 + k, 600, 0.5, delay + 0.05);
+  tone('sine', 62, 22, 2.8 + k, 0.8, delay); tone('sawtooth', 90, 30, 1.2, 0.12, delay + 0.05);
+}
+/** The best moment: the boom played backwards into a gulp, over a choir (the nuke fell into the void). */
+export function reverseGulp() {
+  noiseUp(0.7, 4200, 0.5); tone('sine', 30, 220, 0.62, 0.55); tone('sawtooth', 50, 400, 0.62, 0.07);
+  tone('sine', 150, 28, 0.9, 0.9, 0.64); noise(0.5, 900, 0.45, 0.64);
+  [196, 294, 392, 494, 588, 784].forEach((f, i) => { tone('sine', f, f, 2.6, 0.1, 0.62 + 0.03 * i); tone('triangle', f * 2.005, f * 2, 1.8, 0.03, 0.62 + 0.03 * i); });
+}
+/** A kinetic rod: a thin whine falling in, a crack and a deep thud. */
+export function rodStrike(k = 1, delay = 0) {
+  tone('sine', 5200, 900, 0.5, 0.06, delay - 0.45 < 0 ? 0 : delay - 0.45); noise(0.2, 6000, 0.45, delay); tone('sine', 78, 24, 1.8, 0.8, delay); noise(1.6, 400, 0.35, delay + 0.05);
+}
+/** The strafe: jets rushing past, rattling blasts. */
+export function strafe() { noise(2.2, 1800, 0.14); for (let i = 0; i < 9; i++) { noise(0.2, 900, 0.3, 0.2 + i * 0.16); tone('sine', 90, 36, 0.3, 0.3, 0.2 + i * 0.16); } }
+/** A satellite swallowed: a high tink and a whoosh. */
+export function tink() { tone('triangle', 2600, 3400, 0.18, 0.12); tone('sine', 2000, 300, 0.35, 0.1, 0.05); noise(0.35, 4000, 0.15, 0.05); }
+/** The Void Lid is coming: a long low drone. */
+export function lidWarn() { tone('sawtooth', 70, 62, 1.8, 0.14); tone('square', 140, 120, 1.8, 0.04); }

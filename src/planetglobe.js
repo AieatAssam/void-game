@@ -179,6 +179,12 @@ export function planetUniforms() {
     uShock: Array.from({ length: 4 }, () => uniform(new THREE.Vector4(0, 1, 0, 0))), // shock rings: dir.xyz, start angle (rad)
     uShockP: Array.from({ length: 4 }, () => uniform(new THREE.Vector4(-99, 0, 0, 0))), // start time (uTime), speed (rad/s), life (s), strength
     uRim: uniform(0), // the cap's rim band widens with the credit rate
+    // threats (src/threat.js, docs/PHASE3.md §5): scars (a scorch + a racing ring: nuke / rod / swallow), telegraph zones (a danger ring + the swallow circle, fallout) and the bombers' strafe band
+    uScar: Array.from({ length: 8 }, () => uniform(new THREE.Vector4(0, 1, 0, 0))), // dir.xyz, ring reach (rad)
+    uScarP: Array.from({ length: 8 }, () => uniform(new THREE.Vector4(0, 0, 0, 0))), // start time (uTime), life (s; 0 = unused), ring speed (rad/s), kind (0 nuke, 1 rod, 2 swallow)
+    uZone: Array.from({ length: 8 }, () => uniform(new THREE.Vector4(0, 1, 0, 0))), // dir.xyz, outer radius (rad)
+    uZoneP: Array.from({ length: 8 }, () => uniform(new THREE.Vector4(0, 0, 0, 0))), // inner (swallow) radius (rad), alpha (0 = unused), lock progress (0 = tracking, then 0..1), kind (0 danger, 1 fallout)
+    uStrafe: uniform(new THREE.Vector4(0, 1, 0, 0)), uStrafeA: uniform(new THREE.Vector4(1, 0, 0, 0)), uStrafeP: uniform(new THREE.Vector4(0, 0, 0, 0)), // great-circle band: normal.xyz + half width (rad); start dir.xyz + length (rad); alpha, head (0..1), lock
     uGcellA: uniform(1e4), uGfr: uniform(0), uGroundK: uniform(1), uGroundM: uniform(1), // (K: parcels, hedges, rows, street grids, lakes, rivers = the close ground; M: relief, woods, settlements = the km-scale ground that a landmass keeps)
     // close-ground pattern scale: cells per face unit, octave blend, strength
     uPx: uniform(0.0005), // metres per pixel per metre of view distance
@@ -560,6 +566,51 @@ export function planetMaterial({ surf, night, bite, trail = null, map = null, gt
       col.assign(mix(col, cloudLit.mul(float(0.9).add(cn.mul(0.5))), cloud.mul(0.9).mul(float(1).sub(wound.mul(2).min(1))).mul(float(1).sub(shockClr))));
     });
     col.addAssign(shockGlow);
+    // ---- threats (§5): scorch + racing ring per scar, telegraph rings per zone, the strafe band
+    if (!OFF.has('threat')) {
+      for (let i = 0; i < 8; i++) {
+        const s = u.uScar[i], p = u.uScarP[i], age = u.uTime.sub(p.x);
+        If(p.y.greaterThan(0).and(age.greaterThan(0)).and(age.lessThan(p.y)), () => {
+          const th = acos(clamp(dot(dir, s.xyz), -1, 1)), A = s.w, kind = p.w, burn = select(kind.lessThan(1.5).or(kind.greaterThan(2.5)), float(1), float(0));
+          const life = float(1).sub(smoothstep(p.y.mul(0.4), p.y, age));
+          const sr = A.mul(0.55), disc = float(1).sub(smoothstep(sr.mul(0.6), sr, th)).mul(smoothstep(0, 0.15, age)).mul(burn);
+          const nz = mx_noise_float(dir.mul(float(2.5).div(max(sr, 1e-4)))).mul(0.5).add(0.5), ragged = disc.mul(smoothstep(0.15, 0.55, nz.add(disc.mul(0.55))));
+          col.assign(mix(col, col.mul(0.14).add(vec3(0.035, 0.03, 0.026)), ragged.mul(life).mul(0.9).mul(landMask)));
+          const vein = pow(float(1).sub(abs(mx_noise_float(dir.mul(float(7).div(max(sr, 1e-4)))))), 6), hot = exp(age.mul(-0.09)).mul(0.8).add(0.2);
+          col.addAssign(vec3(1.0, 0.4, 0.07).mul(vein.mul(1.7).add(0.3)).mul(ragged).mul(hot).mul(life).mul(landMask).mul(1.5));
+          const Rr = p.z.mul(age), wd = max(Rr.mul(0.09), A.mul(0.025)), band = exp(pow(th.sub(Rr).div(wd), 2).negate());
+          const rf = float(1).sub(smoothstep(0.5, 1.0, Rr.div(A))).mul(smoothstep(0, 0.06, age)), tail = exp(Rr.sub(th).max(0).div(max(Rr.mul(0.3), 1e-5)).negate()).mul(float(1).sub(smoothstep(Rr.sub(wd), Rr.add(wd), th)));
+          const rc = select(kind.lessThan(0.5), vec3(1.0, 0.72, 0.36), select(kind.lessThan(1.5), vec3(1.0, 0.95, 0.88), vec3(0.62, 0.42, 1.0)));
+          col.addAssign(rc.mul(band.mul(3.2).add(tail.mul(0.1))).mul(rf).mul(select(kind.greaterThan(2.5), float(0), float(1))));
+        });
+      }
+      for (let i = 0; i < 8; i++) {
+        const z = u.uZone[i], q = u.uZoneP[i];
+        If(q.y.greaterThan(0.001), () => {
+          const th = acos(clamp(dot(dir, z.xyz), -1, 1)), A = z.w, lock = q.z, fall = q.w, wd = max(A.mul(0.03), 1e-5);
+          const pul = sin(u.uTime.mul(select(lock.greaterThan(0.001), float(15), float(5)))).mul(0.3).add(0.7);
+          const edge = exp(pow(th.sub(A).div(wd), 2).negate()), inside = float(1).sub(smoothstep(A.mul(0.985), A, th));
+          const ring = (rad, w) => exp(pow(th.sub(rad).div(w), 2).negate());
+          const danger = mix(vec3(1.0, 0.6, 0.12), vec3(1.0, 0.1, 0.06), min(lock.mul(40), 1)), hatch = sin(th.div(A).mul(44).sub(u.uTime.mul(select(lock.greaterThan(0.001), float(3.5), float(1.2))))).mul(0.5).add(0.5);
+          const g = danger.mul(edge.mul(2.6).mul(pul).add(inside.mul(hatch.mul(0.16).add(0.05)))).toVar();
+          g.addAssign(vec3(1.0, 0.92, 0.8).mul(ring(A.mul(float(1).sub(lock)), wd.mul(0.9))).mul(step(0.001, lock)).mul(2.4)); // the closing countdown ring
+          g.addAssign(vec3(0.66, 0.46, 1.0).mul(ring(q.x, max(q.x.mul(0.07), 1e-5)).mul(1.7).add(float(1).sub(smoothstep(q.x.mul(0.96), q.x, th)).mul(0.2))).mul(step(1e-6, q.x))); // the swallow circle
+          const fo = vec3(0.7, 0.85, 0.14).mul(edge.mul(0.7).add(inside.mul(mx_noise_float(dir.mul(float(9).div(A))).mul(0.5).add(0.5).mul(0.2)))); // fallout: a sick, mottled glow
+          const gz = select(fall.greaterThan(0.5), fo, g);
+          col.assign(mix(col, col.mul(vec3(0.82, 0.92, 0.6)), inside.mul(fall).mul(q.y).mul(0.45)));
+          col.addAssign(gz.mul(q.y));
+        });
+      }
+      const sa = u.uStrafeP.x;
+      If(sa.greaterThan(0.001), () => {
+        const n = u.uStrafe.xyz, e1 = u.uStrafeA.xyz, e2 = cross(n, e1), across = abs(dot(dir, n)), hw = u.uStrafe.w, len = u.uStrafeA.w;
+        const along = atan(dot(dir, e2), dot(dir, e1)), inB = float(1).sub(smoothstep(hw.mul(0.94), hw, across)).mul(smoothstep(0, len.mul(0.01), along)).mul(float(1).sub(smoothstep(len.mul(0.99), len, along)));
+        const lock = u.uStrafeP.z, hd = u.uStrafeP.y.mul(len), edgeB = exp(pow(across.sub(hw).div(hw.mul(0.05)), 2).negate()).mul(smoothstep(0, len.mul(0.01), along)).mul(float(1).sub(smoothstep(len.mul(0.99), len, along)));
+        const chev = sin(along.sub(across.mul(0.8)).div(len).mul(60).sub(u.uTime.mul(6))).mul(0.5).add(0.5), sweep = exp(pow(along.sub(hd).div(len.mul(0.03)), 2).negate()).mul(step(0.001, u.uStrafeP.y));
+        const base = mix(vec3(1.0, 0.6, 0.12), vec3(1.0, 0.1, 0.06), step(0.001, lock));
+        col.addAssign(base.mul(edgeB.mul(2.4).add(inB.mul(chev.mul(0.12).add(0.05))).add(sweep.mul(inB).mul(1.6))).mul(sa));
+      });
+    }
     // ---- hole caps (spherical): void inside, a lilac glowing lip
     const capMask = float(0).toVar(); // (the atmosphere does not veil the void: it would turn the shaft into grey glass)
     for (const hu of u.uHoles) {
