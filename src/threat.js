@@ -744,6 +744,11 @@ export class Threat {
       this.W.normalAt(s.n, v3); const ln = Math.hypot(v3.x, v3.z) || 1;
       out.push({ kind: 'line', id: `s${s.i}`, across, nx: v3.x / ln, nz: v3.z / ln, hw: s.hw, eta: Math.max(0, s.tel - s.age), end: s.tel + s.run - s.age, locked: true, lock: s.tel });
     }
+    for (const l of this.lances) if (l.on && l.phase === 'orbit' && !l.eaten && this.hole.r >= 420e3 && l.gd < 8 * this.hole.r) { // a catchable satellite: its subpoint now and its ground velocity (m/s)
+      const th = l.th0 + l.om * l.age; this.offsetOf(v3.copy(l.pos).normalize(), o); const x = o.x, z = o.z;
+      this.satAt(l, th + l.om, v4); this.offsetOf(v4.normalize(), o);
+      out.push({ kind: 'sat', id: `t${l.uid}`, x, z, vx: (o.x - x) / 1, vz: (o.z - z) / 1, R: T3.satEat * this.hole.r, eta: l.Tfire - l.age, locked: false });
+    }
     for (const f of this.fall) { this.offsetOf(f.dir, o); out.push({ kind: 'fall', id: `f${this.fall.indexOf(f)}`, x: o.x, z: o.z, R: f.R, inner: 0, eta: f.life - f.t, locked: true }); }
     return out;
   }

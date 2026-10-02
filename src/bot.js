@@ -300,6 +300,7 @@ export function planetSteer(who = 'human') {
     if (th && state.playing) {
       const ds = th.dangers(s.buf ??= []), v = P3.speed(r); s.pick ??= {};
       for (const d of ds) {
+        if (d.kind === 'sat') continue;
         if (d.kind === 'fall' || !d.locked || (human && d.eta > d.lock - 0.35)) continue;
         if (d.kind === 'line') { if (d.end > 0.3 && Math.abs(d.across) < d.hw + 0.35 * r) { dbg.dodge = (dbg.dodge || 0) + 1; return [Math.sign(d.across || 1) * d.nx, Math.sign(d.across || 1) * d.nz]; } continue; }
         if (!(d.eta > 0.05)) continue;
@@ -307,6 +308,15 @@ export function planetSteer(who = 'human') {
         if (s.pick[d.id] === undefined) { s.pick[d.id] = who === 'greedy' || Math.random() < 1 / 3; if (s.pick[d.id]) dbg.dive = (dbg.dive || 0) + 1; }
         if (s.pick[d.id] && dist - 0.3 * d.inner <= v * d.eta * 1.5) { dbg.dodge = (dbg.dodge || 0) + 1; return dist < 0.3 * d.inner + v * 0.05 ? [0, 0] : [d.x / dist, d.z / dist]; } // (centre it, then sit still until it goes off)
         if (dist < d.R * 1.15) { dbg.dodge = (dbg.dodge || 0) + 1; return [-d.x / dist, -d.z / dist]; }
+      }
+    }
+    if (th && state.playing) { // a satellite within reach (A8): a human goes for it half the time, greedy always; aim at where its subpoint will be when the hole gets there
+      for (const d of s.buf) if (d.kind === 'sat') {
+        s.sat ??= {}; if (s.sat[d.id] === undefined) s.sat[d.id] = who === 'greedy' || Math.random() < 0.5; if (!s.sat[d.id] || d.eta < 1.5) continue;
+        const v = P3.speed(r); let px = d.x, pz = d.z, T = 0;
+        for (let k = 0; k < 3; k++) { T = Math.hypot(px, pz) / v; px = d.x + d.vx * T; pz = d.z + d.vz * T; }
+        const dist = Math.hypot(px, pz) || 1; dbg.sat = (dbg.sat || 0) + 1;
+        if (T < d.eta + 4 && T < 14) return [px / dist, pz / dist];
       }
     }
     if (human && t < s.idleUntil) return [0, 0];
@@ -338,6 +348,7 @@ export function planetSteer(who = 'human') {
           for (const [gl, gu] of go) if (gl >= L ? anc(lf, L, u, gl) === gu : u === anc(lf, gl, gu, L)) { inGoal = true; break; }
           if (inGoal) sc *= 6;
           if (s.cur && s.cur.L === L && s.cur.u === u) sc *= 1.3;
+          if (P.game.ripe?.some((q) => q.L === L && q.u === u)) sc *= 2; // (a player chases the ripe rings)
           cand.push([sc, u]);
         }
         dbg.cand = cand.length;

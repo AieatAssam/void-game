@@ -62,19 +62,19 @@ export class PlanetGame {
     if (qs.get('view') === 'pole') W.placeAt(new THREE.Vector3(0, 1, 0));
     else if (qs.get('at') === 'city') W.placeAt(W.P.city, W.P.startDir); // (debug: the mainland)
     else {
-      // the minute-one hook (A11): face the nearest peninsula / isle (a 0.3-0.8 pi r0^2 coastal unit 2-4 r0 away), so the first bite is a tear
+      // the minute-one hook (A11): face the nearest peninsula / isle (a 0.3-0.8 pi r0^2 coastal unit 1.5-10 r0 away), so the first bite is a tear
       let face = W.P.city; const lf = W.bite.lf, s = W.P.startDir;
       if (lf?.ready) {
-        const pi = Math.PI * (r0 / 1000) ** 2; let bd = 9;
+        const pi = Math.PI * (r0 / 1000) ** 2; let bd = 1e9;
         for (const L of [1, 2]) {
           const v = lf.lv[L];
           for (let u = 0; u < v.n; u++) {
-            const a = v.area0[u]; if (!(a > 0.3 * pi && a < 0.8 * pi) || v.coast[u] / v.np[u] <= 0.5) continue;
-            const d = Math.acos(Math.min(1, v.c[u * 3] * s.x + v.c[u * 3 + 1] * s.y + v.c[u * 3 + 2] * s.z)) * R / r0;
-            if (d >= 2 && d <= 4 && d < bd) { bd = d; face = { x: v.c[u * 3], y: v.c[u * 3 + 1], z: v.c[u * 3 + 2] }; }
+            const a = v.area0[u]; if (!(a > 0.3 * pi && a < 0.8 * pi)) continue;
+            const d = Math.acos(Math.min(1, v.c[u * 3] * s.x + v.c[u * 3 + 1] * s.y + v.c[u * 3 + 2] * s.z)) * R / r0, sc = d * (v.coast[u] / v.np[u] > 0.5 ? 1 : 1.6); // (a peninsula / isle wins over inland pieces)
+            if (d >= 1.5 && d <= 10 && sc < bd) { bd = sc; face = { x: v.c[u * 3], y: v.c[u * 3 + 1], z: v.c[u * 3 + 2] }; }
           }
         }
-        this.hook = bd < 9 ? bd : null;
+        this.hook = bd < 1e9 ? bd : null;
       }
       W.placeAt(s, face);
     }
