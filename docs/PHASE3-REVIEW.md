@@ -513,7 +513,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
   - In the sweep, rivals eat 3-10% of the world.
   - Rival chew CPU is at most 0.5 ms (`__perf` js).
 
-**B2 (P1). The orbital laser platform (T3-T4). DONE** (`src/threat/laser.js`; the spot starts ~3.8 r away, not 6 r: 6 r is over the limb; one sweep; the bot keeps out of it: 0 hits in 9 runs; the platform was swallowed in none of the 9 sweep runs: the bot does not detour for it, forced tests do).
+**B2 (P1). The orbital laser platform (T3-T4). DONE** (`src/threat/laser.js`; the spot starts ~3.8 r away, not 6 r: 6 r is over the limb; one sweep; the bot keeps out of it: 0 hits in 9 runs; the platform was swallowed in none of the 9 sweep runs: the bot does not detour for it; a forced test (laser into `aim`, hole placed on `q.plat`) gives `laserEaten` 1 with the card, as the forced Magma Surge (`stats.magma` 1, `state.magma` 8 s, Frenzy) and the forced Maw bite (`rivalHits` 1, `hurt`, 12 s retreat) fire without exceptions: the sweeps never reached those three paths).
 - **Model:** `laser_platform` at 0.8 r altitude above a point 6 r ahead and to the side.
 - **Telegraph:** 2 s warm-up, the beam drawn as a `Ribbon(10)` from the platform to the ground, white core with red glow.
 - **The sweep:** a ground spot moving toward the hole at `0.35 * P3.speed(r)` (slower than the player), drawn as a zone of kind 0 with radius 0.6 r and `lock = 1` (a solid ring). Burning scar decals use `scar(kind 1)` every 0.4 s along the path.
