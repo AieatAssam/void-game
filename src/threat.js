@@ -449,7 +449,7 @@ export class Threat {
   /** The warhead goes off (or falls into the void). */
   detonate(n) {
     const { hole, W, state } = this, r = n.r0, dist = W.distTo(n.to);
-    n.phase = 'burn'; n.boomT = n.age; n.ashN = 0; n.elev = Math.max(0, W.P.elevation(n.to, 3)); n.H = 3.2 * r;
+    n.phase = 'burn'; n.boomT = n.age; n.ashN = 0; n.elev = Math.max(0, W.P.elevation(n.to, 3)); n.H = (n.child ? 2.0 : 3.2) * r;
     n.pg = this.surf(n.to, 0, new THREE.Vector3(), n.elev); n.qUp = n.qUp ?? new THREE.Quaternion();
     n.qUp.setFromUnitVectors(_Y, v1.copy(n.to).normalize());
     n.zone >= 0 && this.zoneFree(n.zone); n.zone = -1; n.mk?.remove(); n.mk = null;
@@ -460,10 +460,11 @@ export class Threat {
     if (!n.child && !n.first && r < 450e3 && W.bite.landAt(n.to) < 0) this.byName.tsunami.at(n.to, { cause: 'nuke' }); // (a blast over the sea throws up a wave)
     // layered detonation: flash (1 frame, additive, 3 r) -> fireball -> shock ring over the ground -> smoke column / mushroom -> ash plume -> scorch
     v2.copy(n.pg).setLength(R + n.elev * W.E + 0.3 * n.B);
-    this.glow.spawn(v2, null, 7 * r, 8 * r, 0.14, FIRE[0], 3.2, 0);
-    this.glow.spawn(v2, null, 0.5 * n.B, 2.4 * n.B, 0.8, FIRE[1], 2.0, 0.3);
-    this.glow.spawn(v2, null, 0.3 * n.B, 1.7 * n.B, 1.4, FIRE[2], 1.6, 0.3);
-    this.glow.spawn(v2, null, 0.2 * n.B, 1.2 * n.B, 2.2, FIRE[3], 1.2, 0.2);
+    const fk = n.child ? 0.5 : 1; // (a MIRV warhead: half the flash and fireball; four of them at once would white the screen out)
+    this.glow.spawn(v2, null, 7 * r * fk, 8 * r * fk, 0.14, FIRE[0], 3.2 * (n.child ? 0.7 : 1), 0);
+    this.glow.spawn(v2, null, 0.5 * n.B * fk, 2.4 * n.B * fk, 0.8, FIRE[1], 2.0, 0.3);
+    this.glow.spawn(v2, null, 0.3 * n.B * fk, 1.7 * n.B * fk, 1.4, FIRE[2], 1.6, 0.3);
+    this.glow.spawn(v2, null, 0.2 * n.B * fk, 1.2 * n.B * fk, 2.2, FIRE[3], 1.2, 0.2);
     for (let i = 0; i < 14; i++) { const a = (i / 14) * 6.283 + rnd(0, 0.4), tg = tangentAt(v3.copy(n.to).normalize(), a, v4); v1.copy(n.pg).setLength(R + n.elev * W.E + 0.05 * r).addScaledVector(tg, 0.2 * n.B); this.smoke.spawn(v1, sv.copy(tg).multiplyScalar(0.8 * r).addScaledVector(v3, 0.05 * r), 0.6 * r, 1.4 * r, 4.5, DUST, 0.6, 0.45); } // (the rolling base ring)
     this.scar(n.to, 2.0 * n.B, 0.8 * r, 14, 0);
     this.scar(n.to, 1.2 * n.B, 0.2 * r, 90, 0); // (the scorch stays: its ring is short)

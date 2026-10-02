@@ -71,6 +71,7 @@ export function makeLaser(th) {
         }
         th.glow.spawn(p2, null, 0.7 * r, 0.9 * r, 0.08, WHITE, 0.9 * q.heat, 0); th.glow.spawn(p2, null, 1.2 * r, 1.5 * r, 0.1, HOT, 0.22 * q.heat, 0);
         th.trauma(Math.max(0, 0.04 * (1 - d2 / (6 * r))) * dt * 20 * 0.1);
+        if (d2 < 3.5 * hr && (q.lit = (q.lit ?? 0) - dt) <= 0) { q.lit = 0.35; th.screenFlash(0.05 + 0.08 * (1 - d2 / (3.5 * hr)), '#ff8a4a', 260); } // (the sky lights up)
         if (q.t >= T.dur) { q.phase = 'aim'; q.t = 0; th.zoneFree(q.zone); q.zone = -1; q.mk?.remove(); q.mk = th.map?.addMarker({ kind: 'site', dir: q.plat, label: 'PLATFORM', color: '#ffd36a', pulse: true }); th.sfx.laserOff?.(); th.news('The laser platform drops low to re-aim — it can be swallowed'); th.ctx.hint('The platform is low — swallow it (within 0.8 r)'); }
       } else if (q.phase === 'aim') {
         q.alt += (0.3 * r - q.alt) * Math.min(1, dt * 2); if (q.mk) q.mk.eta = Math.max(0, 5 - q.t);
