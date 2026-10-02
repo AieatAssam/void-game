@@ -191,11 +191,12 @@ export class PlanetGame {
     this.cpu.food = performance.now() - tf;
     // belly and decay (§4.5): a full belly lasts 30 s; fed 0.1%/s, starving 0.8%/s
     const oceanDrain = here.h < 0 ? P3.oceanDrain(tier) : 1;
-    state.belly = Math.max(0, state.belly - P3.bellyDrain * oceanDrain * (state.mods?.hunger ?? 1) * dt);
-    const dr = (state.belly > 0 ? P3.decayFed : P3.decayStarving) * dt, a1 = hole.area;
+    const hunt = B.landEaten >= 0.97; // §12.4: no decay in the hunt (the last specks of land are a chase, not a famine)
+    if (!hunt) state.belly = Math.max(0, state.belly - P3.bellyDrain * oceanDrain * (state.mods?.hunger ?? 1) * dt);
+    const dr = hunt ? 0 : (state.belly > 0 ? P3.decayFed : P3.decayStarving) * dt, a1 = hole.area;
     hole.area *= 1 - dr;
     if (state.belly > 0) L.fed -= a1 * dr; else L.starve -= a1 * dr;
-    hole.area = Math.max(hole.area, Math.PI * (P3.floorK * TIERS[tier - 1].r) ** 2); // (stand-in for the Sealed loss, step 8)
+    hole.area = Math.max(hole.area, Math.PI * (P3.floorK * TIERS[Math.max(tier, state.tier || 1) - 1].r) ** 2); // (stand-in for the Sealed loss, step 8; the floor of the highest tier reached: it used to cascade down with r)
     hole.vac = Math.max(0, (hole.vac || 0) - dt);
     hole.bump = Math.max(0, (hole.bump || 0) - dt * 2);
     state.best = Math.max(state.best || 0, hole.r);
@@ -307,6 +308,7 @@ export class PlanetGame {
 
   /** window.__planetLadder(): 20 random spots per tier (T1..T3), each at a random size in the tier; asserts the §4.2 guarantee. */
   ladderTest(ctx, per = 20) {
+    if (!this.food.on) return { note: 'the food ladder is gone (§12): the unit-based ladder lands in R4 (__planetUnits() has the pieces)' };
     const W = this.world, F = this.food, { hole } = ctx, save = { q: W.holeQ.clone(), a: hole.area }, out = { total: { pass: 0, fail: 0 } };
     F.noShow = true;
     const bounds = TIERS.map((q, i) => [q.r, TIERS[i + 1]?.r ?? 2400e3]);

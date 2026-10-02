@@ -211,11 +211,13 @@ export function planetMaterial({ surf, night, bite, trail = null, map = null, gt
   if (patch) {
     const aHm = attribute('aHm', 'float'), aUV = attribute('aUV', 'vec2');
     const trV = texture(trail, aUV).r;
-    const sink = max(trV.mul(u.uWoundP), float(1).sub(remV).mul(u.uWoundG).mul(u.uBiteWp)).mul(landV);
+    const holeK = smoothstep(0.85, 1.7, acos(clamp(dot(normalize(dirV), u.uHoleD.xyz), -1, 1)).div(u.uHoleD.w)); // (the ground stays up under the cap: the shader paints the shaft on it, and a sunk, jagged floor under it would tear the cap's outline)
+    const sink = max(trV.mul(u.uWoundP), float(1).sub(remV).mul(u.uWoundG).mul(u.uBiteWp)).mul(landV).mul(holeK);
     mat.positionNode = positionGeometry.add(dirV.mul(u.uRelief.sub(1).mul(aHm).sub(sink)));
     mat.polygonOffset = true; mat.polygonOffsetFactor = -2; mat.polygonOffsetUnits = -2;
   } else {
-    const sink = float(1).sub(remV).mul(u.uWoundG).mul(landV);
+    const holeK = smoothstep(0.85, 1.7, acos(clamp(dot(normalize(dirV), u.uHoleD.xyz), -1, 1)).div(u.uHoleD.w));
+    const sink = float(1).sub(remV).mul(u.uWoundG).mul(landV).mul(holeK);
     mat.positionNode = positionGeometry.mul(float(1).add(max(aH, 0).mul(u.uRelief).sub(sink).div(R)));
   }
   mat.userData.u = u;
@@ -361,6 +363,17 @@ export function planetMaterial({ surf, night, bite, trail = null, map = null, gt
       const brk = sstep(0.32, 0.7, mx_noise_float(vec3(wp.div(17), u.uTime.mul(0.25))).mul(0.5).add(0.5));
       const foam = max(sstep(4, 0.8, depth).mul(sstep(0.62, 1.0, lap)).mul(brk).mul(0.6), sstep(1.0, 0.05, depth).mul(0.5)).mul(fadeTo(34, pxM).mul(0.7).add(0.3)).mul(float(1).sub(iceO));
       oc = mix(oc, vec3(0.88, 0.95, 0.98), foam.mul(0.8));
+      // a torn coast (§12.5): where eaten land borders the sea (the sea texel's land neighbours are gone), a white surf band laps the new cliff, brightest as it is torn
+      const nb = float(1).toVar();
+      If(depth.lessThan(80), () => {
+        const ax = select(abs(dir.y).lessThan(0.99), vec3(0, 1, 0), vec3(1, 0, 0)), t1 = normalize(cross(dir, ax)), t2 = cross(dir, t1), del = 0.0032;
+        const rr = (d2) => sampleFace(bite, B, normalize(d2)).r;
+        const dg = del * 0.7071;
+        nb.assign(min(min(min(rr(dir.add(t1.mul(del))), rr(dir.sub(t1.mul(del)))), min(rr(dir.add(t2.mul(del))), rr(dir.sub(t2.mul(del))))),
+          min(min(rr(dir.add(t1.add(t2).mul(dg))), rr(dir.sub(t1.add(t2).mul(dg)))), min(rr(dir.add(t1.sub(t2).mul(dg))), rr(dir.sub(t1.sub(t2).mul(dg)))))));
+      });
+      const torn = sstep(0.92, 0.25, nb).mul(float(1).sub(iceO)), lapT = sin(depth.mul(0.12).sub(u.uTime.mul(2.6)).add(nm.mul(5))).mul(0.5).add(0.5);
+      oc = mix(oc, vec3(0.92, 0.97, 1.0), torn.mul(lapT.mul(0.45).add(0.5)).mul(0.85));
       oceanCol.assign(shadeWater(oc, on, iceO, float(1)));
     });
     // ---- the land: climate (T, M) + altitude + slope, then the close ground, then the wound
@@ -511,7 +524,7 @@ export function planetMaterial({ surf, night, bite, trail = null, map = null, gt
         land.assign(mix(land, srgb(0.07, 0.03, 0.09), sstep(0.8, 0.97, wl)));
         const crk = pow(float(1).sub(abs(mx_noise_float(vec3(sr.mul(u.uGcellA.mul(4)), u.uTime.mul(0.05))))), 28);
         const lip = sstep(0.015, 0.06, wl).mul(float(1).sub(sstep(0.1, 0.3, wl))), floorK = sstep(0.8, 0.97, wl);
-        glow.assign(vec3(1.0, 0.3, 0.05).mul(lip.mul(1.25).add(floorK.mul(crk).mul(1.2).mul(stN.mul(0.8).add(0.35)).add(floorK.mul(0.05)))).add(vec3(0.42, 0.2, 0.95).mul(floorK).mul(0.07)));
+        glow.assign(vec3(1.0, 0.27, 0.04).mul(lip.mul(0.85).add(floorK.mul(crk).mul(1.2).mul(stN.mul(0.8).add(0.35)).add(floorK.mul(0.05)))).add(vec3(0.42, 0.2, 0.95).mul(floorK).mul(0.07)));
       });
       // lit: the sun through the detail normal, the terrain's own shadow and occlusion (per vertex), a sky fill that sees less in the hollows
       const shV = mix(float(1), aS.y, 0.9), aoV = aS.x;
@@ -526,9 +539,9 @@ export function planetMaterial({ surf, night, bite, trail = null, map = null, gt
     if (!OFF.has('shock')) for (let i = 0; i < 4; i++) {
       const sh = u.uShock[i], sp = u.uShockP[i], age = u.uTime.sub(sp.x);
       If(age.greaterThan(0).and(age.lessThan(sp.z)), () => {
-        const th = acos(clamp(dot(dir, sh.xyz), -1, 1)), Rr = sh.w.add(sp.y.mul(age)), wd = max(Rr.mul(0.16), 0.0008);
+        const th = acos(clamp(dot(dir, sh.xyz), -1, 1)), Rr = sh.w.add(sp.y.mul(age)), wd = max(Rr.mul(0.2), 0.0008);
         const band = exp(pow(th.sub(Rr).div(wd), 2).negate()), f = float(1).sub(smoothstep(sp.z.mul(0.35), sp.z, age)).mul(smoothstep(0, 0.08, age)).mul(sp.w);
-        shockGlow.addAssign(vec3(0.6, 0.42, 1.0).mul(band).mul(f).mul(2.2).add(vec3(1.0, 0.94, 1.0).mul(pow(band, 6)).mul(f).mul(0.9)));
+        shockGlow.addAssign(vec3(0.5, 0.34, 1.0).mul(band).mul(f).mul(2.0).add(vec3(0.9, 0.8, 1.0).mul(pow(band, 9)).mul(f).mul(0.55)));
         shockClr.assign(max(shockClr, float(1).sub(smoothstep(Rr.sub(wd.mul(3)), Rr.add(wd), th)).mul(f).mul(0.9)));
       });
     }

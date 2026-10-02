@@ -317,7 +317,13 @@ export function planetSteer(who = 'human') {
         sc *= 1 + 0.35 * Math.cos(a - s.heading) * (human ? 1 : 0.5) + (human ? (Math.random() - 0.5) * 0.3 : 0);
         if (sc > bs) { bs = sc; best = a; }
       }
-      s.heading = bs > 0 ? best : s.heading + (Math.random() - 0.5) * 0.4; (bs > 0 ? dbg.eat++ : dbg.explore++);
+      if (bs > 0) { s.heading = best; dbg.eat++; }
+      else { // nothing in reach: the nearest standing district (then parcel) anywhere (R4: the goal / hunt arrow)
+        const lf = W.bite.lf; let bu = -1, bd = -2, L = 1;
+        for (; L >= 0 && bu < 0; L--) { const v = lf.lv[L], c = v.c, h = W.hdir; for (let u = 0; u < v.n; u++) { if (v.left[u] < 1e-3 || (L === 0 && !(v.area0[u] > 0))) continue; const d = c[u * 3] * h.x + c[u * 3 + 1] * h.y + c[u * 3 + 2] * h.z; if (d > bd) { bd = d; bu = u; } } }
+        if (bu >= 0) { const v = lf.lv[L + 1], q = new W.hdir.constructor(v.c[bu * 3], v.c[bu * 3 + 1], v.c[bu * 3 + 2]).applyQuaternion(W.holeQ.clone().invert()); s.heading = Math.atan2(q.z, q.x); dbg.goal++; }
+        else { s.heading += (Math.random() - 0.5) * 0.4; dbg.explore++; }
+      }
     }
     return [Math.cos(s.heading), Math.sin(s.heading)];
   };
