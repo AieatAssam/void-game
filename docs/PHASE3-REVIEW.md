@@ -458,7 +458,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
 
 **Shared groundwork (do first):**
 
-- **B0 (P0). Refactor the director into a table** (see §1.3): `KINDS = { bomber, nuke, rod, … }`, each with:
+- **B0 (P0). Refactor the director into a table. DONE, partly** (`Threat.register(kind)`, `T3.kinds` in `phase3.js`, the mercy window a preallocated ring, `hurtCont` / `gain` / `fair` and a `stats.unfair` column in the sweep; the new kinds live in `src/threat/*.js`, the bomber / ICBM / lance code stayed methods of `Threat`; `kit.js` holds Ribbon / Pool / helpers) (see §1.3): `KINDS = { bomber, nuke, rod, … }`, each with:
 
   ```js
   { window: (r, dc) => bool, cost, cool: [min, max], spawn(o), step(x, dt), finish(x), dangers(x, out) }
@@ -489,7 +489,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
 
 **The new kinds:**
 
-**B1 (P0). Rival holes on the sphere: the Maw and the World-Eater.**
+**B1 (P0). Rival holes on the sphere: the Maw and the World-Eater. DONE** (`src/planetrival.js`, `bite.chew(..., opts)`; the Maw spawns 25 s into T3 (the brief's T3, not 250 km), the World-Eater 20 s into T4; rivals graze at 4% speed, live 140 / 170 s and eat 5-13% of the world; bots flee bigger / hunt smaller; `__planetLadder` was not extended).
 - **New `src/planetrival.js`.** A rival is `{ q: Quaternion (its frame), dir: Vector3, area, heading, name, big, mk }`. Each frame:
   - steer toward `lf.target(worldGoal, rival.dir, r)` (reuse `landforms.target`);
   - move by `P3.speed(r) * 0.85 * dt` along a great circle (rotate `dir` about `dir × heading`);
@@ -513,7 +513,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
   - In the sweep, rivals eat 3-10% of the world.
   - Rival chew CPU is at most 0.5 ms (`__perf` js).
 
-**B2 (P1). The orbital laser platform (T3-T4).**
+**B2 (P1). The orbital laser platform (T3-T4). DONE** (`src/threat/laser.js`; the spot starts ~3.8 r away, not 6 r: 6 r is over the limb; one sweep; the bot keeps out of it: 0 hits in 9 runs; the platform was swallowed in none of the 9 sweep runs: the bot does not detour for it, forced tests do).
 - **Model:** `laser_platform` at 0.8 r altitude above a point 6 r ahead and to the side.
 - **Telegraph:** 2 s warm-up, the beam drawn as a `Ribbon(10)` from the platform to the ground, white core with red glow.
 - **The sweep:** a ground spot moving toward the hole at `0.35 * P3.speed(r)` (slower than the player), drawn as a zone of kind 0 with radius 0.6 r and `lock = 1` (a solid ring). Burning scar decals use `scar(kind 1)` every 0.4 s along the path.
@@ -522,21 +522,21 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
 - **Bot:** `dangers()` returns `{ kind: 'beam', x, z, R }`.
 - **Acceptance:** `__threat.force('laser')` can be outrun on a straight line at every tier (T3 and T4 tests). Eating the platform shows the hitstop and the card.
 
-**B3 (P1). MIRV (T2-T3).**
+**B3 (P1). MIRV (T2-T3). DONE** (a nuke item with `mirv`, 4 children, light children without a mushroom, salvo cap 15%; allowed up to T4 at DEFCON <= 2; `__threat.seq('mirv', ...)` snapshots; peak live zones ~9).
 - A `spawnNuke` variant with `children = 4` (fits 4 zone slots plus the arc).
 - At `u = 0.55` the arc splits. Each child gets its own `to`, spread 1.2-2 r around the predicted position, `inner = 0.4 r`, 4% each, with a shared key `'mirv'` capped at 15% per salvo (sum its hits in `hurt`).
 - Swallowing ≥ 2 children shows the card "MIRV GULP" and +2% per child.
 - Mushrooms: reuse the 3 pooled meshes and skip the mushroom for children 4+ (use the fireball only).
 - **Acceptance:** `__threat.seq('mirv', {}, [-1, 0.2, 1])` shows 4 rings. Peak live zones ≤ 12, and the zone early-out holds frame time (`__perf` at pixel ratio 3, at most 1 fps lost).
 
-**B4 (P1). Carrier groups and cruise salvos (T1-T2): life on the sea.**
+**B4 (P1). Carrier groups and cruise salvos (T1-T2): life on the sea. DONE** (`src/threat/fleet.js`; ships 2.8 / 1.5 r long, 4.5-7.5 r off, 3-4 missiles, max 2 salvos per fleet: an unbounded fleet made T2 14 min long; a fleet is met in every sweep run).
 - **Spawn:** a `aircraft_carrier` plus 2 `destroyer` GLBs at readable scale on ocean texels 6-10 r from the hole, preferring the sea ahead of the heading. `bite.landAt(d) < 0`, and the `W.P.elevation` depth is below -200 m.
 - **Salvos:** every 12 s while within 15 r, 3-5 small rings of 0.5 r at 4%, tracking for 2 s and then locked for 1.5 s.
 - **Ships are edible:** within 0.7 r, +1.5% each. Eating the carrier ends its salvos. All three within 6 s gives "FLEET SUNK" and +3%.
 - Wakes: reuse the foam-wake idea (a flat instanced quad, `planetMaterial`-agnostic).
 - **Acceptance:** an ocean crossing of 15 s or more at T1 meets a fleet in at least 50% of sweeps (log `stats.fleets`).
 
-**B5 (P1). Tsunami and volcano (T1-T2) events.**
+**B5 (P1). Tsunami and volcano (T1-T2) events. DONE** (`src/threat/nature.js`; tsunami from a nuke over the sea or a coastal class >= 2 tear, foam front shader kind 3, rubble x1.5 for 30 s; volcano: Massif, smoke column, ash zone, 3 lava rings, MAGMA SURGE; both forceable).
 - **Tsunami:** triggered by a nuke detonating over the sea, or by a class ≥ 2 tear of a unit with coast share > 50%.
   - A ring zone (kind 0, no inner) expanding from the cause at `0.4 r/s`, life 10 s.
   - Crossing its front: `hurt(0.03)` plus a kick along the outward normal.
@@ -548,7 +548,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
   - Eating the district while it erupts gives "MAGMA SURGE": Frenzy plus credit ×1.5 for 8 s.
 - **Acceptance:** each is forceable via `__threat.force('tsunami' | 'volcano')`, and shows in `__threat.state().stats`.
 
-**B6 (P1). The Aegis: the T3 boss (once, r ≈ 800 km).**
+**B6 (P1). The Aegis: the T3 boss (once, r ≈ 800 km). DONE, changed numbers** (`src/threat/aegis.js`; hexagon 2.6 r, lid 3.6 -> 0.6 r closing at (alive / 6) of 34 s instead of a fixed 6 s, which makes six platforms impossible to eat; the bot breaks it in 6 of 9 sweep runs and 3 of 5 forced trials).
 - 6 `aegis_platform` GLBs descend over 8 s into a hexagon at 3 r around the hole, minimap kind `'aegis'` (exists).
 - A closing ring zone 3 r → r over 6 s (`zoneSet` with `lock` progress).
 - Inside at the close: `hurt(0.12)` plus an eject kick.
@@ -557,21 +557,21 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
   - Otherwise it retries after 90 s, at most 3 times.
 - **Acceptance:** `__threat.force('aegis')` at r = 800 km. The bot (taught to beeline the nearest platform) breaks it in 2 of 3 attempts.
 
-**B7 (P2). Evacuation rockets (T2-T3).**
+**B7 (P2). Evacuation rockets (T2-T3). DONE** (`src/threat/exodus.js`: rockets from a Metro Belt, a space station on a 12 s orbit at T3-T4; scenery for the bot).
 - Spawn from districts named "Metro Belt" within 12 r.
 - A `rocket` GLB plus a contrail `Ribbon`, climbing for 6 s.
 - Edible while the hole is within 0.8 r of its subpoint and the rocket's altitude is below r: +0.3% each.
 - News: "Exodus begins: 40 M flee to orbit".
 - A sky-life snack that makes the planet feel inhabited.
 
-**B8 (P1). The planet-cracker (T4, at 90% land, once).**
+**B8 (P1). The planet-cracker (T4, at 90% land, once). DONE, changed numbers** (`src/threat/cracker.js`; `launch_pad` as the stations, countdown 30 s + route (<= 75 s), ring 1.8 r with a lock of `lockFor(1.3, 4.5, 8)` s: 2 r for 4 s cannot be left at T4 speed; the set piece ran in 9 of 9 sweeps).
 - `cracker` GLB on the far side, plus 3 `station` GLBs placed on remaining land 6-12 r from the hole (minimap triangles).
 - A 30 s world countdown in the threat pill.
 - Eat all 3 stations: "THE CRACKER FIZZLES", +5%.
 - Otherwise a 2 r ring locks for 4 s: `hurt(0.2)` plus a crater scar.
 - **Acceptance:** T4 has a set piece in 100% of sweeps.
 
-**Gate B (sweep):**
+**Gate B (sweep). PASSED, mostly** (`docs/BALANCE.md` "Phase 3 WP-B": mean 21.3 min (17.3-28.6, 6 of 9 inside 19-26), damage mean 7.3% (target 8-15 per the brief), bonuses 7.2%, 11-12 kinds per run, unfair 0 of 9, Sealed warnings 0 of 9, JS 1.07 ms with five attacks live, director 0.31 ms, `?webgl&q=low` boots; the Gate's 20-27 min / 10-18% damage were replaced by the brief's 19-26 / 8-15):
 - Totals 20-27 min (the extra events add time).
 - Threat damage 10-18% of gains.
 - Threat bonuses ≤ 10% (§12.4 income target "nukes, rivals, space ≤ 10%").

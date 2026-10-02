@@ -227,3 +227,38 @@ Changes that move pacing: (A1) land credit is no longer thrown away when the hol
 All 9 runs win in **19.3-25.3 min** (target 18-25), r end **2.1-2.7k km** (was 1.2-1.9k, doc target 2.3k: the sea fix), swath 59-65% / tears 35-41% / pull 0-1%. Threat bonuses 1-4% of gains (was ~9:1 gift over damage: swallowed nukes + satellites ~10%); satellites 0.7-2.3% (was ~7%) and the human-like bot catches about 30% of them (greedy: all of them in the forced test, human 3-6 of 8). Damage 0-12.7% of gains, mean 4%: the area-weighted share is low because a hit costs the same *seconds of progress* at every tier (about 1.5% of a run per hit), the late-game area dwarfs the early one, and the human bot dodges or dives 2/3 of the locked rings. A real player hits more. Sealed warnings: 0 of 9 (the lid still only matters to a player who starves); one earlier seed-3 run sealed at 9 min after a T1 stall (r 27 km, decay 140% of gains): the bot stuck on its islet, a start problem, not a threat problem. Variance between runs of one seed is large (T2 2.8-7.9 min): coast crossings.
 
 How the numbers moved: first pass at k = 15 / 15 / 8 with a 10 s income EMA gave hits of 1-48% depending on a tear burst (income is lumpy: 0.04-2.6%/s); tau 30 s evened it out; k up to 25 / 25 / 12 and `gScale` 1.06 brought 24-28 min back to 19-25. A satellite 2.5-4 r to the side with a 6.6 s orbit (the review's numbers) cannot be caught at all (the hole moves 0.27 r/s at 600 km); 12 s and 1.5-2.5 r can.
+
+## Phase 3 WP-B — adversity at the new scale (`docs/PHASE3-REVIEW.md` B0-B8, `docs/PHASE3.md` §12.11)
+
+New kinds on top of WP-A: rival holes (the Maw at T3, the World-Eater at T4), MIRV, orbital laser, carrier groups + cruise salvos, tsunami, volcano, the Aegis, the planet-cracker, rockets and a space station. Config at the end: `P3.gScale` **1.3** (was 1.06: the new attacks, errands and set pieces cost 6-10 min of dodging, fleeing and starving that the growth anchors then had to give back), `T3.coolK` [1.3, 1.15, 1, 0.75, 0.6] by tier (T1-T2 gentler than before, T4 faster), `T3.cap` build 2 / peak 3 / relax 1 live telegraphs, +1 at DEFCON <= 2, `rodK` 25, `nukeK` 25, per-kind numbers in `T3.kinds` (`phase3.js`).
+
+`__planetSweep(3, 3300, 'human')` on seeds 7 / 3 / 11 (`__sweepRows()` prints these rows), normal DEFCON, everything on. Minutes (cumulative at the tier-ups T2 / T3 / T4), land % at the tier-ups, r end, threat damage / bonus % of all gains (`ledger.dmg`, `ledger.bonus`), decay %, hits, mercy-cap hits, Sealed warnings, **unfair** (a hit whose telegraph was fixed for < 1.5 s: `stats.unfair`), the rivals' share of the world's land, Aegis attempts / broken, cracker spawned / fizzled / hit:
+
+| seed | run | total | at T2 / T3 / T4 | land at T2 / T3 / T4 | r end | dmg % | bonus % | decay % | hits | mercy | Sealed | unfair | rivals % | Aegis | cracker |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 7 | 1 | 28.6 | 4.3 / 11.8 / 19.8 | 0.7 / 10.8 / 41 | 2239 | 11.3 | 10.8 | 27 | 13 | 1 | 0 | 0 | 13.0 | 1 / 1 | 1 / 1 / 0 |
+| 7 | 2 | 21.7 | 4.3 / 12.5 / 17.2 | 0.7 / 9.4 / 44 | 2535 | 13.9 | 8.3 | 8 | 12 | 2 | 0 | 0 | 5.4 | 1 / 1 | 1 / 1 / 0 |
+| 7 | 3 | 20.2 | 5.3 / 9.1 / 14.2 | 1.1 / 5.7 / 35 | 2506 | 6.6 | 9.8 | 15 | 7 | 1 | 0 | 0 | 9.4 | 1 / 1 | 1 / 1 / 0 |
+| 3 | 1 | 18.0 | 5.7 / 8.3 / 13.2 | 1.0 / 4.7 / 36 | 2582 | 2.2 | 4.9 | 11 | 6 | 1 | 0 | 0 | 8.7 | 1 / 1 | 1 / 0 / 0 |
+| 3 | 2 | 17.3 | 6.2 / 9.0 / 13.9 | 1.5 / 6.2 / 37 | 2605 | 1.7 | 11.0 | 8 | 4 | 0 | 0 | 0 | 8.7 | 1 / 1 | 1 / 1 / 0 |
+| 3 | 3 | 23.1 | 6.4 / 11.1 / 17.0 | 1.1 / 7.3 / 45 | 2173 | 10.1 | 10.4 | 22 | 12 | 0 | 0 | 0 | 6.7 | 1 / 1 | 1 / 1 / 0 |
+| 11 | 1 | 22.2 | 6.3 / 11.4 / 15.1 | 1.1 / 6.7 / 30 | 2828 | 4.4 | 3.3 | 18 | 11 | 0 | 0 | 0 | 7.0 | 3 / 0 | 1 / 0 / 0 |
+| 11 | 2 | 21.9 | 8.3 / 14.5 / 17.1 | 1.2 / 7.1 / 26 | 2894 | 6.4 | 3.3 | 8 | 9 | 0 | 0 | 0 | 10.0 | 2 / 0 | 1 / 0 / 0 |
+| 11 | 3 | 18.8 | 7.0 / 11.8 / 14.6 | 1.1 / 7.3 / 28 | 2888 | 9.5 | 2.9 | 8 | 8 | 1 | 0 | 0 | 10.7 | 1 / 0 | 1 / 0 / 0 |
+
+All 9 runs win. **Mean 21.3 min** (range 17.3-28.6; 6 of 9 inside 19-26, three just under, one over: seed 3 is the fast seed and seed 7 run 1 lost 5 min to a long T3). Threat damage **mean 7.3%** of gains (range 1.7-13.9, a hair under the 8-15 target: the human bot dodges or dives most rings and a real player hits more); bonuses mean 7.2% (<= 10); mercy-cap hits 1-2 in 5 of 9 runs; **Sealed warnings 0 of 9 and unfair 0 of 9** (the audit: every damaging event had a telegraph fixed for >= 1.5 s); 11-12 of the 12 kinds seen per run (`stats.seen`: bomber, ICBM, lance, MIRV, laser, fleet, tsunami, volcano, Aegis, rockets, cracker, rival); the rivals eat **8.8% of the land** on average (5.4-13); the bot broke the Aegis in 6 of 9 runs (all of seeds 7 and 3, none of seed 11, where it used 1-3 tries; 3 of 5 in isolation: `T.force('aegis')` at 900 km with the human bot) and fizzled the cracker in 5 of 9 (it dodged the ring in the other 4: 0 hits). Hits by kind over the 9 runs: rod 27, nuke 15, volcano 13, fleet 12, MIRV 8, tsunami 7, laser 0 (the bot keeps out of the beam), Aegis 0, cracker 0, rivals 0 (the bot bends away).
+
+How the numbers moved (seed 7 unless noted):
+
+| Change | Result |
+|---|---|
+| First full run, everything on, bot unchanged | SEALED at 20 min: the bot fled the Maw for 4 min (the flee overrode ring dodges), 29% damage |
+| bot: bend away from rivals, rings first | won in 27.7 min, 29% damage (the cracker ring could not be left in 4 s at T4 speed: lock = `lockFor(1.3, 4.5, 8)`) |
+| fleets: 3 salvos / 45 s, rings placed 0.7-1.9 r off (the first one 0.15-0.45 r), lock >= 2 s | 40 fleet hits in a 45 min run -> 1-3 per run |
+| bot errands one decision per set piece (Aegis p = 0.85, 60 s; stations 80 s) | the bot broke the Aegis in 6 of 9 runs (it was 0 of 7 with a coin per platform: 0.67^6 = 9%) |
+| laser: one sweep (not two at DEFCON 1), cooldown 90-120 s, bot bends away from the beam | T4 stalled at 82% land for 35 min: a beam that is "always on" kept the bot fleeing; fixed |
+| rivals: lifetime 140 / 170 s, graze at 4% speed, start digesting | the rivals ate 20-30% of the world, now 5-13% |
+| Aegis `draft()` double-counted `draftsDue` | a second perk draft opened from a timer in headless runs and froze the sim at 5% speed: two 55 min runs |
+| `gScale` 1.06 -> 1.28 -> 1.32 -> 1.2 -> 1.3, `coolK` T3 / T4 0.85 / 0.7 -> 0.75 / 0.6 | 28-35 min -> 23.7 -> 20.5 -> 21.3 min, damage 4-9% -> 7.3% |
+
+Perf (visible pane, `?fps`, 1085x714, WebGPU): with a laser sweep, a MIRV (4 warheads), a lance, two rivals live: **60 fps, JS 1.07 ms average, worst frame 20 ms, director 0.31 ms** (`__threat.state().ms`); `?webgl&q=low`: 60 fps, JS 0.99 ms, director 0.20 ms, with a laser, a MIRV, the Aegis and a rival; forcing each of the new kinds in turn in a fresh WebGPU page produced no frame over 33 ms (everything is built and precompiled under the loading line).
