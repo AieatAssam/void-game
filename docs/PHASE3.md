@@ -628,3 +628,33 @@ epilogue that ends at T3 with "to be continued" if the later steps aren't in.
 | **CPU cost of the bite map at large r** (130k texels under the disc) | 40k texels a frame round-robin; dirty-face uploads ≤ 10 Hz; a 64² summary for hunt and the minimap. |
 | **Readability at planetary scale** (attacks and food too small to see, night-side play) | Readability scale for every adversary, edible/bigger edge tints, rings sized in r, minimap arcs with an ETA, rim glow + city lights at night. |
 | **Scope** | Pass 1 alone is a shippable epilogue. Cuts in order, if needed: tsunamis → volcano eruptions → MIRV → orbital laser → Moon finale (keep the void star) → ice-cap credit bonus. |
+
+---
+
+## 11. Step 6 as built (food, eating, goals, bot)
+
+- **`src/food.js`** (`Food`, owned by `PlanetGame.food`, reads `window.__planet.food`): the §4.2 quadtree (levels with s_L in [3.2 r, 48 r], 8 item slots per
+  cell, radius log-uniform in [s/48, s/16] skewed up, window 10 r + 2 s capped at 40 r), item kinds from biome / habitability / sea: **settle** (village / town /
+  city / metro, the skyline kit), **forest** (tree instances + canopy decal), **ship / fleet / rig** (GLBs at readability scale), **silo** fields (GLB grid).
+  Records live in `food.recs` (Set): `{ dir, tier = radius m, x, z, d (local azimuthal-equidistant), kind, name, label, alive, falling, vis, goal, pop, ... }`.
+  Only items within 10 r (the patch) get instances; the rest are logical. `food.eaten` (Set of item hashes) is the persistence.
+- **Skyline kit:** one `InstancedMesh` (26k boxes high / 12k low, 25-instance chunks), box = podium + shaft in one 20-tri geometry, per-instance
+  `aShape = (podium fraction, shaft width, palette + seed, floors)`; walls from 4 palettes (modern glass, old stone, whitewash, brick), window grid +
+  night lights from the planet sun (`uSun`), footprint decal and woods canopy painted into two 512² maps in the patch's space (`globe.urbanTex / woodTex`,
+  repainted on every patch commit through `W.onPatch`). `scene.environmentIntensity = 0.14` on entering Phase 3 (the town's IBL washed dark albedos out).
+  The painted town discs (`townLayer`) are gone from the patch shader; the bake's night-light blobs fade out up close.
+- **Eating:** an item is edible when `tier < 0.95 r`; it falls when `d < r - 0.5 tier` (also if it has no instances). Boxes crumble over 1.5-3 s on the CPU
+  (pancake, sink, slide to the hole, `≤ 2000` writes a frame), dust rings from the rim and the plume, shake / hitstop per §5.3, `sfx.gulp / bigGulp`
+  pitched by tier, news line, `hole.shockwave()` from 0.5 r. Growth: `dA = π tier² · 0.17 · P3.growth[tier] · growthShare` (crumbs `× 0.4`), belly
+  `+ dA / (area · 0.06)`; decay fed 0.1 %/s, starving 0.8 %/s, floored at 0.7 × the tier floor until the Sealed loss exists.
+- **Ladder** (every scan): ≥ 3 meals (0.3-0.95 r) within 25 r, ≥ 1 bigger (1-1.6 r) within 15 r, plus (pacing) ≥ 1 meal within 9 r and ≥ 6 real
+  meals (0.4-0.95 r) within 14 r: fillers placed 3-14 r ahead (`food.rich`, `food.dens` are the knobs). `__planetLadder()` samples 20 spots per
+  tier (random sizes in the tier, two in three on land, never on a wall): 360/360 over the last runs (three seeds), fails only on peaks.
+- **Goals** (`food.goalsByTier`, `food.settlements`, `food.nextGoal(hole)`): T1 four towns between the landing and the coast city (`Port ...`, ρ 4.2 km),
+  T2 four cities (60-450 km around it, home nation) + the nation capital (17 km), T3 three other capitals (26 / 36 / 50 km). The HUD arrow
+  (`edgeArrow('town', ...)`) points at the nearest edible one, orange with "grow to X km" when none fits; "Goal cleared" card, news and a perk draft.
+- **Pacing knobs** (`P3`, bot runs `__planetBot(1500, 'human')` from the islet, seeds 7 / 3 / 11): growth `[0, 1.7, 1.1, 1.0, ...]`, `gLand` T3 0.022, sea
+  `0.85 speed / 1.1 drain`. T1 3.3-4.2 min, T2 3.0-3.4 min, T3 2.8-6.4 min; the greedy bot T4 at 9.7 min. The doc's 0.8 / 0.75 / 0.7 growth left the bot
+  at 1.4 km after 10 min: its bites (0.3-0.5 r items) were 1-2 % each, one every 12 s.
+- **Bot / tools:** `window.__planetBot(seconds, who)` (bot.js; `who` = `'human'` or `'greedy'`), `tools/botrun.mjs` 4th argument `planet`, `tools/balance.mjs
+  '&planet' 1800 8 planet`. Debug: `__planet.look(i, dist, r, bearing, tier)`, `.crumb(i, tier, dist, r, frac)`, `.lookKind(kind)`, `__P3`.

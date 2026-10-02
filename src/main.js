@@ -1072,7 +1072,8 @@ let planetCtxObj = null;
 const planetCtx = () => planetCtxObj ??= ({
   THREE, Q, renderer, post, camera, scene, look, sun, LENS, sparks, debris, wisps, birds, news, sfx, fpsEl, perf,
   get hole() { return hole; }, get state() { return state; }, get city() { return city; },
-  steer, flash, hint,
+  steer, flash, hint, assets, edgeArrow,
+  draft() { state.draftsDue++; if (BOT || window.__headless) { openDraft(); if (state.draft) takePerk(state.draft[0]); } else setTimeout(openDraft, 1100); }, // (bots take the first offer at once, as the town's drafts do)
   card(small, big) { levelEl.innerHTML = `<small>${small}</small><b>${big}</b>`; levelEl.classList.remove('show'); void levelEl.offsetWidth; levelEl.classList.add('show'); bannerUntil = performance.now() + 1800; },
   stage: (t, p = 0.5) => setLoad(t, p),
   /** The town / region goes; quiet stand-ins keep the shared code (hud, endRun, bots) from touching a dead city. */

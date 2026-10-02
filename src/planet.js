@@ -245,13 +245,15 @@ export class PlanetWorld {
     globe.commitPatch(A, half);
     globe.u.uWoundP.value = 0.6 * rB;
     this.patchInfo = info;
+    this.onPatch?.(info); // (food.js repaints its footprint maps into the new patch space)
     this.builds++;
     this.lastBuild = { ms: performance.now() - t0, rB, spacing, fine };
   }
 
   // ------------------------------------------------------------------ §2.7: what Phase 3 needs from the shared scene
   enter({ scene, camera, look, post, renderer, sun }) {
-    this.saved = { fog: scene.fogNode, bg: scene.background, sky: look.sky.visible, exposure: renderer.toneMappingExposure, ao: post.opts.ao, shafts: post.opts.shafts, near: camera.near, far: camera.far };
+    this.saved = { envI: scene.environmentIntensity, fog: scene.fogNode, bg: scene.background, sky: look.sky.visible, exposure: renderer.toneMappingExposure, ao: post.opts.ao, shafts: post.opts.shafts, near: camera.near, far: camera.far };
+    scene.environmentIntensity = 0.14; // (the town's daylight IBL washes the food's dark albedo out to mint; the sun carries the planet)
     scene.fogNode = null; // (aerialFog uses max(y, 0) and would fog the globe at y = -R solid; haze lives in planetMaterial)
     scene.background = new THREE.Color(0x000000);
     look.sky.visible = false; look.envSky.visible = false; // (the dome + stars in globe.sky replace them)
@@ -268,7 +270,7 @@ export class PlanetWorld {
     const c = this.ctx, s = this.saved;
     if (!c) return;
     this.scene.remove(this.globe.group, this.globe.sky);
-    this.scene.fogNode = s.fog; this.scene.background = s.bg; c.look.sky.visible = s.sky; c.renderer.toneMappingExposure = s.exposure;
+    this.scene.environmentIntensity = s.envI; this.scene.fogNode = s.fog; this.scene.background = s.bg; c.look.sky.visible = s.sky; c.renderer.toneMappingExposure = s.exposure;
     c.post.opts.ao = s.ao; c.post.opts.shafts = s.shafts; c.post.build();
     c.camera.near = s.near; c.camera.far = s.far; c.camera.updateProjectionMatrix();
     this.globe.dispose();

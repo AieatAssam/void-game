@@ -36,7 +36,7 @@ export const P3 = {
   tierName: (r) => TIERS[P3.tier(r) - 1].name,
   camDist: (r) => 14 + 8 * r, // x portrait x LENS in the game
   // credit (§2.5, §4.5)
-  gLand: [0, 0.012, 0.018, 0.028, 0.038, 0.06], // by tier
+  gLand: [0, 0.012, 0.016, 0.022, 0.038, 0.06], // by tier (bot runs: T3 was 2.9 min at 0.028 with meals 0.9, 6 min at 0.020)
   crust: 300, // C: m of crust under every land column (lowlands are not free)
   chewT: 1.2, // s to chew one bite depth
   depth: (r) => 0.5 * r, // D(r): bite depth
@@ -46,9 +46,10 @@ export const P3 = {
   patchMax: 110 * KM,
   // belly / decay (stub until food.js): land credit tops the belly up 1:1 in area terms
   bellyDrain: 1 / 30, meal: 0.06, decayFed: 0.0010, decayStarving: 0.008,
-  oceanSpeed: (tier) => (tier < 3 ? 0.6 : tier === 3 ? 0.85 : 1),
-  oceanDrain: (tier) => (tier < 3 ? 1.4 : tier === 3 ? 1.15 : 1),
-  // TEMP (until food.js lands): scales land credit so a terrain-only run grows the hole at a testable pace; ?feast=N overrides
-  feast: 3,
+  oceanSpeed: (tier) => (tier < 3 ? 0.85 : tier === 3 ? 0.92 : 1), // (§3: 0.6 / 0.85 felt like wading: the first crossing from the islet is 10-14 r)
+  oceanDrain: (tier) => (tier < 3 ? 1.1 : tier === 3 ? 1.05 : 1),
+  feast: 1, // land-credit multiplier (?feast=N overrides: balance knob)
+  // food (§4.5): meals grow you `growth[tier]` of a Phase 1 bite x growthShare; crumbs (< 0.12 r) a little and keep the belly up
+  growth: [0, 1.7, 1.1, 1.0, 0.8, 0.7], crumbGrowth: 0.4, crumb: 0.02, floorK: 0.7, // (the doc's 0.8..0.5 left a bot ~4x short of its pace: bot runs, docs/BALANCE.md)
   startR: 1400,
 };

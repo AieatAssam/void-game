@@ -194,21 +194,7 @@ const fieldLayer = (q, hw, rowK) => {
   const hedge = float(1).sub(smoothstep(hw.mul(0.3), hw, ed));
   return vec4(mix(col, srgb(0.1, 0.22, 0.09), hedge.mul(0.85)), hedge);
 };
-const townLayer = (q, dens) => {
-  const cell = floor(q), f = fract(q), r = mx_cell_noise_vec3(cell), r2 = mx_cell_noise_vec3(cell.add(vec2(17.3, 5.1)));
-  const ctr = vec2(0.3, 0.3).add(r.yz.mul(0.4)), d = length(f.sub(ctr)), rad = float(0.16).add(r.x.mul(0.16)).mul(clamp(dens.mul(2.6), 0.5, 1.45));
-  const present = step(r2.x, dens.mul(0.7).sub(0.12));
-  const m = float(1).sub(smoothstep(rad.mul(0.95), rad, d)).mul(present);
-  const lp = f.sub(ctr).div(rad).mul(5.5).add(0.5), fb = fract(lp), blk = mx_cell_noise_vec3(floor(lp).add(floor(q).mul(5.0)));
-  const st = min(min(fb.x, float(1).sub(fb.x)), min(fb.y, float(1).sub(fb.y)));
-  const street = sstep(0.11, 0.05, st).mul(float(1).sub(smoothstep(rad.mul(0.5), rad.mul(0.85), d)));
-  let roof = srgb(0.46, 0.27, 0.21);
-  roof = mix(roof, srgb(0.34, 0.35, 0.39), step(0.3, blk.x));
-  roof = mix(roof, srgb(0.5, 0.44, 0.37), step(0.6, blk.x));
-  roof = mix(roof, srgb(0.4, 0.38, 0.36), step(0.85, blk.x));
-  roof = mix(roof, srgb(0.3, 0.45, 0.22), step(0.88, blk.y).mul(0.7)); // gardens
-  return { col: mix(roof.mul(float(0.85).add(blk.z.mul(0.3))).mul(float(0.7).add(sstep(0.12, 0.36, st).mul(0.5))), srgb(0.16, 0.16, 0.18), street), m, lit: step(0.55, blk.y).mul(float(1).sub(street)).mul(m) };
-};
+const treeColCanopy = (nm, fine) => srgb(0.05, 0.16, 0.07).mul(float(0.85).add(nm.mul(0.35)).add(fine.mul(0.5)));
 const treeLayer = (q) => {
   const cell = floor(q), f = fract(q), r = mx_cell_noise_vec3(cell);
   const d = length(f.sub(vec2(0.3, 0.3).add(r.xy.mul(0.4))));
@@ -224,7 +210,7 @@ const treeLayer = (q) => {
  * Uniforms: uSun (planet space), uCam (camera in planet units), uRelief (E), uDetail, uCloudRot, uBorders, uHoles[i] (vec4: dir.xyz,
  * cos(angle); w > 1 = empty), uCut (flat hole cut, metres, render space), uPatch (globe discard disc), uWoundG/uWoundP (wound depth, m).
  */
-export function planetMaterial({ surf, night, bite, trail = null, N = 512, B = 1024, quality = 'high', patch = false, u = planetUniforms() }) {
+export function planetMaterial({ surf, night, bite, trail = null, urban = null, wood = null, N = 512, B = 1024, quality = 'high', patch = false, u = planetUniforms() }) {
   const low = quality === 'low';
   const mat = new THREE.MeshBasicNodeMaterial({ fog: false });
   const aH = attribute('aH', 'float');
@@ -301,7 +287,8 @@ export function planetMaterial({ surf, night, bite, trail = null, N = 512, B = 1
         shadow.assign(float(1).sub(sstep(0.3, 0.68, sampleFace(night, N, ds).g.add(cn)).mul(0.5).mul(sstep(0, 0.25, nlGeo)).mul(sstep(0.0015, 0.02, dist)).mul(smoothstep(u.uHoleD.w.mul(3.5), u.uHoleD.w.mul(9), length(dir.sub(u.uHoleD.xyz))))));
       }
     });
-    const oceanCol = vec3(0).toVar(), landCol = vec3(0).toVar(), townLitV = float(0).toVar();
+    const oceanCol = vec3(0).toVar(), landCol = vec3(0).toVar();
+    const urbV = patch && urban ? texture(urban, attribute('aUV', 'vec2')).r : float(0), woodV = patch && urban ? texture(wood, attribute('aUV', 'vec2')).r : float(0);
     // ---- the sea
     If(landMask.lessThan(0.999), () => {
       const depth = max(e.negate(), 0);
@@ -343,26 +330,30 @@ export function planetMaterial({ surf, night, bite, trail = null, N = 512, B = 1
         const pxM = dist.mul(R).mul(u.uPx), sA = float(5.0e6).div(u.uGcellA), fr = u.uGfr;
         const cult = sstep(1000, 300, e).mul(sstep(0.26, 0.4, Te)).mul(sstep(0.12, 0.24, M)).mul(float(1).sub(sstep(0.18, 0.32, slope))).mul(float(1).sub(sstep(0.8, 0.95, Te))).mul(float(1).sub(rockAmt)).toVar();
         const wood = sstep(0.52, 0.7, M.add(nm.mul(0.25))).mul(sstep(0.7, 0.4, Te).max(0.35)).mul(float(1).sub(rockAmt)).toVar();
-        const dens = clamp(sampleFace(night, N, dir).r.mul(1.5), 0, 1).mul(sstep(0.4, 0.15, slope)).toVar(); // (night.R: city light density)
         const faceOff = vec2(st.z.mul(113.7), st.z.mul(57.1));
         const pA = sr.mul(u.uGcellA).add(faceOff), pB = sr.mul(u.uGcellA.mul(0.5)).add(faceOff.mul(0.5));
         const fr2 = smoothstep(0.35, 0.65, fr), fadeA = sstep(1.2, 5, sA.div(pxM)), fadeB = sstep(1.2, 5, sA.mul(2).div(pxM));
         const hwA = clamp(pxM.mul(1.1).div(sA), 0.035, 0.14), hwB = clamp(pxM.mul(1.1).div(sA.mul(2)), 0.035, 0.14);
-        const fieldV = vec3(0).toVar(), treeMV = float(0).toVar(), treeCV = vec3(0).toVar(), townMV = float(0).toVar(), townCV = vec3(0).toVar();
+        const fieldV = vec3(0).toVar(), treeMV = float(0).toVar(), treeCV = vec3(0).toVar();
         const addOct = (p, hw, fade, w) => { // one octave of the pattern stack, weighted (only the octaves with weight are evaluated)
           grainV.addAssign(mx_noise_float(vec3(p.mul(0.5), 1.0)).mul(0.6).add(mx_noise_float(vec3(p.mul(1.9), 5.0)).mul(0.4)).mul(fade).mul(w));
           crackV.addAssign(pow(float(1).sub(abs(mx_noise_float(vec3(p.mul(1.5), 9.0)))), 10).mul(fade).mul(w));
           fieldV.addAssign(mix(srgb(0.46, 0.5, 0.24), fieldLayer(p, hw, fade).rgb, fade).mul(w));
           If(wood.greaterThan(0.04), () => { const t = treeLayer(p.mul(5.0)); treeMV.addAssign(t.m.mul(fade).mul(w)); treeCV.addAssign(t.col.mul(w)); });
-          If(dens.greaterThan(0.08), () => { const q = townLayer(p.mul(0.2), dens); townMV.addAssign(q.m.mul(fade).mul(w)); townCV.addAssign(q.col.mul(w)); townLitV.addAssign(q.lit.mul(fade).mul(w)); });
         };
         If(fr2.lessThan(0.98), () => addOct(pA, hwA, fadeA, float(1).sub(fr2)));
         If(fr2.greaterThan(0.02), () => addOct(pB, hwB, fadeB, fr2));
-        const fieldC = fieldV, treeM = treeMV, treeC = treeCV, townM = townMV, townC = townCV;
+        const fieldC = fieldV, treeM = treeMV, treeC = treeCV;
         land.assign(mix(land, fieldC.mul(float(1).add(nm.mul(0.3))), cult.mul(gK).mul(0.92)));
         land.assign(mix(land, treeC, wood.mul(treeM).mul(gK).mul(float(1).sub(cult.mul(0.6)))));
-        land.assign(mix(land, townC.mul(0.8), townM.mul(gK).mul(float(1).sub(rockAmt)).mul(sstep(0.0, 400, float(2000).sub(e)))));
       });
+      if (patch && urban) { // settlement footprints (food.js paints them): a dark, desaturated pavement under the skyline kit; woods: a deep canopy
+        const ur = urbV, wd = woodV;
+        const lum = dot(land, vec3(0.3, 0.55, 0.15));
+        const urE = sstep(0.28, 0.72, ur.add(mx_noise_float(vec3(st.xy.mul(u.uGcellA.mul(9)), 2.7)).mul(0.22))); // (a ragged edge: the suburbs fray into the fields)
+        land.assign(mix(land, vec3(lum).mul(0.42).add(vec3(0.03, 0.028, 0.026)), urE.mul(0.58)));
+        land.assign(mix(land, treeColCanopy(nm, fine), wd.mul(0.78).mul(float(1).sub(ur))));
+      }
       land.assign(mix(land, rockC, rockAmt.mul(0.9)));
       const snowLine = mix(1800, 6400, sstep(0.0, 0.75, T0.add(nm.mul(0.06)))), snow = sstep(snowLine.sub(500), snowLine.add(900), e.add(nm.mul(700))).mul(float(1).sub(sstep(0.35, 1.0, slope).mul(0.75)));
       const ice = sstep(0.16, 0.05, Te.add(nm.mul(0.05)));
@@ -396,8 +387,8 @@ export function planetMaterial({ surf, night, bite, trail = null, N = 512, B = 1
       const nlight = sampleFace(night, N, dir).r.toVar();
       const cl1 = mx_noise_float(dir.mul(640)).mul(0.5).add(0.5), cl2 = mx_noise_float(dir.mul(2100)).mul(0.5).add(0.5);
       const lights = nlight.mul(sstep(0.35, 0.9, cl1.mul(0.6).add(nlight.mul(0.7))).mul(sstep(0.56, 0.78, cl2)).mul(2.2).add(nlight.mul(nlight).mul(sstep(0.5, 0.75, cl1)).mul(0.5))).mul(landMask);
-      col.addAssign(vec3(1.0, 0.56, 0.2).mul(lights).mul(dark).mul(1.7));
-      col.addAssign(vec3(1.0, 0.62, 0.26).mul(townLitV).mul(landMask).mul(dark).mul(u.uGroundK).mul(near).mul(2.4)); // the close towns' windows
+      col.addAssign(vec3(1.0, 0.56, 0.2).mul(lights).mul(dark).mul(1.7).mul(float(1).sub(near.mul(u.uGroundK))));  // (close up the food's own windows take over: the bake's blobs would be 5 km soft clouds)
+      if (patch && urban) col.addAssign(vec3(1.0, 0.5, 0.18).mul(urbV).mul(dark).mul(0.09).mul(u.uGroundK).mul(near)); // street glow under the skyline
     });
     If(cloud.greaterThan(0.001), () => { // clouds: white, lit with wrap, thin edges lose density
       const cloudLit = mix(vec3(0.66, 0.72, 0.85), vec3(0.98, 0.985, 1.0), sstep(0.38, 0.95, cloudRaw.add(cn.mul(1.6)))).mul((sunLit.mul(clamp(dot(dir, L).add(0.1).div(1.1), 0, 1)).mul(0.92).add(amb.mul(1.5))));
@@ -535,12 +526,17 @@ export class PlanetGlobe {
     this.surfTex = dataArray(bake.surf, bake.N, 6, THREE.RGBAFormat);
     this.nightTex = dataArray(bake.night, bake.N, 6, THREE.RGFormat);
     this.biteTex = dataArray(new Uint8Array(6 * B * B).fill(255), B, 6, THREE.RedFormat);
+    this.urbanData = new Uint8Array(TRAIL * TRAIL); this.woodData = new Uint8Array(TRAIL * TRAIL); // food.js footprints (settlements, woods), patch space like the trail
+    for (const k of ['urban', 'wood']) {
+      const t = this[k + 'Tex'] = new THREE.DataTexture(this[k + 'Data'], TRAIL, TRAIL, THREE.RedFormat, THREE.UnsignedByteType);
+      t.minFilter = t.magFilter = THREE.LinearFilter; t.generateMipmaps = false; t.unpackAlignment = 1; t.needsUpdate = true;
+    }
     this.trailData = new Uint8Array(TRAIL * TRAIL);
     this.trailTex = new THREE.DataTexture(this.trailData, TRAIL, TRAIL, THREE.RedFormat, THREE.UnsignedByteType);
     this.trailTex.minFilter = this.trailTex.magFilter = THREE.LinearFilter;
     this.trailTex.generateMipmaps = false; this.trailTex.unpackAlignment = 1; this.trailTex.needsUpdate = true;
     this.u = planetUniforms();
-    const mo = { surf: this.surfTex, night: this.nightTex, bite: this.biteTex, trail: this.trailTex, N: bake.N, B, quality, u: this.u };
+    const mo = { surf: this.surfTex, night: this.nightTex, bite: this.biteTex, trail: this.trailTex, urban: this.urbanTex, wood: this.woodTex, N: bake.N, B, quality, u: this.u };
     this.material = planetMaterial(mo);
     this.u.uRelief.value = relief;
     const n = segments ?? (quality === 'low' ? 64 : quality === 'medium' ? 96 : 128);
@@ -643,5 +639,5 @@ export class PlanetGlobe {
     this.uStarR.value = far * 0.98;
   }
 
-  dispose() { this.surfTex.dispose(); this.nightTex.dispose(); this.biteTex.dispose(); this.trailTex.dispose(); this.globe.geometry.dispose(); this.patch.geometry.dispose(); }
+  dispose() { this.surfTex.dispose(); this.nightTex.dispose(); this.biteTex.dispose(); this.trailTex.dispose(); this.urbanTex.dispose(); this.woodTex.dispose(); this.globe.geometry.dispose(); this.patch.geometry.dispose(); }
 }
