@@ -10,6 +10,7 @@ import { sunDir } from './look.js';
 import { Food } from './food.js';
 import { loadPack } from './assets.js';
 import { GROWTH } from './hole.js';
+import { PlanetMap } from './planetmap.js';
 
 const KM = (m) => (m >= 1e5 ? `${(m / 1000).toFixed(0)} km` : m >= 1e4 ? `${(m / 1000).toFixed(1)} km` : `${(m / 1000).toFixed(2)} km`);
 const qs = new URLSearchParams(location.search);
@@ -50,6 +51,7 @@ export class PlanetGame {
     F.buildGoals(r0); F.refreshGoals(state.tier);
     this.hole = hole; this.ctxRef = ctx;
     F.vx = F.vz = 0; F.update(0, hole, true); F.paintUrban();
+    if (!qs.has('nomap')) { this.map = new PlanetMap(ctx.renderer, W.globe); this.map.show(true); this.map.place(W, hole); await this.map.precompile(); } // (the minimap: §6.3)
     state.pop = 0; state.ledger = { meal: 0, crumb: 0, land: 0, fed: 0, starve: 0, ate: 0, crumbs: 0 }; state.tierAt = { 1: 0 }; state.shake = 0; state.slowT = 0;
     this.camDist = 0;
     window.__planet = this.debugApi(ctx);
@@ -92,16 +94,19 @@ export class PlanetGame {
     hole.update(dt, state.time, Math.max(0, 0.5 - state.belly) * 2, W.span, W.tilt);
     // the sun is fixed in planet space: rotate it into render space for the hole's own lighting and the shared sunDir
     W.sunRender(_s);
+    this.map?.place(W, hole);
     sun.position.copy(_s).multiplyScalar(1000); sun.target.position.set(0, 0, 0);
     sunDir.value.copy(_s);
     ctx.sparks.update(dt); ctx.debris.update(dt);
     if (state.playing) this.hud(ctx, tier);
     ctx.news.update(dt, state.pop || 0, !!state.playing);
+    this.map?.update(dt, { hole, world: W, food: this.food, tier, land: W.bite.landEaten });
     this.cpu.step = t1 - t0;
     if (!window.__headless) {
       if (document.visibilityState === 'visible' && !qs.has('nowatch')) post.watch(dt);
       const ts = ctx.fpsEl && performance.now();
       post.render([1, 1, 1]);
+      if (this.map && !qs.get('off')?.includes('map')) this.map.render(); // (after the post pipeline, scissored to its own corner)
       if (ctx.fpsEl) ctx.perf.sub += performance.now() - ts;
     }
   }
@@ -257,9 +262,15 @@ export class PlanetGame {
     if ((state.hudT = (state.hudT || 0) - 1) > 0) return;
     state.hudT = 6;
     const el = (id) => document.getElementById(id);
-    el('size').innerHTML = `${TIERS[tier - 1].name} · <b>${KM(hole.r)}</b>`;
-    el('eaten').innerHTML = `Land eaten <b>${(this.world.bite.landEaten * 100).toFixed(this.world.bite.landEaten < 0.001 ? 4 : 2)}</b>%`;
+    const S = Math.log10(hole.r);
+    el('size').innerHTML = `${TIERS[tier - 1].name} · <b>${KM(hole.r)}</b> · S ${S.toFixed(2)}`;
+    // §4.5: the tier goal until T3, the planet % from T3 (both), then the % alone from T4 (it takes over: the final tier is a crescendo)
+    el('eaten').hidden = tier < 3;
+    el('eaten').innerHTML = `Land eaten <b>${(this.world.bite.landEaten * 100).toFixed(this.world.bite.landEaten < 0.001 ? 4 : this.world.bite.landEaten < 0.1 ? 2 : 1)}</b>%`;
+    el('left').hidden = tier > 3;
     el('left').innerHTML = g ? `${g.name} — <b>${F.goalLeft}</b> left` : F.goalTotal ? `${F.goalNames?.[tier] ?? 'Goal'} <b>cleared</b>` : `<b>${(P3.speed(hole.r) / 1000).toFixed(2)}</b> km/s`;
+    const dc = el('defcon'); dc.hidden = false; // (the director sets state.defcon in step 9: 5 = calm .. 1)
+    [...dc.querySelectorAll('i')].forEach((pip, i) => pip.classList.toggle('on', i >= (state.defcon ?? 5) - 1));
     el('hunger').style.width = `${state.belly * 100}%`;
     el('hunger').parentElement.classList.toggle('low', state.belly < 0.3);
     el('stars').hidden = true; el('crave').hidden = true; el('card').hidden = true;
@@ -343,5 +354,10 @@ export class PlanetGame {
     return api;
   }
 
-  leave(ctx) { this.world?.leave(); this.world = null; }
+  leave(ctx) {
+    this.map?.dispose(); this.map = null;
+    for (const id of ['stars', 'eaten', 'left']) { const e = document.getElementById(id); if (e) e.hidden = false; }
+    document.getElementById('defcon').hidden = true;
+    this.world?.leave(); this.world = null;
+  }
 }

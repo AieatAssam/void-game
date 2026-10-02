@@ -1078,6 +1078,7 @@ const planetCtx = () => planetCtxObj ??= ({
   stage: (t, p = 0.5) => setLoad(t, p),
   /** The town / region goes; quiet stand-ins keep the shared code (hud, endRun, bots) from touching a dead city. */
   dropTown() {
+    minimap.stop(); rubble.clear(); // (the island's minimap and the hometown's rubble would sit on the planet's origin)
     scene.remove(city.group, grass.group);
     for (const o of [director, events, chains, powerups, rivals]) o.dispose();
     city.dispose(); grass.dispose();

@@ -15,7 +15,7 @@ import { makePlanet, bakeRows, faceDir, dirFace, R, SQ_MIN, SQ_STEP, decodeHeigh
 import { MAX_HOLES } from './hole.js';
 import { bakeGroundTextures, FIELD_TILE, CANOPY_TILE, URBAN_TILE, RELIEF_TILE, RELIEF_GMAX, NOISE_TILE } from './groundtex.js';
 
-export { R };
+export { R, faceST, sampleFace, sstep, srgb, heightOf }; // (planetmap.js reuses the face sampling and palette helpers)
 const PI = Math.PI;
 const DBG = typeof location !== 'undefined' ? +(new URLSearchParams(location.search).get('dbg') || 0) : 0; // dev: ?dbg=1 albedo, 2 normal, 3 terrain occlusion / shadow, 4 sun term, 5 pxM
 const OFF = new Set((typeof location !== 'undefined' && new URLSearchParams(location.search).get('off')?.split(',')) || []); // dev: ?off=ground,atmo,cloud,wound,wave,fine to price each part
