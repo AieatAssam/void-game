@@ -295,7 +295,7 @@ export class PlanetGame {
     hole.bump = Math.max(0, (hole.bump || 0) - dt * 2);
     state.best = Math.max(state.best || 0, hole.r);
     state.land = W.bite.landEaten;
-    state.gRate = (state.gRate || 0) + ((dA + tc + pc) / Math.max(dt, 1e-3) - (state.gRate || 0)) * Math.min(1, dt / 10); // (EMA of income, area/s, tau 10 s: the threats' damage is a number of seconds of it)
+    state.gRate = (state.gRate || 0) + ((dA + tc + pc) / Math.max(dt, 1e-3) - (state.gRate || 0)) * Math.min(1, dt / 30); // (EMA of income, area/s, tau 30 s: tears land in bursts, a 10 s window made a hit cost 1-48% depending on luck; the threats' damage is a number of seconds of it)
     state.shake = Math.max(0, state.shake - dt * 1.5);
     if (state.slowT > 0 && (state.slowT -= dt) <= 0) state.slowmo = 1;
     // tier-up (§6.1): hitstop, a slow beat, the name card
@@ -372,8 +372,8 @@ export class PlanetGame {
     const { state, hole } = ctx, st = this.threat?.stats || {}, tm = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
     if (!document.getElementById('threat-css')) document.head.append(Object.assign(document.createElement('style'), { id: 'threat-css', textContent: sealedCss }));
     document.getElementById('sealed')?.remove();
-    const tiers = [1, 2, 3, 4].map((n) => state.tierAt?.[n] != null ? `T${n} ${tm(state.tierAt[n])}` : '').filter(Boolean).join(' · ');
-    const rows = [['Time', tm(state.time)], ['People swallowed', popStr(state.pop || 0)], ['Peak size', KM(state.best || hole.r)], ['Tiers', tiers], ['ICBMs swallowed', `${st.swallowed || 0} / ${st.nukes || 0}`], ['Rods caught', `${st.rodGulps || 0} / ${st.rods || 0}`], ['Satellites', st.sats || 0], ['Hits taken', st.hits || 0], ['Dust earned', `+${state.dust || 0}`]];
+    const tiers = [2, 3, 4].map((n) => state.tierAt?.[n] != null ? `T${n} ${tm(state.tierAt[n])}` : '').filter(Boolean).join(' · ');
+    const rows = [['Time', tm(state.time)], ['People swallowed', popStr(state.pop || 0)], ['Peak size', KM(state.best || hole.r)], ['Tier-ups', tiers], ['ICBMs swallowed', `${st.swallowed || 0} / ${st.nukes || 0}`], ['Rods caught', `${st.rodGulps || 0} / ${st.rods || 0}`], ['Satellites', st.sats || 0], ['Hits taken', st.hits || 0], ['Dust earned', `+${state.dust || 0}`]];
     const el = Object.assign(document.createElement('div'), { id: 'sealed', className: 'won' });
     el.innerHTML = `<h1>THE WORLD IS EATEN</h1><table>${rows.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('')}</table><div><button id="rs-go">Continue (free roam)</button><button class="alt" id="rs-new">New run</button></div>`;
     document.body.append(el);
@@ -388,7 +388,7 @@ export class PlanetGame {
     if (this.fx && this.fx.tok < 0) return;
     const h = v.hsum ? v.hsum[ev.u] / (v.area0[ev.u] || 1) : 300, G = P3.g(hole.r) * P3.feast * (state.fallout ? T3.falloutLand : 1) * (state.surge ? 1.5 : 1);
     const k = 1 + 0.1 * Math.min(5, this.combo || 0), pct = ev.left * 1e6 * Math.sqrt((h + P3.crust) / 1000) * P3.collapseK * G * (state.mods?.tear ?? 1) * k / hole.area * 100;
-    if (pct < 0.05) return;
+    if (pct < 0.2) return; // (smaller ones are noise)
     const pool = this.gains ??= Array.from({ length: 6 }, () => document.body.appendChild(Object.assign(document.createElement('div'), { className: 'gain' }))), el = pool[(this.gainI = ((this.gainI ?? -1) + 1) % 6)];
     const p = W.renderPos(ev.dir, Math.max(0, W.P.elevation(ev.dir, 6)), _p).project(ctx.camera);
     const x = p.z > 1 || Math.abs(p.x) > 0.9 ? 0 : p.x, y = p.z > 1 || Math.abs(p.y) > 0.8 ? 0.1 : p.y;

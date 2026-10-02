@@ -426,6 +426,9 @@ window.__planetSweep = async (n = 3, secs = 3000, who = 'human') => {
   return rows;
 };
 
+/** `__planetSum()`: the last sweep as one line per run: total min, minutes in T1/T2/T3/T4, land % at the tier-ups, end r, shares (swath/tear/pull), decay %, threat damage / bonus / satellite % of gains, W/S, threat counts (nukes, swallowed, hits, rods, rod gulps, sats, seal warnings, mercy). */
+window.__planetSum = () => window.__sweep.map((r) => { const t = Object.values(r.tierMin); return { m: r.min, T: [t[1], +(t[2] - t[1]).toFixed(1), +(t[3] - t[2]).toFixed(1), +(r.min - t[3]).toFixed(1)].join('/'), land: Object.values(r.tierLand).join('/'), rEnd: r.rEnd, sh: r.share.join('/'), dec: r.decay, dmg: r.dmg, bon: r.bonus, sat: r.sat, w: r.won ? 'W' : r.sealed ? 'S' : 'x', th: [r.thr.nukes, r.thr.swallowed, r.thr.hits, r.thr.rods, r.thr.rodGulps, r.thr.sats, r.thr.sealWarn, r.thr.mercy].join(','), walls: r.walls }; });
+
 /**
  * Phase 3 test helpers (docs/PHASE3.md §12.7 R3): `await __planetTT.tear(L, maxKm2, minKm2, off, bearing, r, frames)` stands the hole beside the nearest unit of level L
  * (area in the range) and starts its tear, then renders `frames` frames; `__planetTT.step(n)` renders n more (1/30 s each); `__planetTT.hud(false)` hides the HUD for screenshots.

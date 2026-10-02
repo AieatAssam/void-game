@@ -205,3 +205,25 @@ How the numbers were found (seed 7, 3 runs each unless noted):
 | `collapseK` 0.2 | tear share 23% but 24-30 min games |
 | `collapseK` 0.3, G(450) 0.08, G(1000) 0.13 | final: 21.6-23.9 min on seed 7 |
 | starving decay 0.8% → 0.5% and fade-out 67-97% | decay share 60% → 15-30%; T4 no longer stalls below 1200 km |
+
+## Phase 3 WP-A — sea credit, damage in seconds of income, satellites as a catch (`docs/PHASE3-REVIEW.md`)
+
+Changes that move pacing: (A1) land credit is no longer thrown away when the hole's *centre* is at sea (T4 swath +33%); (A2) the sun rides with the hole (no night side to play on); (A5) collapse combo +10% per level to ×5 on torn land, ripe-unit chasing in the bot; (A8) satellite orbits run 1.5-2.5 r to the side of the hole for 12 s and are eaten within 0.7 r for ×1.01 (was ×1.02, free, 7% of all growth); (A9) a hit costs `max(old fraction, k s of income)` with `k` = 25 s nuke / 25 s rod / 12 s bomber (`T3` in `phase3.js`; income = EMA, tau 30 s, of gross growth), fallout 45 s and land ×0.5, the first ICBM at 14 s is capped at 7%; (A10) walls and ridge drag see the relief E ramped in from 40 to 450 km (`P3.heightK`; the sweep shows no pacing difference with it at 0 or 1); `P3.gScale` 1.00 → 1.06 (the new damage costs ~5% of pace). Planet perks (A7) are taken first-offer by the bot (they change speed / depth / sea / tear / hurt / noto / pull / gulp).
+
+`__planetSweep(3, 3000, 'human')` on seeds 7 / 3 / 11 (`__planetSum()` prints these rows), normal DEFCON, all threats on. Minutes per tier, total, land % at the tier-ups (T2 / T3 / T4), r end, threat damage / bonus / satellite share of all gains (`ledger`), decay share:
+
+| seed | run | T1 | T2 | T3 | T4 | total | land at T2 / T3 / T4 | r end | dmg % | bonus % | sat % | decay % | hits / rods / sats | 
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 7 | 1 | 5.0 | 7.9 | 5.2 | 5.7 | 23.8 | 1.0 / 12.3 / 39 | 2311 km | 9.2 | 2.4 | 1.8 | 14 | 5 / 16 / 5 |
+| 7 | 2 | 4.8 | 6.1 | 5.5 | 8.1 | 24.5 | 1.0 / 8.6 / 40 | 2151 | 12.7 | 2.4 | 1.8 | 18 | 4 / 17 / 6 |
+| 7 | 3 | 5.3 | 6.9 | 6.6 | 4.6 | 23.4 | 0.9 / 10.8 / 46 | 2513 | 0.5 | 2.6 | 1.9 | 12 | 2 / 16 / 5 |
+| 3 | 1 | 6.0 | 3.7 | 5.8 | 5.8 | 21.3 | 1.1 / 8.5 / 42 | 2276 | 7.3 | 3.6 | 2.3 | 11 | 6 / 14 / 5 |
+| 3 | 2 | 6.3 | 2.8 | 4.1 | 6.1 | 19.3 | 1.0 / 5.1 / 35 | 2137 | 0 | 1.4 | 1.0 | 26 | 1 / 12 / 6 |
+| 3 | 3 | 5.4 | 7.2 | 2.1 | 5.2 | 19.9 | 1.0 / 10.1 / 32 | 2326 | 0.4 | 2.3 | 1.6 | 11 | 5 / 13 / 4 |
+| 11 | 1 | 6.7 | 6.1 | 4.1 | 5.6 | 22.5 | 1.3 / 8.1 / 35 | 2647 | 5.1 | 1.9 | 1.0 | 12 | 3 / 14 / 3 |
+| 11 | 2 | 8.2 | 6.9 | 4.9 | 5.3 | 25.3 | 1.4 / 8.6 / 39 | 2700 | 0.6 | 2.8 | 1.4 | 11 | 4 / 15 / 5 |
+| 11 | 3 | 6.6 | 5.1 | 5.8 | 6.5 | 24.0 | 1.3 / 7.3 / 37 | 2678 | 0.9 | 0.8 | 0.7 | 13 | 2 / 15 / 4 |
+
+All 9 runs win in **19.3-25.3 min** (target 18-25), r end **2.1-2.7k km** (was 1.2-1.9k, doc target 2.3k: the sea fix), swath 59-65% / tears 35-41% / pull 0-1%. Threat bonuses 1-4% of gains (was ~9:1 gift over damage: swallowed nukes + satellites ~10%); satellites 0.7-2.3% (was ~7%) and the human-like bot catches about 30% of them (greedy: all of them in the forced test, human 3-6 of 8). Damage 0-12.7% of gains, mean 4%: the area-weighted share is low because a hit costs the same *seconds of progress* at every tier (about 1.5% of a run per hit), the late-game area dwarfs the early one, and the human bot dodges or dives 2/3 of the locked rings. A real player hits more. Sealed warnings: 0 of 9 (the lid still only matters to a player who starves); one earlier seed-3 run sealed at 9 min after a T1 stall (r 27 km, decay 140% of gains): the bot stuck on its islet, a start problem, not a threat problem. Variance between runs of one seed is large (T2 2.8-7.9 min): coast crossings.
+
+How the numbers moved: first pass at k = 15 / 15 / 8 with a 10 s income EMA gave hits of 1-48% depending on a tear burst (income is lumpy: 0.04-2.6%/s); tau 30 s evened it out; k up to 25 / 25 / 12 and `gScale` 1.06 brought 24-28 min back to 19-25. A satellite 2.5-4 r to the side with a 6.6 s orbit (the review's numbers) cannot be caught at all (the hole moves 0.27 r/s at 600 km); 12 s and 1.5-2.5 r can.

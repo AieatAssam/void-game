@@ -296,7 +296,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
 
 ### WP-A: correctness, legibility, feel and juice (do first)
 
-**A1 (P0). Swath credit at sea (B1).**
+**A1 (P0). Swath credit at sea (B1). DONE** (`wetPrev`: sea speed and drain only when the centre is at sea and the disc ate nothing last frame; r end 2.1-2.7k km).
 - **`planetgame.js` → `step()`:**
   - Replace `const dA = credit * G * (here.h < 0 ? 0 : 1)` with `const dA = credit * G`.
   - Define `const wet = here.h < 0 && credit <= 0` and use `wet` instead of `here.h < 0` for the ocean speed `mult` (line 202) and for `oceanDrain` (line 259).
@@ -306,7 +306,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
   - `?planet` arrival: r does not fall during the first 3 s.
   - Then the WP-A gate sweep. Expect `r_end` to rise toward 2.3k km and T4 to shorten. If the total drops below 18 min, lower `GRAMP` at 1600 / 2600 km (0.2 / 0.3) by the measured factor, not the earlier anchors.
 
-**A2 (P0). The sun follows the hole (B2).**
+**A2 (P0). The sun follows the hole (B2). DONE** (`SUN_R` re-applied every frame in `frame()`; the reveal keeps its terminator because the hole does not move during it).
 - **`planet.js` → `update()`:** after placing the group, call `this.setSunRender(SUN_R)` every frame, where `const SUN_R = new THREE.Vector3(-0.75, 0.6, 0.3).normalize()` (the `placeStart` value). Move it to a module const and use it in `placeStart` as well.
 - `patchGen` reads `this.sunPlanet` at build start, so cast shadows stay consistent per build.
 - The ascension's reveal sets its own sun before `commit`. Check that `ascend.js` calls `setSunRender` in its beats, or guard the per-frame call with `!state.asc`.
@@ -316,7 +316,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
   - The night spot from this review (teleport to the antisolar land parcel, r = 250 km) renders lit.
   - `__ascend(false)`: the reveal still shows a terminator.
 
-**A3 (P0). The win state (B3), minimal version.**
+**A3 (P0). The win state (B3), minimal version. DONE** (`resultsUi`, `Threat.stand()`, `bankPlanet` in main.js, dust persisted once; verified headless: overlay up, live threats 0, `save.worlds` +1).
 - **`planetgame.js` → `goalTick()`, in the `state.won` branch:**
   - `this.threat?.clear(); this.threat.disabled = true; this.threat.sealOn = false;`
   - `ctx.edgeArrow('town', null)`.
@@ -337,7 +337,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
   - `save.worlds` has incremented once.
   - Dust has increased.
 
-**A4 (P0). The swath has a sound.**
+**A4 (P0). The swath has a sound. DONE** (`sfx.grind` one persistent graph, `sfx.pebble` parcel crackle at 4 Hz; not listened to: no audio in the harness, the graph runs without errors).
 - **`sfx.js`:** add `grind = { start(), set(level, pitch), stop() }`, one persistent node graph built on first use:
   - a looped `noiseBuf` through a lowpass at 180-600 Hz, plus a 38-55 Hz sine sub;
   - gain = 0.5·level;
@@ -347,7 +347,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
 - **Add a parcel crackle:** in `swallow()`, `cls === 0` returns early. Before returning, play `sfx.crackle(0.15)` at most 4 Hz (a `fx.crackAt` timestamp).
 - **Acceptance:** audible grind that swells on land, falls to silence over sea, and is ducked by tears. No new allocations per frame (create the nodes once).
 
-**A5 (P0). Ripe units are visible, and combos make the loop.**
+**A5 (P0). Ripe units are visible, and combos make the loop. DONE** (`landforms.ripe`, zones 8-11 kind 2 with the cheap rejection and fallout noise moved into its own branch, minimap rings, label, combo x5 with pitch steps, bot ×2 on ripe; ripe rings show in ~60% of play; the 12-zone loop's pixel-ratio-3 A/B was not run).
 - **`landforms.js`:** add `ripe(dir, r, out, max = 5)`, scanned at 2 Hz alongside `target`. It finds units at L1-L3 with `0.25·area0 < left < 0.65·area0` and `left < 0.9·πr²`, centroid within 6 r, not torn. Score by `left / (d + r)` and return the top 5 as `{dir, rEq, frac, L, u, name}`.
 - **`planetglobe.js`:**
   - Raise the zone uniform count from 8 to 12 (`uZone`, `uZoneP`).
@@ -369,7 +369,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
   - The sweep's tear share stays 25-38%.
   - The human bot's `planetSteer` scores ripe units ×2 (update `bot.js`, so balance reflects players chasing them).
 
-**A6 (P1). A growth reward you can see.**
+**A6 (P1). A growth reward you can see. DONE** (gain labels, asymmetric camera follow + 12% pull-out at tier-up, `×N.N` size pill with pulse; limb margin stays above 1° with the lag, 150 km sits at 0.3° without it, as before).
 - **Floating gain text:** in `swallow()`, for `cls ≥ 1` and `show`, spawn a pooled DOM label (pool of 6, CSS transform plus fade over 1.2 s) at the projected centroid with `+X.X%` (the job's credit share of `hole.area`). The credit is known only at `'done'`, so estimate it at `'start'`: `ev.left * 1e6 * sqrt(avg h) * collapseK * G / hole.area`. Also show the population for `cls ≥ 2`.
 - **Camera lag and settle (`frame()`):**
   - Replace `this.camDist += (want - this.camDist) * min(1, dt*2)` with an asymmetric follow: grow-follow `dt * 0.6`, shrink-follow `dt * 2`.
@@ -378,7 +378,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
 - **The size pill:** replace `S 4.60` with `×{(r / 40 km).toFixed(1)}` (growth since landing), and pulse the pill on tier-up and each `cls ≥ 2` tear (a `.pulse` CSS class).
 - **Acceptance:** screenshots before and after a province tear show the label and the hole larger on screen than at rest.
 
-**A7 (P1). A Phase 3 perk pool (B4).**
+**A7 (P1). A Phase 3 perk pool (B4). DONE** (8 `p3` perks in perks.js, wired into step / chew / pullCheck / hurt / notice / gulps; drafts and chips are phase-filtered; the Hardened Void A/B on the ledger was not scripted).
 - **`perks.js`:** add `PLANET_PERKS` (8 entries):
 
   | Perk | Effect |
@@ -403,7 +403,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
 - **`main.js`:** `openDraft(pool)` uses `PLANET_PERKS` when `state.phase === 3`. `perkChips()` shows only perks whose ids are in the active pool, so Phase 2 perks are hidden in Phase 3. `offerPerks(seed, k, taken, pool)` gets a pool argument.
 - **Acceptance:** a draft in Phase 3 shows only planet perks. Each perk's effect shows in the ledger in a scripted A/B, e.g. Hardened Void halves `ledger.nuke` for the same forced hits.
 
-**A8 (P1). Satellites are a deliberate catch (B5).**
+**A8 (P1). Satellites are a deliberate catch (B5). DONE, with changed numbers**: the orbit track is 1.5-2.5 r (not 2.5-4) to the side and the orbit phase lasts 12 s (not 6.6): at the hole's 0.27 r/s a 2.5-4 r detour in 6.6 s is unreachable. Eat radius 0.7 r, ×1.01, pill 'SATELLITE OVERHEAD', bot detours (human 50%); satellites are 0.7-2.3% of gains.
 - **`threat.js` → `spawnLance()`:** offset the orbit so its ground track passes 2.5-4 r to the side of the hole:
 
   ```js
@@ -415,7 +415,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
 - Show "SATELLITE OVERHEAD" in the threat pill for the 3 s window when its track passes within 4 r, so it's a choice.
 - **Acceptance:** over a sweep, `ledger.sat` is under 2% of gains, and the human bot eats 30-60% of satellites. Teach `planetSteer` to detour when a satellite pass is within 4 r (it reads `__threat.rings()` already; add the satellite subpoint).
 
-**A9 (P1). Damage worth fearing.**
+**A9 (P1). Damage worth fearing. DONE, partly**: `T3` table, income EMA (tau 30 s), k 25 / 25 / 12, first ICBM capped at 7%, fallout 45 s ×0.5. Area-weighted damage is 0-12.7% of gains (mean 4%), below the 8-15% target because the human bot dodges; Sealed warnings 0 of 9. See BALANCE.md.
 - **`threat.js`:** keep `hurt()` but express damage in **seconds of current income**.
 - **`planetgame.js` → `step()`:** keep an EMA of growth `state.gRate` (area/s, τ = 10 s).
 - **`hurt(frac, …)`:** `frac = min(0.25, max(frac, k * state.gRate / hole.area))`. Put the constants in a new `T3` table in `phase3.js`.
@@ -427,7 +427,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
   - Sealed warnings in 1-3 of 9 runs, actual Sealed in at most 1 of 9;
   - totals still 18-25 min.
 
-**A10 (P1). Height matters past T1.**
+**A10 (P1). Height matters past T1. DONE** (`Ek` ramp, `P3.heightK`; no pacing effect in the sweep, `state.walls` stays 0 because the bot steers round columns; `__planetLadder()` untouched).
 - **`planetgame.js` → `step()`:** compare the *visual* height. Use `const ev = here.e * W.E` in the drag rule, and `q.e * W.E` in `wallAt`. E is 3 at 40 km and 7 at 1200 km, so walls hold to about 450 km and ridge drag to about 1200 km (8.8 km × 7 = 62 km against D = 36 km).
 - Update the wall hint to `KM(w * W.E / (P3.wallK * 0.03))`.
 - **The drag must never trap:** keep the "downhill is always open" rule.
@@ -438,13 +438,13 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
   - `state.walls` is greater than 0 in T2 in the sweep.
   - Totals still 18-25 min. Expect T2 +0.5 min; compensate with `GRAMP[150 km]` if needed.
 
-**A11 (P1). A first-minute hook.**
+**A11 (P1). A first-minute hook. DONE, adapted**: `placeStart` faces the nearest 0.3-0.8 pi r0^2 unit 1.5-10 r0 away (the review's 2-4 r0 has none on seed 7: the nearest is 5.7 r0), grace 14 s, a scripted first ICBM at the hole at any DEFCON (swallowed by the bot in the first 40 s). A class-2 tear within 6 s is not guaranteed (the first tear fires after the swath eats half a unit).
 - **`planetgame.js` → `placeStart()`:** after placing, find the nearest L1/L2 unit with `0.3·πr0² < area0 < 0.8·πr0²` within 2-4 r0 that has coast share > 50% (a peninsula or isle). Face it: `W.placeAt(startDir, unitCentroid)`. The ascension's camera still plunges straight down.
 - **`threat.js`:** `grace` becomes 14 s.
 - **First threat:** in the first 60 s of a run (only once), spawn one **ICBM with `{at: 'hole'}` at any DEFCON**, with the hint "Dive into the inner circle". That guarantees the best moment in the game in minute one.
 - **Acceptance:** fresh `?planet`, hands off, steering straight: a class-2 tear within 6 s, and an ICBM telegraph before 30 s.
 
-**A12 (P2). Cleanup at the swap (B6).**
+**A12 (P2). Cleanup at the swap (B6). DONE** (status line, perk chips, `state.pop` during the cinematic, news queue on retry; B6 reproduced only by reading the code).
 - **`planetgame.js` → `commit()`:**
   - `document.getElementById('status').textContent = ''`;
   - hide `#perks`, then `perkChips()` per A7;
@@ -641,7 +641,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
 
 ### WP-D: performance, audio and visual polish
 
-**D1 (P1). Remove the dead food-era paths.**
+**D1 (P1). Remove the dead food-era paths. DONE in WP-A** (`mapTex`/`mapData`, `woodV`/`roadV`, the road block, `uRoadW`, `onPatch`, stale comments; the pixel-ratio-3 fps A/B was not run; `?hole3d`/`uCut` kept as a documented debug flag).
 - `planetglobe.js`: the `mapTex` sample (line 250), `woodV` / `roadV` (line 335), the road block (lines 480-482), `uRoadW`, `mapTex` / `mapData` creation and disposal (lines 770-772, 891), and `mapTex` in the material options (line 779).
 - `planet.js` lines 327 and 329 (`uRoadW` write, `onPatch`).
 - `planetgame.js` line 48 (`g.mapTex` in the upload list).
@@ -659,7 +659,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
 - **Target:** T1 ≥ 24 fps at pixel ratio 3 (from 18).
 - **Acceptance:** `__ascend(false)` frames match the docs/screens ascend shots, and there's no hitch at the swap (`__perf` worst frame).
 
-**D3 (P2). Checkpoint memory (B8).**
+**D3 (P2). Checkpoint memory (B8). DONE in WP-A** (snapshot = `rem` + unit tables, ~17 MB, `ov` and `rem8` rebuilt by `restore`, reused at every tier-up; the §12.9/§12.10 '6 MB' text was not edited).
 - `bite.save(into)` takes an optional target object and `.set()`s into preallocated arrays. `checkpoint()` reuses `this.ckpt.snap`.
 - Drop `ov` from the snapshot if `restore` can rebuild it as `rem < 65535 ? 65535 : 0`. Check: `ov` only gates future chewing of touched texels; after a restore, `ov = 65535` for eaten texels is the right conservative value.
 - Fix the "6 MB" claims in §12.9/§12.10.
