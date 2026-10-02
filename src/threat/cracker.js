@@ -12,7 +12,7 @@ const CYAN = C(0x7fe8ff, 2.2), WHITE = C(0xfff4e0, 3.4), HOT = C(0xff9a50, 2.6),
 
 export function makeCracker(th) {
   const T = T3.kinds.cracker, { W, hole, state } = th;
-  const x = { i: 0, on: false, done: false, mod: th.model('cracker'), core: new Ribbon(12, th.root), glow: new Ribbon(12, th.root), zone: -1, mk: null, st: [], pos: new THREE.Vector3(), dirP: new THREE.Vector3(), to: new THREE.Vector3(), mod2: null };
+  const x = { i: 0, on: false, done: false, mod: th.model('cracker'), core: new Ribbon(12, th.root), glow: new Ribbon(12, th.root), halo: new Ribbon(40, th.root), zone: -1, mk: null, st: [], pos: new THREE.Vector3(), dirP: new THREE.Vector3(), to: new THREE.Vector3(), mod2: null };
   for (let i = 0; i < 3; i++) x.st.push({ i, mod: th.model('launch_pad'), feed: new Ribbon(14, th.root), dir: new THREE.Vector3(), alive: false, sink: 0, p0: new THREE.Vector3(), mk: null });
   const stationSpots = (r) => { // three standing-land spots near the hole, 2.5+ r apart, nearest first
     const lf = W.bite.lf, pd = lf.pDir, l0 = lf.lv[0].left, h = W.hdir, list = [];
@@ -57,7 +57,7 @@ export function makeCracker(th) {
         th.surf(q.to, 0, e, Math.max(0, W.P.elevation(q.to, 3))); b.copy(q.pos).addScaledVector(g, 0.2 * R);
         const wd = (0.02 + 0.03 * smooth(0, q.T, q.t)) * r;
         for (let i = 0; i < 12; i++) { f.lerpVectors(b, e, i / 11); q.core.set(i, f, wd, 1.0, 0.4, 0.25, q.locked ? 0.9 : 0.25 + 0.15 * Math.sin(q.t * 9)); q.glow.set(i, f, 3 * wd, 1.0, 0.2, 0.1, 0.12 * (q.locked ? 2 : 1)); }
-        q.core.done(12, th.camP); q.glow.done(12, th.camP);
+        q.core.done(12, th.camP); q.glow.done(12, th.camP); this.halo(q, b, e, 0.25 + 0.6 * smooth(0, q.T, q.t), 1 + 0.08 * Math.sin(q.t * 6));
         th.glow.spawn(b, null, 0.12 * R * (0.4 + 0.6 * charge), 0.15 * R * (0.4 + 0.6 * charge), 0.07, HOT, 1.2, 0);
         // the stations: power lines to the megastructure, being swallowed
         for (const s of q.st) {
@@ -77,13 +77,19 @@ export function makeCracker(th) {
         th.surf(q.to, 0, e, Math.max(0, W.P.elevation(q.to, 3))); b.copy(q.pos).addScaledVector(g, 0.2 * R);
         const w = (0.45 + 0.1 * Math.sin(q.fx * 40)) * r * fade * u;
         for (let i = 0; i < 12; i++) { f.lerpVectors(b, e, i / 11); q.core.set(i, f, w, 1.0, 0.95, 0.85, fade); q.glow.set(i, f, w * 3.2, 1.0, 0.45, 0.15, 0.7 * fade); }
-        q.core.done(12, th.camP); q.glow.done(12, th.camP);
+        q.core.done(12, th.camP); q.glow.done(12, th.camP); this.halo(q, b, e, fade, 1 + 0.9 * q.fx);
         if (q.fx < 1.5) { th.glow.spawn(e, null, 1.6 * r, 2 * r, 0.08, WHITE, 1.6 * fade, 0); for (let j = 0; j < 4; j++) { f.lerpVectors(b, e, Math.random()); th.glow.spawn(f, null, 0.8 * r, 1.6 * r, 0.1, HOT, 0.5 * fade, 0); } }
         if (q.fx > 3.4) { q.phase = 'gone'; k.finish(q); }
       } else if (q.phase === 'fizzle') {
         q.fx += dt; const fade = 1 - smooth(0, 2.0, q.fx); q.mod.scale.multiplyScalar(1 - 0.3 * dt * 0 ); if (q.fx > 2.4) k.finish(q);
         if (Math.random() < 0.5) th.glow.spawn(b.copy(q.pos).addScaledVector(g, 0.2 * R), null, 0.05 * R, 0.14 * R, 0.4, BLUE, 1.6 * fade, 0);
       }
+    },
+    /** The charging ring around the megastructure's nose: perpendicular to the beam, breathing; a flash of it when the beam fires. */
+    halo(q, nose, target, alpha, sz) {
+      f.subVectors(target, nose).normalize(); c.set(0, 1, 0); if (Math.abs(f.y) > 0.9) c.set(1, 0, 0); c.crossVectors(f, c).normalize(); g.crossVectors(f, c);
+      for (let i = 0; i < 40; i++) { const an = (i / 39) * 6.2832; a.copy(nose).addScaledVector(f, 0.08 * R).addScaledVector(c, Math.cos(an) * 0.11 * R * sz).addScaledVector(g, Math.sin(an) * 0.11 * R * sz); q.halo.set(i, a, 0.01 * R * sz, 1.0, 0.55, 0.22, alpha); }
+      q.halo.done(40, th.camP);
     },
     eat(q, s) {
       s.alive = false; s.sink = 0.001; q.eaten++; th.gain(0.006, 'crackerGulp'); state.belly = Math.min(1, state.belly + 0.1); s.mk?.remove(); s.mk = null;
@@ -93,7 +99,7 @@ export function makeCracker(th) {
     },
     fizzle(q) {
       q.phase = 'fizzle'; q.fx = 0; q.done = x.done = true; th.stats.fizzles++; th.gain(T.gulp, 'crackerFizzle'); state.frenzy = 8; state.belly = 1;
-      th.zoneFree(q.zone); q.zone = -1; q.mk?.remove(); q.mk = null; q.core.hide(); q.glow.hide();
+      th.zoneFree(q.zone); q.zone = -1; q.mk?.remove(); q.mk = null; q.core.hide(); q.glow.hide(); q.halo.hide();
       th.sfx.fizzle?.(); th.beat(0.2, 0.4, 1.2); th.trauma(0.6); th.screenFlash(0.7, '#cfe8ff', 600); th.notice(15);
       W.shock(W.hdir, 0.6 * hole.r / R, 3 * hole.r / R, 2.0, 1);
       th.ctx.card('THE CRACKER FIZZLES', `all power stations swallowed: +${Math.round(T.gulp * 100)}%`); th.news('The Last Resort fizzles: the cracker, starved of power, goes dark');
@@ -109,7 +115,7 @@ export function makeCracker(th) {
       if (dist < q.B) { th.stats.crackerHits++; th.hurt(T.hit, 'THE LAST RESORT!', 'cracker', 45, 0.25, q.locked ? th.t - q.lockAt : -1); } else { th.ctx.hint('The beam missed: you left the ring'); th.news('The Last Resort fires — and hits empty land'); }
       th.news('The cracker fires: a crater the size of a province');
     },
-    finish(q) { q.on = false; q.phase = 'gone'; q.mod.visible = false; q.core.hide(); q.glow.hide(); if (q.zone >= 0) th.zoneFree(q.zone); q.zone = -1; q.mk?.remove(); q.mk = null; for (const s of q.st) { s.mod.visible = false; s.alive = false; s.feed.hide(); s.mk?.remove(); s.mk = null; } },
+    finish(q) { q.on = false; q.phase = 'gone'; q.mod.visible = false; q.core.hide(); q.glow.hide(); q.halo.hide(); if (q.zone >= 0) th.zoneFree(q.zone); q.zone = -1; q.mk?.remove(); q.mk = null; for (const s of q.st) { s.mod.visible = false; s.alive = false; s.feed.hide(); s.mk?.remove(); s.mk = null; } },
     clear() { x.done = false; },
     danger(q, out) {
       if (q.phase !== 'charge') return;

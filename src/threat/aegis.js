@@ -5,7 +5,7 @@
 import * as THREE from 'three/webgpu';
 import { R } from '../planetgen.js';
 import { P3, T3 } from '../phase3.js';
-import { C, FIRE, rnd, smooth, aim, tangentAt, Ribbon } from './kit.js';
+import { C, FIRE, rnd, smooth, aim, tangentAt, vel3, Ribbon } from './kit.js';
 
 const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), e = new THREE.Vector3(), f = new THREE.Vector3(), o = {};
 const NET = C(0xff5a3c, 2), BLUE = C(0xcfe8ff, 2.4);
@@ -78,7 +78,7 @@ export function makeAegis(th) {
     },
     eat(q, p) {
       p.alive = false; p.sink = 0.001; q.alive--; th.gain(0.008, 'aegisGulp'); state.belly = Math.min(1, state.belly + 0.1);
-      th.glow.spawn(p.mod.position, null, 0.8 * hole.r, 2.6 * hole.r, 0.6, BLUE, 1.6, 0); th.glow.spawn(p.mod.position, null, 2.6 * hole.r, 3 * hole.r, 0.12, FIRE[0], 2.4, 0);
+      th.glow.spawn(p.mod.position, null, 0.6 * hole.r, 1.8 * hole.r, 0.6, BLUE, 1.6, 0); th.glow.spawn(p.mod.position, null, 1.4 * hole.r, 1.7 * hole.r, 0.1, FIRE[0], 2.2, 0);
       th.sfx.aegisEat?.(); th.beat(0.08); th.trauma(0.25); th.notice(3);
       let al = 0; for (const z of q.pl) if (z.alive) al++;
       if (al > 0) th.ctx.hint(`Platform swallowed — ${al} left, the lid slows`);
@@ -87,7 +87,7 @@ export function makeAegis(th) {
     broken(q) {
       q.broke = true; q.done = x.done = true; q.phase = 'broken'; q.fx = 0; th.stats.aegisBroke++; th.gain(T.gulp, 'aegisBroken'); state.frenzy = 8; state.belly = 1;
       th.zoneFree(q.zone); q.zone = -1; q.mk2?.remove(); q.mk2 = null; q.mk?.remove(); q.mk = null; net.hide();
-      for (let i = 0; i < 28; i++) { const an = (i / 28) * 6.283; tangentAt(q.c, an, c); a.copy(q.c).multiplyScalar(Math.cos(q.ringR / R)).addScaledVector(c, Math.sin(q.ringR / R)).normalize(); th.surf(a, 0.5 * q.r0, b, Math.max(0, W.P.elevation(a, 3))); th.glow.spawn(b, null, 0.5 * q.r0, 0.1 * q.r0, 1.4, NET, 1.4, 1.5); }
+      for (let i = 0; i < 28; i++) { const an = (i / 28) * 6.283; tangentAt(q.c, an, c); a.copy(q.c).multiplyScalar(Math.cos(q.ringR / R)).addScaledVector(c, Math.sin(q.ringR / R)).normalize(); th.surf(a, 0.6 * q.r0, b, Math.max(0, W.P.elevation(a, 3))); th.glow.spawn(b, vel3(a, rnd(-1, 1) * 0.4 * q.r0, rnd(-1, 1) * 0.4 * q.r0, -0.9 * q.r0, f), 0.4 * q.r0, 0.08 * q.r0, 1.6, NET, 1.5, 0.3); }
       th.sfx.aegisBreak?.(); th.beat(0.2, 0.4, 1.0); th.trauma(0.6); th.screenFlash(0.7, '#e8dcff', 600); th.notice(15);
       th.ctx.card('AEGIS BROKEN', `+${Math.round(T.gulp * 100)}% — a free perk`); th.news('The Aegis is broken: its platforms are gone, the sky is open'); state.draftsDue = (state.draftsDue || 0) + 1; th.ctx.draft?.();
     },

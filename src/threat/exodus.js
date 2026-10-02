@@ -44,9 +44,9 @@ export function makeExodus(th) {
       const al = alt(m, m.t), eph = Math.max(0, W.P.elevation(m.dir, 3));
       th.surf(m.dir, al, m.pos, eph); a.copy(m.pos).normalize();
       const al2 = alt(m, m.t + 0.2); th.surf(m.dir, al2, c, eph); c.sub(m.pos); if (c.lengthSq() < 1e-6) c.copy(tangentAt(m.dir, 0, f)); c.normalize();
-      aim(m.mod, c, a, 'x'); m.mod.position.copy(m.pos); m.mod.scale.setScalar(0.45 * r / 118); m.mod.visible = true; m.p0 ??= new THREE.Vector3(); m.p0.copy(m.pos);
+      aim(m.mod, c, a, 'x'); m.mod.position.copy(m.pos); m.mod.scale.setScalar(0.8 * r / 118); m.mod.visible = true; m.p0 ??= new THREE.Vector3(); m.p0.copy(m.pos);
       // the contrail: where it has been
-      let n = 0; for (let i = 0; i < 18; i++) { const tt = m.t - i * 0.32; if (tt < 0) break; th.surf(m.dir, alt(m, tt), e, eph); const fade = 1 - i / 18; m.trail.set(n++, e, 0.05 * r * (0.4 + 0.8 * fade), 0.9, 0.95, 1.0, 0.5 * fade); }
+      let n = 0; for (let i = 0; i < 18; i++) { const tt = m.t - i * 0.32; if (tt < 0) break; th.surf(m.dir, alt(m, tt), e, eph); const fade = 1 - i / 18; m.trail.set(n++, e, 0.08 * r * (0.4 + 0.8 * fade), 0.9, 0.95, 1.0, 0.5 * fade); }
       m.trail.done(n, th.camP);
       if ((m.puff = (m.puff ?? 0) - dt) <= 0) { m.puff = 0.06; th.glow.spawn(m.pos, null, 0.4 * r, 0.5 * r, 0.1, FLAME, 1.5, 0); }
       if (!m.eaten && al < 1.2 * r && W.distTo(m.dir) < 0.8 * hole.r) { m.eaten = true; m.sink = 0.001; th.stats.rocketGulps++; th.gain(T.eat, 'rocketGulp'); state.belly = Math.min(1, state.belly + 0.04); th.glow.spawn(m.pos, null, 0.5 * hole.r, 1.6 * hole.r, 0.4, C(0xdff6ff, 3), 1.4, 0); th.sfx.tink?.(); th.trauma(0.05); th.notice(1); }
