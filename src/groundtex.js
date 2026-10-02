@@ -23,7 +23,7 @@ const mk = (data, n, aniso = 2) => {
 };
 
 /** Periodic Voronoi: F1 id, distance to the nearest border (exact bisector distance), per-parcel randoms. */
-function fieldsData(n, G) {
+function* fieldsData(n, G) {
   const data = new Uint8Array(n * n * 4), cs = n / G;
   const px = new Float32Array(G * G), py = new Float32Array(G * G);
   for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) { px[j * G + i] = (i + 0.5 + (hash2(i, j, 1) - 0.5) * 0.78) * cs; py[j * G + i] = (j + 0.5 + (hash2(i, j, 2) - 0.5) * 0.78) * cs; }
@@ -35,6 +35,7 @@ function fieldsData(n, G) {
       const qx = px[k] + Math.floor(ii / G) * n, qy = py[k] + Math.floor(jj / G) * n, dx = qx - x, dy = qy - y, d = dx * dx + dy * dy;
       if (d < d1) { d2 = d1; b2 = b1; q2x = q1x; q2y = q1y; d1 = d; b1 = k; q1x = qx; q1y = qy; } else if (d < d2) { d2 = d; b2 = k; q2x = qx; q2y = qy; }
     }
+    if ((y & 31) === 31 && x === 0) yield; // (time slices: the planet is built under Phase 2, 3 ms at a time)
     const sep = Math.hypot(q1x - q2x, q1y - q2y) || 1, edge = (d2 - d1) / (2 * sep), o = (y * n + x) * 4, i1 = b1 % G, j1 = (b1 / G) | 0;
     const th = hash2(i1, j1, 3) * Math.PI, per = 2.7 + hash2(i1, j1, 4) * 2.2, rows = 0.5 + 0.5 * Math.sin(((x * Math.cos(th) + y * Math.sin(th)) * 2 * Math.PI) / per);
     data[o] = hash2(i1, j1, 5) * 255;
@@ -47,7 +48,7 @@ function fieldsData(n, G) {
 }
 
 /** Periodic value noise (bilinear, smoothstep) at `period` texels, seeded. */
-function vnoise(n, period, seed) {
+function vnoise(n, period, seed) { // (~1 ms at 512^2)
   const g = Math.max(2, Math.round(n / period)), lat = new Float32Array(g * g);
   for (let j = 0; j < g; j++) for (let i = 0; i < g; i++) lat[j * g + i] = hash2(i, j, seed);
   const out = new Float32Array(n * n), s = g / n;
@@ -61,7 +62,7 @@ function vnoise(n, period, seed) {
   return out;
 }
 
-function canopyData(n) {
+function* canopyData(n) {
   const data = new Uint8Array(n * n * 4);
   const stand = vnoise(n, 96, 11), clump = vnoise(n, 26, 12), clump2 = vnoise(n, 11, 13), hue = vnoise(n, 160, 14), glade = vnoise(n, 120, 15);
   // crowns: periodic worley, 7 texel cells
@@ -76,6 +77,7 @@ function canopyData(n) {
       if (d < d1) { d1 = d; k1 = k; }
     }
     const cr = Math.sqrt(d1) / (cs * 0.62), crown = Math.max(0, 1 - cr * cr), sz = 0.55 + 0.45 * hash2(k1 % G, (k1 / G) | 0, 23);
+    if ((y & 31) === 31 && x === 0) yield;
     const i = y * n + x, o = i * 4, v = 0.5 * stand[i] + 0.3 * clump[i] + 0.2 * clump2[i];
     const b = 0.12 + 0.55 * v + 0.33 * crown * sz; // dark gaps between crowns, bright crown tops
     data[o] = Math.min(255, b * 255);
@@ -86,7 +88,7 @@ function canopyData(n) {
   return data;
 }
 
-function urbanData(n) {
+function* urbanData(n) {
   const data = new Uint8Array(n * n * 4), B = 7, cs = n / B, w = 3.4; // 7 blocks across: 110 m blocks at 0.8 km, streets ~ 9 m wide
   // block borders wobble a little and a few streets are missing (bigger blocks) so it never reads as a graph-paper grid
   const skipX = new Uint8Array(B), skipY = new Uint8Array(B);
@@ -95,6 +97,7 @@ function urbanData(n) {
   const lot = vnoise(n, 9, 33);
   for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
     const bi = Math.floor(x / cs), bj = Math.floor(y / cs), fx = x - bi * cs, fy = y - bj * cs;
+    if ((y & 63) === 63 && x === 0) yield;
     const dx = Math.min(fx, cs - fx), dy = Math.min(fy, cs - fy);
     const edgeX = fx < cs / 2 ? bi : (bi + 1) % B, edgeY = fy < cs / 2 ? bj : (bj + 1) % B;
     const sx = skipX[edgeX] ? 0 : prof(dx, w), sy = skipY[edgeY] ? 0 : prof(dy, w), street = Math.max(sx, sy);
@@ -109,11 +112,12 @@ function urbanData(n) {
 }
 
 /** Slope maps of two fractal height fields (fBm and ridged), periodic, 5 octaves of 128..8 texels, RMS slope ~0.15 and ~0.3. */
-function reliefData(n) {
+function* reliefData(n) {
   const fb = new Float32Array(n * n), rg = new Float32Array(n * n);
   for (let o = 0; o < 5; o++) {
     const per = 128 >> o, v = vnoise(n, per, 41 + o), w = vnoise(n, per, 51 + o), a = per * Math.pow(0.6, o); // amplitude ~ wavelength, finer octaves weaker: broad hills with texture, not noise
     for (let i = 0; i < n * n; i++) { fb[i] += a * (v[i] - 0.5); rg[i] += a * (1 - Math.abs(2 * w[i] - 1) - 0.5); }
+    yield;
   }
   const data = new Uint8Array(n * n * 4), at = (f, x, y) => f[((y + n) % n) * n + ((x + n) % n)];
   const grads = (f) => { // central differences, then scale to a target RMS
@@ -121,7 +125,10 @@ function reliefData(n) {
     for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) { const i = y * n + x; gx[i] = at(f, x + 1, y) - at(f, x - 1, y); gy[i] = at(f, x, y + 1) - at(f, x, y - 1); s += gx[i] * gx[i] + gy[i] * gy[i]; }
     return { gx, gy, rms: Math.sqrt(s / (2 * n * n)) };
   };
-  const A = grads(fb), B = grads(rg), q = (g, k) => Math.max(0, Math.min(255, 127.5 + (g * k / RELIEF_GMAX) * 127.5));
+  yield;
+  const A = grads(fb);
+  yield;
+  const B = grads(rg), q = (g, k) => Math.max(0, Math.min(255, 127.5 + (g * k / RELIEF_GMAX) * 127.5));
   const kA = 0.15 / A.rms, kB = 0.22 / B.rms;
   for (let i = 0; i < n * n; i++) { data[i * 4] = q(A.gx[i], kA); data[i * 4 + 1] = q(A.gy[i], kA); data[i * 4 + 2] = q(B.gx[i], kB); data[i * 4 + 3] = q(B.gy[i], kB); }
   return data;
@@ -157,8 +164,20 @@ function noiseData(n) {
   return data;
 }
 
-/** Bake the textures. quality 'low' / 'medium' use smaller fields. */
-export function bakeGroundTextures(quality = 'high') {
+/** Bake the textures as a generator (yields every few ms; the ascension builds the planet under Phase 2). quality 'low' / 'medium' use smaller fields. */
+export function* bakeGroundTexturesGen(quality = 'high') {
   const nf = quality === 'high' ? 1024 : 512;
-  return { fields: mk(fieldsData(nf, 28), nf, 4), canopy: mk(canopyData(512), 512), urban: mk(urbanData(512), 512), relief: mk(reliefData(512), 512), noise: mk(noiseData(512), 512), scan: scanPack() };
+  const fields = mk(yield* fieldsData(nf, 28), nf, 4); yield;
+  const canopy = mk(yield* canopyData(512), 512); yield;
+  const urban = mk(yield* urbanData(512), 512); yield;
+  const relief = mk(yield* reliefData(512), 512); yield;
+  const noise = mk(noiseData(512), 512); yield;
+  return { fields, canopy, urban, relief, noise, scan: scanPack() };
+}
+/** Bake the textures in one go. */
+export function bakeGroundTextures(quality = 'high') {
+  const g = bakeGroundTexturesGen(quality);
+  let s;
+  while (!(s = g.next()).done);
+  return s.value;
 }

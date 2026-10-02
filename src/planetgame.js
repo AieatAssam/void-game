@@ -25,17 +25,35 @@ const KINDS = ['province', 'provinces', 'nation', 'nations', 'world']; // the go
 export class PlanetGame {
   constructor() { this.world = null; this.camDist = 0; this.lead = new THREE.Vector2(); this.dbg = {}; this.cpu = { world: 0, bite: 0, step: 0 }; }
 
-  /** Build the world behind a loading line, swap the town out, drop the hole in at r0. */
-  async begin(ctx) {
+  /**
+   * Build the world (async; `slice` = the ascension's 3 ms time slicer: the planet is baked and built behind Phase 2, nothing here touches the scene's state) and
+   * compile its pipelines. commit() then swaps it in. begin() = both, behind a loading line (?planet).
+   */
+  async prepare(ctx, slice = null) {
     const quality = ctx.Q.tier === 'low' ? 'low' : ctx.Q.tier === 'medium' ? 'medium' : 'high';
     const seed = num('seed', 7);
-    const W = this.world = await PlanetWorld.create(seed, { quality, workers: !qs.has('noworker'), onStage: (t) => ctx.stage?.(t) });
-    const { hole, state } = ctx;
-    const r0 = num('r', P3.startR);
+    const W = this.world = await PlanetWorld.create(seed, { quality, workers: !qs.has('noworker'), slice, onStage: (t) => ctx.stage?.(t) });
+    W.bind({ scene: ctx.scene, camera: ctx.camera, look: ctx.look, post: ctx.post, renderer: ctx.renderer, sun: ctx.sun });
+    this.around = (fn) => (this.entered ? fn() : W.around(fn)); // (compile in the planet's scene state before the swap: W.sceneState)
+    await loadPack(ctx.assets, 'planet', null, slice ? { gentle: true } : undefined); // (the ships, silos and rigs)
+    if (!qs.has('nomap')) { this.map = new PlanetMap(ctx.renderer, W.globe); this.map.show(false); await this.map.precompile(); } // (the minimap: §6.3)
+    if (!qs.has('noarmy') && !qs.has('nothreat')) { ctx.stage?.('Arming the world…'); this.threat = new Threat(this, ctx); await this.threat.init(); } // (the DEFCON director, src/threat.js)
+    if (slice) { // (under Phase 2: the globe, sky and patch pipelines compile here, one mesh a frame)
+      await ctx.post.precompile(W.globe.group, 20000, this.around);
+      await ctx.post.precompile(W.globe.sky, 8000, this.around);
+    }
+    this.prepared = true;
+    return this;
+  }
+
+  /** The swap: the town / region goes, the planet is the scene, the hole is dropped in at r0. cinematic: the ascension keeps the HUD and the controls off until it is done. */
+  commit(ctx, { cinematic = false, r0 = num('r', P3.startR) } = {}) {
+    const W = this.world, { hole, state } = ctx;
     P3.feast = num('feast', P3.feast);
-    await loadPack(ctx.assets, 'planet'); // (the ships, silos and rigs)
     ctx.dropTown(); // the town (and any Phase 2 region) goes; stand-ins keep the shared code honest
     W.enter({ scene: ctx.scene, camera: ctx.camera, look: ctx.look, post: ctx.post, renderer: ctx.renderer, sun: ctx.sun });
+    this.entered = true;
+    this.threat?.show();
     ctx.wisps.sprite.visible = false; ctx.birds.sprite.visible = false;
     if (qs.get('view') === 'pole') W.placeAt(new THREE.Vector3(0, 1, 0));
     else if (qs.get('at') === 'city') W.placeAt(W.P.city, W.P.startDir); // (debug: the mainland)
@@ -48,21 +66,45 @@ export class PlanetGame {
     if (!W.capMode) W.buildPatchNow(r0);
     W.update(0, hole, ctx.camera, innerHeight);
     this.hole = hole; this.ctxRef = ctx;
-    if (!qs.has('nomap')) { this.map = new PlanetMap(ctx.renderer, W.globe); this.map.show(true); this.map.place(W, hole); await this.map.precompile(); } // (the minimap: §6.3)
+    if (this.map) { this.map.show(true); this.map.place(W, hole); }
     state.sealed = false; state.over = false;
     state.pop = 0; state.ledger = { land: 0, tear: 0, pull: 0, fed: 0, starve: 0 }; state.tierAt = { 1: 0 }; state.goalDone = []; state.continents = 0; state.won = false; state.shake = 0; state.slowT = 0;
     this.camDist = 0;
+    if (!cinematic) this.armRun(ctx, r0);
+    this.installDebug(ctx);
+    state.playing = !cinematic;
+  }
+
+  /** The start of the run proper: the bite map as it is now is what reset() and the Sealed checkpoint return to. */
+  armRun(ctx, r0 = ctx.hole.r) {
+    const W = this.world;
     this.snap0 = W.bite.save(); this.r0 = r0; // (the start of the run: __planet.reset() for balance sweeps)
     this.ckpt = { tier: P3.tier(r0), snap: this.snap0, holeQ: W.holeQ.clone() }; // (the Sealed loss restores the latest tier-up: §8)
-    if (!qs.has('noarmy') && !qs.has('nothreat')) { ctx.stage?.('Arming the world…'); this.threat = new Threat(this, ctx); await this.threat.init(); } // (the DEFCON director, src/threat.js)
+  }
+
+  installDebug(ctx) {
+    const W = this.world;
     window.__planet = this.debugApi(ctx);
     window.__planetLand = () => W.bite.landEaten * 100; // % of the world's land eaten
     window.__planetDbg = window.__planet.dbg; // r, tier, e_eff, speed, patch builds, bite/world/step ms
     window.__planetLadder = () => this.ladderTest(ctx);
     window.__planetUnits = () => this.unitsApi(ctx);
     window.__P3 = P3; // (balance knobs between runs: __P3.growth, __P3.gLand, ...)
-    state.playing = true;
+  }
+
+  /** ?planet: prepare + commit behind the loading line. */
+  async begin(ctx) {
+    await this.prepare(ctx);
+    this.commit(ctx);
     return this;
+  }
+
+  /** Throw a prepared (never swapped in) world away: the run ended in Phase 2. */
+  discard() {
+    if (this.entered) return;
+    this.threat?.dispose(); this.threat = null;
+    this.map?.dispose(); this.map = null;
+    this.world?.globe.dispose(); this.world = null;
   }
 
   /** One frame. dt already includes slow-mo/hit-stop. */
@@ -75,28 +117,39 @@ export class PlanetGame {
     }
     const t1 = performance.now();
     const r = hole.r, tier = P3.tier(r);
-    // ---- camera (§6.1): pitch and E ride r; target = the origin plus a small lead along the velocity
-    const portrait = Math.max(1, 1.2 / camera.aspect) ** 0.7;
+    // ---- camera (§6.1): pitch and E ride r; target = the origin plus a small lead along the velocity. During the ascension (src/ascend.js) the cinematic owns it:
+    // the camera orbits the hole at `dist` / `pitch` / `yaw`, looks `aimK` of the way to the planet's centre (the reveal) and `aimF` x dist ahead of the hole.
+    const A = state.asc?.cam;
     const fx = this.fx;
-    let pk = 1;
-    if (fx && fx.pullT < 3.6) { fx.pullT += dt; const e = fx.pullT; pk = 1 + 0.15 * Math.min(1, e / 0.6) * Math.max(0, Math.min(1, (3.6 - e) / 1.2)); } // (a continent: the camera backs off 15% for 3 s)
-    const want = P3.camDist(r) * portrait * ctx.LENS * pk;
-    this.camDist = this.camDist ? this.camDist + (want - this.camDist) * Math.min(1, dt * 2) : want;
-    const camDist = this.camDist, pitch = P3.pitch(r);
-    const kl = Math.min(1, dt * 3);
-    this.lead.x += ((hole.sx || 0) * 0.025 * camDist - this.lead.x) * kl; this.lead.y += ((hole.sz || 0) * 0.025 * camDist - this.lead.y) * kl; // (the lead pushes the hole down the frame; the aim already put it at ~70%)
-    const horiz = Math.cos(pitch) * camDist;
-    camera.position.set(this.lead.x, Math.sin(pitch) * camDist, this.lead.y + horiz);
-    const tr = state.shake, sh = tr * tr * camDist * 0.02, ts = state.time; // (§5.3: trauma is a slow sway, and above 0.3 a roll: never jitter)
-    if (sh > 1e-4) { camera.position.x += (Math.sin(ts * 2.9) + 0.5 * Math.sin(ts * 6.3 + 1)) * sh; camera.position.y += Math.sin(ts * 3.7 + 2) * sh * 0.5; camera.position.z += Math.cos(ts * 2.3) * sh * 0.7; }
-    camera.lookAt(this.lead.x, 0, this.lead.y - 0.14 * camDist * P3.aim(r) / 4); // (§12.1: aimed above the hole, so the limb and the black sky are in frame from the first second)
-    if (tr > 0.3) camera.rotateZ(Math.sin(ts * 5.7) * 0.05 * (tr - 0.3) / 0.7);
+    let camDist, pitch;
+    if (A) {
+      camDist = this.camDist = A.dist; pitch = A.pitch;
+      const hz = Math.cos(pitch) * camDist;
+      camera.position.set(Math.sin(A.yaw) * hz, Math.sin(pitch) * camDist, Math.cos(A.yaw) * hz);
+      camera.up.set(0, 1, 0);
+      camera.lookAt(0, -A.aimK * (R + W.h0), -A.aimF * camDist);
+      if (A.roll) camera.rotateZ(A.roll);
+      if (Math.abs(camera.fov - A.fov) > 1e-3) { camera.fov = A.fov; camera.updateProjectionMatrix(); }
+    } else {
+      const want = this.homeCam(ctx).dist * (fx && fx.pullT < 3.6 ? (fx.pullT += dt, 1 + 0.15 * Math.min(1, fx.pullT / 0.6) * Math.max(0, Math.min(1, (3.6 - fx.pullT) / 1.2))) : 1); // (a continent: the camera backs off 15% for 3 s)
+      this.camDist = this.camDist ? this.camDist + (want - this.camDist) * Math.min(1, dt * 2) : want;
+      camDist = this.camDist; pitch = P3.pitch(r);
+      const kl = Math.min(1, dt * 3);
+      this.lead.x += ((hole.sx || 0) * 0.025 * camDist - this.lead.x) * kl; this.lead.y += ((hole.sz || 0) * 0.025 * camDist - this.lead.y) * kl; // (the lead pushes the hole down the frame; the aim already put it at ~70%)
+      const horiz = Math.cos(pitch) * camDist;
+      camera.position.set(this.lead.x, Math.sin(pitch) * camDist, this.lead.y + horiz);
+      const tr = state.shake, sh = tr * tr * camDist * 0.02, ts = state.time; // (§5.3: trauma is a slow sway, and above 0.3 a roll: never jitter)
+      if (sh > 1e-4) { camera.position.x += (Math.sin(ts * 2.9) + 0.5 * Math.sin(ts * 6.3 + 1)) * sh; camera.position.y += Math.sin(ts * 3.7 + 2) * sh * 0.5; camera.position.z += Math.cos(ts * 2.3) * sh * 0.7; }
+      camera.lookAt(this.lead.x, 0, this.lead.y - 0.14 * camDist * P3.aim(r) / 4); // (§12.1: aimed above the hole, so the limb and the black sky are in frame from the first second)
+      if (tr > 0.3) camera.rotateZ(Math.sin(ts * 5.7) * 0.05 * (tr - 0.3) / 0.7);
+    }
     const alt = camera.position.y + W.h0, far = Math.max(camDist * 4, 1.2 * Math.sqrt(2 * R * alt + alt * alt), 1.15 * (Math.sqrt(2 * R * alt + alt * alt) + 0.2475 * R)), near = camDist * 0.02; // (far's last term: the atmosphere shell's far wall behind the limb, or the glow is clipped)
     if (Math.abs(camera.far - far) > far * 0.05 || Math.abs(camera.near - near) > near * 0.1) { camera.far = far; camera.near = near; camera.updateProjectionMatrix(); }
     // ---- the world: group placement, patch, bite upload; then the hole itself (it sits on the ground under it)
     const tw = performance.now();
     W.update(dt, hole, camera, renderer.domElement.height);
     this.cpu.world = performance.now() - tw;
+    state.asc?.afterWorld(W, camera);
     this.threat?.post(ctx);
     hole.update(dt, state.time, Math.max(0, 0.5 - state.belly) * 2, W.span, W.tilt);
     // the sun is fixed in planet space: rotate it into render space for the hole's own lighting and the shared sunDir
@@ -106,7 +159,7 @@ export class PlanetGame {
     sunDir.value.copy(_s);
     ctx.sparks.update(dt); ctx.debris.update(dt);
     if (state.playing) this.hud(ctx, tier);
-    ctx.news.update(dt, state.pop || 0, !!state.playing);
+    ctx.news.update(dt, state.pop || 0, !!state.playing || !!state.asc?.news);
     this.map?.update(dt, { hole, world: W, tier, land: W.bite.landEaten, goal: this.goal, lf: W.bite.lf });
     this.cpu.step = t1 - t0;
     if (!window.__headless) {
@@ -116,6 +169,12 @@ export class PlanetGame {
       if (this.map && !qs.get('off')?.includes('map')) this.map.render(); // (after the post pipeline, scissored to its own corner)
       if (ctx.fpsEl) ctx.perf.sub += performance.now() - ts;
     }
+  }
+
+  /** The camera the game would use now at the hole's radius (the portrait stretch and LENS included): the ascension's plunge ends exactly here. */
+  homeCam(ctx, r = ctx.hole.r) {
+    const portrait = Math.max(1, 1.2 / ctx.camera.aspect) ** 0.7;
+    return { dist: P3.camDist(r) * portrait * ctx.LENS, pitch: P3.pitch(r), aimF: 0.14 * P3.aim(r) / 4, fov: ctx.baseFov };
   }
 
   /** The game step: steering, terrain rules (§3), the bite (§2.5), growth, belly. */
@@ -286,15 +345,18 @@ export class PlanetGame {
     const W = this.world, lf = W.bite.lf, { state, hole, news, sfx } = ctx;
     if (!lf?.ready || (this.gT = (this.gT || 0) - dt) > 0) return;
     this.gT = 0.5;
+    const first = !this.goal; // (a start that has already eaten its way past the first goals, ?r=: they clear quietly: no cards, no perk draft that would freeze the test)
     const G = this.goal ??= { idx: 0, g: lf.makeGoal(KINDS[0], W.hdir), frac: 0, tgt: null, hunt: false };
     const world = this.worldGoal ??= lf.makeGoal('world', W.hdir);
     let pr = lf.progress(G.g);
     for (let k = 0; pr.cleared && G.g.kind !== 'world' && k < 4; k++) { // (a cascade: a goal already eaten as part of a bigger tear clears at once)
       const g = G.g;
       state.goalDone[G.idx] = state.time;
-      ctx.card('Goal cleared', g.name);
-      news.say(`${g.name} ${/provinces|nations/.test(g.kind) ? 'have' : 'has'} fallen — ${popStr(state.pop || 0)} swallowed so far`);
-      sfx.levelUp(); ctx.draft?.();
+      if (!first) {
+        ctx.card('Goal cleared', g.name);
+        news.say(`${g.name} ${/provinces|nations/.test(g.kind) ? 'have' : 'has'} fallen — ${popStr(state.pop || 0)} swallowed so far`);
+        sfx.levelUp(); ctx.draft?.();
+      }
       G.g = lf.makeGoal(KINDS[++G.idx], W.hdir); pr = lf.progress(G.g);
     }
     G.frac = pr.frac;

@@ -29,6 +29,7 @@ import { today as todaysContracts, streak, scoreContracts } from './contracts.js
 import { Region, slicer } from './region.js';
 import { Army } from './army.js';
 import { Minimap } from './minimap.js';
+import { Ascension } from './ascend.js';
 import { P2, News, residents, quietDirector, quietEvents, quietChains, quietRivals } from './phase2.js';
 
 // ?bisect: always the same scene, so runs compare (the menu's town and camera are otherwise whatever the player last
@@ -168,7 +169,9 @@ const START_REGION = /[?&]region\b/.test(location.search);
 const PHASE2 = !/[?&]nophase2\b/.test(location.search) && (!BOT || START_REGION);
 // Phase 3 (docs/PHASE3.md): the planet. ?planet starts straight in at 1.4 km (?r=metres, ?view=pole); the module set is src/planet*.js
 const START_PLANET = /[?&]planet(&|$)/.test(location.search) && !/[?&]nophase3\b/.test(location.search);
-let planetGame = null;
+// The Ascension (src/ascend.js): when the capital falls, Phase 2 ends in the cinematic and the planet; bot balance runs keep the old ending unless they ask (?planet)
+const PHASE3 = !/[?&]nophase3\b/.test(location.search) && (!BOT || START_PLANET);
+let planetGame = null, planetReady = false;
 let pickedCity = forcedMood()?.name || (save.city && unlocked(save.city) ? save.city : 'Old Town');
 const runMood = (seed, daily) => (daily || BOT || forcedMood() ? moodFor(seed).name : pickedCity);
 
@@ -191,6 +194,11 @@ function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null, 
   minimap.stop();
   rubble.clear();
   if (state?.phase === 3) { planetGame?.leave(); planetGame = null; }
+  if (state?.planetSlice) { // a planet was being prebuilt behind Phase 2: drop it
+    planetReady = false;
+    state.planetSlice.cancelled = true;
+    state.planetJob?.then((g) => g?.discard());
+  }
   const hm = heatMods(heat);
   if (state?.slice) { // a region was being prebuilt for the last run: drop it
     state.slice.cancelled = true;
@@ -1073,7 +1081,7 @@ const planetStub = () => ({ // what the shared code touches on `city` once the t
 });
 let planetCtxObj = null;
 const planetCtx = () => planetCtxObj ??= ({
-  THREE, Q, renderer, post, camera, scene, look, sun, LENS, sparks, debris, wisps, birds, news, sfx, fpsEl, perf,
+  THREE, Q, renderer, post, camera, scene, look, sun, LENS, baseFov: FOV, sparks, debris, wisps, birds, news, sfx, fpsEl, perf,
   get hole() { return hole; }, get state() { return state; }, get city() { return city; },
   steer, flash, hint, assets, edgeArrow,
   draft() { state.draftsDue++; if (BOT || window.__headless) { openDraft(); if (state.draft) takePerk(state.draft[0]); } else setTimeout(openDraft, 1100); }, // (bots take the first offer at once, as the town's drafts do)
@@ -1207,6 +1215,7 @@ async function breakout(quick = false) {
   else setTimeout(() => { state.slowmo = 1; }, 1600); // the slow climb continues over the new world
   $('where').textContent = `${city.mood.name} countryside · ${city.settlements.length} settlements`;
   minimap.start(city);
+  if (phase2Run()) prebuildPlanet(); // (Phase 3: the planet is baked and built behind the countryside, 3 ms a slice)
   news.say(`${city.capital?.name || 'The capital'} on alert as the hole heads for the countryside`);
   if (!quick) {
     levelEl.innerHTML = `<small>Breakout · ${hole.r.toFixed(1)} m</small><b>The whole country is on the menu</b>`;
@@ -1217,6 +1226,64 @@ async function breakout(quick = false) {
   }
 }
 window.__breakout = (quick = true) => breakout(quick); // (dev: __breakout(false) plays the real cinematic)
+
+/** Build the planet between frames while the country is being eaten (3 ms a slice; paused below 55 fps): the Ascension swaps it in (src/ascend.js). */
+function prebuildPlanet() {
+  if (!PHASE3 || state.planetJob) return;
+  const slice = state.planetSlice = slicer(3, () => post.fps > 0 && post.fps < 55);
+  state.planetJob = (async () => {
+    const game = new (await import('./planetgame.js')).PlanetGame();
+    await game.prepare(planetCtx(), slice);
+    planetReady = true;
+    console.info(`[phase3] planet ready (behind Phase 2): bake + globe + ${game.world.bite.lf.lv[1].n} districts`);
+    return game;
+  })().catch((e) => { if (!slice.cancelled) console.warn('planet prebuild failed', e); return null; });
+}
+
+/** The region's pay, banked as the capital falls (the town banked at the breakout): dust, best, daily. The Phase 3 run starts from here. */
+function bankRegion() {
+  const pay = runDust(true);
+  save.dust += pay.total;
+  save.best = Math.max(save.best, state.best);
+  if (state.daily) save.daily[state.seed] = { ...save.daily[state.seed], r: Math.max(save.daily[state.seed]?.r || 0, state.best) };
+  persist();
+  return (state.regionPay = pay);
+}
+
+/**
+ * The capital fell: Phase 2 ends in the Ascension (src/ascend.js, docs/PHASE3.md §7): bank the region, then the cinematic, then the planet. fast: 2.5x speed (tests).
+ * If the planet is not built yet (a ?region test run), wait for it behind the loading line; if it failed, the old ending.
+ */
+async function ascend(fast = false) {
+  if (state.asc || state.ascending || state.phase !== 2) return;
+  state.ascending = true;
+  state.playing = false;
+  const pay = bankRegion();
+  prebuildPlanet(); // (a no-op if it is already running)
+  if (!state.planetJob) { state.ascending = false; state.playing = true; return; }
+  if (!planetReady) { $('load').hidden = false; setLoad('Forming the world…', 0.5); }
+  const game = await state.planetJob;
+  $('load').hidden = true;
+  if (!game) { state.ascending = false; state.playing = true; state.phase === 2 && endRun(true, 'capital'); return; }
+  planetGame = game;
+  rivals.hideLabels();
+  minimap.stop();
+  for (const el of Object.values(edgeArrows)) el.hidden = true;
+  state.draft = null; draftEl.hidden = true; perksEl.hidden = true;
+  news.say(`${city.capital?.name || 'The capital'} has fallen — the country is gone · +${pay.total} void dust`);
+  const ctx = planetCtx();
+  state.asc = new Ascension({
+    camera, hole, state, ctx, game, city: () => city, debris, sfx, fast,
+    cam0: { dist: camDist, yaw: camYaw, pitch: PITCH - (state.lowK || 0) * 0.22, fov: camera.fov },
+    hideHud: () => { $('hud').hidden = true; }, showHud: () => { $('hud').hidden = false; },
+    card: (small, big) => ctx.card(small, big),
+    done: () => { state.ascending = false; console.info('[ascend] done'); },
+  });
+}
+window.__ascend = (fast = false) => { // (dev: from a ?region run: the capital "falls" and the real cinematic plays; fast = 2.5x)
+  if (state.phase === 1) { hole.area = Math.PI * 10 ** 2; state.mi = MILESTONES.length; return breakout(true).then(() => ascend(fast)); }
+  return ascend(fast);
+};
 const phase2Run = () => PHASE2 && state.mode === 'city' && !state.mutator;
 
 /** Start building the region between frames while the town is still being eaten (3 ms a slice). */
@@ -1494,6 +1561,7 @@ function perfOverlay(jsMs, subMs) {
   }
 }
 renderer.setAnimationLoop(() => {
+  if (window.__pause) return; // (dev: step with __tick / __snap)
   const t0 = fpsEl && performance.now();
   if (fpsEl) perf.sub = 0;
   frame(Math.min(timer.getDelta(), 1 / 20));
@@ -1547,6 +1615,7 @@ if (import.meta.env.DEV) window.__views = async (...only) => {
 };
 
 function frame(dt) {
+  const raw = dt;
   if (state.hitstop > 0) { state.hitstop -= dt; dt *= 0.1; } // hit-stop: the world freezes for a beat on a big bite
   if (state.draft) dt *= 0.04; // perk draft: the world all but stops while you choose
   dt *= state.slowmo; // Phase 2 breakout cinematic
@@ -1557,6 +1626,7 @@ function frame(dt) {
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
   }
+  if (state.asc) { state.asc.advance(raw); if (!state.playing) state.time += dt; } // the Ascension owns the clock (its own real-time beats) and the camera
   if (state.phase === 3) { planetGame.frame(dt, planetCtx()); return; } // Phase 3 has its own loop (src/planetgame.js)
 
   if (state.playing) {
@@ -1667,7 +1737,7 @@ function frame(dt) {
     }
     if (!state.playing) { /* eaten above */ }
     else if (hole.r < (state.phase === 2 ? 3 : DEAD_R)) endRun(false); // (Phase 2 ends with the army's seal first: army.js)
-    else if (state.phase === 2 && city.capital?.left === 0) endRun(true, 'capital');
+    else if (state.phase === 2 && city.capital?.left === 0) { if (PHASE3 && phase2Run()) ascend(); else endRun(true, 'capital'); }
     // Phase 2 follows a normal town clear (not Blitz, not the weekly mutator runs: their twist is the whole run)
     else if (state.left === 0 && state.phase === 1) { if (phase2Run()) breakout(); else endRun(true); }
     if (phase2Run() && state.phase === 1 && !state.regionJob && state.time > 6) prebuildRegion();
@@ -1837,16 +1907,24 @@ function frame(dt) {
   // attract mode: slow orbit behind the menu; snaps back to north-up for play (steering is screen-relative)
   camYaw = state.finale > 0 ? camYaw + dt * 0.3 : state.playing || state.over ? Math.atan2(Math.sin(camYaw), Math.cos(camYaw)) * Math.max(0, 1 - dt * 4) : camYaw + dt * 0.06;
   if (VIEW) { camTarget.set(VIEW[0], 0, VIEW[1]); camDist = VIEW[2]; camYaw = VIEW[3] || 0; }
+  const A = state.asc?.cam; // (the Ascension's region shots: dist / pitch / yaw / fov / sway come from the cinematic)
+  if (A) { camDist = A.dist; camYaw = A.yaw; }
   // the finale (breakout, victory) drops to a lower, kaiju angle as it orbits and climbs
   state.lowK = THREE.MathUtils.lerp(state.lowK || 0, state.finale > 0 ? 1 : 0, Math.min(1, dt * 1.5));
-  const pitch = VIEW?.[4] ? THREE.MathUtils.degToRad(VIEW[4]) : PITCH - state.lowK * 0.22;
+  const pitch = A ? A.pitch : VIEW?.[4] ? THREE.MathUtils.degToRad(VIEW[4]) : PITCH - state.lowK * 0.22;
   const camD = camDist * (1 - state.punch * 0.07); // punch-in on big bites
   const horiz = Math.cos(pitch) * camD;
   camera.position.set(camTarget.x + Math.sin(camYaw) * horiz + (Math.random() - 0.5) * sh, Math.sin(pitch) * camD,
     camTarget.z + Math.cos(camYaw) * horiz + (Math.random() - 0.5) * sh);
   camera.lookAt(camTarget);
+  if (A) { // (the cinematic's own placement: the sway, the roll and the lens)
+    const hz = Math.cos(A.pitch) * A.dist;
+    camera.position.set(camTarget.x + Math.sin(A.yaw) * hz + A.jx, Math.sin(A.pitch) * A.dist + A.jy, camTarget.z + Math.cos(A.yaw) * hz + A.jz);
+    camera.up.set(0, 1, 0); camera.lookAt(camTarget.x, 0, camTarget.z); if (A.roll) camera.rotateZ(A.roll);
+    if (Math.abs(camera.fov - A.fov) > 1e-3) { camera.fov = A.fov; camera.updateProjectionMatrix(); }
+  }
   // Phase 2: the view reaches kilometres; the near plane follows so depth precision holds for paving and roads
-  const far = Math.max(1600, camDist * 4), near = Math.max(0.5, camDist * 0.02);
+  const far = Math.max(1600, camDist * 4, A ? 4e4 : 0), near = Math.max(0.5, camDist * 0.02);
   if (Math.abs(camera.far - far) > far * 0.1 || Math.abs(camera.near - near) > near * 0.2) { camera.far = far; camera.near = near; camera.updateProjectionMatrix(); }
   const low = post.lowSpec || LOW_FX;
   surfaceOn.value = 1; // low tiers use the lite (single-projection) shader instead of losing detail
@@ -1873,7 +1951,7 @@ function frame(dt) {
     _v.set(s.e.x, s.e.y + s.e.meta.height + 0.3, s.e.z).project(camera);
     s.b.style.transform = `translate(${(_v.x * 0.5 + 0.5) * innerWidth}px, ${(-_v.y * 0.5 + 0.5) * innerHeight}px) translate(-10%, -100%)`;
   }
-  world.hole.value.set(hole.x, hole.z, hole.hidden || !state.playing ? 0 : hole.r, hole.vac || 0);
+  world.hole.value.set(hole.x, hole.z, hole.hidden || !(state.playing || state.asc) ? 0 : hole.r, hole.vac || 0);
   world.holeY.value = hole.ry ?? 0;
   pedTime.value += dt;
   lightsTime.value += dt;

@@ -225,3 +225,22 @@ export function strafe() { noise(2.2, 1800, 0.14); for (let i = 0; i < 9; i++) {
 export function tink() { tone('triangle', 2600, 3400, 0.18, 0.12); tone('sine', 2000, 300, 0.35, 0.1, 0.05); noise(0.35, 4000, 0.15, 0.05); }
 /** The Void Lid is coming: a long low drone. */
 export function lidWarn() { tone('sawtooth', 70, 62, 1.8, 0.14); tone('square', 140, 120, 1.8, 0.04); }
+
+// ---------- the Ascension (docs/PHASE3.md §7): the world goes quiet, the island breaks, the hole rips outward, then silence at altitude and a chord ----------
+/** The whole mix drops to `k` (0..1 of normal) over `secs`: the silence before the island breaks. */
+export function duck(k = 0.12, secs = 0.25) {
+  if (!ctx || !master || muted) return;
+  master.gain.cancelScheduledValues(ctx.currentTime); master.gain.setTargetAtTime(0.35 * k, ctx.currentTime, secs / 3);
+}
+export function unduck(secs = 1.5) { duck(1, secs); }
+/** A low drone (two sines a beat apart) that holds for `dur`: the breath held. */
+export function drone(dur = 2.8, vol = 0.5) { tone('sine', 41, 41.6, dur, vol); tone('sine', 62, 61.4, dur, vol * 0.6); }
+/** The surge: a rising roar and a tone that climbs a fifth and a half over `dur`. */
+export function surge(dur = 2.2) { noiseUp(dur, 2600, 0.5); tone('sawtooth', 55, 330, dur, 0.1); tone('sine', 110, 880, dur, 0.18); }
+/** The wind of the pull-out: noise that opens as the camera climbs and thins to nothing (the air runs out at ~100 km). */
+export function windRush(dur = 3.4) { noise(dur, 1800, 0.3, 0, 300); noiseUp(dur * 0.55, 900, 0.12); }
+/** The reveal: one long chord (a stacked fifth stack with a high shimmer) over the silence. */
+export function chord() {
+  [98, 147, 196, 294, 392, 587].forEach((f, i) => { tone('sine', f, f * 1.003, 4.6, 0.11 - i * 0.008, i * 0.07); tone('triangle', f * 2.002, f * 2, 3.8, 0.025, 0.2 + i * 0.07); });
+  tone('sine', 49, 48.5, 5, 0.35);
+}

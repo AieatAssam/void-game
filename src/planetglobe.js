@@ -175,6 +175,7 @@ export function planetUniforms() {
     uWoundP: uniform(800), // metres a full fine-trail texel sinks (patch)
     uBiteWp: uniform(0), // how much of the bite map the patch shows (0 while the hole is far smaller than a texel)
     uAtmoH: uniform(0.35), // 0.35 at T1 .. 1: how much of the shell's outer glow is kept
+    uSkyK: uniform(1), // (stars and the Milky Way: the ascension fades them in while the camera leaves the air)
     uAtmo: uniform(1), // scattering density x (the shell is exaggerated; the T1 camera sits in it: thinner there so the ground stays crisp)
     uShock: Array.from({ length: 4 }, () => uniform(new THREE.Vector4(0, 1, 0, 0))), // shock rings: dir.xyz, start angle (rad)
     uShockP: Array.from({ length: 4 }, () => uniform(new THREE.Vector4(-99, 0, 0, 0))), // start time (uTime), speed (rad/s), life (s), strength
@@ -702,7 +703,7 @@ function skyDome(globeU) {
     const core = exp(pow(dot(d, normalize(vec3(0.7, 0.1, -0.5))).sub(0.9).mul(4), 2).negate());
     const dust = sstep(0.1, 0.5, f2).mul(0.55);
     const mw = band.mul(sstep(-0.3, 0.55, f).mul(0.8).add(0.2)).mul(float(1).sub(dust.mul(band))).mul(core.mul(0.7).add(0.3));
-    const col = mix(vec3(0.45, 0.55, 1.0), vec3(0.95, 0.85, 0.75), core.mul(0.6)).mul(mw).mul(0.05);
+    const col = mix(vec3(0.45, 0.55, 1.0), vec3(0.95, 0.85, 0.75), core.mul(0.6)).mul(mw).mul(0.05).mul(globeU.uSkyK);
     const sd = max(dot(d, globeU.uSun), 0);
     return vec4(col.add(vec3(1.0, 0.9, 0.75).mul(pow(sd, 3500).mul(9).add(pow(sd, 90).mul(0.05)))).add(vec3(0.0015, 0.002, 0.004)), 1);
   })();
@@ -759,7 +760,7 @@ export function patchLayout(n) {
  *   .u                   all uniforms
  */
 export class PlanetGlobe {
-  constructor(bake, { quality = 'high', relief = 3, segments = null, B = 1024, moonDist = 12 } = {}) {
+  constructor(bake, { quality = 'high', relief = 3, segments = null, B = 1024, moonDist = 12, gt = null } = {}) {
     const low = quality === 'low';
     this.N = bake.N; this.B = B;
     this.surfTex = dataArray(bake.surf, bake.N, 6, THREE.RGBAFormat);
@@ -769,7 +770,7 @@ export class PlanetGlobe {
     this.mapData = new Uint8Array(TRAIL * TRAIL * 4);
     this.mapTex = new THREE.DataTexture(this.mapData, TRAIL, TRAIL, THREE.RGBAFormat, THREE.UnsignedByteType);
     this.mapTex.minFilter = this.mapTex.magFilter = THREE.LinearFilter; this.mapTex.generateMipmaps = false; this.mapTex.needsUpdate = true;
-    this.gt = bakeGroundTextures(quality); // the baked ground patterns (fields, canopy, streets, relief)
+    this.gt = gt ?? bakeGroundTextures(quality); // (the ascension passes textures baked in slices during Phase 2) // the baked ground patterns (fields, canopy, streets, relief)
     this.trailData = new Uint8Array(TRAIL * TRAIL);
     this.trailTex = new THREE.DataTexture(this.trailData, TRAIL, TRAIL, THREE.RedFormat, THREE.UnsignedByteType);
     this.trailTex.minFilter = this.trailTex.magFilter = THREE.LinearFilter;
@@ -799,6 +800,7 @@ export class PlanetGlobe {
     this.atmo.scale.setScalar(R); this.atmo.frustumCulled = false; this.atmo.renderOrder = 5;
     this.moon = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 48), moonMaterial(this.u));
     this.moon.scale.setScalar(1737400);
+    this.moonAt = [-0.93, 0.8]; // (where the Moon impostor hangs in the frame, as fractions of the half-width / half-height: the ascension's reveal moves it into the open)
     this.moonDir = new THREE.Vector3(-0.55, 0.28, -0.78).normalize();
     this.moon.position.copy(this.moonDir).multiplyScalar(R * moonDist);
     this.moon.frustumCulled = false;
@@ -814,10 +816,11 @@ export class PlanetGlobe {
     mat.positionNode = instancedBufferAttribute(new THREE.InstancedBufferAttribute(sp.pos, 3)).mul(this.uStarR).add(cameraPosition);
     mat.sizeNode = instancedBufferAttribute(new THREE.InstancedBufferAttribute(sp.size, 1));
     const dd = uv().sub(0.5).length();
-    mat.colorNode = vec4(instancedBufferAttribute(new THREE.InstancedBufferAttribute(sp.col, 3)).mul(pow(smoothstep(0.5, 0.0, dd), 1.6)).mul(1.5), 1);
+    mat.colorNode = vec4(instancedBufferAttribute(new THREE.InstancedBufferAttribute(sp.col, 3)).mul(pow(smoothstep(0.5, 0.0, dd), 1.6)).mul(1.5).mul(this.u.uSkyK), 1);
     this.stars = new THREE.Sprite(mat);
     this.stars.count = sp.size.length;
     this.stars.frustumCulled = false;
+    this.stars.renderOrder = 6; // (after the dome: at 0 the opaque-alpha dome (4) was painted over them and no star was ever visible)
     this.sky.add(dome, this.stars);
     this.dome = dome;
     this._v = new THREE.Vector3();
@@ -877,7 +880,7 @@ export class PlanetGlobe {
     // top left of the frame, on the sky band, at 0.85 far with the true angular size (1.3 deg radius). The camera never turns, so a fixed spot reads as a moon hanging over the limb.
     if (this.moonSky) {
       const hh = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)), hw = hh * camera.aspect, dm = 0.85 * far;
-      _mw.set(-0.93 * hw, 0.8 * hh, -1).applyQuaternion(camera.quaternion).normalize().multiplyScalar(dm).add(camera.position).sub(this.group.position).applyQuaternion(_mq.copy(this.group.quaternion).invert());
+      _mw.set(this.moonAt[0] * hw, this.moonAt[1] * hh, -1).applyQuaternion(camera.quaternion).normalize().multiplyScalar(dm).add(camera.position).sub(this.group.position).applyQuaternion(_mq.copy(this.group.quaternion).invert());
       this.moon.position.copy(_mw); this.moon.scale.setScalar(dm * 1737400 / (R * 12));
     }
     this.dome.position.copy(camera.position);

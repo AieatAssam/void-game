@@ -7,6 +7,7 @@
 import * as THREE from 'three/webgpu';
 import { makePlanet, R } from './planetgen.js';
 import { bakePlanet, PlanetGlobe, TRAIL } from './planetglobe.js';
+import { bakeGroundTexturesGen } from './groundtex.js';
 import { BiteMap } from './bite.js';
 import { P3 } from './phase3.js';
 
@@ -16,14 +17,16 @@ const STAMPS = 4096;
 const HOLE3D = typeof location !== 'undefined' && new URLSearchParams(location.search).has('hole3d');
 
 export class PlanetWorld {
-  /** Bake + build everything (async: a tick between stages so the loading line stays alive). */
-  static async create(seed, { quality = 'high', onStage = () => {}, workers = true } = {}) {
+  /** Bake + build everything (async: a tick between stages so the loading line stays alive). slice: the ascension's time slicer (3 ms a frame under Phase 2); without it the stages run back to back. */
+  static async create(seed, { quality = 'high', onStage = () => {}, workers = true, slice = null } = {}) {
     onStage('Forming the world…');
     const bake = await bakePlanet(seed, 512, { workers });
     const P = makePlanet(seed);
-    const globe = new PlanetGlobe(bake, { quality, relief: 1 });
+    let gt = null;
+    if (slice) { const g = bakeGroundTexturesGen(quality); let s; while (!(s = g.next()).done) await slice(); gt = s.value; }
+    const globe = new PlanetGlobe(bake, { quality, relief: 1, gt });
     const bite = new BiteMap(bake, globe.biteTex, globe.B, P, seed);
-    await bite.init();
+    if (slice) for (const _ of bite.gen()) await slice(); else await bite.init(); // eslint-disable-line no-unused-vars
     return new PlanetWorld(P, globe, bite, bake, seed);
   }
 
@@ -329,18 +332,43 @@ export class PlanetWorld {
   }
 
   // ------------------------------------------------------------------ §2.7: what Phase 3 needs from the shared scene
-  enter({ scene, camera, look, post, renderer, sun }) {
-    this.saved = { envI: scene.environmentIntensity, fog: scene.fogNode, bg: scene.background, sky: look.sky.visible, exposure: renderer.toneMappingExposure, ao: post.opts.ao, shafts: post.opts.shafts, near: camera.near, far: camera.far };
-    scene.environmentIntensity = 0.14; // (the town's daylight IBL washes the food's dark albedo out to mint; the sun carries the planet)
-    scene.fogNode = null; // (aerialFog uses max(y, 0) and would fog the globe at y = -R solid; haze lives in planetMaterial)
-    scene.background = new THREE.Color(0x000000);
-    look.sky.visible = false; look.envSky.visible = false; // (the dome + stars in globe.sky replace them)
-    renderer.toneMappingExposure = 1.0;
-    post.opts.ao = false; post.opts.shafts = false; post.build(); // (no AO on a planet; one rebuild, under the loading line)
+  /**
+   * The planet's scene state (no fog node, black background, low IBL, no dome): `on` applies it, !on puts back what was there. The ascension compiles the planet's
+   * pipelines under Phase 2 by wrapping each compile call in around() (synchronously: the region never renders in this state), so the swap finds them cached.
+   */
+  sceneState(on) {
+    const { scene, look, renderer } = this.ctx0, s = this.saved ??= {};
+    if (on) {
+      Object.assign(s, { envI: scene.environmentIntensity, fog: scene.fogNode, bg: scene.background, sky: look.sky.visible, envSky: look.envSky.visible, exposure: renderer.toneMappingExposure });
+      scene.environmentIntensity = 0.14; // (the town's daylight IBL washes the food's dark albedo out to mint; the sun carries the planet)
+      scene.fogNode = null; // (aerialFog uses max(y, 0) and would fog the globe at y = -R solid; haze lives in planetMaterial)
+      scene.background = new THREE.Color(0x000000);
+      look.sky.visible = false; look.envSky.visible = false; // (the dome + stars in globe.sky replace them)
+      renderer.toneMappingExposure = 1.0;
+    } else {
+      scene.environmentIntensity = s.envI; scene.fogNode = s.fog; scene.background = s.bg; look.sky.visible = s.sky; look.envSky.visible = s.envSky; renderer.toneMappingExposure = s.exposure;
+    }
+  }
+  around(fn) { this.sceneState(true); try { return fn(); } finally { this.sceneState(false); } }
+  /** Remember the shared scene objects (before the first around() / enter()). */
+  bind({ scene, camera, look, post, renderer, sun }) { this.ctx0 = { scene, look, renderer }; this.scene = scene; this.ctx = { camera, look, post, renderer, sun }; return this; }
+  /** The post pipeline without AO and shafts (one rebuild: the ascension does it under the hit-stop) and the planet's grade. */
+  enterPost(post) {
+    if (this.postDone) return;
+    this.postDone = true;
+    this.savedPost = { ao: post.opts.ao, shafts: post.opts.shafts };
+    post.opts.ao = false; post.opts.shafts = false; post.build(); // (no AO on a planet)
     post.setPreset({ lut: { shadow: [0.99, 1.0, 1.03], high: [1.03, 1.0, 0.97], sat: 1.06, con: 1.05 }, shafts: 0 });
+  }
+
+  enter(c) {
+    const { scene, camera, post, sun } = c;
+    this.bind(c);
+    this.saved = { ...this.saved, near: camera.near, far: camera.far };
+    this.sceneState(true);
+    this.enterPost(post);
     scene.add(this.globe.group, this.globe.sky);
     this.globe.moonSky = true; // (the Moon as a camera-anchored impostor, planetglobe.update)
-    this.scene = scene; this.ctx = { camera, look, post, renderer, sun };
     sun.shadow.autoUpdate = false; // (never toggle castShadow at runtime: it breaks ShadowNode)
     sun.intensity = 4.2;
   }
@@ -349,8 +377,8 @@ export class PlanetWorld {
     const c = this.ctx, s = this.saved;
     if (!c) return;
     this.scene.remove(this.globe.group, this.globe.sky);
-    this.scene.environmentIntensity = s.envI; this.scene.fogNode = s.fog; this.scene.background = s.bg; c.look.sky.visible = s.sky; c.renderer.toneMappingExposure = s.exposure;
-    c.post.opts.ao = s.ao; c.post.opts.shafts = s.shafts; c.post.build();
+    this.sceneState(false);
+    if (this.savedPost) { c.post.opts.ao = this.savedPost.ao; c.post.opts.shafts = this.savedPost.shafts; c.post.build(); }
     c.camera.near = s.near; c.camera.far = s.far; c.camera.updateProjectionMatrix();
     this.globe.dispose();
   }

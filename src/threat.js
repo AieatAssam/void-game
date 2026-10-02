@@ -158,6 +158,7 @@ export class Threat {
     this.root = new THREE.Group(); this.root.name = 'threats'; W.globe.group.add(this.root);
     this.glow = new Pool(110, true); this.smoke = new Pool(760, false);
     ctx.scene.add(this.glow.sprite, this.smoke.sprite);
+    this.glow.sprite.visible = this.smoke.sprite.visible = !!this.game.entered; // (prepared under Phase 2: the pools stay hidden until the swap, show())
     const model = (name) => { const o = assets[name].scene.clone(true); o.traverse((m) => { if (m.isMesh) { m.castShadow = m.receiveShadow = false; m.frustumCulled = false; } }); o.visible = false; this.root.add(o); return o; };
     for (let i = 0; i < 3; i++) {
       const mat = mushroomMaterial(), mesh = model('mushroom_cloud');
@@ -171,9 +172,11 @@ export class Threat {
     this.lid = new THREE.Mesh(lg, lm); this.lid.visible = false; this.lid.frustumCulled = false; this.root.add(this.lid);
     window.__threat = this.api();
     for (const o of [this.glow.sprite, this.smoke.sprite]) o.frustumCulled = false;
-    try { await ctx.post.precompile(this.root, 6000); await ctx.post.precompile({ traverse: (f) => { f(this.glow.sprite); f(this.smoke.sprite); } }, 3000); } catch (e) { console.warn('threat precompile', e); }
+    try { await ctx.post.precompile(this.root, 6000, this.game.around); await ctx.post.precompile({ traverse: (f) => { f(this.glow.sprite); f(this.smoke.sprite); } }, 3000, this.game.around); } catch (e) { console.warn('threat precompile', e); }
     this.ready = true;
   }
+
+  show() { this.glow.sprite.visible = this.smoke.sprite.visible = true; }
 
   dispose() {
     this.lineEl.remove(); this.flashEl.remove(); document.getElementById('sealed')?.remove();

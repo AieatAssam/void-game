@@ -165,7 +165,7 @@ export class Post {
    * rendering (the breakout cinematic dropped to 10 fps). The wait gives up after `timeout` ms: three's WebGL backend
    * polls with requestAnimationFrame, which never fires in a background tab.
    */
-  async precompile(root = null, timeout = 8000) {
+  async precompile(root = null, timeout = 8000, around = null) {
     const r = this.renderer, sp = this.scenePass, scene = this.scene, cam = this.camera;
     const withPass = (fn) => { // (collect synchronously in the scene pass's context, then put the renderer back)
       if (!sp) return fn();
@@ -209,7 +209,7 @@ export class Post {
       o.frustumCulled = false;
       const n = o.count;
       if (o.isInstancedMesh && !n) o.count = 1; // (culled traffic and crumbs sit at 0 until the first cull: three skips them)
-      const p = withPass(() => r.compileAsync(o, cam, scene));
+      const p = withPass(() => (around ? around(() => r.compileAsync(o, cam, scene)) : r.compileAsync(o, cam, scene))); // (around: the ascension compiles the planet in the planet's scene state, synchronously, so the swap finds the pipelines cached)
       for (const [q, pv] of parents) q.visible = pv;
       o.visible = v; o.frustumCulled = f; o.count = n;
       await race(p, 1000);

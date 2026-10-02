@@ -124,7 +124,9 @@ export class PlanetMap {
   async precompile() {
     const r = this.renderer, tm = r.toneMapping, cs = r.outputColorSpace;
     r.toneMapping = THREE.NoToneMapping; r.outputColorSpace = THREE.LinearSRGBColorSpace; // (the state render() draws in)
-    try { await r.compileAsync(this.scene, this.cam); } catch (e) { console.warn('planet map compile', e); } finally { r.toneMapping = tm; r.outputColorSpace = cs; }
+    let p; // (the state is only needed while the compile call builds its nodes, synchronously: under Phase 2 frames keep rendering while it finishes)
+    try { p = r.compileAsync(this.scene, this.cam); } finally { r.toneMapping = tm; r.outputColorSpace = cs; }
+    try { await p; } catch (e) { console.warn('planet map compile', e); }
   }
 
   show(on = true) { this.on = on; this.el.hidden = !on; }
