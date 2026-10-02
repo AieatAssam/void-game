@@ -40,6 +40,11 @@ if (/[?&]bisect\b/.test(location.search) && !/[?&]view=/.test(location.search)) 
 
 const $ = (id) => document.getElementById(id);
 const renderer = await createRenderer($('c'));
+// ?planet=view: the Phase 3 planet viewer (a lit globe on an orbit camera), without starting the game
+if (/[?&]planet=view\b/.test(location.search)) {
+  await (await import('./planetview.js')).run(renderer, $('c'));
+  await new Promise(() => {});
+}
 const look = createScene();
 const { scene, sun } = look;
 // the shadow map is re-rendered every Nth frame (post.opts.shadowEvery; Safari starts at 3): Safari paid half its frame
