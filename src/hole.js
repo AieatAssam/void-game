@@ -135,7 +135,7 @@ export class Hole {
     this.gy = this.gy === undefined ? span[0] : this.gy + (span[0] - this.gy) * k;
     this.gt = this.gt === undefined ? span[1] : this.gt + (span[1] - this.gt) * k;
     this.field.value[this.slot].set(this.x, this.z, r);
-    this.group.visible = !this.hidden;
+    this.group.visible = !this.hidden && !this.capMode; // (Phase 3, r >= 110 km: the planet shader draws the hole as a spherical cap)
     const depth = Math.max(4, r * 5);
     this.well.position.set(this.x, this.gy, this.z);
     this.well.scale.set(r || 1e-3, depth, r || 1e-3);

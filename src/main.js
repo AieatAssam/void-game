@@ -69,7 +69,7 @@ const minimap = new Minimap(); // Phase 2
 scene.add(birds.sprite, rubble.mesh);
 const LOW_FX = /[?&]low\b/.test(location.search); // ?low: skip extra particles and smoke
 // debug framing for screenshots: ?view=x,z,dist[,yaw,pitch]
-const VIEW = new URLSearchParams(location.search).get('view')?.split(',').map(Number);
+const VIEW = (() => { const v = new URLSearchParams(location.search).get('view')?.split(',').map(Number); return v?.every(Number.isFinite) ? v : null; })(); // (?view=pole is Phase 3's, not a camera)
 const smokeCol = new THREE.Color();
 const dustCol = new THREE.Color(0xb3a28c);
 
@@ -166,6 +166,9 @@ const BOT = location.search.includes('bot');
 // ending unless they ask (?region starts straight in Phase 2; ?nophase2 turns it off).
 const START_REGION = /[?&]region\b/.test(location.search);
 const PHASE2 = !/[?&]nophase2\b/.test(location.search) && (!BOT || START_REGION);
+// Phase 3 (docs/PHASE3.md): the planet. ?planet starts straight in at 1.4 km (?r=metres, ?view=pole); the module set is src/planet*.js
+const START_PLANET = /[?&]planet(&|$)/.test(location.search) && !/[?&]nophase3\b/.test(location.search);
+let planetGame = null;
 let pickedCity = forcedMood()?.name || (save.city && unlocked(save.city) ? save.city : 'Old Town');
 const runMood = (seed, daily) => (daily || BOT || forcedMood() ? moodFor(seed).name : pickedCity);
 
@@ -187,13 +190,14 @@ const pickedMode = new URLSearchParams(location.search).get('mode') === 'blitz' 
 function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null, mutator = null, heat = 0, mode = 'city') {
   minimap.stop();
   rubble.clear();
+  if (state?.phase === 3) { planetGame?.leave(); planetGame = null; }
   const hm = heatMods(heat);
   if (state?.slice) { // a region was being prebuilt for the last run: drop it
     state.slice.cancelled = true;
     state.regionJob?.then((r) => { if (r && !r.finished) r.terrain.dispose(); });
   }
   if (city) { powerups.dispose(); scene.remove(city.group, hole.group, grass.group); city.dispose(); hole.dispose(); director.dispose(); rivals.dispose(); grass.dispose(); events.dispose(); chains.dispose(); }
-  const debugR = +new URLSearchParams(location.search).get('r') || 0; // screenshot/debug: start bigger
+  const debugR = START_PLANET ? 0 : +new URLSearchParams(location.search).get('r') || 0; // screenshot/debug: start bigger (?planet reads r itself)
   hole = new Hole(assets, field, 0, { r: debugR || 0.45 + level('headstart') * 0.04, skin: save.skin || 'void' });
   hole.pull = 1 + level('gravity') * 0.06;
   city = new City(assets, seed, field, { mood, mutator });
@@ -891,6 +895,7 @@ async function start(seed, daily, mutator = null, mode = 'city') {
       }
     } else newRun(s, daily, card, mood, mutator, heat, mode);
   }
+  if (START_PLANET && state.phase === 1) return enterPlanet();
   $('screen').hidden = true;
   $('hud').hidden = false;
   state.playing = true;
@@ -1055,6 +1060,45 @@ renderCities();
 // landmark thumbnails for the picker render first, then the book
 if (!location.search.includes('nothumbs')) {
   setTimeout(() => warmThumbs(assets, Object.values(LANDMARK).map(([n]) => n), () => state?.playing).then(renderCities), 1500);
+}
+
+// ---------- Phase 3: the planet (docs/PHASE3.md; src/planet*.js own the world, the bite map and their own per-frame function) ----------
+const planetStub = () => ({ // what the shared code touches on `city` once the town is gone
+  entities: [], settlements: [], tiles: [], events: [], mixers: [], smokers: [], group: new THREE.Group(), capital: null, scaleK: 1, half: Infinity, bound: Infinity, mood: { name: 'Planet' }, N: 0,
+  target: () => null, targetScore: () => 0, buildingsLeft: () => 0, groundY: () => 0, groundSpan: () => [0, 0], groundTilt: () => null, surfaceSpeed: () => 1,
+  budget() {}, update: () => [], syncBatches() {}, cullTraffic() {}, evacuate() {}, dispose() {},
+});
+let planetCtxObj = null;
+const planetCtx = () => planetCtxObj ??= ({
+  THREE, Q, renderer, post, camera, scene, look, sun, LENS, sparks, debris, wisps, birds, news, sfx, fpsEl, perf,
+  get hole() { return hole; }, get state() { return state; }, get city() { return city; },
+  steer, flash, hint,
+  card(small, big) { levelEl.innerHTML = `<small>${small}</small><b>${big}</b>`; levelEl.classList.remove('show'); void levelEl.offsetWidth; levelEl.classList.add('show'); bannerUntil = performance.now() + 1800; },
+  stage: (t, p = 0.5) => setLoad(t, p),
+  /** The town / region goes; quiet stand-ins keep the shared code (hud, endRun, bots) from touching a dead city. */
+  dropTown() {
+    scene.remove(city.group, grass.group);
+    for (const o of [director, events, chains, powerups, rivals]) o.dispose();
+    city.dispose(); grass.dispose();
+    city = planetStub(); events = quietEvents(); chains = quietChains(); director = quietDirector(); rivals = quietRivals();
+    powerups = { dispose() {}, items: [], active: {}, chips: () => [], update: () => [], nearest: () => null, twin: null, gapK: 1 };
+    grass = { group: new THREE.Group(), layers: [], dispose() {}, update() {} };
+    scene.add(grass.group);
+  },
+});
+async function enterPlanet() {
+  starting = true;
+  $('menu').hidden = true; $('load').hidden = false;
+  setLoad('Forming the world…', 0.4);
+  try {
+    planetGame = new (await import('./planetgame.js')).PlanetGame();
+    await planetGame.begin(planetCtx());
+  } finally {
+    starting = false;
+    $('load').hidden = true;
+    $('screen').hidden = true;
+    $('hud').hidden = false;
+  }
 }
 
 // ---------- Phase 2: breakout (docs/PHASE2.md §2) ----------
@@ -1508,6 +1552,7 @@ function frame(dt) {
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
   }
+  if (state.phase === 3) { planetGame.frame(dt, planetCtx()); return; } // Phase 3 has its own loop (src/planetgame.js)
 
   if (state.playing) {
     state.time += dt;
@@ -1843,3 +1888,5 @@ function frame(dt) {
     if (state.snapAt && state.time >= state.snapAt) { state.snapAt = 0; state.bite = snapshot(); }
   }
 }
+
+if (START_PLANET) start(undefined, false, null, 'city'); // ?planet: straight in, no menu
