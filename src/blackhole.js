@@ -6,12 +6,29 @@
 //     (no ray marching), and only pixels within ~9 shadow radii of the hole evaluate the disk.
 import * as THREE from 'three/webgpu';
 import {
-  Fn, If, uniform, vec2, vec3, vec4, float, length, max, min, abs, exp, log, sin, cos, atan, mix, smoothstep, clamp, pow, sqrt, mx_noise_float, normalView, positionView, normalize, dot, time, select, uv,
+  Fn, If, uniform, vec2, vec3, vec4, float, length, max, min, abs, exp, log, sin, cos, atan, mix, smoothstep, clamp, pow, sqrt, texture, mx_noise_float, normalView, positionView, normalize, dot, time, select, uv,
 } from 'three/tsl';
 
 /** Lens / disk uniforms (post.js owns them): A = centre uv (y down), shadow radius (screen heights), lens strength 0..1; B = sin(elevation of the camera over the disk plane), roll, disk clock (s), disk 0..1; C = disk inner, outer (shadow radii), Doppler, temperature. */
 export function lensUniforms() {
-  return { A: uniform(new THREE.Vector4(0.5, 0.5, 0.12, 0)), B: uniform(new THREE.Vector4(0.22, 0, 0, 0)), C: uniform(new THREE.Vector4(1.55, 7.2, 0.7, 1)) };
+  return { A: uniform(new THREE.Vector4(0.5, 0.5, 0.12, 0)), B: uniform(new THREE.Vector4(0.22, 0, 0, 0)), C: uniform(new THREE.Vector4(1.55, 7.2, 0.7, 1)), T: diskNoise() };
+}
+
+/** A small periodic noise tile (R: three octaves, G: finer) for the disk's turbulence: one fetch instead of procedural noise per pixel. */
+function diskNoise(N = 128) {
+  const data = new Uint8Array(N * N * 4);
+  const hash = (x, y, s) => { let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(s, 1274126177)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+  const sm = (t) => t * t * (3 - 2 * t);
+  const pn = (x, y, P, s) => { const fx = x * P, fy = y * P, ix = Math.floor(fx), iy = Math.floor(fy), tx = sm(fx - ix), ty = sm(fy - iy), g = (a, b) => hash(((a % P) + P) % P, ((b % P) + P) % P, s); return (g(ix, iy) * (1 - tx) + g(ix + 1, iy) * tx) * (1 - ty) + (g(ix, iy + 1) * (1 - tx) + g(ix + 1, iy + 1) * tx) * ty; };
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const x = i / N, y = j / N, o = (j * N + i) * 4;
+    data[o] = 255 * (pn(x, y, 8, 1) * 0.5 + pn(x, y, 16, 2) * 0.3 + pn(x, y, 32, 3) * 0.2);
+    data[o + 1] = 255 * (pn(x, y, 24, 4) * 0.6 + pn(x, y, 48, 5) * 0.4);
+    data[o + 2] = data[o + 3] = 255;
+  }
+  const t = new THREE.DataTexture(data, N, N, THREE.RGBAFormat, THREE.UnsignedByteType);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.minFilter = t.magFilter = THREE.LinearFilter; t.generateMipmaps = false; t.needsUpdate = true;
+  return t;
 }
 
 const E2 = 1.64; // Einstein radius^2 in shadow radii (the ring sits at 1.28: just outside the shadow)
@@ -36,7 +53,7 @@ export function lensNodes(uv0, asp, U, tm, low = false) {
   const over = Fn(() => {
     const rgb = vec3(0).toVar(), a = float(0).toVar();
     If(A.w.greaterThan(0.001), () => {
-      const p = uv0.sub(A.xy).mul(sc).div(A.z), rh = max(length(p), 1e-3), kk = smoothstep(0.04, 0.22, A.w);
+      const p = uv0.sub(A.xy).mul(sc).div(A.z), rh = max(length(p), 1e-3), kk = smoothstep(0.004, 0.02, A.w);
       const shadow = float(1).sub(smoothstep(0.985, 1.012, rh)).mul(kk);
       const hdr = vec3(0).toVar(), cover = float(0).toVar();
       If(B.w.greaterThan(0.001).and(rh.lessThan(9.5)), () => {
@@ -48,15 +65,18 @@ export function lensNodes(uv0, asp, U, tm, low = false) {
           const ar = max(length(vec2(x, z)), 1e-3), ph = atan(z, x), inner = C.x, outer = C.y;
           const cov = smoothstep(inner.mul(0.9), inner.mul(1.1), ar).mul(float(1).sub(smoothstep(outer.mul(0.6), outer, ar)));
           const sp = ph.sub(pow(max(ar, 0.4), -1.5).mul(B.z)), lr = log(ar);
-          let dens = float(0.68).add(mx_noise_float(vec3(sp.mul(2.2), lr.mul(7), 3.1)).mul(0.42));
-          if (!low) dens = dens.add(mx_noise_float(vec3(sp.mul(8), ar.mul(3.7), 8.2)).mul(0.22)).add(sin(sp.mul(3).add(lr.mul(9))).mul(0.12));
+          let dens = float(0.68).add(texture(U.T, vec2(sp.mul(0.159155), lr.mul(0.36))).level(0).x.sub(0.5).mul(0.84));
+          if (!low) dens = dens.add(texture(U.T, vec2(sp.mul(0.318), lr.mul(1.1).add(0.37))).level(0).y.sub(0.5).mul(0.44)).add(sin(sp.mul(3).add(lr.mul(9))).mul(0.12));
           const dop = float(1).add(C.z.mul(x.negate().div(ar)).mul(pow(inner.div(ar), 0.5)));
-          const I = pow(inner.div(ar), 2.3).mul(clamp(dens, 0.12, 1.6)).mul(pow(max(dop, 0.12), 3)).mul(3.4);
+          const I = pow(inner.div(ar), 2.3).mul(clamp(dens, 0.12, 1.6)).mul(pow(max(dop, 0.12), 2.5)).mul(2.7);
           const T = pow(inner.div(ar), 1.0).mul(C.w).mul(0.9).mul(dop.mul(0.35).add(0.65));
           return vec4(hotColor(T).mul(I), cov);
         };
-        const near = em(q.x, q.y.div(sE)), nearK = float(1).sub(smoothstep(-0.012, 0.01, q.y)).mul(near.w);
-        const far = em(bv.x, bv.y.div(sE)), farK = smoothstep(-0.01, 0.012, bv.y).mul(far.w).mul(smoothstep(0.99, 1.04, rh));
+        // only the half that is wanted is evaluated (the near half below the line, the far half above it; both in the thin band and under the shadow)
+        const near = vec4(0).toVar(), far = vec4(0).toVar();
+        If(q.y.lessThan(0.012), () => { near.assign(em(q.x, q.y.div(sE))); });
+        If(bv.y.greaterThan(-0.01).and(rh.greaterThan(0.99)), () => { far.assign(em(bv.x, bv.y.div(sE))); });
+        const nearK = float(1).sub(smoothstep(-0.012, 0.01, q.y)).mul(near.w), farK = smoothstep(-0.01, 0.012, bv.y).mul(far.w).mul(smoothstep(0.99, 1.04, rh));
         hdr.assign(near.xyz.mul(nearK).add(far.xyz.mul(farK)).mul(B.w));
         cover.assign(max(nearK, farK.mul(0.85)).mul(B.w));
       });

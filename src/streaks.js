@@ -4,11 +4,11 @@
 // Coordinates are planet-local, in planet radii (the mesh is a child of the globe's group, scaled by R), the hole at `uH`, the disk plane's normal `uN` (= the hole's direction).
 import * as THREE from 'three/webgpu';
 import {
-  Fn, uniform, uniformArray, attribute, positionGeometry, uv, vec2, vec3, vec4, float, int, normalize, dot, cross, length, mix, smoothstep, clamp, max, min, abs, pow, sin, cos, atan, acos, step, varying,
+  Fn, uniform, uniformArray, attribute, positionGeometry, uv, vec2, vec3, vec4, float, int, normalize, dot, cross, length, mix, smoothstep, clamp, max, min, abs, pow, sin, cos, atan, acos, step, varying, log, mx_noise_float,
 } from 'three/tsl';
 import { dirFace, decodeHeight } from './planetgen.js';
 
-const NK = 5;
+const NK = 6;
 export function streakUniforms(globeU) {
   const mk = (n) => uniformArray(Array.from({ length: n }, () => new THREE.Vector4(0, 1, 1, 1)), 'vec4');
   return {
@@ -21,7 +21,7 @@ export function streakUniforms(globeU) {
 
 /** Build the instanced streak mesh. bake: { surf, N } (ocean directions for the sea), fault: Float32Array of unit positions on the fault lines (lava / debris starts), q: 'low' halves the count. */
 export function makeStreaks(bake, fault, U, low = false) {
-  const k = low ? 0.45 : 1, counts = [Math.round(5200 * k), Math.round(1300 * k), Math.round(1400 * k), Math.round(2400 * k), Math.round(3200 * k)], n = counts.reduce((a, b) => a + b, 0);
+  const k = low ? 0.45 : 1, counts = [Math.round(7600 * k), Math.round(1300 * k), Math.round(1500 * k), Math.round(2400 * k), Math.round(3200 * k), Math.round(520 * k)], n = counts.reduce((a, b) => a + b, 0);
   const P0 = new Float32Array(n * 3), S = new Float32Array(n * 4), K = new Float32Array(n);
   let a = 77; const rnd = () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   const d = { x: 0, y: 0, z: 0 }, N = bake.N, surf = bake.surf;
@@ -36,7 +36,7 @@ export function makeStreaks(bake, fault, U, low = false) {
   for (let kind = 0; kind < NK; kind++) {
     for (let i = 0; i < counts[kind]; i++, o++) {
       let rad = 1.0;
-      if (kind === 0) ocean();
+      if (kind === 0 || kind === 5) ocean();
       else if (kind === 1) { const z = rnd() * 2 - 1, ph = rnd() * 6.2832, r = Math.sqrt(1 - z * z); d.x = Math.cos(ph) * r; d.y = z; d.z = Math.sin(ph) * r; rad = 1.01 + rnd() * 0.025; }
       else if (kind === 2 || kind === 3) { const q = Math.floor(rnd() * (fault.length / 3)) * 3; d.x = fault[q]; d.y = fault[q + 1]; d.z = fault[q + 2]; rad = kind === 2 ? 0.62 + rnd() * 0.38 : 0.8 + rnd() * 0.2; }
       else { d.x = 0; d.y = 1; d.z = 0; }
@@ -74,9 +74,9 @@ export function makeStreaks(bake, fault, U, low = false) {
   m.positionNode = pos.add(dirv.mul(cr.x.mul(len)).mul(alive)).add(side.mul(cr.y.mul(width)).mul(alive));
   // colour and strength (per vertex: a few streaks' worth of constant colour)
   const sH = pow(u, 1.7), hot = smoothstep(0.35, 0.95, sH);
-  const cSea = mix(vec3(0.42, 0.7, 1.0).mul(1.1), vec3(1.5, 1.9, 2.4).mul(2.2), hot), cAir = vec3(0.8, 0.9, 1.0).mul(0.5), cLava = mix(vec3(1.0, 0.28, 0.04).mul(2.4), vec3(2.6, 1.9, 1.0).mul(2.8), hot), cDeb = mix(vec3(0.4, 0.3, 0.22).mul(0.9), vec3(1.0, 0.45, 0.1).mul(2.4), hot);
+  const cSea = mix(vec3(0.34, 0.66, 1.0).mul(1.3), vec3(1.5, 1.9, 2.4).mul(2.4), hot), cSheet = mix(vec3(0.22, 0.5, 1.0).mul(0.6), vec3(1.0, 1.4, 2.2).mul(0.9), hot), cAir = vec3(0.8, 0.9, 1.0).mul(0.5), cLava = mix(vec3(1.0, 0.28, 0.04).mul(2.4), vec3(2.6, 1.9, 1.0).mul(2.8), hot), cDeb = mix(vec3(0.4, 0.3, 0.22).mul(0.9), vec3(1.0, 0.45, 0.1).mul(2.4), hot);
   const tD = pow(float(1.45).div(rr.div(U.uRb)), 0.8), cDisk = mix(mix(vec3(0.6, 0.08, 0.02), vec3(1.0, 0.45, 0.1), smoothstep(0.12, 0.5, tD)), vec3(0.85, 0.92, 1.0), smoothstep(0.55, 0.95, tD)).mul(2.0);
-  const col = cSea.mul(isK(0)).add(cAir.mul(isK(1))).add(cLava.mul(isK(2))).add(cDeb.mul(isK(3))).add(cDisk.mul(dsk));
+  const col = cSea.mul(isK(0)).add(cAir.mul(isK(1))).add(cLava.mul(isK(2))).add(cDeb.mul(isK(3))).add(cSheet.mul(isK(5))).add(cDisk.mul(dsk));
   const env = smoothstep(0.0, 0.1, u).mul(float(1).sub(smoothstep(0.84, 1.0, u))), aI = mix(env, appear, dsk).mul(alive).mul(P1.z).mul(U.uAlpha);
   const vC = varying(vec4(col.mul(aI), 1), 'vStreak');
   m.colorNode = Fn(() => {
@@ -86,4 +86,20 @@ export function makeStreaks(bake, fault, U, low = false) {
   const mesh = new THREE.Mesh(g, m);
   mesh.frustumCulled = false; mesh.renderOrder = 12; mesh.visible = false;
   return { mesh, counts };
+}
+
+/** A soft continuous disk of glow in the plane round the hole (inner 0.2 x the mesh's scale, outer 1): the streaks ride on it. Planet units, a child of the globe's group; the finale scales it to 7.25 hole radii. */
+export function makeDiskGlow(U) {
+  const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
+  m.colorNode = Fn(() => {
+    const p = positionGeometry.xy, r = length(p), rr = r.div(0.2), a = atan(p.y, p.x);
+    const sw = mx_noise_float(vec3(a.mul(2.6).sub(log(rr).mul(5.5)).add(U.uT.mul(-0.2)), rr.mul(1.9), 1.3)).mul(0.5).add(0.5), sw2 = mx_noise_float(vec3(a.mul(7).add(log(rr).mul(9)).sub(U.uT.mul(0.35)), rr.mul(5.1), 7.7)).mul(0.5).add(0.5);
+    const tD = pow(float(1).div(rr), 0.85), col = mix(mix(vec3(0.55, 0.08, 0.02), vec3(1.0, 0.42, 0.1), smoothstep(0.1, 0.5, tD)), vec3(0.85, 0.92, 1.0), smoothstep(0.55, 0.97, tD));
+    const edge = smoothstep(1.0, 1.25, rr).mul(float(1).sub(smoothstep(3.6, 5.0, rr))), body = pow(float(1).div(rr), 1.7).mul(sw.mul(0.8).add(0.35)).mul(sw2.mul(0.5).add(0.7));
+    const appear = smoothstep(U.uDisk.x.add(0.5), U.uDisk.x.add(4.0), U.uT);
+    return vec4(col.mul(body).mul(edge).mul(appear).mul(U.uDisk.z).mul(0.55), 1);
+  })();
+  const mesh = new THREE.Mesh(new THREE.RingGeometry(0.2, 1, 160, 1), m);
+  mesh.frustumCulled = false; mesh.visible = false; mesh.renderOrder = 11;
+  return mesh;
 }

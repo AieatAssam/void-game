@@ -411,13 +411,13 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
       oceanCol.assign(shadeWater(oc, on, iceO, float(1)));
     });
     // ---- the finale: the sea peels off the shards from the hole outward (a ragged front, wet foam on it), leaving dark wet basalt
-    if (shard) {
+    if (shard) If(landMask.lessThan(0.999).and(u.uPeel.w.greaterThan(-0.5)), () => { // (only the sea, only while it peels: two noise calls)
       const thP = acos(clamp(dot(dir, u.uPeel.xyz), -1, 1)), wob = mx_noise_float(dir.mul(7).add(vec3(2.3, 1.1, 4.7))).mul(0.2).add(mx_noise_float(dir.mul(31)).mul(0.05)), fr = u.uPeel.w;
-      const dry = float(1).sub(smoothstep(fr.sub(0.04), fr.add(0.04), thP.add(wob))).mul(float(1).sub(landMask)), front = exp(pow(thP.add(wob).sub(fr).div(0.055), 2).negate()).mul(step(0, fr)).mul(float(1).sub(landMask));
+      const dry = float(1).sub(smoothstep(fr.sub(0.04), fr.add(0.04), thP.add(wob))).mul(float(1).sub(landMask)), front = exp(pow(thP.add(wob).sub(fr).div(0.055), 2).negate()).mul(float(1).sub(landMask));
       const bed = srgb(0.06, 0.052, 0.05).mul(sunLit.mul(max(dot(dir, L), 0).mul(0.7).add(0.08)).mul(day).add(amb)).add(vec3(0.5, 0.2, 0.08).mul(mx_noise_float(dir.mul(120)).mul(0.5).add(0.5).pow(6)).mul(0.5));
       oceanCol.assign(mix(oceanCol, bed, dry));
       oceanCol.addAssign(vec3(0.55, 0.85, 1.0).mul(front).mul(1.6));
-    }
+    });
     // ---- the land: climate (T, M) + altitude + slope, then the close ground, then the wound
     If(landMask.greaterThan(0.001), () => {
       const Te = T0.sub(max(e.sub(400), 0).div(9000)).add(nm.mul(0.05)).toVar();
@@ -748,12 +748,13 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
     }
     // ---- the finale: fault lines glow (the crust is about to part), and a shard heats as the tide takes it
     if (shard) {
-      const eg = attribute('aEdge', 'float'), heat = shard.X.element(shIdx).w, fl = float(1).sub(smoothstep(0.0, 0.3, eg)), fl2 = pow(fl, 3);
-      const flick = mx_noise_float(dir.mul(260).add(vec3(0, 0, u.uTime.mul(1.3)))).mul(0.35).add(0.9);
-      const thH = acos(clamp(dot(dir, u.uPeel.xyz), -1, 1)), fk = float(1).sub(smoothstep(u.uFault.mul(3.7).sub(0.7), u.uFault.mul(3.7), thH)); // (the glow spreads out from the hole)
-      col.addAssign(mix(vec3(1.0, 0.26, 0.04), vec3(1.0, 0.8, 0.45), fl2).mul(fl.mul(0.6).add(fl2.mul(1.6))).mul(fk).mul(flick));
+      const eg = attribute('aEdge', 'float'), heat = shard.X.element(shIdx).w, fl = float(1).sub(smoothstep(0.0, 0.17, eg)).toVar(), thH = acos(clamp(dot(dir, u.uPeel.xyz), -1, 1)), fk = float(1).sub(smoothstep(u.uFault.mul(3.7).sub(0.7), u.uFault.mul(3.7), thH)).toVar(); // (the glow spreads out from the hole)
+      If(fl.mul(fk.max(heat)).greaterThan(0.004), () => { // (the fault band only)
+        const fl2 = pow(fl, 3), flick = mx_noise_float(dir.mul(260).add(vec3(0, 0, u.uTime.mul(1.3)))).mul(0.35).add(0.9);
+        col.addAssign(mix(vec3(1.0, 0.26, 0.04), vec3(1.0, 0.8, 0.45), fl2).mul(fl.mul(0.45).add(fl2.mul(2.0))).mul(fk).mul(flick));
+        col.addAssign(vec3(1.0, 0.45, 0.12).mul(heat).mul(fl.mul(1.4).add(0.05)));
+      });
       col.assign(mix(col, col.mul(vec3(1.5, 0.8, 0.55)).add(vec3(0.5, 0.17, 0.04)), heat.mul(0.5).min(0.8)));
-      col.addAssign(vec3(1.0, 0.45, 0.12).mul(heat).mul(fl.mul(2.0).add(0.08)));
     }
     // ---- haze between camera and surface: a cheap exponential up close (the camera is 10-1000 km away), the real single scatter from ~50 km
     if (!OFF.has('atmo')) {

@@ -10,7 +10,7 @@ import * as THREE from 'three/webgpu';
 import { R } from './planetgen.js';
 import { planetMaterial } from './planetglobe.js';
 import { buildShards, cutMaterial, coreMaterial, shardUniforms, NSH, R_IN } from './shatter.js';
-import { streakUniforms, makeStreaks } from './streaks.js';
+import { streakUniforms, makeStreaks, makeDiskGlow } from './streaks.js';
 import { holeSphere, holeHalo } from './blackhole.js';
 import { save, persist } from './meta.js';
 
@@ -68,18 +68,26 @@ export class Finale {
     const mo = { surf: g.surfTex, night: g.nightTex, bite: g.biteTex, trail: g.trailTex, N: g.N, B: g.B, quality, u: g.u };
     const top = new THREE.Mesh(geo.top, planetMaterial({ ...mo, gt: null, shard: SU })), cut = new THREE.Mesh(geo.cut, cutMaterial(g.u, SU));
     const coreMat = coreMaterial(g.u), core = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 48), coreMat);
-    const SKU = streakUniforms(g.u), streaks = makeStreaks(W.bake, geo.fault, SKU, low), bh = holeSphere(), halo = holeHalo();
+    const SKU = streakUniforms(g.u), streaks = makeStreaks(W.bake, geo.fault, SKU, low), bh = holeSphere(), halo = holeHalo(), diskGlow = makeDiskGlow(SKU);
     for (const m of [top, cut, core, streaks.mesh]) { m.scale.setScalar(R); m.frustumCulled = false; m.visible = false; }
     core.scale.setScalar(R); cut.renderOrder = 0; top.renderOrder = 0; core.renderOrder = 0;
-    g.group.add(top, cut, core, streaks.mesh);
+    g.group.add(top, cut, core, streaks.mesh, diskGlow);
     ctx.scene.add(bh, halo);
-    // pipelines compile now, in the planet's scene state, one mesh a frame: the finale's first frame must not build a shader
-    const meshes = [top, cut, core, streaks.mesh, bh, halo];
-    try { await ctx.post.precompile({ traverse: (f) => meshes.forEach(f) }, 12000, game.around); } catch (e) { console.warn('finale precompile', e); }
     await frame();
-    const F = new Finale(game, ctx, { geo, SU, top, cut, core, coreMat, streaks, SKU, bh, halo });
+    const F = new Finale(game, ctx, { geo, SU, top, cut, core, coreMat, streaks, SKU, bh, halo, diskGlow });
     console.info(`[finale] ready: ${geo.shards.length} shards, ${geo.faces} faces, ${geo.walls} fault edges, ${streaks.counts.reduce((a, b) => a + b, 0)} streaks`);
     return F;
+  }
+
+  /**
+   * Compile the finale's pipelines (the shard top is the globe's whole shader again: one node build is ~150 ms in one frame): called under the Moon's break-up flash (hit-stop, a white
+   * frame), or at the finale's own start (it opens on a freeze) if the Moon never came. One mesh a frame, in the planet's scene state.
+   */
+  compile() {
+    return (this._compile ??= (async () => {
+      const meshes = [this.top, this.cut, this.core, this.streaks.mesh, this.bh, this.halo, this.diskGlow];
+      try { await this.ctx.post.precompile({ traverse: (f) => meshes.forEach(f) }, 12000, this.game.around); } catch (e) { console.warn('finale precompile', e); }
+    })());
   }
 
   constructor(game, ctx, p) {
@@ -113,8 +121,8 @@ export class Finale {
     this.evI = 0;
     // streak timings: [start, span, duration min, spread] and [width, length / s, intensity, spin] per kind (sea, air, lava, debris, disk)
     const K0 = this.SKU.uK.array, hi = this.ctx.Q.tier !== 'low';
-    [[FT.peel0, FT.peelSpan, 3.2, 2.2], [2.8, 8, 2.6, 1.8], [3.2, 12, 3.2, 2.4], [4.2, 12, 3.4, 2.8], [0, 0, 1, 1]].forEach((v, k) => K0[k].set(...v));
-    [[0.0062, 0.2, 2.0, 1.7], [0.0024, 0.55, 0.7, 2.6], [0.0056, 0.14, 1.1, 1.1], [0.0058, 0.1, 1.0, 1.5], [0.0046, 0.5, 1.0, 0]].forEach((v, k) => K0[k + 5].set(...v));
+    [[FT.peel0, FT.peelSpan, 3.2, 2.2], [2.8, 8, 2.6, 1.8], [3.2, 12, 3.2, 2.4], [4.2, 12, 3.4, 2.8], [0, 0, 1, 1], [FT.peel0, FT.peelSpan, 3.4, 2.0]].forEach((v, k) => K0[k].set(...v));
+    [[0.0062, 0.2, 2.0, 1.7], [0.0024, 0.55, 0.7, 2.6], [0.0056, 0.14, 1.1, 1.1], [0.0058, 0.1, 1.0, 1.5], [0.0046, 0.5, 1.0, 0], [0.028, 0.34, 0.3, 1.2]].forEach((v, k) => K0[k + 6].set(...v));
     this.SKU.uDisk.value.set(8.0, 12.0, 1, 0.55);
     for (const o of [this.SKU.uN, this.SKU.uE1, this.SKU.uE2, this.SKU.uH]) o.value.set(0, 0, 0);
     this.SKU.uN.value.copy(this.n); this.SKU.uE1.value.copy(this.e1); this.SKU.uE2.value.copy(this.e2); this.SKU.uH.value.copy(this.Hc);
@@ -123,7 +131,7 @@ export class Finale {
     const c = ctx.camera, p = c.position, d = p.length();
     this.cam0 = { D: d, el: Math.asin(clamp(p.y / d, -1, 1)), yaw: Math.atan2(p.x, p.z), fov: ctx.baseFov, aimY: 0, aimZ: 0 };
     const D0 = d, e0 = this.cam0.el;
-    this.K_D = [[0, D0], [FT.rupt, D0 * 1.08], [6, D0 * 1.38], [11, D0 * 1.75], [17, D0 * 2.6], [23.5, 8.4e7], [28.5, 1.02e8], [60, 1.1e8]];
+    this.K_D = [[0, D0], [FT.rupt, D0 * 1.08], [6, D0 * 1.32], [11, D0 * 1.55], [17, D0 * 2.2], [23.5, 8.0e7], [28.5, 1.02e8], [60, 1.1e8]];
     this.K_el = [[0, e0], [FT.rupt, e0 * 0.96], [6, 0.42], [12, 0.32], [20, 0.25], [26, 0.2], [60, 0.19]];
     this.K_yaw = [[0, this.cam0.yaw], [8, this.cam0.yaw + 0.2], [19, this.cam0.yaw + 0.06], [27, 0.42], [60, 0.9]];
     this.K_aim = [[0, 0], [6, -0.58 * R], [12, -0.66 * R], [19, -0.36 * R], [24, -0.05 * R], [28, 0], [60, 0]];
@@ -149,7 +157,7 @@ export class Finale {
     this.mup = () => { this.drag.on = false; };
     addEventListener('mousedown', this.mdown); addEventListener('mousemove', this.mmove); addEventListener('mouseup', this.mup);
     const { top, cut, core, streaks, bh } = this;
-    g.globe.visible = false; top.visible = cut.visible = core.visible = streaks.mesh.visible = true;
+    g.globe.visible = false; top.visible = cut.visible = core.visible = streaks.mesh.visible = true; this.diskGlow.visible = false;
     state.playing = false; state.asc = this;
     { const e = document.getElementById('hud'); if (e) e.hidden = true; }
     { const c = this.game.cities; if (c) { c.pool.sprite.visible = false; for (const e of c.labels) e.hidden = true; } }
@@ -160,7 +168,7 @@ export class Finale {
   once(name, t, fn) { if (this.t >= t && !this.did.has(name)) { this.did.add(name); fn(); } }
 
   /** The clock's rate: slowed on the beats (the rupture, the last mouthful, the silence). */
-  rate(t) { return 1 - 0.78 * Math.exp(-(((t - FT.rupt - 0.25) / 0.45) ** 2)) - 0.7 * Math.exp(-(((t - FT.last) / 0.7) ** 2)) - 0.35 * Math.exp(-(((t - 9) / 0.25) ** 2)); }
+  rate(t) { return 1 - 0.82 * Math.exp(-(((t - 0.05) / 0.4) ** 2)) - 0.78 * Math.exp(-(((t - FT.rupt - 0.25) / 0.45) ** 2)) - 0.7 * Math.exp(-(((t - FT.last) / 0.7) ** 2)) - 0.35 * Math.exp(-(((t - 9) / 0.25) ** 2)); }
 
   advance(raw) {
     if (this.over || !this.started) return;
@@ -222,7 +230,8 @@ export class Finale {
     let m = 0;
     for (const s of this.sh) m += s.n * sm(s.tk + 0.7 * s.Dk, s.ts + 0.5, t);
     m = m / this.massTotal + 0.17 * sm(this.coreS.tk + 0.7 * this.coreS.Dk, this.coreS.ts + 0.6, t);
-    return this.r0 * (1 + 3.4 * Math.pow(clamp(m), 1.7)) * (1 + 0.05 * this.pulse);
+    m = clamp(m);
+    return this.r0 * (1 + 1.6 * Math.pow(m, 1.4) + 1.8 * sm(0.78, 1.0, m)) * (1 + 0.05 * this.pulse); // (slow while the planet goes, the last jump with its core)
   }
 
   /** The state of the whole picture at finale time t (pure of t, apart from the pulse / shake decays). */
@@ -262,11 +271,12 @@ export class Finale {
     gu.uFault.value = sm(0.15, FT.rupt - 0.1, t); gu.uPeel.value.w = t < FT.peel0 ? -1 : clamp((t - FT.peel0) / FT.peelSpan) * Math.PI * 1.04;
     gu.uSkyK.value = lerp(1, 2.2, sm(FT.drained, FT.lens1, t)); gu.uSunK.value = 1 - sm(FT.quiet, FT.lens1 - 1, t);
     // ---- the streaks
+    { const dg = this.diskGlow; dg.visible = t > this.SKU.uDisk.value.x; dg.position.copy(H).multiplyScalar(R); dg.scale.setScalar(R * Rb * 7.25); dg.quaternion.setFromUnitVectors(_a.set(0, 0, 1), n); }
     SKU.uT.value = t; SKU.uRb.value = Rb; SKU.uPx.value = 2 * Math.tan(THREE.MathUtils.degToRad(this.cam.fov / 2)) / Math.max(400, innerHeight); SKU.uDisk.value.z = 1 - sm(FT.lens0 + 0.6, FT.lens1 + 1.5, t) * 0.9; SKU.uAlpha.value = 1;
     // ---- the hole: a sphere at the origin, drained to black; then the lens takes it
     const bh = this.bh, U = bh.material.userData.U, kl = sm(FT.lens0, FT.lens1, t), drained = sm(FT.quiet, FT.drained, t);
-    bh.visible = t >= FT.rupt && kl < 0.5; bh.scale.setScalar(rb);
-    { const hl = this.halo, HU = hl.material.userData.U; hl.visible = bh.visible; hl.scale.setScalar(rb * 5); HU.uHeat.value = clamp(this.pulse * 0.8); HU.uK.value = drained; HU.uA.value = sm(FT.rupt, FT.rupt + 0.8, t) * (0.7 + 0.3 * sm(FT.fall0, FT.last, t)); }
+    { const x = clamp((t - FT.rupt) / 0.7) - 1, ob = 1 + 2.70158 * x * x * x + 1.70158 * x * x; bh.visible = t >= FT.rupt && kl < 0.02; bh.scale.setScalar(rb * (0.55 + 0.45 * ob)); } // (the pit inflates into a sphere with an overshoot)
+    { const hl = this.halo, HU = hl.material.userData.U; hl.visible = bh.visible; hl.scale.setScalar(bh.scale.x * 5); HU.uHeat.value = clamp(this.pulse * 0.8); HU.uK.value = drained; HU.uA.value = sm(FT.rupt, FT.rupt + 0.8, t) * (0.7 + 0.3 * sm(FT.fall0, FT.last, t)); }
     U.uHeat.value = clamp(this.pulse * 0.9); U.uK.value = drained; U.uT.value = t;
     this.bhOn = t >= FT.rupt;
     // ---- fx
@@ -337,8 +347,8 @@ export class Finale {
     removeEventListener('keydown', this.keyH); removeEventListener('mousedown', this.mdown); removeEventListener('mousemove', this.mmove); removeEventListener('mouseup', this.mup);
     for (const e of [this.bars, this.flashEl, this.cardEl, this.skipEl]) e?.remove();
     this.g.globe.visible = true;
-    this.g.group.remove(this.top, this.cut, this.core, this.streaks.mesh); this.ctx.scene.remove(this.bh, this.halo);
-    for (const o of [this.top, this.cut, this.core, this.streaks.mesh, this.bh, this.halo]) { o.geometry.dispose(); o.material.dispose(); }
+    this.g.group.remove(this.top, this.cut, this.core, this.streaks.mesh, this.diskGlow); this.ctx.scene.remove(this.bh, this.halo);
+    for (const o of [this.top, this.cut, this.core, this.streaks.mesh, this.bh, this.halo, this.diskGlow]) { o.geometry.dispose(); o.material.dispose(); }
     this.post.lens.A.value.w = 0; this.post.fxu.value.set(0, 0, 0, 0);
   }
 }

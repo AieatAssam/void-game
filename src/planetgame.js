@@ -414,9 +414,12 @@ export class PlanetGame {
     if (qs.has('nofinale') || (window.__headless && !window.__finaleBot)) return null;
     return (this.finPromise = Finale.prepare(this, ctx).then((F) => (this.fin = F)).catch((e) => { console.warn('finale prepare failed', e); this.finFailed = true; return null; }));
   }
+  /** The Moon's break-up flash is the moment to build the finale's shaders (src/finale.js compile()). */
+  finaleCompile() { this.finPromise?.then((F) => F?.compile()); }
   async startFinale(ctx) {
     const F = this.fin || (await this.finalePrep(ctx));
     if (!F || F.started) return false;
+    await F.compile(); // (a no-op if the Moon's break already did it)
     F.worldTime = ctx.state.time; F.onButtons = (mk) => this.finaleButtons(ctx, mk);
     F.begin(); this.installFinaleDebug(ctx);
     return true;

@@ -176,14 +176,14 @@ export function cutMaterial(u, SU) {
     const T = clamp(smoothstep(0.03, 0.45, dep).mul(0.78).add(nA.mul(0.16)).add(nC.mul(0.07)).add(float(under).mul(0.35)), 0, 1).toVar();
     // convection: warped worley cells, bright at the cell borders (rising plumes), dim in the cell
     const cell = mx_worley_noise_float(rest.mul(11).add(vec3(nC.mul(1.4), nA.mul(1.1), nB.mul(0.3)))), vein = pow(float(1).sub(clamp(cell.mul(1.7), 0, 1)), 3);
-    const hot = heatRamp(T.add(vein.mul(0.22)).add(heat.mul(0.2))).toVar();
+    const hot = heatRamp(T.add(vein.mul(0.22))).toVar();
     // the cooled crust: dark basalt, glowing in its cracks
     const crk = pow(float(1).sub(abs(mx_noise_float(rest.mul(70).add(vec3(0, 0, 3.7))))), 14);
     const bands = sin(dep.mul(2200).add(nA.mul(7))).mul(0.5).add(0.5);
     const strata = mix(vec3(0.17, 0.11, 0.075), vec3(0.34, 0.25, 0.17), bands).mul(nB.mul(0.25).add(0.9));
     const crustC = mix(vec3(0.075, 0.06, 0.05), vec3(0.2, 0.17, 0.12), nB.mul(0.5).add(0.5)), lit = max(dot(N, L), 0).mul(0.8).add(0.16);
     const rockC = mix(strata, crustC, crustK).mul(lit).mul(3.0);
-    const emissive = hot.mul(float(0.38).add(vein.mul(0.75))).mul(float(1).sub(crustK.mul(0.85)).mul(float(1).sub(litho.mul(0.55)))).add(vec3(1.2, 0.35, 0.06).mul(crk).mul(crustK.mul(0.5).add(litho.mul(0.3)).add(0.15)).mul(heat.mul(0.8).add(0.55)));
+    const emissive = hot.mul(heat.mul(0.55).add(0.38).add(vein.mul(0.75))).mul(float(1).sub(crustK.mul(0.85)).mul(float(1).sub(litho.mul(0.55)))).add(vec3(1.2, 0.35, 0.06).mul(crk).mul(crustK.mul(0.5).add(litho.mul(0.3)).add(0.15)).mul(heat.mul(0.8).add(0.55)));
     const col = mix(emissive.add(rockC.mul(0.5)), emissive.mul(1.25).add(rockC.mul(0.12)), smoothstep(0.1, 0.4, dep).mul(float(1).sub(float(under)))); // (deep walls: nearly all glow)
     const fres = pow(float(1).sub(max(dot(N, V), 0)), 2.0).mul(0.25);
     return vec4(mix(col, hot.mul(1.6), float(under).mul(0.65)).add(vec3(1.0, 0.4, 0.1).mul(fres).mul(T)), 1);

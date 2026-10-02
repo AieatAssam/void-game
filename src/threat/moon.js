@@ -81,7 +81,7 @@ export function makeMoon(th) {
     },
     /** The Roche limit: the Moon's cracks go white, it bursts into rocks and a ring of debris. */
     breakUp(qq) {
-      qq.phase = 'break'; qq.tb = 0; heat.value = 1;
+      qq.phase = 'break'; qq.tb = 0; heat.value = 1; th.game.finaleCompile?.(); // (under the flash and the hit-stop: the finale's shaders build here)
       b.copy(moon.position); qq.pb.copy(b);
       moon.scale.setScalar(1e-3); // (hidden: globe.update would show the mesh again)
       for (const f of qq.frag) {
