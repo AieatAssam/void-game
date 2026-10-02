@@ -809,17 +809,20 @@ The land is pre-cut into nested **units** on the bite-map grid. There is no per-
 - `H5`, `rng` and `nameOf` move to landforms.js.
 - The `UNITS` GLB table moves to threat.js (step 9): fleets, AA and silos are T1 adversaries at readability scale (≥ 12 px), edible, not ladder food.
 
-**Goals** (cleared when the unit tears off; then card, news and a draft; tier-ups stay on size):
+**Goals** (R4 as built; a chain of five, each cleared when its units are ≤ 1% left or torn off, then card, news and a draft; tier-ups stay on size):
 
-| Tier | Goal | HUD goal line |
-|---|---|---|
-| T1 | the home province (holding `P.city`), plus "Isle of X" (nearest isle < 0.3 M km² within 1500 km) as a bonus | "Province of Ardent — 38% eaten" |
-| T2 | the home nation ∩ home landmass | "Nation of Valoria — 61% eaten" |
-| T3 | the home continent | "Continent of Austra — 72% eaten" |
-| T4 | land ≥ 99.5% (win); the other continents listed largest-first | "Land eaten 81.2%" |
+| # | Goal | Typical tier | HUD goal line |
+|---|---|---|---|
+| 1 | the home province (the province holding `P.city`) | T1 (~1.2 min) | "Province of Ardent — 38% eaten" |
+| 2 | the three nearest provinces ≥ 50k km² | T1 (~4 min) | "3 provinces — 61% eaten" |
+| 3 | the home nation ∩ home landmass | T2 (~7 min) | "Nation of Valoria — 61% eaten" |
+| 4 | the five nearest nations ≥ 0.3 M km² (chosen when the goal starts) | T3 (~12 min) | "5 nations — 40% eaten" |
+| 5 | the world: land ≥ 99.5% (the win) | T4 | "The world — 81.2% eaten · 3/6 continents"; from 97%: "Hunt: 1.2 M km² left · Continent of Istia" |
 
-- **Arrow:** `edgeArrow('town', …)` points at the goal unit's nearest parcel with left > 0 (its CSR list, scanned at 2 Hz). It is always green: land is always edible.
-- **Hunt** (≥ 97%): the arrow points at the largest unit with left > 0.
+- A continent is **not** a tier goal: seed 7 is one supercontinent (78% of the land). Continents are a counter (`state.continents`, the "3/6" in the T4 line) and the swallow news.
+- **Arrow:** `edgeArrow('town', …)` points at the nearest standing parcel (left > 1e-3 km²) of the goal's open units, scanned at 2 Hz (`Landforms.target`), converted into the hole frame like `unitsApi.steer`; it hides inside 3 r. It is always green: land is always edible.
+- **Hunt** (≥ 97%): the arrow and the bot target the landmass with the most land left, scored `left / (d + 2 r)`; no decay.
+- **Minimap:** the goal's open units are a gold stipple of their standing parcels (it recedes as you eat), a dashed ring at each centroid (radius r_eq), a pulsing white ring + % at the arrow target, an edge chevron when it is off the disc or on the far side.
 
 ### 12.4 Growth, belly, pacing (`P3`)
 
@@ -908,3 +911,15 @@ Commits "Phase 3 R1 / R2 / R3". Screens: `docs/screens/phase3-scale-*.jpg`. Food
 - Perf: 60 fps at 40 km, 125 km, 450 km, 1500 km (also at pixel ratio 2.5: 44 fps at 40 km, 60 fps in cap mode); `?webgl&q=low` boots and plays. No long tasks after boot.
 - Known issues / next: units at T2+ are mostly smaller than the hole, so a tear shows as land sinking next to the cap and a ring, not a collapse you can look at; the T1 city mottle reads as tan farmland patches; the wound floor's vein pattern is busy; tears at the hole's own position show only the ring.
 
+### 12.8b As built (R4)
+
+Commit "Phase 3 R4". `src/food.js` is deleted (git rm); `H5`/`rng`/`nameOf` live in landforms.js; `?food` and the debug `look` / `lookKind` / `crumb` are gone.
+
+- **Goals, HUD, tier-up:** `Landforms.makeGoal / progress / done / target` (landforms.js), `PlanetGame.goalTick` (2 Hz): chain above, banner "Goal cleared", news with the population ("… has fallen - 1.24 B swallowed so far"), `ctx.draft()` (note: it offers the Phase 2 perk pool, most of it meaningless on a planet; only Swift, Slow Burn and the like do anything). Win: `state.won`, banner "THE WORLD IS EATEN". HUD: size pill, belly, "Land eaten 12.4% · 1.24 B", goal pill, DEFCON; the pills do not wrap inside themselves any more (`#hud.p3`, they wrap as whole pills on narrow screens, the goal on its own row at phone width). Tier-up: hitstop + slow-mo + name card (REGIONS / NATIONS / CONTINENTS / THE WORLD) + news with the population. `News` shows the counter in billions from 100 M.
+- **Minimap:** `extent = clamp(25 r, 1000 km, 1.07 R)`; goal stipple / rings / chevrons (above); the wound is a dark ember scar with a hot rim and a pulsing halo (8 wider taps of the bite map) so a thin swath still glows; the % gauge and the `1.24%` chip stay. Checked at 1085 px, 800 px and 390 px (124 px map) and on `?webgl`.
+- **The accounting bug R4 found:** `chew` and `shrinkAll` computed the credit and `left` from the float `d` but stored the 16-bit rounded `rem`, so every parcel kept ~0.003 km² of phantom land (0.75% of the world: **99.25% was the ceiling, no bot could win**, and the "stalled at 91% / 96.5%" runs of R3 chased specks). Both now remove whole 16-bit steps (at least one) and account for exactly those: `__planetUnits().truth()` (Σ rem × area over every texel) agrees with `bite.sum` to 1e-12.
+- **Bot** (`planetSteer`): districts within 8 r (provinces from 160 km, nations from 520 km), score `left / (d + 2 r)`, ×6 inside the current goal, ×1.3 for the current target, human picks among the best 3; drives at the nearest standing parcel ≥ 0.9 r away (a swath carries on); follows the goal arrow while its target is within 12 r; hunt from 97% (the arrow's landmass); wall sidestep on a 3.5 r look-ahead plus the 3 s stuck turn. Islets: the pull-in radius is 3 r (was 2.5). `__planetBot(seconds, who)` (sync), `__planetBotAsync` (sliced, poll `__botRun`), `__planetSweep(n, seconds, who)` (rows in `__sweep`: minutes per tier, land % at the tier-ups, goal times, income shares, decay share).
+- **Ladder:** `__planetLadder()` is now pure table queries (no placement): 20 land spots per tier; a spot passes with ≥ 3 meals (units with 0.1-0.9 πr² of land left, centroid within 8 r) and ≥ 1 bigger thing (a unit with > πr² left within 15 r of its rim; at T1 a wall > 0.12 r also counts). 80/80 on seeds 7, 3, 11, 1, 5, on a fresh world and after 500 s of bot play. The strict "0.1-0.9 r" reading is returned as `rEqMeals`. The Moon is drawn again (impostor on the far plane at its true angular size, 1.3° radius) but is not counted: it is rarely in frame, and above r = 1737 km it is smaller than the hole; late T4's "larger" thing is the remaining continents (some late spots would fail: the world ends with nothing larger, by design).
+- **Balance** (docs/BALANCE.md "Phase 3"): G anchors 0.035 / 0.05 / 0.08 / 0.13 / 0.2 / 0.3 at 40 / 150 / 450 / 1000 / 1600 / 2600 km, `speedExp` -0.30 (was -0.22), `collapseK` 0.3, starving decay 0.5%/s (was 0.8) and faded out between 67% and 97% land (`huntSoft`). 9 of 9 runs on seeds 7 / 3 / 11 win in 18.3-23.9 min; tear share 31-38%.
+- Screens: `docs/screens/phase3-hud-desktop.jpg` (Nation goal, minimap tint + wound, `?webgl`), `phase3-hud-phone.jpg` (390 px: pills wrap, goal banner).
+- **Known issues:** the tear share is 31-38% (target 15-30%: 0.2 gets 23% but 29-minute games, and the swath ratio would need the G anchors up with it); T1 on seed 11 takes 7+ min and seed 5 is slow overall (25.9-28.8 min, T2/T3 8-10 min: a poor start and long crossings); r_end is 1.2-1.9k km, not 2.3k; goals are cleared late if the player ignores the arrow (the bot follows it only within 12 r); the draft offers the Phase 2 perks.

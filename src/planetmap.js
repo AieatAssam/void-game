@@ -3,7 +3,7 @@
 //    (autoClear off, no depth), by an orthographic camera looking straight down the hole's up axis: track-up (screen-up = the hole's
 //    screen-up), the hole at the centre. Its material is a cheap derived one (no detail octaves, no clouds, no hole caps) that reads the
 //    same bake (`surf`) and the same bite-map texture as the real planet, so eaten land shows up as the wound.
-//  * The view radius zooms with the hole (about 40 r, clamped to 80 km .. the whole hemisphere), so a 1.4 km hole reads its goals.
+//  * The view radius zooms with the hole (25 r, clamped to 1000 km .. the whole hemisphere).
 //  * The overlay (a 2D canvas stacked on it): you, the goal ring (pulsing) + edge chevrons, markers, the N tick, a land-eaten arc gauge.
 //
 // MARKER API (threat.js / rivals use it; the handle is live: mutate its fields, the map reads them every frame; nothing is copied)
@@ -22,7 +22,7 @@ import { Fn, vec3, vec4, float, uniform, normalize, dot, length, mix, pow, max, 
 import { cubeSphere, R, faceST, sampleFace, sstep, srgb, heightOf } from './planetglobe.js';
 
 const PI2 = Math.PI * 2;
-const _q = new THREE.Quaternion(), _v = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3(), _vp = new THREE.Vector4();
+const _gd = { x: 0, y: 0, z: 0 }, _q = new THREE.Quaternion(), _v = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3(), _vp = new THREE.Vector4();
 const KM = (m) => (m >= 1e6 ? `${(m / 1000).toFixed(0)} km` : m >= 1e5 ? `${(m / 1000).toFixed(0)} km` : `${(m / 1000).toFixed(m < 1e4 ? 1 : 0)} km`);
 
 /** The minimap globe's own material: the bake's land / sea palette, hillshade, the sun's terminator, the bite-map wound. */
@@ -65,10 +65,18 @@ function mapMaterial(globe, u) {
     // the shore: a thin pale edge so coasts read at any zoom
     col.assign(mix(col, srgb(0.78, 0.9, 0.86), sstep(10, 0, abs(h)).mul(0.28)));
     col.assign(col.mul(lit));
-    // ---- the wound: the bite map's remaining land, boosted so a few bites are visible at this scale
-    const ee = float(1).sub(pow(rm, 5)).mul(coast);
-    col.assign(mix(col, srgb(0.1, 0.04, 0.16), sstep(0.02, 0.5, ee).mul(0.92)));
-    col.addAssign(vec3(1.0, 0.42, 0.1).mul(ee.mul(float(1).sub(ee)).mul(1.6)));
+    // ---- the wound (§12.6): eaten land is a dark ember scar with a hot rim and a halo around it, so the planet visibly being consumed reads from across the room.
+    // `ee` = how eaten the texel is (the tent-filtered taps); `halo` = how much eaten land lies ~3.5 px away (a wider look than the taps, so even a thin swath glows)
+    const ee = float(1).sub(pow(rm, 4)).mul(coast);
+    let hs = float(0);
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * 6.2831853, d = normalize(dir.add(u.uAx.mul(u.uStep.mul(Math.cos(a) * 4.5))).add(u.uAz.mul(u.uStep.mul(Math.sin(a) * 4.5))));
+      hs = hs.add(float(1).sub(pow(sampleFace(bite, B, d).r, 4)).mul(0.125));
+    }
+    const wound = sstep(0.04, 0.45, ee), flick = float(0.65).add(sin(u.uT.mul(3)).mul(0.35));
+    const halo = max(hs.sub(ee.mul(0.9)), 0).mul(coast).mul(float(1).sub(wound)).mul(3.2).min(1);
+    col.assign(mix(col, mix(srgb(0.2, 0.03, 0.12), srgb(0.04, 0.01, 0.07), sstep(0.3, 0.9, ee)), wound.mul(0.96)));
+    col.addAssign(vec3(1.0, 0.36, 0.08).mul(ee.mul(float(1).sub(ee)).mul(2.6).add(halo.mul(flick).mul(0.95))));
     // ---- the limb: a thin blue atmosphere when the whole hemisphere is in view
     const rim = pow(float(1).sub(normalView.z), 3.2);
     col.addAssign(vec3(0.2, 0.46, 1.0).mul(rim).mul(0.9).mul(lit.mul(0.7).add(0.3)));
@@ -97,7 +105,7 @@ export class PlanetMap {
     this.el = Object.assign(document.createElement('canvas'), { id: 'pmap', hidden: true });
     document.body.append(this.el);
     this.g2 = this.el.getContext('2d');
-    this.u = { uSun: uniform(new THREE.Vector3(0, 1, 0)), uAx: uniform(new THREE.Vector3(1, 0, 0)), uAz: uniform(new THREE.Vector3(0, 0, 1)), uStep: uniform(0.001), uHalf: uniform(R) };
+    this.u = { uSun: uniform(new THREE.Vector3(0, 1, 0)), uAx: uniform(new THREE.Vector3(1, 0, 0)), uAz: uniform(new THREE.Vector3(0, 0, 1)), uStep: uniform(0.001), uHalf: uniform(R), uT: uniform(0) };
     this.scene = new THREE.Scene();
     this.group = new THREE.Group(); // planet space; rotated by the hole's inverse frame so the camera can stay fixed
     this.mat = mapMaterial(globe, this.u);
@@ -136,8 +144,8 @@ export class PlanetMap {
   clearMarkers(kind) { this.markers = kind ? this.markers.filter((m) => m.kind !== kind) : []; }
 
   // ---------------------------------------------------------------- projection (shared by the GPU view and the overlay)
-  /** The view radius in metres for a hole of radius r: ~40 r from 80 km (T1's goals sit 30-55 km away), up to the whole hemisphere (from r ~ 170 km). */
-  extent(r) { return Math.min(1.07 * R, Math.max(80000, 40 * r)); }
+  /** The view radius in metres for a hole of radius r (§12.6): 25 r, at least 1000 km (the province goal and its neighbours), up to the whole hemisphere (from r ~ 270 km). */
+  extent(r) { return Math.min(1.07 * R, Math.max(1000e3, 25 * r)); }
   /** planet-space dir (+ optional lift: height above the surface in planet radii) -> [px, py, front, off-disc]; px,py in overlay pixels */
   project(d, lift = 0, out = this._p ??= [0, 0, 0, 0]) {
     _v.set(d.x, d.y, d.z).applyQuaternion(this.qi);
@@ -165,7 +173,7 @@ export class PlanetMap {
     this.u.uStep.value = (pxDev * 0.75) / R; // tap spacing in radians: ~0.75 device px
     this.u.uAx.value.set(1, 0, 0).applyQuaternion(world.holeQ); // (screen-right and screen-down in planet space)
     this.u.uAz.value.set(0, 0, 1).applyQuaternion(world.holeQ);
-    this.u.uSun.value.copy(this.globe.u.uSun.value);
+    this.u.uSun.value.copy(this.globe.u.uSun.value); this.u.uT.value = this.t;
   }
 
   /** Draw the GPU globe into the overlay's screen rect. Call right after post.render(). */
@@ -184,7 +192,7 @@ export class PlanetMap {
   }
 
   /**
-   * The 2D layer. things = { hole, world, food, goals, land (0..1 eaten), tier }. ~24 Hz: the globe moves smoothly on its own.
+   * The 2D layer. things = { hole, world, goal (the game's goal state: { g, frac, tgt, hunt }), lf (landforms), land (0..1 eaten), tier }. ~24 Hz: the globe moves smoothly on its own.
    * (the overlay canvas is resized from CSS: its device size follows the layout, so phones get the small map for free)
    */
   update(dt, things) {
@@ -206,18 +214,34 @@ export class PlanetMap {
       g.save(); g.translate(px, py); g.rotate(a); g.beginPath(); g.moveTo(size * D * 0.8, 0); g.lineTo(-size * D * 0.6, -size * D * 0.75); g.lineTo(-size * D * 0.2, 0); g.lineTo(-size * D * 0.6, size * D * 0.75); g.closePath();
       g.fillStyle = color; g.strokeStyle = '#120a22'; g.lineWidth = 1.4 * D; g.stroke(); g.fill(); g.restore();
     };
-    // ---- the tier's goal towns: a warm dot while standing, a dark ring once gone; the next one pulses
-    const food = things.food, goals = food?.goalsByTier?.[tier] ?? [];
-    const next = food?.nextGoal?.(hole)?.e;
-    for (const e of goals) {
-      this.project(e.dir, 0, p);
-      if (!e.alive && !e.falling) { if (p[2] && !p[3]) { g.beginPath(); g.arc(p[0], p[1], 2.6 * D, 0, PI2); g.strokeStyle = '#7d63b8'; g.lineWidth = 1.2 * D; g.stroke(); } continue; }
-      const rr = Math.max(3.2 * D, (e.tier / R) * this.kPx);
-      if (p[2] && !p[3]) {
-        g.beginPath(); g.arc(p[0], p[1], rr, 0, PI2);
-        g.fillStyle = e.label === 'Capital' ? '#ff8a3d' : '#f7d774'; g.fill(); g.lineWidth = 1.2 * D; g.strokeStyle = '#2a1650'; g.stroke();
-        if (e === next) { g.beginPath(); g.arc(p[0], p[1], rr + (4 + 4 * pulse) * D, 0, PI2); g.lineWidth = (1.6 + pulse) * D; g.strokeStyle = '#ffffff'; g.stroke(); }
-      } else if (e === next) chev(p[0], p[1], '#ffe9a0', 6);
+    // ---- the goal (§12.6): its open units are tinted gold (a stipple of the standing parcels: it recedes as you eat it), the arrow target gets a pulsing ring + its %,
+    // and a chevron on the rim when it is off the disc or on the far side
+    const G = things.goal, lf = things.lf, tgt = G?.tgt;
+    if (G && lf?.ready) {
+      const kmPx = (this.ext / 1000) / rad; // km per device px
+      if (G.g.kind !== 'world' && !G.hunt) {
+        for (const [L, u] of G.g.units) {
+          if (lf.done(L, u)) continue;
+          const ps = lf.parcels(L, u), l0 = lf.lv[0].left, st = Math.max(1, Math.floor(ps.length / 360)), sz = Math.max(2.8 * D, Math.sqrt(st) * 39 / kmPx * 1.15);
+          g.fillStyle = '#ffcf5e8c';
+          for (let k = Math.floor(this.t * 7) % st; k < ps.length; k += st) {
+            const pk = ps[k]; if (!(l0[pk] > 1e-3)) continue;
+            this.project({ x: lf.pDir[pk * 3], y: lf.pDir[pk * 3 + 1], z: lf.pDir[pk * 3 + 2] }, 0, p);
+            if (p[2] && !p[3]) g.fillRect(p[0] - sz / 2, p[1] - sz / 2, sz, sz);
+          }
+          const c = lf.dirOf(L, u, _gd); this.project(c, 0, p);
+          if (p[2] && !p[3]) { g.beginPath(); g.arc(p[0], p[1], Math.max(4 * D, lf.rEq(L, u) / 1000 / kmPx), 0, PI2); g.lineWidth = 1.8 * D; g.strokeStyle = '#ffeaa8'; g.setLineDash([5 * D, 3 * D]); g.stroke(); g.setLineDash([]); }
+        }
+      }
+      if (tgt) {
+        this.project(tgt.dir, 0, p);
+        const rr = (4 + 4 * pulse) * D;
+        if (p[2] && !p[3]) {
+          g.beginPath(); g.arc(p[0], p[1], rr, 0, PI2); g.lineWidth = (1.8 + pulse) * D; g.strokeStyle = '#ffffff'; g.stroke();
+          g.beginPath(); g.arc(p[0], p[1], 2 * D, 0, PI2); g.fillStyle = '#ffd36a'; g.fill();
+          if (G.g.kind !== 'world' || G.hunt) { const txt = G.hunt ? tgt.name : `${Math.floor(G.frac * 100)}%`; g.font = `800 ${9 * D}px system-ui, sans-serif`; g.textAlign = 'left'; g.textBaseline = 'middle'; g.lineWidth = 2.6 * D; g.strokeStyle = '#120a22'; g.fillStyle = '#fff3c9'; const tx = p[0] + rr + 3 * D; g.strokeText(txt, tx, p[1]); g.fillText(txt, tx, p[1]); }
+        } else chev(p[0], p[1], '#ffe9a0', 6);
+      }
     }
     // ---- markers (threat.js etc.)
     for (const m of this.markers) this.drawMarker(g, m, p, D, pulse, chev);

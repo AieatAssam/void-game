@@ -188,15 +188,16 @@ export class BiteMap {
           let o = ov[kk] / 65535;
           o = Math.min(1, Math.max(o, cov) + cov * sweep);
           ov[kk] = o * 65535;
-          const rn = rem[kk] / 65535, room = rn - (1 - o);
+          const rq = rem[kk], room = rq / 65535 - (1 - o);
           if (room <= 0) continue;
           const d = Math.min(cov * dtE * chewK / hcol, room);
           if (d <= 0) continue;
-          const nr = rn - d;
-          rem[kk] = Math.round(nr * 65535);
-          const r8 = Math.round(nr * 255);
+          // exact accounting in the 16-bit steps actually removed (at least one): the old float d left a rounding residue of ~0.003 km2 in every parcel, 0.75% of the world's land that could never be eaten
+          const dq = Math.min(rq, Math.max(1, Math.round(d * 65535))), nq = rq - dq;
+          rem[kk] = nq;
+          const r8 = Math.round(nq * (255 / 65535));
           if (r8 !== rem8[kk]) { rem8[kk] = r8; touched = true; }
-          const da = d * ar;
+          const dd = dq / 65535, da = dd * ar;
           remArea += da;
           credit += da * 1e6 * Math.sqrt(hcol / 1000);
           if (lf) { // the units (§12.3): the parcel and its four ancestors lose da; the parcel is marked for the tear check
@@ -234,12 +235,12 @@ export class BiteMap {
     this.nTouched = 0;
   }
 
-  /** Every ~0.35 s: remnants (left < 0.5 area0 and < 0.08 pi r^2) and whole isles (area0 < 0.08 pi r^2) with their centroid within 2.5 r tear off untouched. */
+  /** Every ~0.35 s: remnants (left < 0.5 area0 and < 0.08 pi r^2) and whole isles (area0 < 0.08 pi r^2) with their centroid within 3 r tear off untouched. */
   pullCheck(c, r, now) {
     const lf = this.lf;
     if (!lf || !this.tearOn || now < this.pullAt) return;
     this.pullAt = now + 0.35;
-    const lim = 0.08 * Math.PI * (r / 1000) ** 2, cosR = Math.cos(Math.min(3, (2.5 * r) / R));
+    const lim = 0.08 * Math.PI * (r / 1000) ** 2, cosR = Math.cos(Math.min(3, (3 * r) / R));
     for (let L = 4; L >= 1; L--) {
       const v = lf.lv[L], cc = v.c;
       for (let u = 0; u < v.n; u++) {
@@ -317,13 +318,13 @@ export class BiteMap {
     const { nIdx, nRow } = this, pk = a.pk, u1 = lf.pu[1][pk], u2 = lf.pu[2][pk], u3 = lf.pu[3][pk], u4 = lf.pu[4][pk];
     let credit = 0, da = 0, pop = 0;
     for (const kk of a.tx) {
-      const rn = rem[kk] / 65535;
-      if (rn <= 0) continue;
-      const nr = rn * frac, d = rn - nr, f = (kk / BB) | 0, j = ((kk - f * BB) / B) | 0, i = kk - f * BB - j * B;
-      rem[kk] = Math.round(nr * 65535); ov[kk] = 65535;
-      const r8 = Math.round(nr * 255);
+      const rq = rem[kk];
+      if (rq <= 0) continue;
+      const nq = Math.round(rq * frac), f = (kk / BB) | 0, j = ((kk - f * BB) / B) | 0, i = kk - f * BB - j * B;
+      rem[kk] = nq; ov[kk] = 65535;
+      const r8 = Math.round(nq * (255 / 65535));
       if (r8 !== rem8[kk]) { rem8[kk] = r8; this.dirty[f] = 1; }
-      const dd = d * area[j * B + i];
+      const dd = ((rq - nq) / 65535) * area[j * B + i];
       da += dd; credit += dd * 1e6 * Math.sqrt((hm[kk] + crust) / 1000); pop += dd * night[(f * fl + nRow[j] + nIdx[i]) * 2];
     }
     if (da > 0) {

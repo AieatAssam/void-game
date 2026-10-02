@@ -7,7 +7,7 @@
 // four ancestors, so sum(left) == bite.sum at every level.
 import { R, faceDir } from './planetgen.js';
 
-// ---------------------------------------------------------------- hashing and names (moved here from food.js, which is deleted in R4)
+// ---------------------------------------------------------------- hashing and names 
 export const H5 = (a, b, c, d, e) => {
   let h = (0x9e3779b9 ^ a) | 0;
   h = Math.imul(h ^ b, 0x85ebca6b); h ^= h >>> 13;
@@ -175,6 +175,77 @@ export class Landforms {
     } else s = base;
     cache.set(u, s);
     return s;
+  }
+
+
+  // ------------------------------------------------------------------ goals (§12.3): the chain home province -> three provinces -> home nation -> five nations -> the world
+  /** Is unit (L, u) eaten for goal purposes: <= 1% of it left, or it (or an ancestor) has torn off. */
+  done(L, u) {
+    if (L === 4 && u === 0) return true;
+    for (let l = L, k = u; l <= 4; k = l < 4 ? this.lv[l].parent[k] : k, l++) if (this.lv[l].torn[k]) return true;
+    return this.lv[L].left[u] <= 0.01 * this.lv[L].area0[u];
+  }
+
+  /** The land parcel nearest a direction (the home parcel: the one holding the city / start). */
+  homeParcel(dir) {
+    const t = this.bite.texel(dir, {});
+    let best = this.pk(t.f, t.i, t.j), bd = 9;
+    if (this.pArea0[best] > 0) return best;
+    for (let q = 0; q < this.land.length; q += 7) { const pk = this.land[q], d = Math.acos(Math.min(1, this.pDir[pk * 3] * dir.x + this.pDir[pk * 3 + 1] * dir.y + this.pDir[pk * 3 + 2] * dir.z)); if (d < bd) { bd = d; best = pk; } }
+    return best;
+  }
+
+  /** Build goal `kind` ('province' | 'provinces' | 'nation' | 'nations' | 'world') for a hole at `dir`: { kind, name, units: [[L, u]], total (km2) }. */
+  makeGoal(kind, dir) {
+    const hp = this.homeParcel(this.P.city);
+    if (kind === 'province') { const u = this.pu[2][hp]; return { kind, name: this.name(2, u), units: [[2, u]], total: this.lv[2].area0[u] }; }
+    if (kind === 'nation') { const u = this.pu[3][hp], nm = this.P.nations[this.lv[3].nat[u]].name; return { kind, name: /Isles/.test(this.name(3, u)) ? this.name(3, u) : `Nation of ${nm}`, units: [[3, u]], total: this.lv[3].area0[u] }; }
+    if (kind === 'nations' || kind === 'provinces') { // the five nearest nations (>= 0.3 M km2) / three nearest provinces (>= 50k km2) not yet eaten
+      const L = kind === 'nations' ? 3 : 2, v = this.lv[L], cand = [], min = L === 3 ? 3e5 : 5e4;
+      for (let u = 0; u < v.n; u++) if (v.area0[u] >= min && !this.done(L, u)) cand.push([Math.acos(Math.min(1, v.c[u * 3] * dir.x + v.c[u * 3 + 1] * dir.y + v.c[u * 3 + 2] * dir.z)), u]);
+      cand.sort((a, b) => a[0] - b[0]);
+      const units = cand.slice(0, L === 3 ? 5 : 3).map(([, u]) => [L, u]);
+      return { kind, name: `${units.length} ${L === 3 ? 'nations' : 'provinces'}`, units, total: units.reduce((s, [, u]) => s + v.area0[u], 0) };
+    }
+    return { kind: 'world', name: 'The world', units: [], total: this.bite.sum0 };
+  }
+
+  /** Progress 0..1 of a goal (share of its land eaten) and whether it is cleared. */
+  progress(g) {
+    if (g.kind === 'world') { const e = this.bite.landEaten; return { frac: e, cleared: e >= 0.995 }; }
+    let left = 0, all = 0, open = 0;
+    for (const [L, u] of g.units) { const a = this.lv[L].area0[u]; all += a; if (this.done(L, u)) continue; left += this.lv[L].left[u]; open++; }
+    return { frac: all > 0 ? 1 - left / all : 1, cleared: open === 0 };
+  }
+
+  /**
+   * Where to go for goal g from a hole at `dir`, radius r: the nearest standing parcel of the goal's open units (the world goal: the nearest district with
+   * land worth a pass; from 97%, the landmass with the most land left: the hunt). Returns { dir, name, d (rad), L, u } or null. ~0.5 ms: call at ~2 Hz.
+   */
+  target(g, dir, r = 0, hunt = false) {
+    const pd = this.pDir, l0 = this.lv[0].left, ang = (pk) => Math.acos(Math.min(1, pd[pk * 3] * dir.x + pd[pk * 3 + 1] * dir.y + pd[pk * 3 + 2] * dir.z));
+    let best = -1, bd = 9, name = g.name, L = 0, U = 0;
+    const scan = (list) => { for (let k = 0; k < list.length; k++) { const pk = list[k]; if (l0[pk] > 1e-3) { const d = ang(pk); if (d < bd) { bd = d; best = pk; } } } };
+    if (g.kind !== 'world') {
+      let cu = -1, cd = 9;
+      for (const [l, u] of g.units) { if (this.done(l, u)) continue; const v = this.lv[l], d = Math.acos(Math.min(1, v.c[u * 3] * dir.x + v.c[u * 3 + 1] * dir.y + v.c[u * 3 + 2] * dir.z)) - this.rEq(l, u) / R; if (d < cd) { cd = d; cu = [l, u]; } }
+      if (cu === -1) return null;
+      [L, U] = cu; scan(this.parcels(L, U)); name = this.name(L, U);
+    } else if (hunt) { // the landmass with the most land left (score left / (d + 2 r)), its nearest standing parcel
+      const best4 = []; // [score, comp]
+      const near = new Float32Array(this.ncomp + 1).fill(9), nearPk = new Int32Array(this.ncomp + 1).fill(-1);
+      for (let q = 0; q < this.land.length; q++) { const pk = this.land[q]; if (l0[pk] > 1e-3) { const c = this.pComp[pk], d = ang(pk); if (d < near[c]) { near[c] = d; nearPk[c] = pk; } } }
+      let bs = -1;
+      for (let c = 1; c <= this.ncomp; c++) if (nearPk[c] >= 0) { const sc = this.lv[4].left[c] / (near[c] + 2 * r / R); if (sc > bs) { bs = sc; best = nearPk[c]; bd = near[c]; U = c; } }
+      L = 4; if (U) name = this.name(4, U);
+    } else {
+      const v = this.lv[1]; let bu = -1, bs = 9;
+      for (let u = 0; u < v.n; u++) { if (!(v.left[u] > 0.25 * v.area0[u])) continue; const d = Math.acos(Math.min(1, v.c[u * 3] * dir.x + v.c[u * 3 + 1] * dir.y + v.c[u * 3 + 2] * dir.z)); if (d < bs) { bs = d; bu = u; } }
+      if (bu >= 0) { L = 1; U = bu; scan(this.parcels(1, bu)); name = this.name(1, bu); }
+      else { scan(this.land); L = 0; }
+    }
+    if (best < 0) return null;
+    return { dir: { x: pd[best * 3], y: pd[best * 3 + 1], z: pd[best * 3 + 2] }, name, d: bd, L, u: U };
   }
 
   /** Σ left == bite.sum per level (relative error), and the nesting check; for __planetUnits(). */

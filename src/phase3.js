@@ -15,7 +15,7 @@ const VIEW = [
   [40 * KM, 25, 3, 7], [150 * KM, 36, 4, 4], [450 * KM, 40, 6, 0], [1200 * KM, 36, 7, 0], [2400 * KM, 32, 7, 0],
 ];
 // land credit G(r): the §12.1 anchors (swath-only sim values)
-const GRAMP = [[40 * KM, 0.035], [150 * KM, 0.04], [450 * KM, 0.055], [1000 * KM, 0.09], [1600 * KM, 0.2], [2600 * KM, 0.3]]; // (R3 interim: the doc's 0.06 / 0.065 at T1-T2 put the stand-in bot into T2 in 100 s)
+const GRAMP = [[40 * KM, 0.035], [150 * KM, 0.05], [450 * KM, 0.08], [1000 * KM, 0.13], [1600 * KM, 0.2], [2600 * KM, 0.3]]; // (R4 balance, docs/BALANCE.md: the doc's anchors 0.06 / 0.065 / 0.09 put the bot into T2 in 100 s; these give 4.5-6 min a tier on the unit bot)
 function ramp(tab, r, col) {
   if (r <= tab[0][0]) return tab[0][col];
   for (let i = 1; i < tab.length; i++) {
@@ -29,7 +29,8 @@ function ramp(tab, r, col) {
 
 export const P3 = {
   // movement (§12.1): 24 km/s at the start, 585 km/s at 2.4k km. NOT a constant 0.6 r/s: the sweep (2 r v) grows with r^2 and the slowing screen speed is the "mass" cue.
-  speed: (r) => 0.6 * r * (r / (40 * KM)) ** -0.22,
+  speedExp: -0.30, // (balance knob: a more negative exponent slows the big hole down)
+  speed: (r) => 0.6 * r * (r / (40 * KM)) ** P3.speedExp,
   turn: (r) => 0.45 * (r / (40 * KM)) ** 0.14, // steering smoothing time constant (s): the hole gets heavier (0.8 s at 2.4k km)
   pitch: (r) => ramp(VIEW, r, 1) * Math.PI / 180,
   relief: (r) => ramp(VIEW, r, 2),
@@ -48,12 +49,11 @@ export const P3 = {
   capR: 150 * KM, // patch -> globe only, rim -> shader cap (one-way)
   patchMax: 150 * KM,
   // belly / decay: land credit tops the belly up 1:1 in area terms
-  bellyDrain: 1 / 30, meal: 0.06, decayFed: 0.0010, decayStarving: 0.008,
+  bellyDrain: 1 / 30, meal: 0.06, decayFed: 0.0010, decayStarving: 0.005, huntSoft: 0.3, // decay fades out between 67% and 97% of the land eaten (then none: the hunt)
   oceanSpeed: (tier) => (tier < 3 ? 0.85 : tier === 3 ? 0.92 : 1), // (§3: 0.6 / 0.85 felt like wading)
   oceanDrain: (tier) => (tier < 3 ? 1.1 : tier === 3 ? 1.05 : 1),
   feast: 1, // land-credit multiplier (?feast=N overrides: balance knob)
-  // food.js knobs (food leaves in R4)
-  growth: [0, 1.7, 1.1, 1.0, 0.8, 0.7], crumbGrowth: 0.4, crumb: 0.02, floorK: 0.7,
-  collapseK: 0.35, // credit multiplier on torn-off land (§12.3; 1.0 gave a 60% tear share and a 9 min game)
+  floorK: 0.7, // the hole never shrinks below floorK x the floor of the highest tier reached (stand-in for the Sealed loss)
+  collapseK: 0.3, // credit multiplier on torn-off land (§12.3; 1.0 gave a 60% tear share and a 9 min game; 0.3 -> ~35%, 0.2 -> ~23% but 29 min games)
   startR: 40 * KM,
 };

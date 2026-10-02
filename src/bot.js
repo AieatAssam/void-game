@@ -281,49 +281,71 @@ window.__regionSuite = async (n = 4, seconds = 1200, who = 'human', dt = 1 / 30,
 };
 
 /**
- * Phase 3 (docs/PHASE3.md §8): the planet bot. A player's view of the planet: eat what is nearby and edible (value = area x growth share
- * per distance), head for the goal arrow when nothing is in reach, sidestep a wall it keeps sliding on. who = 'human' (re-plans every
- * 0.45-1 s, picks among the best 3, wobbles a little) or 'greedy' (re-plans every frame, always the best).
+ * Phase 3 (docs/PHASE3.md §8, §12.7 R4): the planet bot. It sees the units, like the minimap does: districts (provinces, nations as the hole grows) within 8 r, scored
+ * left / (distance + 2 r) x6 inside the current goal (what the arrow points at); it drives at the nearest standing parcel of the best one (a swath at a time), sidesteps
+ * walls, and when nothing is within reach follows the goal arrow. From 97% land it hunts: the arrow's target, the biggest piece of land left. who = 'human'
+ * (re-plans every 0.45-1 s, picks among the best 3, wobbles, now and then stops for a beat) or 'greedy' (re-plans every 0.2 s, always the best).
  */
 export function planetSteer(who = 'human') {
-  const s = { next: 0, heading: Math.random() * 6.283, wob: 0, idleUntil: 0, stuckAt: 0, stuckP: null, side: 0, sideUntil: 0 };
+  const s = { next: 0, heading: Math.random() * 6.283, idleUntil: 0, stuckAt: 0, stuckP: null, side: 0, sideUntil: 0, cur: null };
   let dir = null;
+  const anc = (lf, L, u, to) => { while (L < to) { u = lf.lv[L].parent[u]; L++; } return u; }; // the ancestor of unit (L, u) at level `to`
   return (hole) => {
     const P = window.__planet;
     if (!P) return [0, 0];
-    const W = P.W, B = W.bite, state = P.ctx.state, t = state.time, r = hole.r, human = who === 'human';
-    const dbg = (window.__botDbg ??= { stuck: 0, goal: 0, eat: 0, explore: 0 });
+    const W = P.W, B = W.bite, lf = B.lf, state = P.ctx.state, t = state.time, r = hole.r, human = who === 'human', G = P.game.goal, R = 6371000;
+    const dbg = (window.__botDbg ??= { stuck: 0, unit: 0, goal: 0, hunt: 0, wall: 0, idle: 0, tgt: '' });
     if (human && t < s.idleUntil) return [0, 0];
     if (t < s.sideUntil) return [Math.cos(s.side), Math.sin(s.side)];
     // stuck against a wall? every 3 s: moved < 0.4 r while steering => turn away for 2 s
     if (t > s.stuckAt) {
       const here = W.hdir;
-      if (s.stuckP && Math.acos(Math.min(1, here.dot(s.stuckP))) * 6371000 < 0.4 * r) { dbg.stuck++; s.side = Math.random() * 6.283; s.sideUntil = t + 2; }
+      if (s.stuckP && Math.acos(Math.min(1, here.dot(s.stuckP))) * R < 0.4 * r) { dbg.stuck++; s.side = Math.random() * 6.283; s.sideUntil = t + 2; }
       s.stuckP = here.clone(); s.stuckAt = t + 3;
     }
     if (t >= s.next) {
-      s.next = t + (human ? 0.45 + Math.random() * 0.55 : 0);
-      if (human && Math.random() < 0.04) { s.idleUntil = t + 0.3 + Math.random() * 0.5; return [0, 0]; }
-      // R1-R3 stand-in (R4 replaces it with unit scoring): 24 bearings x rings out to 24 r; score = land left (walls count as nothing), near rings weigh more, a bonus for going on
+      s.next = t + (human ? 0.45 + Math.random() * 0.55 : 0.2);
+      if (human && Math.random() < 0.04) { s.idleUntil = t + 0.3 + Math.random() * 0.5; dbg.idle++; return [0, 0]; }
       dir ??= W.hdir.clone();
-      const D = P3.depth(r) * P3.wallK; let best = -1, bs = -1e9;
-      for (let k = 0; k < 24; k++) {
-        const a = (k / 24) * 6.283185;
-        let sc = 0;
-        for (const m of [0.8, 1.8, 3.5, 7, 14, 24]) {
-          const c = W.dirAt(Math.cos(a) * m * r, Math.sin(a) * m * r, dir), l = B.landAt(dir);
-          if (l > 0) sc += (B.heightAt(dir) > D ? 0.1 : l) / (0.4 + m * 0.5);
+      const inv = W.holeQ.clone().invert(), h = W.hdir, hunt = !!G?.hunt;
+      const bearingOf = (x, y, z) => { const q = new W.hdir.constructor(x, y, z).applyQuaternion(inv); return Math.atan2(q.z, q.x); };
+      let aim = null, kind = '';
+      const gt = G?.tgt, follow = !hunt && gt && G.g.kind !== 'world' && gt.d * R < 12 * r; // a player follows the arrow while the goal is within ~12 r
+      if (follow) { aim = bearingOf(gt.dir.x, gt.dir.y, gt.dir.z); kind = 'goal'; dbg.tgt = gt.name; }
+      if (!hunt && !follow) { // the units within 8 r: left / (d + 2 r), x6 inside the goal
+        const L = r < 160e3 ? 1 : r < 520e3 ? 2 : 3, v = lf.lv[L], c = v.c, go = G?.g?.units ?? [];
+        const cand = [];
+        for (let u = 0; u < v.n; u++) {
+          const left = v.left[u];
+          if (!(left > 1e-3) || v.torn[u]) continue;
+          const dist = Math.acos(Math.min(1, c[u * 3] * h.x + c[u * 3 + 1] * h.y + c[u * 3 + 2] * h.z)) * R, e = Math.max(0, dist - 0.6 * lf.rEq(L, u));
+          if (e > 8 * r) continue;
+          let sc = left * 1e6 / (e + 2 * r), inGoal = false;
+          for (const [gl, gu] of go) if (gl >= L ? anc(lf, L, u, gl) === gu : u === anc(lf, gl, gu, L)) { inGoal = true; break; }
+          if (inGoal) sc *= 6;
+          if (s.cur && s.cur.L === L && s.cur.u === u) sc *= 1.3;
+          cand.push([sc, u]);
         }
-        sc *= 1 + 0.35 * Math.cos(a - s.heading) * (human ? 1 : 0.5) + (human ? (Math.random() - 0.5) * 0.3 : 0);
-        if (sc > bs) { bs = sc; best = a; }
+        dbg.cand = cand.length;
+        if (cand.length) {
+          cand.sort((a, b) => b[0] - a[0]);
+          const top = cand.slice(0, human ? 3 : 1), w = top.map((q, i) => q[0] * (i ? 0.6 : 1)), tot = w.reduce((a, b) => a + b, 0);
+          let k = 0, pick = Math.random() * tot; while (k < top.length - 1 && (pick -= w[k]) > 0) k++;
+          const u = top[k][1]; s.cur = { L, u };
+          // the nearest standing parcel of that unit at least 0.9 r away (so a swath carries on through it), else the nearest of all
+          const ps = lf.parcels(L, u), l0 = lf.lv[0].left, pd = lf.pDir; let bp = -1, bd = 1e12, bp2 = -1, bd2 = 1e12;
+          for (let q = 0; q < ps.length; q++) { const pk = ps[q]; if (!(l0[pk] > 1e-3)) continue; const d = Math.acos(Math.min(1, pd[pk * 3] * h.x + pd[pk * 3 + 1] * h.y + pd[pk * 3 + 2] * h.z)) * R; if (d >= 0.9 * r && d < bd) { bd = d; bp = pk; } if (d < bd2) { bd2 = d; bp2 = pk; } }
+          const pk = bp >= 0 ? bp : bp2;
+          if (pk >= 0) { aim = bearingOf(pd[pk * 3], pd[pk * 3 + 1], pd[pk * 3 + 2]); kind = 'unit'; dbg.tgt = lf.name(L, u); }
+        }
       }
-      if (bs > 0) { s.heading = best; dbg.eat++; }
-      else { // nothing in reach: the nearest standing district (then parcel) anywhere (R4: the goal / hunt arrow)
-        const lf = W.bite.lf; let bu = -1, bd = -2, L = 1;
-        for (; L >= 0 && bu < 0; L--) { const v = lf.lv[L], c = v.c, h = W.hdir; for (let u = 0; u < v.n; u++) { if (v.left[u] < 1e-3 || (L === 0 && !(v.area0[u] > 0))) continue; const d = c[u * 3] * h.x + c[u * 3 + 1] * h.y + c[u * 3 + 2] * h.z; if (d > bd) { bd = d; bu = u; } } }
-        if (bu >= 0) { const v = lf.lv[L + 1], q = new W.hdir.constructor(v.c[bu * 3], v.c[bu * 3 + 1], v.c[bu * 3 + 2]).applyQuaternion(W.holeQ.clone().invert()); s.heading = Math.atan2(q.z, q.x); dbg.goal++; }
-        else { s.heading += (Math.random() - 0.5) * 0.4; dbg.explore++; }
-      }
+      if (aim == null && G?.tgt) { aim = bearingOf(G.tgt.dir.x, G.tgt.dir.y, G.tgt.dir.z); kind = hunt ? 'hunt' : 'goal'; dbg.tgt = G.tgt.name; }
+      if (aim == null) { aim = s.heading + (Math.random() - 0.5) * 0.4; kind = 'goal'; }
+      dbg[kind]++;
+      // walls: a column above wallK D within 3.5 r of the way ahead => try the nearest free bearing
+      const Dw = P3.depth(r) * P3.wallK, blocked = (a) => { for (const m of [1, 2, 3.5]) { W.dirAt(Math.cos(a) * m * r, Math.sin(a) * m * r, dir); if (B.landAt(dir) > 0 && B.heightAt(dir) > Dw) return true; } return false; };
+      if (blocked(aim)) { dbg.wall++; for (const da of [0.5, -0.5, 1, -1, 1.5, -1.5]) if (!blocked(aim + da)) { aim += da; break; } }
+      s.heading = aim + (human ? (Math.random() - 0.5) * 0.17 : 0);
     }
     return [Math.cos(s.heading), Math.sin(s.heading)];
   };
@@ -331,27 +353,51 @@ export function planetSteer(who = 'human') {
 
 /**
  * `__planetBot(seconds, who)`: from the ?planet start, run the bot for `seconds` of game time (headless), stopping at the win (land >= 99.5%)
- * or the time. Returns the log (every 30 s: tier, r, belly, land, income so far), the tier-up times and the ledger of growth by source.
+ * or the time. Returns the log (every 30 s: tier, r, belly, land, income so far, the target), the tier-up and goal times and the ledger of growth by source.
+ * `__planetBotAsync` is the same in slices (poll `window.__botRun`: { t, done, log }), for a page that has to stay alive for 30 game minutes.
  */
 window.__planetSteer = planetSteer; // (real-time runs: window.__bot = __planetSteer('human'))
-window.__planetBot = (seconds = 600, who = 'human', dt = 1 / 30) => {
-  const log = [], P = window.__planet, state = P.ctx.state, hole = P.ctx.hole, t0 = state.time;
+function* botLoop(seconds, who, dt, run) {
+  const log = run.log, P = window.__planet, state = P.ctx.state, hole = P.ctx.hole, t0 = state.time;
   const was = window.__bot, wh = window.__headless;
-  window.__bot = planetSteer(who); window.__headless = true; window.__botDbg = { stuck: 0, goal: 0, eat: 0, explore: 0 };
+  window.__bot = planetSteer(who); window.__headless = true; window.__botDbg = { stuck: 0, unit: 0, goal: 0, hunt: 0, wall: 0, idle: 0, tgt: '' };
   const f = (v) => Math.round(v), km = (m) => (m / 1000).toFixed(1);
-  let last = -1, minBelly = 1, t = 0;
+  let last = -1, minBelly = 1, t = 0, n = 0;
   for (; t < seconds; t += dt) {
     window.__tick(dt);
+    run.t = t;
     minBelly = Math.min(minBelly, state.belly);
     const k = Math.floor(t / 30);
-    if (k !== last) { last = k; const L = state.ledger; log.push(`${f(t)}s T${state.tier} r=${km(hole.r)}km belly=${state.belly.toFixed(2)} land=${(state.land * 100).toFixed(2)}% pop=${((state.pop || 0) / 1e9).toFixed(2)}B +land ${f(L.land / 1e9)} +tear ${f((L.tear || 0) / 1e9)} +pull ${f((L.pull || 0) / 1e9)} fed ${f(L.fed / 1e9)} starve ${f(L.starve / 1e9)} (Gm2)`); }
+    if (k !== last) { last = k; const L = state.ledger, d = window.__botDbg; log.push(`${f(t)}s T${state.tier} r=${km(hole.r)}km belly=${state.belly.toFixed(2)} land=${(state.land * 100).toFixed(2)}% pop=${((state.pop || 0) / 1e9).toFixed(2)}B +land ${f(L.land / 1e9)} +tear ${f((L.tear || 0) / 1e9)} +pull ${f((L.pull || 0) / 1e9)} fed ${f(L.fed / 1e9)} starve ${f(L.starve / 1e9)} (Gm2) | ${window.__planet.game.goal?.g.name ?? '-'} ${(100 * (window.__planet.game.goal?.frac ?? 0)).toFixed(0)}% | ${d.tgt} stuck ${d.stuck} wall ${d.wall}`); }
     if (state.land >= 0.995) break;
+    if (++n % 20 === 0) yield;
   }
   window.__bot = was; window.__headless = wh;
-  const L = state.ledger, tierAt = Object.fromEntries(Object.entries(state.tierAt || {}).map(([k, v]) => [k, f(v - t0)]));
-  log.push(`${state.land >= 0.995 ? 'WON' : 'time up'} ${f(t)}s tierAt ${JSON.stringify(tierAt)} dbg ${JSON.stringify(window.__botDbg)} minBelly ${minBelly.toFixed(2)}`);
+  const L = state.ledger, tierAt = Object.fromEntries(Object.entries(state.tierAt || {}).map(([k, v]) => [k, f(v - t0)])), goalAt = (state.goalDone || []).map((v) => f(v - t0));
+  log.push(`${state.land >= 0.995 ? 'WON' : 'time up'} ${f(t)}s tierAt ${JSON.stringify(tierAt)} goalAt ${JSON.stringify(goalAt)} dbg ${JSON.stringify(window.__botDbg)} minBelly ${minBelly.toFixed(2)} land ${(state.land * 100).toFixed(2)}% r ${km(hole.r)}km`);
   log.push(`ledger ${JSON.stringify(Object.fromEntries(Object.entries(L).map(([k, v]) => [k, f(v / 1e3) + 'k'])))}`);
-  return log;
+  run.done = true; run.won = state.land >= 0.995; run.time = t; run.tierAt = tierAt; run.tierLand = Object.fromEntries(Object.entries(state.tierLand || {}).map(([k, v]) => [k, +(v * 100).toFixed(1)])); run.r = hole.r; run.goalAt = goalAt; run.ledger = { ...L };
+}
+window.__planetBot = (seconds = 600, who = 'human', dt = 1 / 30) => { const run = { log: [], done: false }; for (const _ of botLoop(seconds, who, dt, run)); return run.log; };
+window.__planetBotAsync = (seconds = 1800, who = 'human', dt = 1 / 30) => {
+  const run = window.__botRun = { log: [], done: false, t: 0 }, g = botLoop(seconds, who, dt, run);
+  const go = () => { const t = performance.now(); let r; while (!(r = g.next()).done && performance.now() - t < 40); if (!r.done) setTimeout(go, 0); };
+  go(); return run;
+};
+
+/** `__planetSweep(n, seconds, who)`: n runs back to back in one page (reset() between); rows in `window.__sweep` (minutes per tier, land % at the tier-ups, goal times, ledger shares, decay share). */
+window.__planetSweep = async (n = 3, secs = 3000, who = 'human') => {
+  const rows = window.__sweep = [], m = (v) => +(v / 60).toFixed(1);
+  window.__sweepDone = false;
+  for (let i = 0; i < n; i++) {
+    window.__planet.reset();
+    const run = window.__planetBotAsync(secs, who);
+    while (!run.done) await new Promise((r) => setTimeout(r, 300));
+    const L = run.ledger, tot = L.land + L.tear + L.pull;
+    rows.push({ won: run.won, min: m(run.time), tierMin: Object.fromEntries(Object.entries(run.tierAt).map(([k, v]) => [k, m(v)])), tierLand: run.tierLand, goalMin: run.goalAt.map(m), rEnd: Math.round(run.r / 1000), share: [L.land, L.tear, L.pull].map((v) => Math.round((100 * v) / tot)), decay: Math.round((100 * (L.fed + L.starve)) / -tot) });
+  }
+  window.__sweepDone = true;
+  return rows;
 };
 
 /**

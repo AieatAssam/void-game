@@ -198,7 +198,7 @@ const luma = (c) => dot(c, vec3(0.3, 0.55, 0.15));
  * morph the rim into the globe, `aG` the slope vector, `aS` (terrain occlusion, sun shadow), `aUV` the trail-map coordinates.
  * Uniforms: uSun (planet space), uCam (camera in planet units), uRelief (E), uDetail, uCloudRot, uBorders, uHoles[i] (vec4: dir.xyz,
  * cos(angle); w > 1 = empty), uCut (flat hole cut, metres, render space), uPatch (globe discard disc), uWoundG/uWoundP (wound depth, m).
- * `map` = the patch's RGBA map (R settlement, G woods, B roads, A wake foam) in patch space, painted by food.js; `gt` = groundtex.js.
+ * `map` = the patch's RGBA map (R settlement, G woods, B roads, A wake foam) in patch space, painted by the Phase 2 code (unused in Phase 3); `gt` = groundtex.js.
  */
 export function planetMaterial({ surf, night, bite, trail = null, map = null, gt = null, N = 512, B = 1024, quality = 'high', patch = false, u = planetUniforms() }) {
   const low = quality === 'low';
@@ -622,6 +622,7 @@ function atmosphereMaterial(globeU, low) {
 }
 
 // ---------------------------------------------------------------- the Moon
+const _mw = new THREE.Vector3(), _mq = new THREE.Quaternion();
 function moonMaterial(globeU) {
   const m = new THREE.MeshBasicNodeMaterial({ fog: false });
   m.colorNode = Fn(() => {
@@ -713,7 +714,7 @@ export class PlanetGlobe {
     this.surfTex = dataArray(bake.surf, bake.N, 6, THREE.RGBAFormat);
     this.nightTex = dataArray(bake.night, bake.N, 6, THREE.RGFormat);
     this.biteTex = dataArray(new Uint8Array(6 * B * B).fill(255), B, 6, THREE.RedFormat);
-    // food.js footprints in patch space like the trail: RGBA = settlement density, woods, road distance field, (spare)
+    // footprints in patch space like the trail: RGBA = settlement density, woods, road distance field, (spare)
     this.mapData = new Uint8Array(TRAIL * TRAIL * 4);
     this.mapTex = new THREE.DataTexture(this.mapData, TRAIL, TRAIL, THREE.RGBAFormat, THREE.UnsignedByteType);
     this.mapTex.minFilter = this.mapTex.magFilter = THREE.LinearFilter; this.mapTex.generateMipmaps = false; this.mapTex.needsUpdate = true;
@@ -821,6 +822,10 @@ export class PlanetGlobe {
     const alt = camera.position.y - this.group.position.y - R, hi = alt > 120000;
     this.sky.visible = this.atmo.visible = this.moon.visible = hi;
     const far = camera.far * 0.9;
+    // the Moon (r 1737 km at 12 R) is far past the far plane from T1 to T4: draw it as an impostor on the same ray at 0.85 far with the same angular size (it is the sky's "larger thing", §12.3)
+    const mw = _mw.copy(this._moonLocal ??= this.moon.position.clone()).applyQuaternion(this.group.quaternion).add(this.group.position).sub(camera.position), md = mw.length(), kk = Math.min(1, (0.85 * far) / md);
+    this.moon.position.copy(mw.multiplyScalar(kk).add(camera.position).sub(this.group.position).applyQuaternion(_mq.copy(this.group.quaternion).invert()));
+    this.moon.scale.setScalar(1737400 * kk);
     this.dome.position.copy(camera.position);
     this.dome.scale.setScalar(far);
     this.uStarR.value = far * 0.98;

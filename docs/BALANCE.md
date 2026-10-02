@@ -166,3 +166,42 @@ Island, from `?region&r=16` (8 fixed seeds):
 | Human-like, after | 8/8 won in 2:05-6:25 |
 | Greedy (before the last two rows) | 3/4 won in 2:22-3:43 (4242 died: the layout) |
 | Careless (before the last two rows) | 4/4 won in 2:45-5:24: it still sees the whole map, so it's no longer the lower bound; the human-like bot is |
+
+## Phase 3 (planet), R4 — the unit bot, 3 seeds (`__planetSweep(3)` in the browser pane, `?planet&seed=N`)
+
+The human-like `planetSteer` (units within 8 r, goal ×6, follows the arrow within 12 r, hunt from 97%), headless at 1/30 s steps; each run 12-20 s of real time. Config: G anchors 0.035 / 0.05 / 0.08 / 0.13 / 0.2 / 0.3 at 40 / 150 / 450 / 1000 / 1600 / 2600 km, `speedExp` -0.30, `collapseK` 0.3, decay 0.1% fed / 0.5% starving, faded out 67% → 97% land, none in the hunt. **All 15 runs win (99.5% land).**
+
+Minutes per tier (T1 is r 40-150 km ... T4 r ≥ 1200 km), total, land % at the tier-ups (T2 / T3 / T4; doc target 1 / 8 / 45), end radius:
+
+| seed | run | T1 | T2 | T3 | T4 | total | land at T2 / T3 / T4 | r end |
+|---|---|---|---|---|---|---|---|---|
+| 7 | 1 | 5.5 | 6.2 | 7.2 | 5.0 | 23.9 | 1.5 / 11.1 / 56 | 1656 km |
+| 7 | 2 | 5.3 | 5.9 | 4.8 | 7.3 | 23.3 | 1.2 / 11.3 / 48 | 1582 |
+| 7 | 3 | 5.2 | 5.9 | 5.7 | 4.8 | 21.6 | 1.3 / 10.7 / 55 | 1779 |
+| 3 | 1 | 5.3 | 2.5 | 4.1 | 6.4 | 18.3 | 1.1 / 6.2 / 38 | 1706 |
+| 3 | 2 | 6.0 | 4.2 | 4.1 | 5.1 | 19.4 | 1.1 / 9.6 / 43 | 1748 |
+| 3 | 3 | 6.0 | 5.2 | 3.2 | 7.8 | 22.2 | 1.2 / 10.5 / 41 | 1661 |
+| 11 | 1 | 7.1 | 3.5 | 5.1 | 7.3 | 23.0 | 1.5 / 8.8 / 44 | 1661 |
+| 11 | 2 | 7.6 | 2.8 | 6.4 | 6.4 | 23.2 | 1.5 / 7.0 / 49 | 1864 |
+| 11 | 3 | 7.4 | 3.8 | 4.2 | 5.9 | 21.3 | 1.5 / 8.6 / 42 | 1818 |
+| 1 (extra) | 1-3 | 5.0-5.4 | 6.2-7.4 | 4.0-6.5 | 4.5-7.2 | 21.1-25.5 | 1.2 / 12-13 / 49-56 | 1360-1781 |
+| 5 (extra) | 1-3 | 5.9-7.6 | 8.7-10.1 | 3.8-5.7 | 5.4-7.8 | 25.9-28.8 | 1.5-1.9 / 12-15 / 46-54 | 1537-1755 |
+
+Seeds 7 / 3 / 11: **18.3-23.9 min** (target 18-25), T1 5.2-7.6, T2 2.5-6.2, T3 3.2-7.2, T4 4.8-7.8. The greedy bot (seed 7, 2 runs): 18.8 and 18.5 min (≥ 15). Seed 5 is slow (a poor start, long crossings), seed 11's T1 is long (a thin coastline start).
+
+Ledger shares (growth by source, 15 runs): **swath 62-68%, tear-offs 31-38%, pull-in 0-1%**, decay (fed + starving) 10-40% of the gains (the hole ends 1.2-1.9k km, doc 2.3k).
+
+How the numbers were found (seed 7, 3 runs each unless noted):
+
+| Change | Result |
+|---|---|
+| Doc G anchors (0.06 / 0.065 / 0.09), `collapseK` 1 | T2 at 100 s, 60% tear share, 9 min games (R3) |
+| R3 interim anchors + float accounting | no run could pass 99.25%: phantom land, see PHASE3.md §12.8b |
+| 16-bit exact accounting, bonus ×2.2 | 20 min wins; the home province lingered at 50% for 10 min (bot preferred fresh provinces) |
+| goal bonus ×6 | goals clear in 1-2 min (province), T4 reached late |
+| follow the arrow within 40 r | T2 7-8 min, T3 ≥ 12 min: chasing nation remnants across the planet |
+| follow within 12 r + chain of 5 goals, G 0.05 / 0.07 / 0.11 | 18-19 min, T4 only 3.6-4.3 min |
+| `speedExp` -0.22 → -0.30 | T3 / T4 +25% (they are land-supply bound, not G-bound) |
+| `collapseK` 0.2 | tear share 23% but 24-30 min games |
+| `collapseK` 0.3, G(450) 0.08, G(1000) 0.13 | final: 21.6-23.9 min on seed 7 |
+| starving decay 0.8% → 0.5% and fade-out 67-97% | decay share 60% → 15-30%; T4 no longer stalls below 1200 km |

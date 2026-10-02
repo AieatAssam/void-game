@@ -323,7 +323,7 @@ export class PlanetWorld {
     globe.u.uWoundP.value = 0.6 * rB;
     globe.u.uRoadW.value = 3 * ((half * 2) / TRAIL); // (3 texels: the road distance field's reach, see food.paintUrban)
     this.patchInfo = info;
-    this.onPatch?.(info); // (food.js repaints its footprint maps into the new patch space)
+    this.onPatch?.(info); // (a hook for painting footprints into the new patch space)
     this.builds++;
     this.lastBuild = { ms: performance.now() - t0, rB, spacing, fine };
   }

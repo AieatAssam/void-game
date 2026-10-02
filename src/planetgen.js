@@ -136,7 +136,7 @@ export function makePlanet(seed = 1) {
     return M > 0.62 ? 8 : M > 0.38 ? 7 : 6;
   };
 
-  /** City density 0..1: low, coastal, temperate, wet enough. Feeds food.js and the night lights. */
+  /** City density 0..1: low, coastal, temperate, wet enough. Feeds the night lights. */
   P.habitability = (d, e, T, M) => {
     if (e < 0) return 0;
     if (T === undefined) ({ T, M } = P.climate(d, e));

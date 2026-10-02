@@ -65,7 +65,7 @@ export class News {
       void s.offsetWidth;
       s.classList.add('run');
     }
-    this.el.children[2].textContent = `Population swallowed ${Math.round(pop).toLocaleString()}`;
+    this.el.children[2].textContent = `Population swallowed ${pop >= 1e8 ? `${(pop / 1e9).toFixed(2)} billion` : Math.round(pop).toLocaleString()}`;
   }
 }
 
