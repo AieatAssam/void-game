@@ -12,6 +12,7 @@ import { P3, TIERS, T3 } from './phase3.js';
 import { sunDir } from './look.js';
 import { Rivals } from './planetrival.js';
 import { makeLaser } from './threat/laser.js';
+import { makeFleet } from './threat/fleet.js';
 import { smooth, rnd, _Y, v1, v2, v3, v4, v5, v6, qa, C, FIRE, SMOKE0, SMOKE1, ASH, DUST, KMs, tangentAt, sv, aim, vel3, slerp, Ribbon, Pool } from './threat/kit.js';
 
 const qs = new URLSearchParams(location.search);
@@ -84,6 +85,7 @@ export class Threat {
     this.registerCore();
     this.rivals = new Rivals(this); this.register(this.rivals.kind());
     this.register(makeLaser(this));
+    this.register(makeFleet(this));
     window.__threat = this.api();
     for (const o of [this.glow.sprite, this.smoke.sprite]) o.frustumCulled = false;
     try { await ctx.post.precompile(this.root, 6000, this.game.around); await ctx.post.precompile({ traverse: (f) => { f(this.glow.sprite); f(this.smoke.sprite); } }, 3000, this.game.around); } catch (e) { console.warn('threat precompile', e); }

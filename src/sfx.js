@@ -276,3 +276,7 @@ export function rivalGrowl() { tone('sawtooth', 58, 36, 1.8, 0.2); tone('sawtoot
 export function rivalBite() { noise(0.4, 2200, 0.55); tone('sine', 110, 26, 0.9, 0.9); tone('sawtooth', 160, 40, 0.5, 0.15); }
 /** A rival swallowed: the reversed boom into a gulp, then the choir. */
 export function rivalEaten() { reverseGulp(); choir(1); tone('sine', 36, 22, 3.4, 0.6, 0.7); }
+/** A salvo of cruise missiles leaves the deck: a hiss and a whoosh. */
+export function cruise() { noise(1.1, 3200, 0.22); tone('sawtooth', 240, 900, 0.7, 0.07); tone('sine', 120, 60, 0.6, 0.2); }
+/** A ship swallowed: a splash and a low gulp. */
+export function gulpShip() { noise(0.5, 1800, 0.3, 0.05, 300); tone('sine', 180, 50, 0.5, 0.5); }
