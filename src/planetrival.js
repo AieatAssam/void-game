@@ -80,9 +80,13 @@ export class Rivals {
   step(x, dt) {
     const th = this.th, { W, hole, state } = th, T = T3.kinds.rival, rP = hole.r, lf = W.bite.lf;
     x.age += dt; x.cd -= dt; x.r = Math.sqrt(x.area / Math.PI);
+    if (x.age > T.ttl[x.kind]) { // its hunger is spent: it collapses into the void (a rival lives 2.8 min / 3.5 min)
+      x.area *= 1 - 0.3 * dt; if (!x.fade) { x.fade = true; th.news(`${x.name} starves: its hunger is spent and it folds into the void`); }
+      if (x.area < 0.03 * hole.area) { this.kill(x); return; }
+    }
     const bigger = x.r > rP * 1.04, dp = x.dp = angle(x.dir, W.hdir) * R;
     // the mood: a bigger rival hunts the player in 30 s spells with 12 s of grazing between; a smaller one flees when close, else it grazes
-    x.mood = x.cd > 0 ? 'retreat' : bigger ? ((x.age % 42) < 18 ? 'chase' : 'hunt') : dp < 9 * rP ? 'flee' : 'hunt';
+    x.mood = x.cd > 0 ? 'retreat' : bigger ? ((x.age % 45) < 14 ? 'chase' : 'hunt') : dp < 9 * rP ? 'flee' : 'hunt';
     if ((x.tgtT -= dt) <= 0) { // a land target at ~1 Hz (staggered): the nearest district with land worth a pass
       x.tgtT = 1 + Math.random() * 0.6;
       const goal = th.game.worldGoal ?? (th.game.worldGoal = lf.makeGoal('world', W.hdir)), t = lf.target(goal, x.dir, x.r, false);
@@ -98,7 +102,7 @@ export class Rivals {
     } else if (x.tgt) w = want(x.tgt.x, x.tgt.y, x.tgt.z);
     if (w) x.hv.lerp(w, 1 - Math.exp(-dt / (P3.turn(x.r) * 1.3))).addScaledVector(x.dir, -x.hv.dot(x.dir)).normalize();
     // grazing slows it (as ridge drag and the feast do the player): a fleeing rival that stops to eat can be caught
-    const sp = speed0 * (x.feed > 0.3 ? (x.mood === 'chase' ? 0.6 : 0.3) : 1) * (x.mood === 'retreat' ? 1.1 : 1), ang = sp * dt / R, cs = Math.cos(ang), sn = Math.sin(ang);
+    const sp = speed0 * (x.feed > 0.3 ? (x.mood === 'chase' ? 0.3 : 0.06) : 1) * (x.mood === 'retreat' ? 1.1 : 1), ang = sp * dt / R, cs = Math.cos(ang), sn = Math.sin(ang);
     a.copy(x.dir).multiplyScalar(cs).addScaledVector(x.hv, sn); b.copy(x.hv).multiplyScalar(cs).addScaledVector(x.dir, -sn);
     x.dir.copy(a).normalize(); x.hv.copy(b).addScaledVector(x.dir, -b.dot(x.dir)).normalize();
     // chew (bite.chew with opts: no tear flags, its own phase and budget, and its own people count: the player's counters stay the player's)

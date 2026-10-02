@@ -36,7 +36,7 @@ export function makeFleet(th) {
         // heading: a random bearing, then every ship's spot must be open sea
         const br = rnd(0, 6.283); tangentAt(x.c, br, x.hv); place(x, r);
         if (!x.ships.every((s) => sea(s.dir))) continue;
-        Object.assign(x, { on: true, age: 0, r0: r, salvoT: 4, eatT: -99, eaten: 0, sunk: false, wake: 0, nxt: 0, ang: br });
+        Object.assign(x, { on: true, nSalvo: 0, uid: (x.uid || 0) + 1, age: 0, r0: r, salvoT: 4, eatT: -99, eaten: 0, sunk: false, wake: 0, nxt: 0, ang: br });
         for (const s of x.ships) { s.alive = true; s.sink = 0; s.mod.visible = true; }
         x.mk = th.map?.addMarker({ kind: 'site', dir: x.ships[0].dir, label: 'FLEET', color: '#5dc8ff', pulse: true });
         th.stats.fleets++; th.news('A carrier group is at sea: cruise missiles incoming when it is in range'); th.ctx.hint('FLEET sighted — swallow the carrier to stop its missiles');
@@ -70,19 +70,19 @@ export function makeFleet(th) {
       if (q.mk && q.ships[0].alive) q.mk.dir = q.ships[0].dir;
       // the salvo
       const carrier = q.ships[0];
-      if (carrier.alive && dist < 15 * hr && (q.salvoT -= dt) <= 0) { q.salvoT = T.salvo; this.salvo(q); }
+      if (carrier.alive && dist < 15 * hr && q.age < 40 && q.nSalvo < 3 && (q.salvoT -= dt) <= 0) { q.salvoT = T.salvo; q.nSalvo++; this.salvo(q); }
       for (const m of q.missiles) if (m.on) this.missile(q, m, dt);
       // gone: far away, or sunk and every missile landed
-      if ((dist > 45 * hr && !up) || q.age > 140 || (!live && !up && q.ships[0].sink >= 1 && q.ships[1].sink >= 1 && q.ships[2].sink >= 1)) k.finish(q);
+      if ((dist > 45 * hr && !up) || q.age > 60 || (!live && !up && q.ships[0].sink >= 1 && q.ships[1].sink >= 1 && q.ships[2].sink >= 1)) k.finish(q);
     },
     salvo(q) {
       const r = hole.r, n = Math.min(3 + Math.floor(Math.random() * 3), th.zonesFree());
       if (n < 3) return;
-      const lock = th.lockFor(0.4, 1.5), sp = Math.hypot(hole.vx, hole.vz), ux = sp > 0.05 * P3.speed(r) ? hole.vx / sp : 0, uz = sp > 0.05 * P3.speed(r) ? hole.vz / sp : -1, base = rnd(0, 6.283), salvo = { sum: 0 };
+      const lock = th.lockFor(0.9, 2.0, 3.2), sp = Math.hypot(hole.vx, hole.vz), ux = sp > 0.05 * P3.speed(r) ? hole.vx / sp : 0, uz = sp > 0.05 * P3.speed(r) ? hole.vz / sp : -1, base = rnd(0, 6.283), salvo = { sum: 0 };
       let made = 0;
       for (const m of q.missiles) {
         if (made >= n) break; if (m.on) continue;
-        const aa = base + made * (6.283 / n) + rnd(-0.3, 0.3), d = (made === 0 ? rnd(0, 0.5) : rnd(0.6, 1.7)) * r;
+        const aa = base + made * (6.283 / n) + rnd(-0.3, 0.3), d = (made === 0 ? rnd(0.15, 0.45) : rnd(0.7, 1.9)) * r;
         Object.assign(m, { on: true, age: 0, lock, T: lock + 2.0, locked: false, ox: 0, oz: 0, cx: Math.cos(aa) * d, cz: Math.sin(aa) * d, ux, uz, B: 0.55 * r, r0: r, salvo, boom: false, puff: 0, hadZone: true });
         m.from.copy(q.ships[0].dir); m.to.copy(W.hdir); m.chord = W.distTo(m.from); m.apex = Math.min(0.12 * m.chord, 6 * r) + 0.3 * r;
         m.zone = th.zoneAlloc(); m.mod.visible = true;
@@ -135,7 +135,7 @@ export function makeFleet(th) {
     },
     danger(q, out) {
       for (const m of q.missiles) if (m.on && !m.boom) { th.offsetOf(m.to, o); out.push({ kind: 'cruise', id: `c${q.i}_${m.i}`, x: o.x, z: o.z, R: m.B, inner: 0, eta: m.T - m.age, locked: m.locked, lock: m.lock }); }
-      for (const s of q.ships) if (s.alive) { th.offsetOf(s.dir, o); out.push({ kind: 'target', id: `s${q.i}${s.m}${s.fy}`, x: o.x, z: o.z, R: 0.9 * hole.r, eta: 99, what: 'ship', reach: 9 }); }
+      for (const s of q.ships) if (s.alive) { th.offsetOf(s.dir, o); out.push({ kind: 'target', id: `s${q.uid}${s.m}${s.fy}`, x: o.x, z: o.z, R: 0.9 * hole.r, eta: 99, what: 'ship', reach: 9 }); }
     },
     line(q, pick) {
       let best = 1e9, mm = null; for (const m of q.missiles) if (m.on && !m.boom && m.T - m.age < best) { best = m.T - m.age; mm = m; }

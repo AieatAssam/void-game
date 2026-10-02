@@ -299,31 +299,34 @@ export function planetSteer(who = 'human') {
     const th = window.__threat?.t;
     if (th && state.playing) {
       const ds = th.dangers(s.buf ??= []), v = P3.speed(r); s.pick ??= {};
+      let go = null, goD = 1e30; // (the best non-urgent errand this frame: an edible target or a smaller rival; rings and beams are handled first, and win)
       for (const d of ds) {
-        if (d.kind === 'rival') { // a bigger rival: bend the heading away from it (full flight only when it is close), the rings still come first; a smaller one: hunt it (greedy always, human 1 time in 2)
-          const dist = Math.hypot(d.x, d.z) || 1; s.fear ??= {};
+        const dist = Math.hypot(d.x, d.z) || 1;
+        if (d.kind === 'rival') { // a bigger rival bends the heading away from it (full flight only when it is close); a smaller one is hunted (greedy always, human 1 time in 2)
+          s.fear ??= {};
           if (d.big) { const thr = d.R + (s.fear[d.id] ? 6 : 4) * r, w = (thr - dist) / (thr - d.R + 1); if (dist < thr) { s.fear[d.id] = 1; dbg.flee = (dbg.flee || 0) + 1; s.push = [(-d.x / dist) * Math.min(1, w) * 2.4, (-d.z / dist) * Math.min(1, w) * 2.4]; } else s.fear[d.id] = 0; continue; }
           s.hunt ??= {}; if (s.hunt[d.id] === undefined) s.hunt[d.id] = who === 'greedy' || Math.random() < 0.5;
-          if (s.hunt[d.id] && dist < 14 * r) { dbg.rival = (dbg.rival || 0) + 1; return [d.x / dist, d.z / dist]; }
+          if (s.hunt[d.id] && dist < 14 * r && dist < goD) { go = [d.x / dist, d.z / dist, 'rival']; goD = dist; }
           continue;
         }
-        if (d.kind === 'lid') { const dist = Math.hypot(d.x, d.z) || 1; s.lid ??= {}; if (s.lid[d.id] === undefined) s.lid[d.id] = who === 'greedy' || Math.random() < 0.8; if (s.lid[d.id] && d.alive > 0) continue; if (dist < d.R + 0.6 * r) { dbg.lid = (dbg.lid || 0) + 1; return [-d.x / dist, -d.z / dist]; } continue; } // (the Aegis lid: go for its platforms, or leave the ring)
-        if (d.kind === 'wave') { const dist = Math.hypot(d.x, d.z) || 1; if (dist > d.R && dist - d.R < 3 * r) { dbg.wave = (dbg.wave || 0) + 1; return [-d.x / dist, -d.z / dist]; } continue; } // (a tsunami front still coming: run from the cause, you are faster)
-        if (d.kind === 'beam') { const dist = Math.hypot(d.x, d.z) || 1; if (dist < d.R + 2.2 * r && !(human && Math.random() < 0.004)) { dbg.beam = (dbg.beam || 0) + 1; return [-d.x / dist, -d.z / dist]; } continue; } // (keep out of the beam: it is slower than the hole)
-        if (d.kind === 'target') { // an edible set-piece part (the laser platform, an Aegis platform, a cracker station): greedy always, human 2 times in 3
-          const dist = Math.hypot(d.x, d.z) || 1; s.tgt ??= {}; if (s.tgt[d.id] === undefined) s.tgt[d.id] = who === 'greedy' || Math.random() < 0.67;
-          if (s.tgt[d.id] && dist < (d.reach ?? 10) * r && d.eta > 0.5) { dbg.target = (dbg.target || 0) + 1; return dist < 0.25 * r ? [0, 0] : [d.x / dist, d.z / dist]; }
+        if (d.kind === 'lid') { s.lid ??= {}; if (s.lid[d.id] === undefined) s.lid[d.id] = who === 'greedy' || Math.random() < 0.8; if (s.lid[d.id] && d.alive > 0) continue; if (dist < d.R + 0.6 * r) { dbg.lid = (dbg.lid || 0) + 1; return [-d.x / dist, -d.z / dist]; } continue; } // (the Aegis lid: go for its platforms, or leave the ring)
+        if (d.kind === 'wave') { if (dist > d.R && dist - d.R < 3 * r) { dbg.wave = (dbg.wave || 0) + 1; return [-d.x / dist, -d.z / dist]; } continue; } // (a tsunami front still coming: run from the cause, you are faster)
+        if (d.kind === 'beam') { if (dist < d.R + 2.2 * r && !(human && Math.random() < 0.004)) { dbg.beam = (dbg.beam || 0) + 1; return [-d.x / dist, -d.z / dist]; } continue; } // (keep out of the beam: it is slower than the hole)
+        if (d.kind === 'target') { // an edible set-piece part (laser platform, Aegis platform, cracker station, a ship): greedy always, human 2 times in 3; 28 s per target at most
+          s.tgt ??= {}; s.tgtT ??= {}; if (s.tgt[d.id] === undefined) { s.tgt[d.id] = who === 'greedy' || Math.random() < 0.67; s.tgtT[d.id] = t; }
+          if (s.tgt[d.id] && t - s.tgtT[d.id] > 28) s.tgt[d.id] = false;
+          if (s.tgt[d.id] && dist < (d.reach ?? 10) * r && d.eta > 0.5 && dist < goD) { go = [dist < 0.25 * r ? 0 : d.x / dist, dist < 0.25 * r ? 0 : d.z / dist, 'target']; goD = dist; }
           continue;
         }
         if (d.kind === 'sat') continue;
         if (d.kind === 'fall' || !d.locked || (human && d.eta > d.lock - 0.35)) continue;
         if (d.kind === 'line') { if (d.end > 0.3 && Math.abs(d.across) < d.hw + 0.35 * r) { dbg.dodge = (dbg.dodge || 0) + 1; return [Math.sign(d.across || 1) * d.nx, Math.sign(d.across || 1) * d.nz]; } continue; }
         if (!(d.eta > 0.05)) continue;
-        const dist = Math.hypot(d.x, d.z) || 1;
         if (s.pick[d.id] === undefined) { s.pick[d.id] = d.inner > 0 && (who === 'greedy' || Math.random() < 1 / 3); if (s.pick[d.id]) dbg.dive = (dbg.dive || 0) + 1; }
         if (s.pick[d.id] && dist - 0.3 * d.inner <= v * d.eta * 1.5) { dbg.dodge = (dbg.dodge || 0) + 1; return dist < 0.3 * d.inner + v * 0.05 ? [0, 0] : [d.x / dist, d.z / dist]; } // (centre it, then sit still until it goes off)
         if (dist < d.R * 1.15) { dbg.dodge = (dbg.dodge || 0) + 1; return [-d.x / dist, -d.z / dist]; }
       }
+      if (go) { dbg[go[2]] = (dbg[go[2]] || 0) + 1; return [go[0], go[1]]; }
     }
     if (th && state.playing) { // a satellite within reach (A8): a human goes for it half the time, greedy always; aim at where its subpoint will be when the hole gets there
       for (const d of s.buf) if (d.kind === 'sat') {
@@ -414,7 +417,7 @@ function* botLoop(seconds, who, dt, run) {
     run.t = t;
     minBelly = Math.min(minBelly, state.belly);
     const k = Math.floor(t / 30);
-    if (k !== last) { last = k; const L = state.ledger, d = window.__botDbg; log.push(`${f(t)}s T${state.tier} r=${km(hole.r)}km belly=${state.belly.toFixed(2)} land=${(state.land * 100).toFixed(2)}% pop=${((state.pop || 0) / 1e9).toFixed(2)}B +land ${f(L.land / 1e9)} +tear ${f((L.tear || 0) / 1e9)} +pull ${f((L.pull || 0) / 1e9)} fed ${f(L.fed / 1e9)} starve ${f(L.starve / 1e9)} (Gm2) | ${window.__planet.game.goal?.g.name ?? '-'} ${(100 * (window.__planet.game.goal?.frac ?? 0)).toFixed(0)}% | ${d.tgt} stuck ${d.stuck} wall ${d.wall}`); }
+    if (k !== last) { last = k; const L = state.ledger, d = window.__botDbg; log.push(`${f(t)}s T${state.tier} r=${km(hole.r)}km belly=${state.belly.toFixed(2)} land=${(state.land * 100).toFixed(2)}% pop=${((state.pop || 0) / 1e9).toFixed(2)}B +land ${f(L.land / 1e9)} +tear ${f((L.tear || 0) / 1e9)} +pull ${f((L.pull || 0) / 1e9)} fed ${f(L.fed / 1e9)} starve ${f(L.starve / 1e9)} (Gm2) | ${window.__planet.game.goal?.g.name ?? '-'} ${(100 * (window.__planet.game.goal?.frac ?? 0)).toFixed(0)}% | ${d.tgt} stuck ${d.stuck} wall ${d.wall} | ${['dodge', 'target', 'flee', 'wave', 'beam', 'rival', 'sat', 'lid', 'dive'].map((q) => { const dv = (d[q] || 0) - (run.prev?.[q] || 0); return dv ? `${q} ${dv}` : ''; }).filter(Boolean).join(' ')}`); run.prev = { ...d }; }
     if (state.land >= 0.995 || state.sealed) break;
     if (++n % 20 === 0) yield;
   }
@@ -449,6 +452,12 @@ window.__planetSweep = async (n = 3, secs = 3000, who = 'human') => {
 
 /** `__planetSum()`: the last sweep as one line per run: total min, minutes in T1/T2/T3/T4, land % at the tier-ups, end r, shares (swath/tear/pull), decay %, threat damage / bonus / satellite % of gains, W/S, threat counts (nukes, swallowed, hits, rods, rod gulps, sats, seal warnings, mercy). */
 window.__planetSum = () => window.__sweep.map((r) => { const t = Object.values(r.tierMin); return { m: r.min, T: [t[1], +(t[2] - t[1]).toFixed(1), +(t[3] - t[2]).toFixed(1), +(r.min - t[3]).toFixed(1)].join('/'), land: Object.values(r.tierLand).join('/'), rEnd: r.rEnd, sh: r.share.join('/'), dec: r.decay, dmg: r.dmg, bon: r.bonus, sat: r.sat, w: r.won ? 'W' : r.sealed ? 'S' : 'x', th: [r.thr.nukes, r.thr.swallowed, r.thr.hits, r.thr.rods, r.thr.rodGulps, r.thr.sats, r.thr.sealWarn, r.thr.mercy].join(','), seen: r.thr.seen, unfair: r.thr.unfair, walls: r.walls }; });
+
+/** `__runSum(run)`: one `__planetBotAsync` run as a row: minutes, minutes at the tier-ups, damage / bonus % of gains, hits by kind, the ledger by kind in %, unfair count, rivals' share of the world. */
+window.__runSum = (r = window.__botRun) => {
+  const L = r.ledger, tot = L.land + L.tear + L.pull, p = (v) => +((100 * v) / tot).toFixed(1), m = (v) => +(v / 60).toFixed(1);
+  return { min: m(r.time), tier: Object.values(r.tierAt).map(m).join('/'), won: r.won, sealed: r.sealed, dmg: p(-(L.dmg || 0)), bonus: p(L.bonus || 0), by: r.threat.by, unfair: r.threat.unfair, mercy: r.threat.mercy, seen: r.threat.seen, rivalPct: +((100 * r.threat.rivalKm2) / 1.48e8).toFixed(1), rEnd: Math.round(r.r / 1000), kinds: Object.fromEntries(Object.entries(L).filter(([k]) => !['land', 'tear', 'pull', 'fed', 'starve', 'dmg', 'bonus'].includes(k)).map(([k, v]) => [k, p(v)])) };
+};
 
 /**
  * Phase 3 test helpers (docs/PHASE3.md §12.7 R3): `await __planetTT.tear(L, maxKm2, minKm2, off, bearing, r, frames)` stands the hole beside the nearest unit of level L

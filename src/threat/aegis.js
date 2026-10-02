@@ -96,7 +96,7 @@ export function makeAegis(th) {
     danger(q, out) {
       if (q.phase !== 'descend' && q.phase !== 'closing') return;
       th.offsetOf(q.c, o); out.push({ kind: 'lid', id: `a${q.i}`, x: o.x, z: o.z, R: q.ringR, alive: q.alive, p: q.p, eta: CLOSE * (1 - q.p) });
-      if (q.t > 4.5) for (const p of q.pl) if (p.alive) { th.offsetOf(p.dir, o); out.push({ kind: 'target', id: `ap${p.i}`, x: o.x, z: o.z, R: 0.95 * hole.r, eta: CLOSE * (1 - q.p), what: 'aegis', reach: 7 }); }
+      if (q.t > 4.5) for (const p of q.pl) if (p.alive) { th.offsetOf(p.dir, o); out.push({ kind: 'target', id: `ap${q.tries}${p.i}`, x: o.x, z: o.z, R: 0.95 * hole.r, eta: CLOSE * (1 - q.p), what: 'aegis', reach: 7 }); }
     },
     line(q, pick) {
       if (q.phase === 'descend') pick(6 - q.t, `THE AEGIS · descending · <b>${q.alive}</b> platforms · lid locks in <b>${Math.max(0, 6 - q.t).toFixed(1)} s</b>`, 'lock');

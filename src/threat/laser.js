@@ -116,7 +116,7 @@ export function makeLaser(th) {
     finish(q) { q.on = false; q.phase = 'gone'; q.mod.visible = false; core.hide(); glow.hide(); if (q.zone >= 0) th.zoneFree(q.zone); q.zone = -1; q.mk?.remove(); q.mk = null; },
     danger(q, out) {
       if (q.phase === 'warm' || q.phase === 'sweep') { th.offsetOf(q.spot, o); out.push({ kind: 'beam', id: `b${q.i}`, x: o.x, z: o.z, R: q.B, eta: q.phase === 'warm' ? 2 - q.t : 0, locked: true, hot: q.phase === 'sweep' }); }
-      else if (q.phase === 'aim' && !q.eaten) { th.offsetOf(q.plat, o); out.push({ kind: 'target', id: `p${q.i}`, x: o.x, z: o.z, R: 0.8 * hole.r, eta: 5 - q.t, what: 'platform' }); }
+      else if (q.phase === 'aim' && !q.eaten) { th.offsetOf(q.plat, o); out.push({ kind: 'target', id: `p${th.stats.lasers}`, x: o.x, z: o.z, R: 0.8 * hole.r, eta: 5 - q.t, what: 'platform' }); }
     },
     line(q, pick) {
       if (q.phase === 'warm') pick(2 - q.t, `ORBITAL LASER · warming · <b>${Math.max(0, 2 - q.t).toFixed(1)} s</b>`, 'lock');
