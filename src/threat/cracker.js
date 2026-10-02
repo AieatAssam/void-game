@@ -30,7 +30,7 @@ export function makeCracker(th) {
       const r = hole.r, spots = stationSpots(r); if (spots.length < 1) return false;
       let len = 0, prev = W.hdir; for (const s of spots) { len += Math.acos(Math.min(1, prev.dot(s))) * R; prev = s; }
       const v = P3.speed(r), T0 = Math.min(75, Math.max(30, 30 + (len - 0.9 * r * spots.length) / (0.8 * v) * 0.8 + 6 * (spots.length - 1)));
-      Object.assign(x, { on: true, phase: 'charge', t: 0, T: opt.T ?? T0, r0: r, ox: 0, oz: 0, B: 2 * r, locked: false, lockAt: -1, fx: 0, eaten: 0, n: spots.length });
+      Object.assign(x, { on: true, phase: 'charge', t: 0, T: opt.T ?? T0, r0: r, ox: 0, oz: 0, B: 1.8 * r, lock: th.lockFor(1.3, 4.5, 8), side: Math.random() < 0.5 ? -1 : 1, ux: 0, uz: -1, locked: false, lockAt: -1, fx: 0, eaten: 0, n: spots.length });
       x.st.forEach((s, i) => { s.alive = i < spots.length; s.sink = 0; s.mod.visible = s.alive; if (s.alive) { s.dir.copy(spots[i]); s.mk = th.map?.addMarker({ kind: 'site', dir: s.dir, label: 'POWER', color: '#7fe8ff', pulse: true }); } });
       // the megastructure: ~62 degrees ahead of the hole, 0.45 R up, facing the hole
       W.dirAt(0.4 * R * 0.0, -1.08 * R, x.dirP); x.dirP.normalize();
@@ -49,9 +49,9 @@ export function makeCracker(th) {
       const charge = q.phase === 'charge' ? al / Math.max(1, q.n) : 0;
       if (q.phase === 'charge') {
         // the target ring: tracks the hole until 4 s before, then locks
-        if (left > 4) { const sp = Math.hypot(hole.vx, hole.vz), kk = Math.min(1, dt * 5); q.ox += (hole.vx * 4 - q.ox) * kk; q.oz += (hole.vz * 4 - q.oz) * kk; W.dirAt(q.ox, q.oz, q.to); }
+        if (left > q.lock) { const sp = Math.hypot(hole.vx, hole.vz), kk = Math.min(1, dt * 5); if (sp > 0.05 * P3.speed(hr)) { q.ux = hole.vx / sp; q.uz = hole.vz / sp; } q.ox += (hole.vx * q.lock - q.uz * q.side * 0.9 * r - q.ox) * kk; q.oz += (hole.vz * q.lock + q.ux * q.side * 0.9 * r - q.oz) * kk; W.dirAt(q.ox, q.oz, q.to); }
         else if (!q.locked) { q.locked = true; q.lockAt = th.t; th.stats.locks++; th.sfx.lockBeep?.(); th.ctx.hint('THE RING IS LOCKED — leave it, or swallow the last station'); }
-        th.zoneSet(q.zone, q.to, q.B, 0, Math.min(1, q.t * 0.5) * 0.9, q.locked ? Math.min(1, (4 - left) / 4) + 0.001 : 0, 0);
+        th.zoneSet(q.zone, q.to, q.B, 0, Math.min(1, q.t * 0.5) * 0.9, q.locked ? Math.min(1, (q.lock - left) / q.lock) + 0.001 : 0, 0);
         if (q.mk) { q.mk.eta = left; q.mk.dir = q.to; }
         // the targeting line and the charge glow at the nose
         th.surf(q.to, 0, e, Math.max(0, W.P.elevation(q.to, 3))); b.copy(q.pos).addScaledVector(g, 0.2 * R);
@@ -113,7 +113,7 @@ export function makeCracker(th) {
     clear() { x.done = false; },
     danger(q, out) {
       if (q.phase !== 'charge') return;
-      th.offsetOf(q.to, o); out.push({ kind: 'cracker', id: `k${q.i}`, x: o.x, z: o.z, R: q.B, inner: 0, eta: q.T - q.t, locked: q.locked, lock: 4 });
+      th.offsetOf(q.to, o); out.push({ kind: 'cracker', id: `k${q.i}`, x: o.x, z: o.z, R: q.B, inner: 0, eta: q.T - q.t, locked: q.locked, lock: q.lock });
       for (const s of q.st) if (s.alive) { th.offsetOf(s.dir, o); out.push({ kind: 'target', id: `ks${s.i}`, x: o.x, z: o.z, R: 0.95 * hole.r, eta: q.T - q.t, what: 'station', reach: 40 }); }
     },
     line(q, pick) {

@@ -82,7 +82,7 @@ export class Rivals {
     x.age += dt; x.cd -= dt; x.r = Math.sqrt(x.area / Math.PI);
     const bigger = x.r > rP * 1.04, dp = x.dp = angle(x.dir, W.hdir) * R;
     // the mood: a bigger rival hunts the player in 30 s spells with 12 s of grazing between; a smaller one flees when close, else it grazes
-    x.mood = x.cd > 0 ? 'retreat' : bigger ? ((x.age % 42) < 30 ? 'chase' : 'hunt') : dp < 9 * rP ? 'flee' : 'hunt';
+    x.mood = x.cd > 0 ? 'retreat' : bigger ? ((x.age % 42) < 18 ? 'chase' : 'hunt') : dp < 9 * rP ? 'flee' : 'hunt';
     if ((x.tgtT -= dt) <= 0) { // a land target at ~1 Hz (staggered): the nearest district with land worth a pass
       x.tgtT = 1 + Math.random() * 0.6;
       const goal = th.game.worldGoal ?? (th.game.worldGoal = lf.makeGoal('world', W.hdir)), t = lf.target(goal, x.dir, x.r, false);

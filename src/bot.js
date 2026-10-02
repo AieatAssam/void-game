@@ -290,7 +290,7 @@ export function planetSteer(who = 'human') {
   const s = { next: 0, heading: Math.random() * 6.283, idleUntil: 0, stuckAt: 0, stuckP: null, side: 0, sideUntil: 0, cur: null };
   let dir = null;
   const anc = (lf, L, u, to) => { while (L < to) { u = lf.lv[L].parent[u]; L++; } return u; }; // the ancestor of unit (L, u) at level `to`
-  return (hole) => {
+  const steer = (hole) => {
     const P = window.__planet;
     if (!P) return [0, 0];
     const W = P.W, B = W.bite, lf = B.lf, state = P.ctx.state, t = state.time, r = hole.r, human = who === 'human', G = P.game.goal, R = 6371000;
@@ -300,9 +300,9 @@ export function planetSteer(who = 'human') {
     if (th && state.playing) {
       const ds = th.dangers(s.buf ??= []), v = P3.speed(r); s.pick ??= {};
       for (const d of ds) {
-        if (d.kind === 'rival') { // a bigger rival: keep away (run until well clear: hysteresis); a smaller one: hunt it (greedy always, human 1 time in 2)
+        if (d.kind === 'rival') { // a bigger rival: bend the heading away from it (full flight only when it is close), the rings still come first; a smaller one: hunt it (greedy always, human 1 time in 2)
           const dist = Math.hypot(d.x, d.z) || 1; s.fear ??= {};
-          if (d.big) { if (dist < d.R + (s.fear[d.id] ? 7 : 4) * r) { s.fear[d.id] = 1; dbg.flee = (dbg.flee || 0) + 1; return [-d.x / dist, -d.z / dist]; } s.fear[d.id] = 0; continue; }
+          if (d.big) { const thr = d.R + (s.fear[d.id] ? 6 : 4) * r, w = (thr - dist) / (thr - d.R + 1); if (dist < thr) { s.fear[d.id] = 1; dbg.flee = (dbg.flee || 0) + 1; s.push = [(-d.x / dist) * Math.min(1, w) * 2.4, (-d.z / dist) * Math.min(1, w) * 2.4]; } else s.fear[d.id] = 0; continue; }
           s.hunt ??= {}; if (s.hunt[d.id] === undefined) s.hunt[d.id] = who === 'greedy' || Math.random() < 0.5;
           if (s.hunt[d.id] && dist < 14 * r) { dbg.rival = (dbg.rival || 0) + 1; return [d.x / dist, d.z / dist]; }
           continue;
@@ -388,6 +388,12 @@ export function planetSteer(who = 'human') {
       s.heading = aim + (human ? (Math.random() - 0.5) * 0.17 : 0);
     }
     return [Math.cos(s.heading), Math.sin(s.heading)];
+  };
+  return (hole) => { // (a bigger rival bends whatever heading the plan gave: it never overrides a ring dodge)
+    s.push = null; const out = steer(hole), p = s.push;
+    if (!p) return out;
+    const x = out[0] + p[0], z = out[1] + p[1], l = Math.hypot(x, z) || 1;
+    return [x / l, z / l];
   };
 }
 

@@ -120,7 +120,7 @@ export class Threat {
     out.x = v5.x * k; out.z = v5.z * k; out.d = a; return out;
   }
   /** Lock time (s) so a ring of `need` extra metres... in radii: the hole must be able to leave `needR` r in lock - turn seconds at 0.9 v. */
-  lockFor(needR, floor = 2.0) { const r = this.hole.r, v = P3.speed(r) / r; return Math.min(4.6, Math.max(floor, P3.turn(r) + needR / (0.9 * v))); }
+  lockFor(needR, floor = 2.0, cap = 4.6) { const r = this.hole.r, v = P3.speed(r) / r; return Math.min(cap, Math.max(floor, P3.turn(r) + needR / (0.9 * v))); }
   notice(a) { if (a >= 1) this.quiet = 0; this.noto = Math.min(100, this.noto + a * (this.state.mods?.noto ?? 1)); }
   zoneAlloc() { for (let i = 0; i < NZ; i++) if (!this.zoneUsed[i]) { this.zoneUsed[i] = true; return i; } return -1; }
   zonesFree() { let n = 0; for (let i = 0; i < NZ; i++) if (!this.zoneUsed[i]) n++; return n; }
@@ -150,7 +150,7 @@ export class Threat {
     if (this.mercySum() + frac > 0.25 + 1e-9) { this.stats.mercy++; this.stats.near++; this.trauma(0.25); this.ctx.hint('Near miss — the world blinks'); return 0; }
     this.mercyPush(frac); this.fair(fairAge, key);
     const a0 = hole.area; hole.area *= 1 - frac;
-    const L = state.ledger; L[key] = (L[key] || 0) + (hole.area - a0); L.dmg = (L.dmg || 0) + (hole.area - a0); this.stats.loss += frac; this.stats.hits++;
+    const L = state.ledger; L[key] = (L[key] || 0) + (hole.area - a0); L.dmg = (L.dmg || 0) + (hole.area - a0); this.stats.loss += frac; this.stats.hits++; (this.stats.by ??= {})[key] = (this.stats.by[key] || 0) + 1;
     this.trauma(0.5);
     this.ctx.flash(why);
     this.sfx.hurt();
@@ -163,7 +163,7 @@ export class Threat {
     if (this.mercySum() + c.acc + f > 0.25 + 1e-9) { if (this.t - c.hint > 2) { c.hint = this.t; this.stats.mercy++; this.stats.near++; this.ctx.hint('Near miss — the world blinks'); } return 0; }
     const a0 = hole.area; hole.area *= 1 - f; c.acc += f; const L = state.ledger; L[key] = (L[key] || 0) + (hole.area - a0); L.dmg = (L.dmg || 0) + (hole.area - a0); this.stats.loss += f;
     if (this.t - c.t > 0.4) { this.mercyPush(c.acc); c.acc = 0; c.t = this.t; this.fair(fairAge, key); }
-    if (this.t - (c.fx ?? -9) > 0.9) { c.fx = this.t; this.trauma(0.12); this.sfx.hurt(); this.ctx.flash(why); this.stats.hits++; }
+    if (this.t - (c.fx ?? -9) > 0.9) { c.fx = this.t; this.trauma(0.12); this.sfx.hurt(); this.ctx.flash(why); this.stats.hits++; (this.stats.by ??= {})[key] = (this.stats.by[key] || 0) + 1; }
     return f;
   }
 

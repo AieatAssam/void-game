@@ -50,7 +50,7 @@ export function makeTsunami(th) {
           }
         }
         if (!q.hit) { // the front passes the hole's centre: once (a hole already inside the start disc has to be left first)
-          if (dist < front - 0.05 * r) { q.hit = true; if (!q.inside) this.cross(q); }
+          if (dist < front - 0.05 * r) { q.hit = true; if (!q.inside && q.age >= 1.6) this.cross(q); } // (a front that arrives inside 1.6 s is not a fair hit: it counts as already past)
           else if (q.inside && dist > front) q.inside = false;
         }
       }

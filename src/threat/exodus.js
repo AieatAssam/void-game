@@ -53,7 +53,7 @@ export function makeExodus(th) {
       if (m.t > 11) { m.on = false; m.mod.visible = false; m.trail.hide(); }
     },
     finish(q) { q.on = false; for (const m of rk) { m.on = false; m.mod.visible = false; m.trail.hide(); } },
-    danger(q, out) { for (const m of rk) if (m.on && !m.eaten && alt(m, m.t) < 1.2 * m.r0) { th.offsetOf(m.dir, o); out.push({ kind: 'target', id: `x${m.i}`, x: o.x, z: o.z, R: 0.8 * hole.r, eta: Math.max(0, 1.2 - alt(m, m.t) / m.r0) * 3, what: 'rocket', reach: 6 }); } },
+    danger(q, out) { for (const m of rk) if (false) { /* (rockets are scenery for the bot: +0.3% is not worth a detour) */ } },
   };
   for (const m of rk) m.mod.visible = false;
   return k;
