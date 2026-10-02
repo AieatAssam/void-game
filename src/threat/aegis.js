@@ -89,14 +89,14 @@ export function makeAegis(th) {
       th.zoneFree(q.zone); q.zone = -1; q.mk2?.remove(); q.mk2 = null; q.mk?.remove(); q.mk = null; net.hide();
       for (let i = 0; i < 28; i++) { const an = (i / 28) * 6.283; tangentAt(q.c, an, c); a.copy(q.c).multiplyScalar(Math.cos(q.ringR / R)).addScaledVector(c, Math.sin(q.ringR / R)).normalize(); th.surf(a, 0.6 * q.r0, b, Math.max(0, W.P.elevation(a, 3))); th.glow.spawn(b, vel3(a, rnd(-1, 1) * 0.4 * q.r0, rnd(-1, 1) * 0.4 * q.r0, -0.9 * q.r0, f), 0.4 * q.r0, 0.08 * q.r0, 1.6, NET, 1.5, 0.3); }
       th.sfx.aegisBreak?.(); th.beat(0.2, 0.4, 1.0); th.trauma(0.6); th.screenFlash(0.7, '#e8dcff', 600); th.notice(15);
-      th.ctx.card('AEGIS BROKEN', `+${Math.round(T.gulp * 100)}% — a free perk`); th.news('The Aegis is broken: its platforms are gone, the sky is open'); state.draftsDue = (state.draftsDue || 0) + 1; th.ctx.draft?.();
+      th.ctx.card('AEGIS BROKEN', `+${Math.round(T.gulp * 100)}% — a free perk`); th.news('The Aegis is broken: its platforms are gone, the sky is open'); th.ctx.draft?.(); // (draft() raises draftsDue itself; a bot takes the first offer at once)
     },
     finish(q) { q.on = false; q.phase = 'gone'; for (const p of q.pl) { p.mod.visible = false; p.alive = false; p.sink = 0; } net.hide(); if (q.zone >= 0) th.zoneFree(q.zone); q.zone = -1; q.mk?.remove(); q.mk = null; q.mk2?.remove(); q.mk2 = null; },
     clear() { x.tries = 0; x.done = false; },
     danger(q, out) {
       if (q.phase !== 'descend' && q.phase !== 'closing') return;
       th.offsetOf(q.c, o); out.push({ kind: 'lid', id: `a${q.i}`, x: o.x, z: o.z, R: q.ringR, alive: q.alive, p: q.p, eta: CLOSE * (1 - q.p) });
-      if (q.t > 4.5) for (const p of q.pl) if (p.alive) { th.offsetOf(p.dir, o); out.push({ kind: 'target', id: `ap${q.tries}${p.i}`, x: o.x, z: o.z, R: 0.95 * hole.r, eta: CLOSE * (1 - q.p), what: 'aegis', reach: 7 }); }
+      if (q.t > 4.5) for (const p of q.pl) if (p.alive) { th.offsetOf(p.dir, o); out.push({ kind: 'target', id: `ap${q.tries}${p.i}`, x: o.x, z: o.z, R: 0.95 * hole.r, eta: CLOSE * (1 - q.p), what: 'aegis', reach: 7, grp: `ag${q.tries}`, p: 0.85, maxT: 60 }); }
     },
     line(q, pick) {
       if (q.phase === 'descend') pick(6 - q.t, `THE AEGIS · descending · <b>${q.alive}</b> platforms · lid locks in <b>${Math.max(0, 6 - q.t).toFixed(1)} s</b>`, 'lock');

@@ -25,7 +25,7 @@ export function makeLaser(th) {
       let ux = sp > 0.05 * P3.speed(r) ? hole.vx / sp : 0, uz = sp > 0.05 * P3.speed(r) ? hole.vz / sp : -1;
       const a = side * rnd(0.5, 0.9), c = Math.cos(a), s = Math.sin(a), dx = (ux * c - uz * s) * 3.8 * r, dz = (ux * s + uz * c) * 3.8 * r;
       if (opt.at) { W.dirAt(opt.at[0] * r, opt.at[1] * r, x.spot); } else W.dirAt(dx, dz, x.spot);
-      Object.assign(x, { on: true, phase: 'warm', t: 0, age: 0, r0: r, B: 0.65 * r, alt: 3.2 * r, eaten: false, sweeps: P3.tier(r) >= 4 && th.defcon <= 1 ? 2 : 1, hum: 0, scarT: 0, puff: 0, hadZone: true, fairT: 0, wasIn: false });
+      Object.assign(x, { on: true, phase: 'warm', t: 0, age: 0, r0: r, B: 0.65 * r, alt: 3.2 * r, eaten: false, sweeps: 1, hum: 0, scarT: 0, puff: 0, hadZone: true, fairT: 0, wasIn: false });
       x.zone = th.zoneAlloc(); x.plat.copy(x.spot);
       x.mk = th.map?.addMarker({ kind: 'ring', dir: x.spot, r: x.B, label: 'LASER', color: '#ff4a3a', eta: 2, pulse: true });
       th.stats.lasers++; th.sfx.laserCharge?.(2.4); th.sfx.klaxon(3);
@@ -117,7 +117,7 @@ export function makeLaser(th) {
     finish(q) { q.on = false; q.phase = 'gone'; q.mod.visible = false; core.hide(); glow.hide(); if (q.zone >= 0) th.zoneFree(q.zone); q.zone = -1; q.mk?.remove(); q.mk = null; },
     danger(q, out) {
       if (q.phase === 'warm' || q.phase === 'sweep') { th.offsetOf(q.spot, o); out.push({ kind: 'beam', id: `b${q.i}`, x: o.x, z: o.z, R: q.B, eta: q.phase === 'warm' ? 2 - q.t : 0, locked: true, hot: q.phase === 'sweep' }); }
-      else if (q.phase === 'aim' && !q.eaten) { th.offsetOf(q.plat, o); out.push({ kind: 'target', id: `p${th.stats.lasers}`, x: o.x, z: o.z, R: 0.8 * hole.r, eta: 5 - q.t, what: 'platform' }); }
+      else if (q.phase === 'aim' && !q.eaten) { th.offsetOf(q.plat, o); out.push({ kind: 'target', id: `p${th.stats.lasers}`, x: o.x, z: o.z, R: 0.8 * hole.r, eta: 5 - q.t, what: 'platform', grp: `lp${th.stats.lasers}` }); }
     },
     line(q, pick) {
       if (q.phase === 'warm') pick(2 - q.t, `ORBITAL LASER · warming · <b>${Math.max(0, 2 - q.t).toFixed(1)} s</b>`, 'lock');

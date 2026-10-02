@@ -135,7 +135,7 @@ export function makeFleet(th) {
     },
     danger(q, out) {
       for (const m of q.missiles) if (m.on && !m.boom) { th.offsetOf(m.to, o); out.push({ kind: 'cruise', id: `c${q.i}_${m.i}`, x: o.x, z: o.z, R: m.B, inner: 0, eta: m.T - m.age, locked: m.locked, lock: m.lock }); }
-      for (const s of q.ships) if (s.alive) { th.offsetOf(s.dir, o); out.push({ kind: 'target', id: `s${q.uid}${s.m}${s.fy}`, x: o.x, z: o.z, R: 0.9 * hole.r, eta: 99, what: 'ship', reach: 9 }); }
+      for (const s of q.ships) if (s.alive) { th.offsetOf(s.dir, o); out.push({ kind: 'target', id: `s${q.uid}${s.m}${s.fy}`, x: o.x, z: o.z, R: 0.9 * hole.r, eta: 99, what: 'ship', reach: 9, grp: `fl${q.uid}` }); }
     },
     line(q, pick) {
       let best = 1e9, mm = null; for (const m of q.missiles) if (m.on && !m.boom && m.T - m.age < best) { best = m.T - m.age; mm = m; }

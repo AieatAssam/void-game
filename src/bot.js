@@ -305,17 +305,22 @@ export function planetSteer(who = 'human') {
         if (d.kind === 'rival') { // a bigger rival bends the heading away from it (full flight only when it is close); a smaller one is hunted (greedy always, human 1 time in 2)
           s.fear ??= {};
           if (d.big) { const thr = d.R + (s.fear[d.id] ? 6 : 4) * r, w = (thr - dist) / (thr - d.R + 1); if (dist < thr) { s.fear[d.id] = 1; dbg.flee = (dbg.flee || 0) + 1; s.push = [(-d.x / dist) * Math.min(1, w) * 2.4, (-d.z / dist) * Math.min(1, w) * 2.4]; } else s.fear[d.id] = 0; continue; }
-          s.hunt ??= {}; if (s.hunt[d.id] === undefined) s.hunt[d.id] = who === 'greedy' || Math.random() < 0.5;
+          s.hunt ??= {}; if (s.hunt[d.id] === undefined) s.hunt[d.id] = who === 'greedy' || Math.random() < 0.35;
           if (s.hunt[d.id] && dist < 14 * r && dist < goD) { go = [d.x / dist, d.z / dist, 'rival']; goD = dist; }
           continue;
         }
         if (d.kind === 'lid') { s.lid ??= {}; if (s.lid[d.id] === undefined) s.lid[d.id] = who === 'greedy' || Math.random() < 0.8; if (s.lid[d.id] && d.alive > 0) continue; if (dist < d.R + 0.6 * r) { dbg.lid = (dbg.lid || 0) + 1; return [-d.x / dist, -d.z / dist]; } continue; } // (the Aegis lid: go for its platforms, or leave the ring)
         if (d.kind === 'wave') { if (dist > d.R && dist - d.R < 3 * r) { dbg.wave = (dbg.wave || 0) + 1; return [-d.x / dist, -d.z / dist]; } continue; } // (a tsunami front still coming: run from the cause, you are faster)
-        if (d.kind === 'beam') { if (dist < d.R + 2.2 * r && !(human && Math.random() < 0.004)) { dbg.beam = (dbg.beam || 0) + 1; return [-d.x / dist, -d.z / dist]; } continue; } // (keep out of the beam: it is slower than the hole)
+        if (d.kind === 'beam') { // keep out of the beam (it is slower than the hole): bend the heading away from it, and only back right off when it is close
+          if (dist < d.R + 0.9 * r) { dbg.beam = (dbg.beam || 0) + 1; return [-d.x / dist, -d.z / dist]; }
+          if (dist < d.R + 3 * r) { const w = (d.R + 3 * r - dist) / (2.1 * r); s.push = [(-d.x / dist) * w * 2.2, (-d.z / dist) * w * 2.2]; }
+          continue;
+        }
         if (d.kind === 'target') { // an edible set-piece part (laser platform, Aegis platform, cracker station, a ship): greedy always, human 2 times in 3; 28 s per target at most
-          s.tgt ??= {}; s.tgtT ??= {}; if (s.tgt[d.id] === undefined) { s.tgt[d.id] = who === 'greedy' || Math.random() < 0.67; s.tgtT[d.id] = t; }
-          if (s.tgt[d.id] && t - s.tgtT[d.id] > 28) s.tgt[d.id] = false;
-          if (s.tgt[d.id] && dist < (d.reach ?? 10) * r && d.eta > 0.5 && dist < goD) { go = [dist < 0.25 * r ? 0 : d.x / dist, dist < 0.25 * r ? 0 : d.z / dist, 'target']; goD = dist; }
+          const gk = d.grp ?? d.id; // (the parts of one set piece are one decision: all six Aegis platforms, all three stations)
+          s.tgt ??= {}; s.tgtT ??= {}; if (s.tgt[gk] === undefined) { s.tgt[gk] = who === 'greedy' || Math.random() < (d.p ?? 0.67); s.tgtT[gk] = t; }
+          if (s.tgt[gk] && t - s.tgtT[gk] > (d.maxT ?? 28)) s.tgt[gk] = false;
+          if (s.tgt[gk] && dist < (d.reach ?? 10) * r && d.eta > 0.5 && dist < goD) { go = [dist < 0.25 * r ? 0 : d.x / dist, dist < 0.25 * r ? 0 : d.z / dist, 'target']; goD = dist; }
           continue;
         }
         if (d.kind === 'sat' || d.kind === 'scenery') continue;

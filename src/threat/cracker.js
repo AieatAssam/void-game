@@ -120,7 +120,7 @@ export function makeCracker(th) {
     danger(q, out) {
       if (q.phase !== 'charge') return;
       th.offsetOf(q.to, o); out.push({ kind: 'cracker', id: `k${q.i}`, x: o.x, z: o.z, R: q.B, inner: 0, eta: q.T - q.t, locked: q.locked, lock: q.lock });
-      for (const s of q.st) if (s.alive) { th.offsetOf(s.dir, o); out.push({ kind: 'target', id: `ks${s.i}`, x: o.x, z: o.z, R: 0.95 * hole.r, eta: q.T - q.t, what: 'station', reach: 40 }); }
+      for (const s of q.st) if (s.alive) { th.offsetOf(s.dir, o); out.push({ kind: 'target', id: `ks${s.i}`, x: o.x, z: o.z, R: 0.95 * hole.r, eta: q.T - q.t, what: 'station', reach: 40, grp: 'ck', p: 0.8, maxT: 80 }); }
     },
     line(q, pick) {
       if (q.phase === 'charge') { let al = 0; for (const s of q.st) if (s.alive) al++; const left = Math.max(0, q.T - q.t); pick(left * 0.1 - 5, `THE LAST RESORT · <b>${left.toFixed(0)} s</b> · power stations <b>${q.n - al}/${q.n}</b> swallowed${q.locked ? ' · RING LOCKED' : ' · or dodge the ring'}`, left < 8 ? 'lock' : ''); }

@@ -10,6 +10,8 @@ import { rnd } from './threat/kit.js';
 
 const NAMES = { maw: 'THE MAW', eater: 'THE WORLD-EATER' };
 const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), tg = new THREE.Vector3(), pv = new THREE.Vector3();
+/** A tangent at unit vector `d` toward point (px, py, pz), into `out`; null when the point is straight above / below. */
+const tangentToward = (d, px, py, pz, out) => { out.set(px, py, pz).addScaledVector(d, -(px * d.x + py * d.y + pz * d.z)); return out.lengthSq() < 1e-10 ? null : out.normalize(); };
 const angle = (p, q) => Math.acos(Math.min(1, Math.max(-1, p.x * q.x + p.y * q.y + p.z * q.z)));
 const CSS = `.rvl{position:fixed;left:0;top:0;z-index:4;pointer-events:none;font:800 12px system-ui,sans-serif;letter-spacing:.08em;color:#ffe6e0;background:#5a0a14d9;padding:3px 11px;border-radius:999px;box-shadow:0 0 0 1.5px #ff5a47aa,0 0 16px #ff2a1a66;white-space:nowrap}.rvl.small{background:#2a1260d9;color:#e8dcff;box-shadow:0 0 0 1.5px #c9a8ffaa,0 0 16px #8a5cff66}.rvl[hidden]{display:none}`;
 
@@ -45,7 +47,7 @@ export class Rivals {
       d.set(pd[pk * 3], pd[pk * 3 + 1], pd[pk * 3 + 2]);
     }
     const r = hole.r * (kind === 'maw' ? T.maw : T.eater), hv = new THREE.Vector3().copy(W.hdir).addScaledVector(d, -d.dot(W.hdir)); if (hv.lengthSq() < 1e-8) hv.set(1, 0, 0).addScaledVector(d, -d.x); hv.normalize();
-    const x = { on: true, id: ++this.uid, kind, name: NAMES[kind], slot, dir: d, hv, area: Math.PI * r * r, r, mood: 'hunt', tgt: null, tgtT: rnd(0, 1), cd: 0, age: 0, feed: 0, starve: 0, dp: 99e6, zone: th.zoneAlloc(), near: 0, pct0: 0, k: 0, opts: { budget: 2400, fr: { n: 0 }, pop: 0, area: 0, credit: 0 }, mk: null, ate: 0 };
+    const x = { on: true, id: ++this.uid, kind, name: NAMES[kind], slot, dir: d, hv, area: Math.PI * r * r, r, mood: 'hunt', tgt: null, tgtT: rnd(0, 1), cd: 0, age: 0, feed: 1, starve: 0, dp: 99e6, zone: th.zoneAlloc(), near: 0, pct0: 0, k: 0, opts: { budget: 2400, fr: { n: 0 }, pop: 0, area: 0, credit: 0 }, mk: null, ate: 0 };
     this.slots[slot] = true; this.list.push(x);
     x.mk = th.map?.addMarker({ kind: 'rival', dir: x.dir, r: x.r, big: true, label: x.name, color: '#ff5d5d' });
     th.stats.rivals++; th.sfx.rivalGrowl?.(); th.screenFlash(0.18, '#ff5a47', 500); th.trauma(0.25);
@@ -93,13 +95,12 @@ export class Rivals {
       x.tgt = t ? t.dir : null;
     }
     // the heading wanted: a tangent at x.dir toward a point
-    const want = (px, py, pz) => { tg.set(px, py, pz).addScaledVector(x.dir, -(px * x.dir.x + py * x.dir.y + pz * x.dir.z)); return tg.lengthSq() < 1e-10 ? null : tg.normalize(); };
     let w = null;
     const speed0 = P3.speed(x.r) * T.speed;
-    if (x.mood === 'chase') { const Tl = Math.min(4, dp / Math.max(1, speed0)) * 0.7; W.dirAt(hole.vx * Tl, hole.vz * Tl, pv); w = want(pv.x, pv.y, pv.z); }
+    if (x.mood === 'chase') { const Tl = Math.min(4, dp / Math.max(1, speed0)) * 0.7; W.dirAt(hole.vx * Tl, hole.vz * Tl, pv); w = tangentToward(x.dir, pv.x, pv.y, pv.z, tg); }
     else if (x.mood === 'flee' || x.mood === 'retreat') { // away from the player, bent toward food so it does not just circle the planet
-      const aw = want(-W.hdir.x, -W.hdir.y, -W.hdir.z); if (aw) { c.copy(aw); if (x.tgt) { const lw = want(x.tgt.x, x.tgt.y, x.tgt.z); if (lw) c.addScaledVector(lw, 0.5); } w = c.normalize(); }
-    } else if (x.tgt) w = want(x.tgt.x, x.tgt.y, x.tgt.z);
+      const aw = tangentToward(x.dir, -W.hdir.x, -W.hdir.y, -W.hdir.z, tg); if (aw) { c.copy(aw); if (x.tgt) { const lw = tangentToward(x.dir, x.tgt.x, x.tgt.y, x.tgt.z, tg); if (lw) c.addScaledVector(lw, 0.5); } w = c.normalize(); }
+    } else if (x.tgt) w = tangentToward(x.dir, x.tgt.x, x.tgt.y, x.tgt.z, tg);
     if (w) x.hv.lerp(w, 1 - Math.exp(-dt / (P3.turn(x.r) * 1.3))).addScaledVector(x.dir, -x.hv.dot(x.dir)).normalize();
     // grazing slows it (as ridge drag and the feast do the player): a fleeing rival that stops to eat can be caught
     const sp = speed0 * (x.feed > 0.3 ? (x.mood === 'chase' ? 0.3 : 0.06) : 1) * (x.mood === 'retreat' ? 1.1 : 1), ang = sp * dt / R, cs = Math.cos(ang), sn = Math.sin(ang);
@@ -157,8 +158,8 @@ export class Rivals {
       const vis = (x.dir.x * cp.x + x.dir.y * cp.y + x.dir.z * cp.z) > R * R / cl;
       th.W.renderPos(x.dir, 0, pv).project(cam);
       if (!vis || pv.z > 1 || Math.abs(pv.x) > 0.94 || Math.abs(pv.y) > 0.92) { el.hidden = true; continue; }
-      const big = x.r > th.hole.r * 1.04, t = `${x.name} · ${(x.r / th.hole.r).toFixed(1)}×`;
-      if (el.textContent !== t) el.textContent = t; el.className = big ? 'rvl' : 'rvl small';
+      const big = x.r > th.hole.r * 1.04;
+      if ((x.lt = (x.lt ?? 0) - 1) <= 0) { x.lt = 15; el.textContent = `${x.name} · ${(x.r / th.hole.r).toFixed(1)}×`; el.className = big ? 'rvl' : 'rvl small'; } // (the label text is rebuilt 4 times a second, not every frame)
       el.hidden = false; el.style.transform = `translate(${((pv.x * 0.5 + 0.5) * innerWidth).toFixed(0)}px,${((-pv.y * 0.5 + 0.5) * innerHeight).toFixed(0)}px) translate(-50%,-190%)`;
     }
     for (let i = 0; i < 3; i++) if (!this.slots[i]) this.labels[i].hidden = true;

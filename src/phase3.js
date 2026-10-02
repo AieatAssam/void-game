@@ -35,7 +35,7 @@ export const P3 = {
   pitch: (r) => ramp(VIEW, r, 1) * Math.PI / 180,
   relief: (r) => ramp(VIEW, r, 2),
   aim: (r) => ramp(VIEW, r, 3), // degrees
-  gScale: 1.28, // global multiplier on the G ramp (balance knob)
+  gScale: 1.2, // global multiplier on the G ramp (balance knob)
   gRamp: GRAMP, // (mutable for sweeps: __P3.gRamp[0][1] = ...)
   g: (r) => P3.gScale * ramp(P3.gRamp, r, 1),
   tier: (r) => { let t = 1; for (const q of TIERS) if (r >= q.r * 0.999 || q.n === 1) t = q.n; return t; },
@@ -74,7 +74,7 @@ export const T3 = {
   kinds: {
     bomber: { cost: 3, cool: [42, 56] }, nuke: { cost: 6, cool: [48, 68] }, rod: { cost: 5, cool: [55, 75] },
     mirv: { cost: 10, cool: [90, 120], hit: 0.04, k: 14, cap: 0.15, gulp: 0.02, children: 4 },
-    laser: { cost: 8, cool: [80, 105], rate: 0.02, k: 1.1, sweep: 0.3, dur: 12, jam: 0.8, gulp: 0.02 },
+    laser: { cost: 8, cool: [90, 120], rate: 0.02, k: 1.1, sweep: 0.3, dur: 12, jam: 0.8, gulp: 0.02 },
     fleet: { cost: 3, cool: [100, 140], hit: 0.04, k: 8, eat: 0.015, all: 0.03, salvo: 12 },
     tsunami: { cost: 0, cool: [60, 80], hit: 0.03, k: 8, rubble: 1.5, rubbleT: 30 },
     volcano: { cost: 0, cool: [220, 300], hit: 0.03, k: 8, surge: 1.5, surgeT: 8 },
