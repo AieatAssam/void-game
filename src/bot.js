@@ -307,6 +307,7 @@ export function planetSteer(who = 'human') {
           if (s.hunt[d.id] && dist < 14 * r) { dbg.rival = (dbg.rival || 0) + 1; return [d.x / dist, d.z / dist]; }
           continue;
         }
+        if (d.kind === 'lid') { const dist = Math.hypot(d.x, d.z) || 1; s.lid ??= {}; if (s.lid[d.id] === undefined) s.lid[d.id] = who === 'greedy' || Math.random() < 0.8; if (s.lid[d.id] && d.alive > 0) continue; if (dist < d.R + 0.6 * r) { dbg.lid = (dbg.lid || 0) + 1; return [-d.x / dist, -d.z / dist]; } continue; } // (the Aegis lid: go for its platforms, or leave the ring)
         if (d.kind === 'wave') { const dist = Math.hypot(d.x, d.z) || 1; if (dist > d.R && dist - d.R < 3 * r) { dbg.wave = (dbg.wave || 0) + 1; return [-d.x / dist, -d.z / dist]; } continue; } // (a tsunami front still coming: run from the cause, you are faster)
         if (d.kind === 'beam') { const dist = Math.hypot(d.x, d.z) || 1; if (dist < d.R + 2.2 * r && !(human && Math.random() < 0.004)) { dbg.beam = (dbg.beam || 0) + 1; return [-d.x / dist, -d.z / dist]; } continue; } // (keep out of the beam: it is slower than the hole)
         if (d.kind === 'target') { // an edible set-piece part (the laser platform, an Aegis platform, a cracker station): greedy always, human 2 times in 3

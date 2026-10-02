@@ -284,3 +284,9 @@ export function gulpShip() { noise(0.5, 1800, 0.3, 0.05, 300); tone('sine', 180,
 export function tsunami() { noiseUp(2.2, 900, 0.5); tone('sine', 44, 30, 2.6, 0.5); noise(3, 700, 0.35, 2.0, 200); }
 /** A volcano: a rumble, then (erupt) the blast, a deep sub drop and a crackle. */
 export function volcano(erupt = false) { if (erupt) { noise(2.6, 500, 0.6); tone('sine', 46, 24, 3, 0.9); tone('sawtooth', 70, 30, 1.8, 0.14); noise(0.5, 3000, 0.45, 0.05); } else rumble(0.9, 0); }
+/** The Aegis descends: two low drones a beat apart under a rising whine and slow metal clangs. */
+export function aegisDescend() { tone('sine', 62, 61.2, 7, 0.45); tone('sine', 93, 92, 7, 0.25); tone('sawtooth', 120, 520, 6.5, 0.05); for (let i = 0; i < 5; i++) tone('square', 300 - i * 20, 90, 0.4, 0.06, 1 + i * 1.3); }
+/** An Aegis platform swallowed: a metal clang and a tail of sparks. */
+export function aegisEat() { tone('square', 520, 150, 0.5, 0.2); tone('triangle', 1040, 260, 0.7, 0.14); noise(0.5, 5000, 0.3, 0, 1500); tone('sine', 90, 30, 0.9, 0.6); }
+/** The Aegis broken: a shatter, a boom, a choir. */
+export function aegisBreak() { noise(1.2, 6000, 0.5, 0, 800); boom(1); choir(1); reverseGulp(); tone('sine', 40, 22, 3.6, 0.8, 0.5); }
