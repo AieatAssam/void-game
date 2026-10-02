@@ -172,7 +172,7 @@ export function cutMaterial(u, SU) {
     const N = normalize(aN).toVar(); // (wound to face out: the faces are drawn on both sides for the shards that tumble)
     const dep = float(1).sub(rho), nA = mx_fractal_noise_float(rest.mul(42), 3, 2.1, 0.5, 1), nB = mx_noise_float(rest.mul(130)), nC = mx_noise_float(rest.mul(9));
     // layers by depth: crust (a thin top), lithosphere bands, then the mantle whose temperature climbs toward the core
-    const crustK = smoothstep(0.012, 0.004, dep).toVar(), litho = smoothstep(0.06, 0.018, dep).mul(float(1).sub(crustK)).toVar();
+    const crustK = float(1).sub(smoothstep(0.004, 0.012, dep)).toVar(), litho = float(1).sub(smoothstep(0.018, 0.06, dep)).mul(float(1).sub(crustK)).toVar();
     const T = clamp(smoothstep(0.03, 0.45, dep).mul(0.78).add(nA.mul(0.16)).add(nC.mul(0.07)).add(float(under).mul(0.35)), 0, 1).toVar();
     // convection: warped worley cells, bright at the cell borders (rising plumes), dim in the cell
     const cell = mx_worley_noise_float(rest.mul(11).add(vec3(nC.mul(1.4), nA.mul(1.1), nB.mul(0.3)))), vein = pow(float(1).sub(clamp(cell.mul(1.7), 0, 1)), 3);

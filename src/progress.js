@@ -72,7 +72,26 @@ if (!save.progress1) { // migration: seasoned players (best >= 6 m) start with t
 
 export const starMask = (mood) => save.stars[mood] || 0;
 export const starCount = (mood) => [0, 1, 2].filter((i) => starMask(mood) & (1 << i)).length;
-export const totalStars = () => ORDER.reduce((a, m) => a + starCount(m), 0);
+export const totalStars = () => ORDER.reduce((a, m) => a + starCount(m), 0) + worldStars();
+
+// ---------- the world (Phase 3): six star challenges on eating a planet, a 6-bit mask in save.worldStars; each counts as a star toward the skins ----------
+save.worldStars ??= 0;
+export const WORLD = [
+  { text: 'Eat the world in under 20:00', end: (s) => s.time < 1200 },
+  { text: 'Swallow 5 ICBMs', end: (s) => s.nukes >= 5 },
+  { text: 'Eat the Moon: all nine pieces', end: (s) => s.moonAll > 0 },
+  { text: 'Break the Aegis', end: (s) => s.aegisBroke > 0 },
+  { text: 'Fizzle the planet-cracker', end: (s) => s.fizzles > 0 },
+  { text: 'Finish a tier without being hit', end: (s) => s.cleanTier > 0 },
+];
+export const worldStars = () => WORLD.filter((_, i) => ((save.worldStars | 0) >> i) & 1).length;
+/** Score a finished world: { list: [{ text, done, fresh }], fresh }. */
+export function scoreWorld(stats) {
+  const before = save.worldStars | 0; let mask = before;
+  const list = WORLD.map((c, i) => { let ok = false; try { ok = !!c.end(stats); } catch { ok = false; } if (ok) mask |= 1 << i; return { text: c.text, done: !!(mask & (1 << i)), fresh: ok && !(before & (1 << i)) }; });
+  save.worldStars = mask; persist();
+  return { list, fresh: list.filter((c) => c.fresh).length };
+}
 
 /** A city is open if it is first, was opened by migration, or the city before it was cleared / earned 2 stars. */
 export function unlocked(mood) {

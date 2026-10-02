@@ -11,7 +11,7 @@ import { R } from './planetgen.js';
 import { planetMaterial } from './planetglobe.js';
 import { buildShards, cutMaterial, coreMaterial, shardUniforms, NSH, R_IN } from './shatter.js';
 import { streakUniforms, makeStreaks } from './streaks.js';
-import { holeSphere } from './blackhole.js';
+import { holeSphere, holeHalo } from './blackhole.js';
 import { save, persist } from './meta.js';
 
 if (/[?&]trace\b/.test(location.search)) THREE.Node.captureStackTrace = true; // (dev: TSL errors with stacks)
@@ -21,12 +21,13 @@ const lerp = (a, b, k) => a + (b - a) * k;
 
 /** Seconds on the finale clock. */
 export const FT = {
-  rupt: 2.6, openEnd: 4.8, peel0: 3.4, peelSpan: 15.5, fall0: 5.0, fall1: 18.4, core0: 19.4, coreDur: 5.8, last: 25.3, quiet: 25.7, drained: 27.0, lens0: 27.0, lens1: 30.6, title: 31.4, buttons: 35.2,
+  rupt: 2.6, openEnd: 4.8, peel0: 3.4, peelSpan: 12.6, fall0: 4.6, fall1: 15.2, core0: 16.6, coreDur: 5.4, last: 22.0, quiet: 22.4, drained: 23.7, lens0: 23.7, lens1: 27.3, title: 28.1, buttons: 31.9,
 };
 const NAME = 'THE WORLD IS CONSUMED';
 const CSS = `
 #finbars i{position:fixed;left:0;right:0;height:0;background:#000;z-index:30;pointer-events:none}#finbars i:first-child{top:0}#finbars i:last-child{bottom:0}
 #finflash{position:fixed;inset:0;z-index:31;pointer-events:none;opacity:0;background:#fff}
+#fincard::before{content:'';position:fixed;left:0;right:0;bottom:0;height:46vh;background:linear-gradient(transparent,#000b 60%);z-index:-1}
 #fincard{position:fixed;left:0;right:0;bottom:9vh;z-index:32;display:flex;flex-direction:column;align-items:center;gap:10px;pointer-events:none;text-align:center;font-family:system-ui,sans-serif;color:#eef0ff;opacity:0;transition:opacity 2.4s ease}
 #fincard.on{opacity:1}#fincard h1{margin:0;font:300 clamp(26px,5.4vw,64px)/1 system-ui,sans-serif;letter-spacing:.34em;padding-left:.34em;text-shadow:0 0 40px #8a5cff77,0 2px 0 #0008}
 #fincard .st{font:600 clamp(11px,1.5vw,16px)/1.4 system-ui,sans-serif;letter-spacing:.3em;color:#c9cbe8;text-transform:uppercase}#fincard .st b{color:#fff;font-weight:800}
@@ -67,16 +68,16 @@ export class Finale {
     const mo = { surf: g.surfTex, night: g.nightTex, bite: g.biteTex, trail: g.trailTex, N: g.N, B: g.B, quality, u: g.u };
     const top = new THREE.Mesh(geo.top, planetMaterial({ ...mo, gt: null, shard: SU })), cut = new THREE.Mesh(geo.cut, cutMaterial(g.u, SU));
     const coreMat = coreMaterial(g.u), core = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 48), coreMat);
-    const SKU = streakUniforms(g.u), streaks = makeStreaks(W.bake, geo.fault, SKU, low), bh = holeSphere();
+    const SKU = streakUniforms(g.u), streaks = makeStreaks(W.bake, geo.fault, SKU, low), bh = holeSphere(), halo = holeHalo();
     for (const m of [top, cut, core, streaks.mesh]) { m.scale.setScalar(R); m.frustumCulled = false; m.visible = false; }
     core.scale.setScalar(R); cut.renderOrder = 0; top.renderOrder = 0; core.renderOrder = 0;
     g.group.add(top, cut, core, streaks.mesh);
-    ctx.scene.add(bh);
+    ctx.scene.add(bh, halo);
     // pipelines compile now, in the planet's scene state, one mesh a frame: the finale's first frame must not build a shader
-    const meshes = [top, cut, core, streaks.mesh, bh];
+    const meshes = [top, cut, core, streaks.mesh, bh, halo];
     try { await ctx.post.precompile({ traverse: (f) => meshes.forEach(f) }, 12000, game.around); } catch (e) { console.warn('finale precompile', e); }
     await frame();
-    const F = new Finale(game, ctx, { geo, SU, top, cut, core, coreMat, streaks, SKU, bh });
+    const F = new Finale(game, ctx, { geo, SU, top, cut, core, coreMat, streaks, SKU, bh, halo });
     console.info(`[finale] ready: ${geo.shards.length} shards, ${geo.faces} faces, ${geo.walls} fault edges, ${streaks.counts.reduce((a, b) => a + b, 0)} streaks`);
     return F;
   }
@@ -103,7 +104,7 @@ export class Finale {
     let seed = 1234; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
     order.forEach(([ang, i], rank) => {
       const s = sh[i];
-      s.ang = ang; s.tk = FT.fall0 + (FT.fall1 - FT.fall0) * (rank / Math.max(1, K - 1)) ** 0.85 + (rnd() - 0.5) * 0.4; s.Dk = 2.7 + 2.6 * (ang / Math.PI) + rnd() * 0.6; s.ts = s.tk + 0.93 * s.Dk;
+      s.ang = ang; s.tk = FT.fall0 + (FT.fall1 - FT.fall0) * (rank / Math.max(1, K - 1)) ** 0.85 + (rnd() - 0.5) * 0.4; s.Dk = 2.4 + 2.2 * (ang / Math.PI) + rnd() * 0.5; s.ts = s.tk + 0.93 * s.Dk;
       s.off = 0.012 + rnd() * 0.05; s.w.set(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize(); s.om = (rnd() < 0.5 ? -1 : 1) * (0.25 + rnd() * 0.6); s.rot0 = (rnd() - 0.5) * 0.12;
       s.qo.setFromAxisAngle(s.w, s.rot0); s.rank = rank; s.done = false;
     });
@@ -112,9 +113,9 @@ export class Finale {
     this.evI = 0;
     // streak timings: [start, span, duration min, spread] and [width, length / s, intensity, spin] per kind (sea, air, lava, debris, disk)
     const K0 = this.SKU.uK.array, hi = this.ctx.Q.tier !== 'low';
-    [[FT.peel0, FT.peelSpan, 3.6, 2.4], [2.8, 10, 2.8, 2.0], [3.2, 14.5, 3.4, 2.6], [4.2, 14.5, 3.6, 3.0], [0, 0, 1, 1]].forEach((v, k) => K0[k].set(...v));
-    [[0.0034, 0.2, 1.15, 1.7], [0.0019, 0.55, 0.65, 2.6], [0.0046, 0.14, 1.0, 1.1], [0.0048, 0.1, 1.0, 1.5], [0.0042, 0.5, 1.0, 0]].forEach((v, k) => K0[k + 5].set(...v));
-    this.SKU.uDisk.value.set(9.0, 14.5, 1, 0.55);
+    [[FT.peel0, FT.peelSpan, 3.2, 2.2], [2.8, 8, 2.6, 1.8], [3.2, 12, 3.2, 2.4], [4.2, 12, 3.4, 2.8], [0, 0, 1, 1]].forEach((v, k) => K0[k].set(...v));
+    [[0.0062, 0.2, 2.0, 1.7], [0.0024, 0.55, 0.7, 2.6], [0.0056, 0.14, 1.1, 1.1], [0.0058, 0.1, 1.0, 1.5], [0.0046, 0.5, 1.0, 0]].forEach((v, k) => K0[k + 5].set(...v));
+    this.SKU.uDisk.value.set(8.0, 12.0, 1, 0.55);
     for (const o of [this.SKU.uN, this.SKU.uE1, this.SKU.uE2, this.SKU.uH]) o.value.set(0, 0, 0);
     this.SKU.uN.value.copy(this.n); this.SKU.uE1.value.copy(this.e1); this.SKU.uE2.value.copy(this.e2); this.SKU.uH.value.copy(this.Hc);
     this.g.u.uPeel.value.set(this.n.x, this.n.y, this.n.z, -1); this.g.u.uFault.value = 0;
@@ -122,11 +123,11 @@ export class Finale {
     const c = ctx.camera, p = c.position, d = p.length();
     this.cam0 = { D: d, el: Math.asin(clamp(p.y / d, -1, 1)), yaw: Math.atan2(p.x, p.z), fov: ctx.baseFov, aimY: 0, aimZ: 0 };
     const D0 = d, e0 = this.cam0.el;
-    this.K_D = [[0, D0], [FT.rupt, D0 * 1.08], [7, D0 * 1.38], [13, D0 * 1.75], [20, D0 * 2.6], [27, 8.4e7], [33, 1.02e8], [60, 1.1e8]];
-    this.K_el = [[0, e0], [FT.rupt, e0 * 0.96], [7, 0.42], [14, 0.32], [24, 0.25], [30, 0.2], [60, 0.19]];
-    this.K_yaw = [[0, this.cam0.yaw], [10, this.cam0.yaw + 0.2], [22, this.cam0.yaw + 0.06], [31, 0.42], [60, 0.9]];
-    this.K_aim = [[0, 0], [7, -0.58 * R], [14, -0.66 * R], [22, -0.36 * R], [28, -0.05 * R], [32, 0], [60, 0]];
-    this.K_fov = [[0, ctx.baseFov], [22, ctx.baseFov], [31, ctx.baseFov * 0.8], [60, ctx.baseFov * 0.78]];
+    this.K_D = [[0, D0], [FT.rupt, D0 * 1.08], [6, D0 * 1.38], [11, D0 * 1.75], [17, D0 * 2.6], [23.5, 8.4e7], [28.5, 1.02e8], [60, 1.1e8]];
+    this.K_el = [[0, e0], [FT.rupt, e0 * 0.96], [6, 0.42], [12, 0.32], [20, 0.25], [26, 0.2], [60, 0.19]];
+    this.K_yaw = [[0, this.cam0.yaw], [8, this.cam0.yaw + 0.2], [19, this.cam0.yaw + 0.06], [27, 0.42], [60, 0.9]];
+    this.K_aim = [[0, 0], [6, -0.58 * R], [12, -0.66 * R], [19, -0.36 * R], [24, -0.05 * R], [28, 0], [60, 0]];
+    this.K_fov = [[0, ctx.baseFov], [19, ctx.baseFov], [27, ctx.baseFov * 0.8], [60, ctx.baseFov * 0.78]];
     // look
     const doc = document;
     if (!doc.getElementById('fin-css')) doc.head.append(Object.assign(doc.createElement('style'), { id: 'fin-css', textContent: CSS }));
@@ -136,7 +137,10 @@ export class Finale {
     this.skipEl.onclick = () => this.skip();
     this.started = true; this.t = 0; this.did.clear(); this.shake = 0.25; this.w = 0; this.warm = 0; this.bloom = 0;
     this.skippable = !!save.finaleSeen || /[?&]finale\b/.test(location.search);
-    this.keyH = (e) => { if ((e.key === 'Escape' || e.key === ' ' || e.key === 'Enter') && this.skippable && this.t < FT.title) { e.preventDefault(); this.skip(); } };
+    this.keyH = (e) => {
+      if ((e.key === 'Escape' || e.key === ' ' || e.key === 'Enter') && this.skippable && this.t < FT.title) { e.preventDefault(); this.skip(); }
+      else if (e.key === 'Escape' && this.t >= FT.title) { const on = !this.cardEl.classList.contains('on'); this.cardEl.classList.toggle('on', on); this.btnEl.classList.toggle('on', on); } // (the hold's free look: Esc brings the card back)
+    };
     addEventListener('keydown', this.keyH);
     // the free-look of the hold: drag to orbit
     this.drag = { on: false, x: 0, y: 0, yaw: 0, el: 0 };
@@ -156,7 +160,7 @@ export class Finale {
   once(name, t, fn) { if (this.t >= t && !this.did.has(name)) { this.did.add(name); fn(); } }
 
   /** The clock's rate: slowed on the beats (the rupture, the last mouthful, the silence). */
-  rate(t) { return 1 - 0.78 * Math.exp(-(((t - FT.rupt - 0.25) / 0.45) ** 2)) - 0.7 * Math.exp(-(((t - FT.last) / 0.7) ** 2)) - 0.35 * Math.exp(-(((t - 12) / 0.25) ** 2)); }
+  rate(t) { return 1 - 0.78 * Math.exp(-(((t - FT.rupt - 0.25) / 0.45) ** 2)) - 0.7 * Math.exp(-(((t - FT.last) / 0.7) ** 2)) - 0.35 * Math.exp(-(((t - 9) / 0.25) ** 2)); }
 
   advance(raw) {
     if (this.over || !this.started) return;
@@ -172,7 +176,7 @@ export class Finale {
     });
     this.once('skipOn', 1.2, () => { if (this.skippable) this.skipEl.classList.add('on'); });
     this.once('rupt', FT.rupt, () => {
-      this.flash(1.0); this.shake = 1; this.pulse = 1; this.W.holeVis = 0; this.bhOn = true;
+      this.flash(1.0); this.shake = 1; this.pulse = 1; this.W.holeVis = 0; this.bhOn = true; this.W.shock(this.n, 0.3, 0.9, 2.6, 1.0);
       this.silent || (sfx.finale.rupture(), sfx.duck(1, 0.2));
       state.hitstop = Math.max(state.hitstop || 0, 0.12);
     });
@@ -238,7 +242,7 @@ export class Finale {
       const q = Math.pow(u, 1.7), rho = rho0 * Math.pow(1 - q, 1.4) + Rb * 0.2 * q, h = h0 * Math.pow(1 - q, 2.3), th = th0 + s.om * 5.0 * (Math.pow(u, 0.9) * (1 + 2.2 * u));
       _a.copy(H).addScaledVector(n, h).addScaledVector(this.e1, Math.cos(th) * rho).addScaledVector(this.e2, Math.sin(th) * rho);
       _v.copy(_a).sub(H); const dl = _v.length(); if (dl > 1e-6) _v.divideScalar(dl); else _v.copy(n);
-      const S = 1 + 9.5 * Math.pow(q, 2.0), spin = s.om * (t - s.tk) * (1.4 - 0.9 * q);
+      const S = 1 + 7.5 * Math.pow(q, 2.0), spin = s.om * (t - s.tk) * (1.4 - 0.9 * q);
       _q2.setFromAxisAngle(s.w, spin); _q.copy(s.qo).multiply(_q2);
       A.set(_a.x, _a.y, _a.z, S); Q.set(_q.x, _q.y, _q.z, _q.w); V.set(_v.x, _v.y, _v.z, 1 - sm(0.8, 1.0, u)); X.w = 0.3 + 0.7 * sm(0.05, 0.8, u);
     }
@@ -256,13 +260,13 @@ export class Finale {
     // ---- the world's skin: faults ignite, the crust opens, the sea peels, the air and the clouds go
     const gu = g.u;
     gu.uFault.value = sm(0.15, FT.rupt - 0.1, t); gu.uPeel.value.w = t < FT.peel0 ? -1 : clamp((t - FT.peel0) / FT.peelSpan) * Math.PI * 1.04;
-    gu.uClouds.value = 0.5 * (1 - sm(FT.rupt, FT.rupt + 3.5, t)); gu.uAtmo.value = 1 - sm(FT.rupt, FT.rupt + 4.5, t); gu.uAtmoH.value = gu.uAtmo.value;
     gu.uSkyK.value = lerp(1, 2.2, sm(FT.drained, FT.lens1, t)); gu.uSunK.value = 1 - sm(FT.quiet, FT.lens1 - 1, t);
     // ---- the streaks
     SKU.uT.value = t; SKU.uRb.value = Rb; SKU.uPx.value = 2 * Math.tan(THREE.MathUtils.degToRad(this.cam.fov / 2)) / Math.max(400, innerHeight); SKU.uDisk.value.z = 1 - sm(FT.lens0 + 0.6, FT.lens1 + 1.5, t) * 0.9; SKU.uAlpha.value = 1;
     // ---- the hole: a sphere at the origin, drained to black; then the lens takes it
     const bh = this.bh, U = bh.material.userData.U, kl = sm(FT.lens0, FT.lens1, t), drained = sm(FT.quiet, FT.drained, t);
     bh.visible = t >= FT.rupt && kl < 0.5; bh.scale.setScalar(rb);
+    { const hl = this.halo, HU = hl.material.userData.U; hl.visible = bh.visible; hl.scale.setScalar(rb * 5); HU.uHeat.value = clamp(this.pulse * 0.8); HU.uK.value = drained; HU.uA.value = sm(FT.rupt, FT.rupt + 0.8, t) * (0.7 + 0.3 * sm(FT.fall0, FT.last, t)); }
     U.uHeat.value = clamp(this.pulse * 0.9); U.uK.value = drained; U.uT.value = t;
     this.bhOn = t >= FT.rupt;
     // ---- fx
@@ -281,6 +285,7 @@ export class Finale {
   lensFrame(t, kl, rb) {
     const cam = this.ctx.camera, L = this.post.lens, c = this.cam;
     cam.position.copy(c.pos); cam.up.set(0, 1, 0); cam.lookAt(c.look); if (c.roll) cam.rotateZ(c.roll); cam.fov = c.fov; cam.updateProjectionMatrix(); cam.updateMatrixWorld();
+    this.halo.quaternion.copy(cam.quaternion);
     _v.set(0, 0, 0).project(cam);
     const d = cam.position.length(), th = Math.asin(Math.min(0.99, rb / d)), rs = 0.5 * Math.tan(th) / Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
     L.A.value.set(_v.x * 0.5 + 0.5, 0.5 - _v.y * 0.5, rs, kl);
@@ -290,7 +295,8 @@ export class Finale {
   }
 
   afterWorld(W, camera) {
-    const g = W.globe;
+    const g = W.globe, t = this.t; // (W.update has just written the game's own sky values: the finale's go over them)
+    g.u.uClouds.value = 0.5 * (1 - sm(FT.rupt, FT.rupt + 3.5, t)); g.u.uAtmo.value = 1 - sm(FT.rupt, FT.rupt + 4.5, t); g.u.uAtmoH.value = g.u.uAtmo.value;
     g.atmo.visible = g.u.uAtmo.value > 0.02; g.sky.visible = true;
     if (this.t > FT.rupt + 0.5 || this.game.moonGone) g.moon.visible = false;
     g.globe.visible = false;
@@ -331,8 +337,8 @@ export class Finale {
     removeEventListener('keydown', this.keyH); removeEventListener('mousedown', this.mdown); removeEventListener('mousemove', this.mmove); removeEventListener('mouseup', this.mup);
     for (const e of [this.bars, this.flashEl, this.cardEl, this.skipEl]) e?.remove();
     this.g.globe.visible = true;
-    this.g.group.remove(this.top, this.cut, this.core, this.streaks.mesh); this.ctx.scene.remove(this.bh);
-    for (const o of [this.top, this.cut, this.core, this.streaks.mesh, this.bh]) { o.geometry.dispose(); o.material.dispose(); }
+    this.g.group.remove(this.top, this.cut, this.core, this.streaks.mesh); this.ctx.scene.remove(this.bh, this.halo);
+    for (const o of [this.top, this.cut, this.core, this.streaks.mesh, this.bh, this.halo]) { o.geometry.dispose(); o.material.dispose(); }
     this.post.lens.A.value.w = 0; this.post.fxu.value.set(0, 0, 0, 0);
   }
 }

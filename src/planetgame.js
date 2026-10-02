@@ -10,7 +10,9 @@ import { sunDir } from './look.js';
 import { loadPack } from './assets.js';
 import { modsFor } from './perks.js';
 import { PlanetMap } from './planetmap.js';
-import { Threat, sealedCss } from './threat.js';
+import { Threat } from './threat.js';
+import { scoreWorld } from './progress.js';
+import { showResults } from './results.js';
 import { save, persist } from './meta.js';
 import { Cities } from './cities.js';
 import { Finale, FT } from './finale.js';
@@ -102,12 +104,14 @@ export class PlanetGame {
     W.update(0, hole, ctx.camera, innerHeight);
     this.hole = hole; this.ctxRef = ctx;
     if (this.map) { this.map.show(!cinematic); this.map.place(W, hole); } // (the minimap waits for the end of the cinematic)
-    state.sealed = false; state.over = false; state.gRate = 0;
+    state.sealed = false; state.over = false; state.gRate = 0; state.hitsByTier = {}; this.landLog = []; this.logT = -99;
     { const st = document.getElementById('status'); if (st) st.textContent = ''; } ctx.chips?.(); // (A12: no stale Phase 2 line, no Phase 2 perk chips)
     state.pop = this.world.bite.pop; state.ledger = { land: 0, tear: 0, pull: 0, fed: 0, starve: 0 }; state.tierAt = { 1: 0 }; state.goalDone = []; state.continents = 0; state.won = false; state.shake = 0; state.slowT = 0;
     this.camDist = 0;
     if (!cinematic) this.armRun(ctx, r0);
     this.installDebug(ctx);
+    state.ng = qs.has('ng') ? 1 : 0;
+    if (state.ng && save.legacyPerk && !qs.has('r')) ctx.takePerk?.(save.legacyPerk);
     state.playing = !cinematic;
   }
 
@@ -125,6 +129,7 @@ export class PlanetGame {
     window.__planetDbg = window.__planet.dbg; // r, tier, e_eff, speed, patch builds, bite/world/step ms
     window.__planetLadder = () => this.ladderTest(ctx);
     window.__planetUnits = () => this.unitsApi(ctx);
+    if (qs.has('land') && !this.landDebug) { this.landDebug = true; setTimeout(() => console.info(`[land] ${(this.fastLand(+qs.get('land') || 0.89) * 100).toFixed(2)}% eaten`), 1200); } // ?planet&land=0.89: the world as it is at 89% (the bite map really chewed, the credit thrown away)
     if (qs.has('finale') && !this.finDebug) { // ?planet&finale[=t]: build the finale, take the land away and play it (or scrub to t)
       this.finDebug = true;
       setTimeout(async () => {
@@ -185,7 +190,8 @@ export class PlanetGame {
     } else {
       const want = this.homeCam(ctx).dist * (fx && fx.pullT < 3.6 ? (fx.pullT += dt, 1 + 0.15 * Math.min(1, fx.pullT / 0.6) * Math.max(0, Math.min(1, (3.6 - fx.pullT) / 1.2))) : 1); // (a continent: the camera backs off 15% for 3 s)
       this.camDist = this.camDist ? this.camDist + (want - this.camDist) * Math.min(1, dt * (want > this.camDist ? 0.6 : 2)) : want; // (A6: the camera follows growth slowly and settles back fast, so the hole swells on screen before the world rescales)
-      camDist = this.camDist; pitch = P3.pitch(r);
+      { const mo = this.threat?.byName.moon?.items[0], tgt = mo?.on && mo.phase !== 'idle' ? 1 : 0; this.moonCam = (this.moonCam || 0) + (tgt - (this.moonCam || 0)) * Math.min(1, dt * (tgt ? 0.5 : 0.25)); } // (the Moon beat: the camera backs off and lowers so the sky above the limb is in frame)
+      camDist = this.camDist * (1 + 0.55 * (this.moonCam || 0)); pitch = P3.pitch(r) * (1 - 0.45 * (this.moonCam || 0));
       const kl = Math.min(1, dt * 3);
       this.lead.x += ((hole.sx || 0) * 0.025 * camDist - this.lead.x) * kl; this.lead.y += ((hole.sz || 0) * 0.025 * camDist - this.lead.y) * kl; // (the lead pushes the hole down the frame; the aim already put it at ~70%)
       const horiz = Math.cos(pitch) * camDist;
@@ -193,7 +199,7 @@ export class PlanetGame {
       const pn = ctx.pain; if (pn && (pn.cx || pn.cz)) { const s3 = camDist * 0.03; camera.position.x += pn.cx * s3; camera.position.z += pn.cz * s3; } // (the shove of a hit: away from the cause, springing back)
       const tr = state.shake, sh = tr * tr * camDist * 0.02, ts = state.time; // (§5.3: trauma is a slow sway, and above 0.3 a roll: never jitter)
       if (sh > 1e-4) { camera.position.x += (Math.sin(ts * 2.9) + 0.5 * Math.sin(ts * 6.3 + 1)) * sh; camera.position.y += Math.sin(ts * 3.7 + 2) * sh * 0.5; camera.position.z += Math.cos(ts * 2.3) * sh * 0.7; }
-      camera.lookAt(this.lead.x, 0, this.lead.y - 0.14 * camDist * P3.aim(r) / 4); // (§12.1: aimed above the hole, so the limb and the black sky are in frame from the first second)
+      camera.lookAt(this.lead.x, 0.1 * camDist * (this.moonCam || 0), this.lead.y - 0.14 * camDist * P3.aim(r) / 4); // (§12.1: aimed above the hole, so the limb and the black sky are in frame from the first second)
       if (tr > 0.3) camera.rotateZ(Math.sin(ts * 5.7) * 0.05 * (tr - 0.3) / 0.7);
       if (pn && pn.roll) camera.rotateZ(pn.roll);
     }
@@ -311,6 +317,7 @@ export class PlanetGame {
       state.belly = Math.min(1, state.belly + dA / (a0 * P3.meal));
       L.land += dA; state.ledgerLand = L.land;
     }
+    if (state.time - (this.logT ?? -99) >= 5) { this.logT = state.time; (this.landLog ??= []).push([+state.time.toFixed(1), +B.landEaten.toFixed(4)]); } // (the results' land timeline)
     if (B.landEaten >= 0.8 && !this.finPromise) this.finalePrep(ctx); // (the finale's shards, interior and shaders are built behind the play, 3 ms a frame)
     this.goalTick(ctx, dt);
     this.ripeTick(ctx, dt);
@@ -426,13 +433,22 @@ export class PlanetGame {
   finaleButtons(ctx, mk) {
     mk('Results', '', () => this.resultsUi(ctx));
     mk('Continue', '', () => { this.fin.btnEl.classList.remove('on'); this.fin.cardEl.classList.remove('on'); setTimeout(() => this.fin.btnEl.classList.remove('on'), 0); ctx.hint?.('Drag to look around — Esc for the menu'); });
-    mk('New World', 'pri', () => { const u = new URL(location.href); u.searchParams.set('seed', String(Math.floor(Math.random() * 9e5) + 1000)); u.searchParams.delete('r'); u.searchParams.delete('finale'); location.href = u.href; });
+    mk('New World', 'pri', () => { const u = new URL(location.href); u.search = `?planet&ng=1&seed=${Math.floor(Math.random() * 9e5) + 1000}`; location.href = u.href; });
   }
   installFinaleDebug(ctx) {
     const F = this.fin, self = this;
     window.__finale = Object.assign((t) => { F.hold = true; F.scrub(t); window.__tick(1 / 60, 1); return t; }, {
       play() { F.hold = false; }, fin: () => F, FT, start: () => self.startFinale(ctx), fake: (f) => self.fakeLand(f), clock: () => F.t,
     });
+  }
+  /** Eat the land (the real bite map: units, people and goals follow) until `frac` of it is gone, the credit thrown away: for tests (?land=). Returns the share. */
+  fastLand(frac = 0.89, r = 1.2e6) {
+    const W = this.world, B = W.bite, lf = B.lf, land = lf.land, pd = lf.pDir, d = { x: 0, y: 0, z: 0 }; let guard = 0;
+    while (B.landEaten < frac && guard++ < 6000) {
+      const pk = land[Math.floor(Math.random() * land.length)]; if (!(lf.lv[0].left[pk] > 1e-4)) continue;
+      d.x = pd[pk * 3]; d.y = pd[pk * 3 + 1]; d.z = pd[pk * 3 + 2]; B.chew(d, r, 30, 0); B.upload(); B.tflag.fill(0); B.nTouched = 0; B.events.length = 0;
+    }
+    B.jobs.length = 0; this.ctxRef.state.pop = B.pop; return B.landEaten;
   }
   /** Visual only: take the land away (the wound shader on every land texel) without touching the accounting. */
   fakeLand(frac = 1) {
@@ -441,19 +457,19 @@ export class PlanetGame {
     B.tex.needsUpdate = true; return k;
   }
 
-  /** The win screen (A3): a results overlay in the Sealed overlay's style. Continue = free roam (the director stays off), New run = a fresh load. */
-  resultsUi(ctx) {
-    const { state, hole } = ctx, st = this.threat?.stats || {}, tm = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
-    if (!document.getElementById('threat-css')) document.head.append(Object.assign(document.createElement('style'), { id: 'threat-css', textContent: sealedCss }));
-    document.getElementById('sealed')?.remove();
-    const tiers = [2, 3, 4].map((n) => state.tierAt?.[n] != null ? `T${n} ${tm(state.tierAt[n])}` : '').filter(Boolean).join(' · ');
-    const rows = [['Time', tm(state.time)], ['People swallowed', popStr(state.pop || 0)], ['Peak size', KM(state.best || hole.r)], ['Tier-ups', tiers], ['ICBMs swallowed', `${st.swallowed || 0} / ${st.nukes || 0}`], ['Rods caught', `${st.rodGulps || 0} / ${st.rods || 0}`], ['Satellites', st.sats || 0], ['Hits taken', st.hits || 0], ['Weapons seen', `${st.seen || 0} kinds`], ['Rivals eaten', `${st.rivalEaten || 0} / ${st.rivals || 0}`], ['Aegis broken / cracker fizzled', `${st.aegisBroke || 0} / ${st.fizzles || 0}`], ['Dust earned', `+${state.dust || 0}`]];
-    const el = Object.assign(document.createElement('div'), { id: 'sealed', className: 'won' });
-    el.innerHTML = `<h1>THE WORLD IS EATEN</h1><table>${rows.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('')}</table><div><button id="rs-go">Continue (free roam)</button><button class="alt" id="rs-new">New run</button></div>`;
-    document.body.append(el);
-    el.querySelector('#rs-go').onclick = () => el.remove();
-    el.querySelector('#rs-new').onclick = () => { const u = new URL(location.href); u.searchParams.delete('r'); location.href = u.href; };
+  /** The world's numbers at the end: the results screen reads them; the pay is banked and the stars scored here, once. */
+  worldStats(ctx) {
+    const { state } = ctx, th = this.threat?.stats || {}, hits = state.hitsByTier || {}, ta = state.tierAt || {};
+    const tiers = [1, 2, 3, 4].map((n) => ({ n, from: ta[n] ?? null, to: n < 4 ? ta[n + 1] ?? state.time : state.time }));
+    const cleanTier = tiers.some((q) => q.from != null && (q.n === 4 || ta[q.n + 1] != null) && !hits[q.n]) ? 1 : 0;
+    const w = { seed: this.world.seed, time: state.time, pop: state.pop || 0, best: state.best || ctx.hole.r, tiers, landLog: this.landLog || [], nukes: th.swallowed || 0, nukesFired: th.nukes || 0, rodGulps: th.rodGulps || 0, rods: th.rods || 0, sats: th.sats || 0,
+      rivalEaten: th.rivalEaten || 0, rivals: th.rivals || 0, moonAll: th.moonAll || 0, moonGulps: th.moonGulps || 0, aegis: th.aegis || 0, aegisBroke: th.aegisBroke || 0, cracker: th.cracker || 0, fizzles: th.fizzles || 0, hits: th.hits || 0, seen: th.seen || 0, cleanTier };
+    w.pay = ctx.bankPlanet?.(state, { stats: th, seed: w.seed }) || { total: 0, parts: {} }; state.dust = w.pay.total;
+    w.stars = scoreWorld(w);
+    return w;
   }
+  /** The results screen (src/results.js): after the finale's card, or on its own if the finale could not play. */
+  resultsUi(ctx) { showResults(ctx, ctx.state.world ?? this.worldStats(ctx)); }
 
   /** A floating "+X.X%" at the tear's centroid (A6): the credit is known only at the end, so it is estimated from the unit's land and height; provinces and up add the people. Six pooled elements. */
   gainLabel(ev, cls, ctx) {
@@ -542,7 +558,7 @@ export class PlanetGame {
     if (G.g.kind === 'world' && pr.cleared && !state.won) {
       state.won = true; state.goalDone[4] = state.time; save.worlds = (save.worlds || 0) + 1;
       this.threat?.stand(); ctx.edgeArrow('town', null); sfx.grind.stop();
-      state.dust = ctx.bankPlanet?.(state) || 0; // (banked once: Phase 3's pay, persisted)
+      state.world = this.worldStats(ctx); // (the numbers, the stars, the pay: banked once, persisted)
       this.endWorld(ctx);
     }
     G.hunt = W.bite.landEaten >= 0.97 && !state.won;
@@ -674,7 +690,7 @@ export class PlanetGame {
         W.placeAt(W.P.startDir, W.P.city); W.h0Set = false; W.job = null; W.patchInfo = null; W.nStamps = 0; W.globe.trailData.fill(0); W.globe.trailTex.needsUpdate = true;
         W.capMode = false; hole.capMode = false; W.globe.hidePatch?.(); hole.area = Math.PI * self.r0 * self.r0; hole.sx = hole.sz = 0;
         Object.assign(state, { belly: 1, tier: P3.tier(self.r0), land: 0, time: 0, pop: 0, best: 0, walls: 0, goalDone: [], tierLand: {}, tierAt: { 1: 0 }, shake: 0, slowT: 0, slowmo: 1, hitstop: 0, ledger: { land: 0, tear: 0, pull: 0, fed: 0, starve: 0 }, perks: [], mods: modsFor([]), drafts: 0, draftsDue: 0, draft: null, continents: 0, won: false });
-        self.goal = null; self.gT = 0; self.worldGoal = null; state.sealed = false; state.over = false; state.playing = true; state.frenzy = 0; state.surge = false; state.fallout = false; state.nukesSwallowed = 0; state.gRate = 0; self.combo = 0; self.threat?.clear(); if (self.threat) { for (const k in self.threat.stats) self.threat.stats[k] = typeof self.threat.stats[k] === 'object' ? {} : 0; self.threat.firstNuke = false; self.threat.arm(); } self.ckpt = { tier: P3.tier(self.r0), snap: self.snap0, holeQ: W.holeQ.clone() };
+        self.goal = null; self.gT = 0; self.worldGoal = null; state.hitsByTier = {}; self.landLog = []; self.logT = -99; state.world = null; self.moonGone = false; state.sealed = false; state.over = false; state.playing = true; state.frenzy = 0; state.surge = false; state.fallout = false; state.nukesSwallowed = 0; state.gRate = 0; self.combo = 0; self.threat?.clear(); if (self.threat) { for (const k in self.threat.stats) self.threat.stats[k] = typeof self.threat.stats[k] === 'object' ? {} : 0; self.threat.firstNuke = false; self.threat.arm(); } self.ckpt = { tier: P3.tier(self.r0), snap: self.snap0, holeQ: W.holeQ.clone() };
         W.update(0, hole, ctx.camera, innerHeight); W.buildPatchNow(self.r0); self.camDist = 0; self.fx = null;
         return 'reset';
       },

@@ -794,7 +794,8 @@ function atmosphereMaterial(globeU, low) {
 // ---------------------------------------------------------------- the Moon
 const _mw = new THREE.Vector3(), _mq = new THREE.Quaternion();
 export function moonMaterial(globeU) {
-  const m = new THREE.MeshBasicNodeMaterial({ fog: false });
+  const m = new THREE.MeshBasicNodeMaterial({ fog: false }), uHeat = uniform(0); // (uHeat: the Moon's cracks glow as the tide takes it: src/threat/moon.js)
+  m.userData.uHeat = uHeat;
   m.colorNode = Fn(() => {
     const d = normalize(positionGeometry);
     const maria = sstep(-0.04, 0.22, mx_fractal_noise_float(d.mul(2.1).add(vec3(1.3, 4.1, 2.2)), 4, 2, 0.55, 1));
@@ -804,7 +805,8 @@ export function moonMaterial(globeU) {
     const alb = mix(vec3(0.3, 0.29, 0.28), vec3(0.62, 0.6, 0.57), maria).mul(float(1).add(cr.mul(mix(0.5, 1.0, maria)))).mul(float(1).add(grain.mul(0.3)));
     const nrm = d;
     const nd = dot(nrm, globeU.uSun), diff = sstep(0.0, 0.1, nd).mul(nd.mul(0.8).add(0.2).max(0));
-    return vec4(alb.mul(diff.mul(2.7).add(0.006)), 1);
+    const crack = pow(float(1).sub(abs(mx_noise_float(d.mul(5.5).add(vec3(1.7, 0.3, 2.9))))), 12).add(pow(float(1).sub(abs(mx_noise_float(d.mul(13).add(vec3(0.4, 2.2, 1.1))))), 18).mul(0.7));
+    return vec4(alb.mul(diff.mul(2.7).add(0.045)).add(vec3(1.0, 0.36, 0.08).mul(crack).mul(uHeat).mul(1.7)).add(vec3(0.5, 0.12, 0.02).mul(uHeat).mul(0.12)), 1);
   })();
   return m;
 }

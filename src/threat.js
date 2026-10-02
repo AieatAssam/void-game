@@ -16,6 +16,7 @@ import { makeFleet } from './threat/fleet.js';
 import { makeTsunami, makeVolcano } from './threat/nature.js';
 import { makeAegis } from './threat/aegis.js';
 import { makeCracker } from './threat/cracker.js';
+import { makeMoon } from './threat/moon.js';
 import { makeExodus, makeStation } from './threat/exodus.js';
 import { nukeCloudMaterial, cloudScale, cloudGeometry, domeMaterial, domeGeometry } from './threat/blast.js';
 import { smooth, rnd, _Y, v1, v2, v3, v4, v5, v6, qa, C, FIRE, SMOKE0, SMOKE1, ASH, DUST, KMs, tangentAt, sv, aim, vel3, slerp, Ribbon, Pool } from './threat/kit.js';
@@ -38,7 +39,7 @@ export const NZ = 16; // threat zone slots (planetglobe uZone 0..15; 16..19 are 
 const NS = 12; // scar slots (planetglobe uScar)
 const STATS0 = { nukes: 0, swallowed: 0, hits: 0, near: 0, rods: 0, rodGulps: 0, sats: 0, strafes: 0, strafeHits: 0, mercy: 0, loss: 0, sites: 0, sealWarn: 0, surge: 0, locks: 0, unfair: 0,
   mirvs: 0, mirvGulps: 0, lasers: 0, laserHits: 0, laserEaten: 0, fleets: 0, fleetGulps: 0, fleetSunk: 0, salvos: 0, tsunamis: 0, volcanoes: 0, magma: 0, aegis: 0, aegisBroke: 0, aegisHits: 0, rockets: 0, rocketGulps: 0,
-  cracker: 0, fizzles: 0, crackerHits: 0, rivals: 0, rivalEaten: 0, rivalHits: 0, rivalKm2: 0, seen: 0 };
+  cracker: 0, fizzles: 0, crackerHits: 0, moon: 0, moonGulps: 0, moonHits: 0, moonAll: 0, rivals: 0, rivalEaten: 0, rivalHits: 0, rivalKm2: 0, seen: 0 };
 
 export class Threat {
   constructor(game, ctx) {
@@ -80,7 +81,7 @@ export class Threat {
     this.rivals = new Rivals(this); this.register(this.rivals.kind());
     this.register(makeLaser(this));
     this.register(makeFleet(this));
-    this.register(makeTsunami(this)); this.register(makeVolcano(this)); this.register(makeAegis(this)); this.register(makeCracker(this)); this.register(makeExodus(this)); this.register(makeStation(this));
+    this.register(makeTsunami(this)); this.register(makeVolcano(this)); this.register(makeAegis(this)); this.register(makeCracker(this)); this.register(makeMoon(this)); this.register(makeExodus(this)); this.register(makeStation(this));
     window.__threat = this.api();
     for (const o of [this.glow.sprite, this.smoke.sprite]) o.frustumCulled = false;
     try { await ctx.post.precompile(this.root, 6000, this.game.around); await ctx.post.precompile({ traverse: (f) => { f(this.glow.sprite); f(this.smoke.sprite); } }, 3000, this.game.around); } catch (e) { console.warn('threat precompile', e); }
@@ -148,11 +149,11 @@ export class Threat {
   hurt(frac, why, key, k = 0, cap = 0.25, fairAge = 9, from = null) {
     const { hole, state } = this;
     if (k) frac = Math.max(frac, Math.min(cap, k * (state.gRate || 0) / hole.area)); // (seconds of income: A9)
-    frac = Math.min(frac, cap) * (state.mods?.hurt ?? 1);
+    frac = Math.min(frac, cap) * (state.mods?.hurt ?? 1) * (state.ng ? 1.3 : 1); // (a New World hits 30% harder)
     if (this.mercySum() + frac > 0.25 + 1e-9) { this.stats.mercy++; this.stats.near++; this.trauma(0.25); this.ctx.pain?.nearMiss(); this.ctx.hint('Near miss — the world blinks'); return 0; }
     this.mercyPush(frac); this.fair(fairAge, key);
     const a0 = hole.area; hole.area *= 1 - frac;
-    const L = state.ledger; L[key] = (L[key] || 0) + (hole.area - a0); L.dmg = (L.dmg || 0) + (hole.area - a0); this.stats.loss += frac; this.stats.hits++; (this.stats.by ??= {})[key] = (this.stats.by[key] || 0) + 1;
+    const L = state.ledger; L[key] = (L[key] || 0) + (hole.area - a0); L.dmg = (L.dmg || 0) + (hole.area - a0); this.stats.loss += frac; this.stats.hits++; (this.stats.by ??= {})[key] = (this.stats.by[key] || 0) + 1; { const hb = state.hitsByTier ??= {}, tt = P3.tier(hole.r); hb[tt] = (hb[tt] || 0) + 1; }
     this.trauma(0.2 + 2 * frac);
     this.ctx.flash(why);
     this.painHit(frac, why, from);
@@ -165,7 +166,7 @@ export class Threat {
     if (this.mercySum() + c.acc + f > 0.25 + 1e-9) { if (this.t - c.hint > 2) { c.hint = this.t; this.stats.mercy++; this.stats.near++; this.ctx.pain?.nearMiss(); this.ctx.hint('Near miss — the world blinks'); } return 0; }
     const a0 = hole.area; hole.area *= 1 - f; c.acc += f; c.fxAcc += f; const L = state.ledger; L[key] = (L[key] || 0) + (hole.area - a0); L.dmg = (L.dmg || 0) + (hole.area - a0); this.stats.loss += f;
     if (this.t - c.t > 0.4) { this.mercyPush(c.acc); c.acc = 0; c.t = this.t; this.fair(fairAge, key); }
-    if (this.t - (c.fx ?? -9) > 0.9) { c.fx = this.t; this.trauma(0.12); this.ctx.flash(why); this.stats.hits++; (this.stats.by ??= {})[key] = (this.stats.by[key] || 0) + 1; this.painHit(c.fxAcc, why, from, true); c.fxAcc = 0; }
+    if (this.t - (c.fx ?? -9) > 0.9) { c.fx = this.t; this.trauma(0.12); this.ctx.flash(why); this.stats.hits++; (this.stats.by ??= {})[key] = (this.stats.by[key] || 0) + 1; { const hb = state.hitsByTier ??= {}, tt = P3.tier(hole.r); hb[tt] = (hb[tt] || 0) + 1; } this.painHit(c.fxAcc, why, from, true); c.fxAcc = 0; }
     return f;
   }
 

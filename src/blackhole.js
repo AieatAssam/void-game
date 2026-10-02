@@ -6,7 +6,7 @@
 //     (no ray marching), and only pixels within ~9 shadow radii of the hole evaluate the disk.
 import * as THREE from 'three/webgpu';
 import {
-  Fn, If, uniform, vec2, vec3, vec4, float, length, max, min, abs, exp, log, sin, cos, atan, mix, smoothstep, clamp, pow, sqrt, mx_noise_float, normalView, positionView, normalize, dot, time, select,
+  Fn, If, uniform, vec2, vec3, vec4, float, length, max, min, abs, exp, log, sin, cos, atan, mix, smoothstep, clamp, pow, sqrt, mx_noise_float, normalView, positionView, normalize, dot, time, select, uv,
 } from 'three/tsl';
 
 /** Lens / disk uniforms (post.js owns them): A = centre uv (y down), shadow radius (screen heights), lens strength 0..1; B = sin(elevation of the camera over the disk plane), roll, disk clock (s), disk 0..1; C = disk inner, outer (shadow radii), Doppler, temperature. */
@@ -36,7 +36,7 @@ export function lensNodes(uv0, asp, U, tm, low = false) {
   const over = Fn(() => {
     const rgb = vec3(0).toVar(), a = float(0).toVar();
     If(A.w.greaterThan(0.001), () => {
-      const p = uv0.sub(A.xy).mul(sc).div(A.z), rh = max(length(p), 1e-3), kk = smoothstep(0.2, 0.55, A.w);
+      const p = uv0.sub(A.xy).mul(sc).div(A.z), rh = max(length(p), 1e-3), kk = smoothstep(0.04, 0.22, A.w);
       const shadow = float(1).sub(smoothstep(0.985, 1.012, rh)).mul(kk);
       const hdr = vec3(0).toVar(), cover = float(0).toVar();
       If(B.w.greaterThan(0.001).and(rh.lessThan(9.5)), () => {
@@ -52,16 +52,16 @@ export function lensNodes(uv0, asp, U, tm, low = false) {
           if (!low) dens = dens.add(mx_noise_float(vec3(sp.mul(8), ar.mul(3.7), 8.2)).mul(0.22)).add(sin(sp.mul(3).add(lr.mul(9))).mul(0.12));
           const dop = float(1).add(C.z.mul(x.negate().div(ar)).mul(pow(inner.div(ar), 0.5)));
           const I = pow(inner.div(ar), 2.3).mul(clamp(dens, 0.12, 1.6)).mul(pow(max(dop, 0.12), 3)).mul(3.4);
-          const T = pow(inner.div(ar), 0.7).mul(C.w).mul(dop.mul(0.3).add(0.7));
+          const T = pow(inner.div(ar), 1.0).mul(C.w).mul(0.9).mul(dop.mul(0.35).add(0.65));
           return vec4(hotColor(T).mul(I), cov);
         };
-        const near = em(q.x, q.y.div(sE)), nearK = smoothstep(0.01, -0.012, q.y).mul(near.w);
+        const near = em(q.x, q.y.div(sE)), nearK = float(1).sub(smoothstep(-0.012, 0.01, q.y)).mul(near.w);
         const far = em(bv.x, bv.y.div(sE)), farK = smoothstep(-0.01, 0.012, bv.y).mul(far.w).mul(smoothstep(0.99, 1.04, rh));
         hdr.assign(near.xyz.mul(nearK).add(far.xyz.mul(farK)).mul(B.w));
         cover.assign(max(nearK, farK.mul(0.85)).mul(B.w));
       });
       // the photon ring: a thin hot line on the shadow's edge, brighter on the approaching side, and a faint glow outside it
-      const dopR = float(1).add(C.z.mul(0.5).mul(p.x.negate().div(rh))), ring = exp(pow(rh.sub(1.022).div(0.012), 2).negate()).mul(dopR.mul(0.5).add(0.5)), halo = exp(rh.sub(1).mul(-1.6)).mul(smoothstep(1.0, 1.05, rh));
+      const dopR = float(1).add(C.z.mul(0.5).mul(p.x.negate().div(rh))), ring = exp(pow(rh.sub(1.022).div(0.012), 2).negate()).mul(max(dopR, 0.15).mul(0.7).add(0.3)), halo = exp(rh.sub(1).mul(-1.6)).mul(smoothstep(1.0, 1.05, rh));
       hdr.addAssign(vec3(1.0, 0.92, 0.78).mul(ring).mul(kk).mul(float(0.8).add(B.w.mul(3.2))).add(vec3(1.0, 0.6, 0.3).mul(halo).mul(B.w).mul(0.2).mul(kk)));
       const disp = vec3(1).sub(exp(hdr.mul(-0.85)));
       rgb.assign(disp);
@@ -82,12 +82,27 @@ export function holeSphere() {
   m.colorNode = Fn(() => {
     const n = normalize(normalView), V = normalize(positionView.negate()), ndv = clamp(dot(n, V), 0, 1), dd = sqrt(max(float(1).sub(ndv.mul(ndv)), 0)), ang = atan(n.y, n.x);
     const arms = sin(ang.mul(3).add(dd.mul(-14)).add(U.uT.mul(1.2))).mul(0.5).add(0.5);
-    const floorCol = mix(vec3(0.09, 0.04, 0.24), vec3(0.006, 0.003, 0.03), smoothstep(0.95, 0.2, dd)).add(vec3(0.3, 0.16, 0.7).mul(arms).mul(smoothstep(0.9, 0.2, dd)).mul(0.34));
-    const rim = pow(dd, 9).mul(float(1.7).add(U.uHeat.mul(2.5))), lil = mix(vec3(0.62, 0.42, 1.0), vec3(1.0, 0.95, 0.9), U.uHeat.mul(0.8));
+    const floorCol = mix(vec3(0.05, 0.02, 0.15), vec3(0.003, 0.0015, 0.018), float(1).sub(smoothstep(0.15, 0.9, dd))).add(vec3(0.3, 0.16, 0.7).mul(arms).mul(float(1).sub(smoothstep(0.2, 0.9, dd))).mul(0.24));
+    const rim = pow(dd, 14).mul(float(1.9).add(U.uHeat.mul(2.5))), lil = mix(vec3(0.62, 0.42, 1.0), vec3(1.0, 0.95, 0.9), U.uHeat.mul(0.8));
     return vec4(mix(floorCol.add(lil.mul(rim)), vec3(0), U.uK), 1);
   })();
   m.userData.U = U;
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 96, 64), m);
   mesh.frustumCulled = false; mesh.visible = false; mesh.renderOrder = 1;
+  return mesh;
+}
+
+/** The glow round the void: a camera-facing quad (4 radii across) drawn additively behind the sphere's lip. uHeat flares it white, uK drains it (the transformation). */
+export function holeHalo() {
+  const U = { uHeat: uniform(0), uK: uniform(0), uA: uniform(1) };
+  const m = new THREE.MeshBasicNodeMaterial({ fog: false, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+  m.colorNode = Fn(() => {
+    const p = uv().sub(0.5).mul(5), rho = length(p), out = smoothstep(0.98, 1.04, rho);
+    const g = exp(rho.sub(1).mul(-2.3)).mul(1.0).add(exp(rho.sub(1).mul(-0.7)).mul(0.22)).mul(out).mul(float(1).sub(smoothstep(1.2, 2.5, rho)).mul(0.8).add(0.2)).mul(float(1).sub(smoothstep(1.6, 2.5, rho)).mul(0.5).add(0.5));
+    return vec4(mix(vec3(0.5, 0.3, 1.0), vec3(1.0, 0.92, 0.85), U.uHeat).mul(g).mul(U.uA).mul(float(1).sub(U.uK)).mul(float(1).add(U.uHeat.mul(2.2))), 1);
+  })();
+  m.userData.U = U;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), m);
+  mesh.frustumCulled = false; mesh.visible = false; mesh.renderOrder = 2;
   return mesh;
 }

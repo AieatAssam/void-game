@@ -923,6 +923,7 @@ async function start(seed, daily, mutator = null, mode = 'city') {
 $('play').onclick = () => start(undefined, false, null, pickedMode);
 $('blitz').onclick = () => start(undefined, false, null, 'blitz');
 $('daily').onclick = () => start(todaySeed(), true);
+$('planetgo').onclick = () => { const u = new URL(location.href); u.search = `?planet&ng=1&seed=${Math.floor(Math.random() * 9e5) + 1000}`; location.href = u.href; }; // (a world was eaten: start on a fresh planet)
 $('weekly').onclick = () => { const w = thisWeek(); start(w.seed, false, w.id); };
 function panel(id) {
   for (const p of ['shop', 'book']) $(p).hidden = p !== id || !$(p).hidden;
@@ -959,6 +960,7 @@ const clock = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStar
 
 function renderShop() {
   $('dust').textContent = save.dust;
+  $('planetgo').hidden = !((save.worlds || 0) >= 1);
   $('bookBtn').querySelector('b').textContent = `${bookEntries(assets).filter((a) => save.book?.[a.name]).length}/${bookEntries(assets).length}`;
   const dailyBest = save.daily[todaySeed()];
   const wk = thisWeek(), wb = save.weekly?.[wk.key];
@@ -1003,15 +1005,15 @@ function skinCards() {
   head.textContent = 'Hole skins';
   const stars = totalStars();
   return [head, ...Object.entries(SKINS).map(([id, sk]) => {
-    const owned = id === 'void' || save.skins?.includes(id) || (sk.stars && stars >= sk.stars), on = (save.skin || 'void') === id;
+    const owned = id === 'void' || save.skins?.includes(id) || (sk.stars && stars >= sk.stars) || (sk.world && (save.worlds || 0) >= sk.world), on = (save.skin || 'void') === id;
     const b = document.createElement('button');
     b.className = 'card skin' + (on ? ' on' : '');
     b.style.setProperty('--rim', '#' + new THREE.Color(sk.rim).getHexString());
     b.style.setProperty('--deep', '#' + new THREE.Color(sk.top || sk.deep).getHexString());
-    b.disabled = !owned && (sk.stars || save.dust < sk.cost);
-    b.innerHTML = `<i class="swatch"></i><b>${sk.name}</b><em>${on ? 'equipped' : owned ? 'equip' : sk.stars ? `★ ${stars}/${sk.stars}` : sk.cost + ' dust'}</em>`;
+    b.disabled = !owned && (sk.stars || (sk.world && !sk.cost) || save.dust < sk.cost);
+    b.innerHTML = `<i class="swatch"></i><b>${sk.name}</b><em>${on ? 'equipped' : owned ? 'equip' : sk.stars ? `★ ${stars}/${sk.stars}` : sk.world && !sk.cost ? 'eat a world' : sk.cost + ' dust'}</em>`;
     b.onclick = () => {
-      if (!owned) { if (sk.stars || save.dust < sk.cost) return; save.dust -= sk.cost; (save.skins ??= []).push(id); }
+      if (!owned) { if (sk.stars || (sk.world && !sk.cost) || save.dust < sk.cost) return; save.dust -= sk.cost; (save.skins ??= []).push(id); }
       save.skin = id;
       persist();
       renderShop();
@@ -1088,8 +1090,24 @@ const planetCtx = () => planetCtxObj ??= ({
   THREE, Q, renderer, post, camera, scene, look, sun, LENS, baseFov: FOV, sparks, debris, wisps, birds, news, sfx, fpsEl, perf,
   get hole() { return hole; }, get state() { return state; }, get city() { return city; }, pain,
   steer, flash, hint, assets, edgeArrow, chips: () => perkChips(),
-  /** Phase 3's pay (docs/PHASE3-REVIEW.md A3): 40 + 2 per minute under 30 + 5 per ICBM swallowed. */
-  bankPlanet(st) { const pay = Math.round(40 + 2 * Math.max(0, 30 - st.time / 60) + 5 * (st.nukesSwallowed || 0)); save.dust += pay; persist(); return pay; },
+  /**
+   * Phase 3's pay (docs/PHASE3.md 4.4): the world 150, nations 20 each (the home nation and the five), the Moon 60 (6 a piece if it was not all of it), 2 a minute under 30,
+   * 5 per ICBM swallowed, 8 per rival eaten. Records: fastest world, best per seed, the list of eaten worlds. Returns { total, parts }.
+   */
+  bankPlanet(st, o = {}) {
+    const g = st.goalDone || [], th = o.stats || {}, parts = {
+      world: 150, nations: 20 * ((g[2] ? 1 : 0) + (g[3] ? 5 : 0)), moon: th.moonAll ? 60 : 6 * (th.moonGulps || 0), time: Math.round(2 * Math.max(0, 30 - st.time / 60)), nukes: 5 * (st.nukesSwallowed || 0), rivals: 8 * (th.rivalEaten || 0),
+    };
+    const total = Math.round(Object.values(parts).reduce((a, b) => a + b, 0));
+    save.dust += total; save.best = Math.max(save.best || 0, st.best || 0);
+    save.worldFastest = Math.min(save.worldFastest || Infinity, st.time);
+    (save.worldBest ??= {})[o.seed] = Math.min(save.worldBest[o.seed] || Infinity, st.time);
+    (save.eaten ??= []).push({ seed: o.seed, time: Math.round(st.time), date: Date.now() }); if (save.eaten.length > 24) save.eaten.shift();
+    persist();
+    return { total, parts };
+  },
+  takePerk: (id) => takePerk(id), // (the legacy perk of a New World: taken for the player at the start)
+  save,
   draft() { state.draftsDue++; if (BOT || window.__headless) { openDraft(); if (state.draft) takePerk(state.draft[0]); } else setTimeout(openDraft, 1100); }, // (bots take the first offer at once, as the town's drafts do)
   card(small, big) { levelEl.innerHTML = `<small>${small}</small><b>${big}</b>`; levelEl.classList.remove('show'); void levelEl.offsetWidth; levelEl.classList.add('show'); bannerUntil = performance.now() + 1800; },
   stage: (t, p = 0.5) => setLoad(t, p),
