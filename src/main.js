@@ -1258,6 +1258,7 @@ async function warmRegion() {
     }
     while (pending > 0) await slice();
   } catch (e) { return; } // (cancelled: a new run)
+  state.warmDepth = post.passDepth;
   window.__warmed = true;
   console.info(`[phase3] region warmed: ${list.length} meshes in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
 }
@@ -1281,13 +1282,15 @@ async function ascend(fast = false) {
   state.ascending = true;
   state.playing = false;
   const tA = performance.now();
-  const pay = bankRegion();
   prebuildPlanet(); // (a no-op if it is already running)
   if (!state.planetJob) { state.ascending = false; state.playing = true; return; }
   if (!planetReady) { $('load').hidden = false; setLoad('Forming the world…', 0.5); }
   const game = await state.planetJob;
   $('load').hidden = true;
-  if (!game) { state.ascending = false; state.playing = true; state.phase === 2 && endRun(true, 'capital'); return; }
+  if (!game) { state.ascending = false; state.playing = true; state.phase === 2 && endRun(true, 'capital'); return; } // (endRun pays the region itself)
+  const pay = bankRegion(); // (paid once, only when the cinematic is certain)
+  if (state.warmDepth !== post.passDepth) await warmRegion(); // (a watchdog rebuild changed the scene pass's call depth since the region was warmed: do it again now)
+  post.paused = true; // (the frame-rate watchdog must not rebuild the pipeline mid-cinematic: that is a ~1 s freeze and a new call depth)
   planetGame = game;
   rivals.hideLabels();
   director.dispose(); rivals.dispose(); rivals = quietRivals(); // (the army's red rings and any rival go: nothing but the hole in this shot)
@@ -1302,7 +1305,7 @@ async function ascend(fast = false) {
     // (the camera climbs to kilometres: nothing a shadow map or a blade of grass could add, and the draw calls were 100 ms a frame)
     lite: (() => { let was = 1; return (on) => { grass.hidden = on; city.tinyK = on ? 0.14 : undefined; /* (the 40k trees and hedges: 15 M triangles a frame from 2 km up) */ if (on) { was = post.opts.shadowEvery; post.opts.shadowEvery = 1e9; } else post.opts.shadowEvery = was; }; })(),
     card: (small, big) => ctx.card(small, big),
-    done: () => { state.ascending = false; console.info('[ascend] done'); },
+    done: () => { state.ascending = false; post.paused = false; console.info('[ascend] done'); },
   });
   asc.after = `${city.capital?.name || 'The capital'} has fallen, the country is gone · +${pay.total} void dust banked`;
   await post.precompile({ traverse: (f) => f(asc.cracks.mesh) }, 6000); // (the crack shader compiles before the clock starts, not on the frame the cracks appear)

@@ -11,6 +11,7 @@ import { loadPack } from './assets.js';
 import { modsFor } from './perks.js';
 import { PlanetMap } from './planetmap.js';
 import { Threat } from './threat.js';
+import { save, persist } from './meta.js';
 
 const KM = (m) => (m >= 1e5 ? `${(m / 1000).toFixed(0)} km` : m >= 1e4 ? `${(m / 1000).toFixed(1)} km` : `${(m / 1000).toFixed(2)} km`);
 const qs = new URLSearchParams(location.search);
@@ -372,7 +373,7 @@ export class PlanetGame {
     }
     G.frac = pr.frac;
     if (G.g.kind === 'world' && pr.cleared && !state.won) {
-      state.won = true; state.goalDone[4] = state.time; ctx.card('THE WORLD IS EATEN', `${popStr(state.pop || 0)} swallowed`); news.say('Nothing is left. The void is the world.'); sfx.levelUp();
+      state.won = true; state.goalDone[4] = state.time; save.worlds = (save.worlds || 0) + 1; persist(); ctx.card('THE WORLD IS EATEN', `${popStr(state.pop || 0)} swallowed`); news.say('Nothing is left. The void is the world.'); sfx.levelUp();
     }
     G.hunt = W.bite.landEaten >= 0.97 && !state.won;
     G.tgt = state.won ? null : lf.target(G.hunt ? world : G.g, W.hdir, hole.r, G.hunt);
