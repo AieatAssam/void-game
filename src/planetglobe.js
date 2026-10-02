@@ -181,6 +181,8 @@ export function planetUniforms() {
     uShock: Array.from({ length: 4 }, () => uniform(new THREE.Vector4(0, 1, 0, 0))), // shock rings: dir.xyz, start angle (rad)
     uShockP: Array.from({ length: 4 }, () => uniform(new THREE.Vector4(-99, 0, 0, 0))), // start time (uTime), speed (rad/s), life (s), strength
     uRim: uniform(0), // the cap's rim band widens with the credit rate
+    uBlast: Array.from({ length: 2 }, () => uniform(new THREE.Vector4(0, 1, 0, 0.01))), // the warm light of a blast over the land: dir.xyz, radius (rad)
+    uBlastP: Array.from({ length: 2 }, () => uniform(new THREE.Vector4(0, 0, 0, 0))), // intensity (0 = off)
     // hit feedback (src/pain.js): the cap's rim dents toward the hit, ripples away from it, flares white-hot and cracks the ground; a wound lingers (ember glow, heartbeat)
     uPain: uniform(new THREE.Vector4(0, 0, 0, 0)), // unit tangent at the hole toward the cause (planet space), directional 0 / 1
     uPainP: uniform(new THREE.Vector4(9, 0, 0, 0)), // seconds since the hit, wound 0..1, impact 0..1 (decays), heartbeat pulse
@@ -565,6 +567,13 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
       col.assign(mix(col, cloudLit.mul(float(0.9).add(cn.mul(0.5))), cloud.mul(0.9).mul(float(1).sub(wound.mul(2).min(1))).mul(float(1).sub(shockClr))));
     });
     col.addAssign(shockGlow);
+    if (!OFF.has('blast')) for (let i = 0; i < 2; i++) { // a blast lights the world: warm, falling off with distance (docs 12.12)
+      const B = u.uBlast[i], I = u.uBlastP[i].x;
+      If(I.greaterThan(0.004), () => {
+        const x = acos(clamp(dot(dir, B.xyz), -1, 1)).div(B.w), k = float(1).div(float(1).add(x.mul(x))).mul(I);
+        col.assign(col.mul(mix(vec3(1.0), vec3(1.7, 1.2, 0.72), clamp(k.mul(0.7), 0, 1)).mul(k.mul(0.22).add(1))).add(vec3(1.0, 0.42, 0.12).mul(k.mul(0.05))));
+      });
+    }
     // ---- threats (§5): scorch + racing ring per scar, telegraph rings per zone, the strafe band
     if (!OFF.has('threat')) {
       for (let i = 0; i < 12; i++) {

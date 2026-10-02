@@ -17,23 +17,11 @@ import { makeTsunami, makeVolcano } from './threat/nature.js';
 import { makeAegis } from './threat/aegis.js';
 import { makeCracker } from './threat/cracker.js';
 import { makeExodus, makeStation } from './threat/exodus.js';
+import { nukeCloudMaterial, cloudScale, cloudGeometry, domeMaterial, domeGeometry } from './threat/blast.js';
 import { smooth, rnd, _Y, v1, v2, v3, v4, v5, v6, qa, C, FIRE, SMOKE0, SMOKE1, ASH, DUST, KMs, tangentAt, sv, aim, vel3, slerp, Ribbon, Pool } from './threat/kit.js';
 
 const qs = new URLSearchParams(location.search);
 const FORCE = qs.has('defcon') ? Math.min(5, Math.max(1, +qs.get('defcon') || 5)) : 0;
-
-/** The mushroom cloud's own material: opaque, sun-lit like the rest of the toy world (flat facets, dirty by noise), a hot core burning in the stem and under the cap; it dissolves (alpha test) as uA falls. */
-function mushroomMaterial() {
-  const uHeat = uniform(1), uA = uniform(1), uT = uniform(0), m = new THREE.MeshBasicNodeMaterial({ transparent: false, alphaTest: 0.5, fog: false });
-  const y = positionLocal.y.div(1.16), p = positionLocal.mul(6).add(vec3(0, uT.mul(0.5), 0)), n = mx_noise_float(p).mul(0.5).add(0.5), n2 = mx_noise_float(p.mul(2.9)).mul(0.5).add(0.5), br = n.mul(0.6).add(n2.mul(0.4));
-  const lam = pow(normalWorld.dot(sunDir).mul(0.5).add(0.5).clamp(0, 1), 1.6), fres = pow(float(1).sub(abs(normalView.z)), 2.0);
-  const smoke = mix(vec3(0.035, 0.03, 0.028), vec3(0.5, 0.36, 0.26), lam.mul(0.8).add(y.mul(0.1)).mul(br.mul(0.5).add(0.6)).clamp(0, 1));
-  const core = exp(pow(y.sub(0.4).mul(2.6), 2).negate()).mul(1.2).add(float(1).sub(y).mul(0.4)).mul(br.mul(1.1).add(0.3));
-  const hot = vec3(1.0, 0.34, 0.05).mul(core).mul(uHeat).mul(1.9).add(vec3(1.0, 0.5, 0.12).mul(fres).mul(uHeat).mul(0.9));
-  m.colorNode = vec4(smoke.add(hot), uA.mul(1.7).sub(float(1).sub(br).mul(0.9)).add(0.12));
-  m.userData = { uHeat, uA, uT };
-  return m;
-}
 
 const dangerPool = [];
 export const sealedCss = `#sealed{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:radial-gradient(ellipse at center,#1a0c2ecc,#05020bf2);color:#fff3dd;font-family:system-ui,sans-serif;text-align:center;opacity:0;animation:sealin 1.2s ease-out forwards}
@@ -78,9 +66,11 @@ export class Threat {
     const model = this.model = (name) => { const o = assets[name].scene.clone(true); o.traverse((m) => { if (m.isMesh) { m.castShadow = m.receiveShadow = false; m.frustumCulled = false; } }); o.visible = false; this.root.add(o); return o; };
     for (let i = 0; i < 6; i++) { // (3 with a mushroom cloud; 3 "light" ones for the MIRV warheads: fireball and smoke only, no extra pipeline)
       let mush = null;
-      if (i < 3) { const mat = mushroomMaterial(), mesh = model('mushroom_cloud'); mesh.traverse((m) => { if (m.isMesh) m.material = mat; }); mush = { mesh, mat }; }
+      if (i < 3) { const mat = nukeCloudMaterial(ctx.Q?.tier === 'low'), mesh = new THREE.Mesh(this.cloudGeo ??= cloudGeometry(), mat); mesh.frustumCulled = false; mesh.visible = false; mesh.renderOrder = 8; this.root.add(mesh); mush = { mesh, mat }; }
       this.nukes.push({ i, on: false, arc: new Ribbon(48, this.root), trail: new Ribbon(28, this.root), mis: model('icbm'), mush, zone: -1, mk: null, pos: new THREE.Vector3(), to: new THREE.Vector3(), from: new THREE.Vector3() });
     }
+    this.domes = Array.from({ length: 6 }, () => { const mat = domeMaterial(), mesh = new THREE.Mesh(this.domeGeo ??= domeGeometry(), mat); mesh.frustumCulled = false; mesh.visible = false; mesh.renderOrder = 9; this.root.add(mesh); return { mesh, mat, t: 9, life: 1, r0: 0, speed: 0, rMax: 1, up: new THREE.Vector3() }; });
+    this.lights = Array.from({ length: 2 }, () => ({ dir: new THREE.Vector3(0, 1, 0), t: 99, life: 1, I: 0, rad: 0.01, next: 0 })); this.fx = { w: 0, warm: 0, bloom: 0 };
     for (let i = 0; i < 2; i++) this.lances.push({ i, on: false, sat: model('kinetic_sat'), orbit: new Ribbon(97, this.root), beam: new Ribbon(10, this.root), rod: new Ribbon(14, this.root), zone: -1, a: new THREE.Vector3(), b: new THREE.Vector3(), n: new THREE.Vector3(), to: new THREE.Vector3(), pos: new THREE.Vector3(), mk: null, mkO: null });
     for (let i = 0; i < 2; i++) this.strafes.push({ i, on: false, jets: [0, 1, 2].map(() => model('bomber')), mk: null });
     this.siteMesh = Array.from({ length: 4 }, () => ({ on: false, parts: Array.from({ length: 5 }, () => model('missile_silo')) }));
@@ -189,7 +179,7 @@ export class Threat {
     for (const k of this.K) for (const x of k.items) if (x.on) k.step(x, dt);
     this.rivals?.update(dt);
     this.updateFallout(dt);
-    this.glow.step(dt); this.smoke.step(dt);
+    this.glow.step(dt); this.smoke.step(dt); this.domeStep(dt); this.fxStep(dt);
     this.sealWatch(dt);
     state.frenzy = Math.max(0, (state.frenzy || 0) - dt); state.slow = Math.max(0, (state.slow || 0) - dt); state.magma = Math.max(0, (state.magma || 0) - dt);
     state.rubble = !!state.rubbleNow; state.rubbleNow = false; state.ash = !!state.ashNow; state.ashNow = false; // (flags the kinds raise each frame: the game reads them next frame)
@@ -422,42 +412,66 @@ export class Threat {
       return;
     }
     if (n.out === 'swallow') {
-      const u = Math.min(1, Math.max(0, (mt - 0.28) / 1.0)), grow = Math.min(1, mt / 0.28), e = u * u * (3 - 2 * u), f = n.H / 1.16 * 0.62 * (0.35 + 0.65 * grow);
+      const u = Math.min(1, Math.max(0, (mt - 0.28) / 1.0)), grow = Math.min(1, mt / 0.28), e = u * u * (3 - 2 * u), f = n.H * 0.62 * (0.35 + 0.65 * grow);
       v1.copy(W.hdir).multiplyScalar(R + Math.max(0, W.P.elevation(W.hdir, 3)) * W.E); v2.lerpVectors(n.pg, v1, e * e);
       m.mesh.position.copy(v2); m.mesh.scale.set(f * (1 - 0.8 * e) * (1 + 0.3 * Math.sin(u * 9)), f * (1 - 2.3 * e), f * (1 - 0.8 * e) * (1 + 0.3 * Math.sin(u * 9)));
       m.mesh.quaternion.copy(n.qUp).multiply(qa.setFromAxisAngle(_Y, u * 14));
-      m.mat.userData.uA.value = 1 - 0.3 * u; m.mat.userData.uHeat.value = 1 - 0.5 * u; m.mat.userData.uT.value += dt;
+      { const U = m.mat.userData; U.uA.value = 1 - 0.3 * u; U.uHeat.value = 1 - 0.4 * u; U.uAge.value = 0.5 + 2.2 * Math.min(1, mt / 0.6); U.uS.value = 1; U.uTint.value = Math.min(1, u * 1.6); } // (swallowed: the young cloud turns lilac and is sucked down)
       m.mesh.visible = u < 1;
       if (mt > 0.3 && mt < 1.3 && Math.random() < 0.5) { v3.copy(W.hdir).multiplyScalar(R + 200); this.glow.spawn(v2, null, 0.5 * n.r0, 0.1 * n.r0, 0.4, C(0xb58cff, 3), 0.9, 0); }
       if (mt > 1.4) this.finish(n);
       return;
     }
-    // a real airburst
-    const gk = smooth(0.0, 2.6, mt), wk = smooth(0.3, 3.4, mt), f = n.H / 1.16;
-    m.mesh.scale.set(f * (0.25 + 0.75 * wk), f * (0.04 + 0.96 * gk), f * (0.25 + 0.75 * wk));
-    m.mesh.position.copy(n.pg);
-    const fade = 1 - smooth(9, 14, mt);
-    m.mat.userData.uHeat.value = Math.max(0, 1 - mt / 12) * (0.5 + 0.5 * Math.min(1, mt * 1.5)); m.mat.userData.uA.value = Math.min(1, mt * 1.5) * fade; m.mat.userData.uT.value += dt;
-    // smoke column and the rolling base ring while it grows; the ash plume drifts downwind after
-    n.puffT = (n.puffT ?? 0) - dt;
-    if (mt < 5 && n.puffT <= 0) {
-      n.puffT = 0.11; const r = n.r0;
-      v1.copy(n.pg).setLength(R + n.elev * W.E + n.H * gk * rnd(0.05, 0.7)); this.smoke.spawn(v1, vel3(v2.copy(n.to).normalize(), rnd(-0.1, 0.1) * r, rnd(-0.1, 0.1) * r, 0.1 * r, sv), 0.5 * r, 1.1 * r, 4, mt < 1.2 ? SMOKE1 : SMOKE0, 0.35, 0.5);
+    // a real airburst: the volume (src/threat/blast.js) is the fireball, the rising cap and its own dissolve; here its clock, the dust skirt, the embers and the ash column
+    const r = n.r0, up = v3.copy(n.to).normalize();
+    { const U = m.mat.userData, sc = cloudScale(mt); m.mesh.scale.setScalar(n.H * sc); U.uS.value = sc; } m.mesh.position.copy(n.pg);
+    { const U = m.mat.userData; U.uAge.value = mt; U.uA.value = 1 - smooth(11, 19, mt); U.uHeat.value = 1; U.uTint.value = 0; }
+    if (mt < 3.4 && (n.ringT = (n.ringT ?? 0) - dt) <= 0) { // the ground-scouring skirt rides the shock front: a ring of dust that rolls out with the dome
+      n.ringT = 0.07; const rad = 0.3 * n.B + 0.8 * r * mt;
+      for (let i = 0; i < 4; i++) { const an = rnd(0, 6.283), tg = tangentAt(up, an, v4); v1.copy(n.pg).setLength(R + n.elev * W.E + 0.04 * r).addScaledVector(tg, rad); this.smoke.spawn(v1, sv.copy(tg).multiplyScalar(0.55 * r).addScaledVector(up, 0.05 * r), 0.55 * r, 1.3 * r, 4.2, DUST, 0.55 * (1 - mt / 3.6), 0.5); }
     }
-    // the cap billows: dirty-orange puffs rolling out of the cap's rim (a cauliflower), and a core glow that burns under it
-    n.capT = (n.capT ?? 0) - dt;
-    if (mt > 0.5 && mt < 4.2 && n.capT <= 0) {
-      n.capT = 0.06; const up = v3.copy(n.to).normalize(), a = rnd(0, 6.283), rad = n.H * 0.3 * Math.sqrt(Math.random()) * (0.4 + 0.6 * wk), hh = n.H * (0.58 + 0.2 * Math.random()) * gk;
-      v1.copy(n.pg).setLength(R + n.elev * W.E + hh).addScaledVector(tangentAt(up, a, v2), rad);
-      this.smoke.spawn(v1, vel3(up, 0, 0, 0.05 * n.H, sv).addScaledVector(v2, 0.09 * n.H * wk), 0.28 * n.H, 0.5 * n.H, 3.4, mt < 1.8 ? C(0xe0762c, 1.1) : mt < 3 ? C(0x6a4a36) : SMOKE0, mt < 1.8 ? 0.5 : 0.42, 0.5);
+    if (mt > 2.2 && mt < 12 && n.ashN < 26 && (n.ashT = (n.ashT ?? 0) - dt) <= 0) { // (the ash plume drifts downwind from the cap)
+      n.ashT = 0.28; n.ashN++; const w = tangentAt(up, 1.9, v2);
+      v1.copy(n.pg).setLength(R + n.elev * W.E + n.H * rnd(0.5, 0.95)); this.smoke.spawn(v1, sv.copy(w).multiplyScalar(0.35 * r).addScaledVector(up, 0.04 * r), 0.7 * r, 1.8 * r, 12, ASH, 0.3, 0.2);
     }
-    if (!n.core && mt > 0.4) { n.core = true; this.glow.spawn(v1.copy(n.pg).setLength(R + n.elev * W.E + n.H * 0.5), null, 0.55 * n.H, 1.1 * n.H, 3.2, FIRE[2], 1.5, 0.1); }
-    if (mt > 2.2 && mt < 11 && n.ashN < 26 && (n.ashT = (n.ashT ?? 0) - dt) <= 0) {
-      n.ashT = 0.28; n.ashN++; const r = n.r0, up = v3.copy(n.to).normalize(), w = tangentAt(up, 1.9, v2);
-      v1.copy(n.pg).setLength(R + n.elev * W.E + n.H * rnd(0.3, 0.95)); this.smoke.spawn(v1, sv.copy(w).multiplyScalar(0.35 * r).addScaledVector(up, 0.04 * r), 0.7 * r, 1.8 * r, 12, ASH, 0.3, 0.2);
+    if (mt > 1.6 && mt < 24 && (n.emT = (n.emT ?? 0) - dt) <= 0) { // the scar burns: embers flicker over the wound, and a thin ash column keeps rising off it
+      n.emT = 0.22; const an = rnd(0, 6.283), tg = tangentAt(up, an, v4);
+      v1.copy(n.pg).setLength(R + n.elev * W.E + 0.04 * r).addScaledVector(tg, rnd(0.1, 1.0) * n.B); this.glow.spawn(v1, null, 0.14 * r, 0.3 * r, rnd(0.8, 1.6), FIRE[Math.random() < 0.5 ? 2 : 3], 0.9, 0);
+      if (mt > 4) { v1.copy(n.pg).setLength(R + n.elev * W.E + 0.2 * r); this.smoke.spawn(v1, vel3(up, rnd(-0.03, 0.03) * r, rnd(-0.03, 0.03) * r, 0.22 * r, sv), 0.3 * r, 1.3 * r, 8, mt < 12 ? SMOKE0 : ASH, 0.3 * (1 - smooth(14, 24, mt)), 0.1); }
     }
-    if (mt > 14.5) this.finish(n);
+    if (mt > 26) this.finish(n);
   }
+  /** A ground shock dome at planet dir `d` (elev in unit heights): starts at radius r0 (m) and grows `speed` m/s up to rMax, fading as it nears it. */
+  dome(d, elev, r0, speed, rMax, hot = 1) {
+    let q = this.domes[0]; for (const o of this.domes) if (o.t >= o.life) { q = o; break; } else if (o.t > q.t) q = o; // (a free one, else the oldest)
+    q.t = 0; q.life = (rMax - r0) / speed + 0.5; q.r0 = r0; q.speed = speed; q.rMax = rMax; this.surf(d, 0, q.mesh.position, elev); q.up.copy(d).normalize();
+    q.mesh.quaternion.setFromUnitVectors(_Y, q.up); q.mat.userData.uHot.value = hot; q.mesh.visible = true;
+  }
+  domeStep(dt) {
+    for (const q of this.domes) {
+      if (!q.mesh.visible) continue; q.t += dt;
+      if (q.t >= q.life) { q.mesh.visible = false; continue; }
+      const rad = Math.min(q.rMax, q.r0 + q.speed * q.t), k = q.t / q.life; q.mesh.scale.set(rad, rad * 0.2, rad);
+      q.mat.userData.uA.value = Math.min(1, q.t * 14) * (1 - k) * (1 - k) * (0.4 + 0.6 * (1 - rad / q.rMax * 0.5));
+    }
+  }
+  /** Warm light thrown over the land around a blast (two slots in the planet shader): dir, radius (m), intensity, life (s). */
+  light(d, radM, I, life) {
+    const q = this.lights[this.lights[0].t > this.lights[1].t ? 0 : 1]; q.dir.copy(d).normalize(); q.rad = radM / R; q.I = I; q.life = life; q.t = 0;
+  }
+  /** The flash of a blast on the picture (post.fxu): a white-out added in HDR (bloom bursts), a warm grade that fades slowly, a bloom boost; k 0..1 by nearness. */
+  fxBlast(k) { const f = this.fx; f.w = Math.max(f.w, 0.1 + 0.28 * k); f.warm = Math.max(f.warm, 0.3 + 0.45 * k); f.bloom = Math.max(f.bloom, 0.25 + 0.55 * k); }
+  fxStep(dt) {
+    const f = this.fx, u = this.W.globe.u;
+    f.w *= Math.exp(-dt * 3.6); f.warm *= Math.exp(-dt * 0.32); f.bloom *= Math.exp(-dt * 1.8);
+    if (this.ctx.post?.fxu) this.ctx.post.fxu.value.set(f.w < 0.003 ? 0 : f.w, f.warm < 0.003 ? 0 : f.warm, f.bloom < 0.003 ? 0 : f.bloom, 0);
+    for (let i = 0; i < 2; i++) {
+      const q = this.lights[i]; q.t += dt;
+      const k = q.t < q.life ? Math.exp(-q.t * 0.5) * (1 - smooth(q.life * 0.6, q.life, q.t)) * Math.min(1, q.t * 20 + 0.3) : 0;
+      u.uBlast[i].value.set(q.dir.x, q.dir.y, q.dir.z, q.rad); u.uBlastP[i].value.x = q.I * k;
+    }
+  }
+
   /** The warhead goes off (or falls into the void). */
   detonate(n) {
     const { hole, W, state } = this, r = n.r0, dist = W.distTo(n.to);
@@ -465,25 +479,27 @@ export class Threat {
     n.pg = this.surf(n.to, 0, new THREE.Vector3(), n.elev); n.qUp = n.qUp ?? new THREE.Quaternion();
     n.qUp.setFromUnitVectors(_Y, v1.copy(n.to).normalize());
     n.zone >= 0 && this.zoneFree(n.zone); n.zone = -1; n.mk?.remove(); n.mk = null;
-    if (n.mush) { n.mush.mesh.position.copy(n.pg); n.mush.mesh.quaternion.copy(n.qUp); n.mush.mesh.scale.setScalar(1e-3); n.mush.mesh.visible = true; n.mush.mat.userData.uA.value = 0; n.mush.mat.userData.uHeat.value = 1; }
+    if (n.mush) { n.mush.mesh.position.copy(n.pg); n.mush.mesh.quaternion.copy(n.qUp); { const sc = cloudScale(0); n.mush.mesh.scale.setScalar(n.H * sc); n.mush.mat.userData.uS.value = sc; } n.mush.mesh.visible = true; { const U = n.mush.mat.userData; U.uA.value = 1; U.uHeat.value = 1; U.uAge.value = 0; U.uTint.value = 0; } }
     const delay = Math.min(1.2, dist / (12 * r));
     if (dist < n.inner) return this.swallowNuke(n, dist);
     n.out = dist < n.B ? 'hit' : 'miss';
     if (!n.child && !n.first && r < 450e3 && W.bite.landAt(n.to) < 0) this.byName.tsunami.at(n.to, { cause: 'nuke' }); // (a blast over the sea throws up a wave)
-    // layered detonation: flash (1 frame, additive, 3 r) -> fireball -> shock ring over the ground -> smoke column / mushroom -> ash plume -> scorch
+    // layered detonation (docs 12.12): the flash (HDR white-out in the post pass, a hot sprite) -> the volume (fireball -> rising vortex cap, src/threat/blast.js) -> the shock dome and its dust skirt -> warm light over the land -> scorch, embers, an ash column
     v2.copy(n.pg).setLength(R + n.elev * W.E + 0.3 * n.B);
     const fk = n.child ? 0.5 : 1; // (a MIRV warhead: half the flash and fireball; four of them at once would white the screen out)
-    this.glow.spawn(v2, null, 7 * r * fk, 8 * r * fk, 0.14, FIRE[0], 3.2 * (n.child ? 0.7 : 1), 0);
-    this.glow.spawn(v2, null, 0.5 * n.B * fk, 2.4 * n.B * fk, 0.8, FIRE[1], 2.0, 0.3);
-    this.glow.spawn(v2, null, 0.3 * n.B * fk, 1.7 * n.B * fk, 1.4, FIRE[2], 1.6, 0.3);
-    this.glow.spawn(v2, null, 0.2 * n.B * fk, 1.2 * n.B * fk, 2.2, FIRE[3], 1.2, 0.2);
+    this.glow.spawn(v2, null, 3.5 * r * fk, 4.5 * r * fk, 0.12, FIRE[0], 3.2 * (n.child ? 0.7 : 1), 0);
+    if (!n.mush) { // (the light MIRV warheads have no volume: sprites carry their fireball)
+      this.glow.spawn(v2, null, 0.5 * n.B * fk, 2.4 * n.B * fk, 0.8, FIRE[1], 2.0, 0.3); this.glow.spawn(v2, null, 0.3 * n.B * fk, 1.7 * n.B * fk, 1.4, FIRE[2], 1.6, 0.3);
+    }
+    this.dome(n.to, n.elev, 0.3 * n.B, 0.8 * r, 2.0 * n.B, n.child ? 0.5 : 1);
     for (let i = 0; i < 14; i++) { const a = (i / 14) * 6.283 + rnd(0, 0.4), tg = tangentAt(v3.copy(n.to).normalize(), a, v4); v1.copy(n.pg).setLength(R + n.elev * W.E + 0.05 * r).addScaledVector(tg, 0.2 * n.B); this.smoke.spawn(v1, sv.copy(tg).multiplyScalar(0.8 * r).addScaledVector(v3, 0.05 * r), 0.6 * r, 1.4 * r, 4.5, DUST, 0.6, 0.45); } // (the rolling base ring)
+    this.light(n.to, (n.child ? 4 : 7) * r, n.child ? 0.8 : 1.4, 7);
     this.scar(n.to, 2.0 * n.B, 0.8 * r, 14, 0);
     this.scar(n.to, 1.2 * n.B, 0.2 * r, 90, 0); // (the scorch stays: its ring is short)
     if (!n.child) { this.fall.push({ dir: n.to.clone(), R: 2 * r, t: 0, life: T3.falloutLife, zone: this.zoneAlloc() }); if (this.fall.length > 2) { const o = this.fall.shift(); this.zoneFree(o.zone); } }
     const near = Math.max(0.12, 1 - dist / (8 * r));
     this.sfx.nukeBoom(Math.min(1, (n.child ? 0.35 : 0.5) + 0.5 * near), delay);
-    this.screenFlash((n.child ? 0.1 : 0.18) + 0.5 * near, '#fff4dc', 320);
+    this.fxBlast((n.child ? 0.35 : 1) * near); this.screenFlash((n.child ? 0.05 : 0.08) + 0.2 * near, '#fff4dc', 260);
     this.trauma((n.child ? 0.1 : 0.2) + 0.4 * near);
     if (n.out === 'hit') {
       const M = T3.kinds.mirv, room = n.child ? Math.max(0, M.cap - n.salvo.sum) : 0.25, fa = n.hadZone && n.locked ? this.t - n.lockAt : -1;
@@ -620,11 +636,13 @@ export class Threat {
     }
     l.out = dist < l.B ? 'hit' : 'miss';
     this.surf(l.to, 0, v1, l.elev); const hi = v2.copy(v1).setLength(R + l.elev * W.E + 0.3 * r);
-    this.glow.spawn(hi, null, 6 * r, 7 * r, 0.12, FIRE[0], 3.4, 0); this.glow.spawn(hi, null, 0.4 * r, 2.4 * r, 0.6, FIRE[1], 2.2, 0.3); this.glow.spawn(hi, null, 0.3 * r, 1.6 * r, 1.2, FIRE[2], 1.6, 0.3);
+    this.glow.spawn(hi, null, 3 * r, 4 * r, 0.12, FIRE[0], 3.4, 0); this.glow.spawn(hi, null, 0.4 * r, 2.4 * r, 0.6, FIRE[1], 2.2, 0.3); this.glow.spawn(hi, null, 0.3 * r, 1.6 * r, 1.2, FIRE[2], 1.6, 0.3);
     for (let i = 0; i < 16; i++) { const a = (i / 16) * 6.283 + rnd(0, 0.4), tg = tangentAt(v3.copy(l.to).normalize(), a, v4); this.smoke.spawn(v1, sv.copy(tg).multiplyScalar(1.4 * r).addScaledVector(v3, 0.1 * r), 0.5 * r, 1.3 * r, 3.5, DUST, 0.65, 0.6); }
     for (let i = 0; i < 7; i++) { v3.copy(v1).setLength(R + l.elev * W.E + r * (0.2 + i * 0.35)); this.smoke.spawn(v3, vel3(v2.copy(l.to).normalize(), rnd(-0.2, 0.2) * r, rnd(-0.2, 0.2) * r, 0.12 * r, sv), 0.7 * r, 1.4 * r, 5, i < 3 ? SMOKE0 : ASH, 0.5, 0.5); }
     this.scar(l.to, 1.6 * r, 3.0 * r, 14, 1); this.scar(l.to, 0.9 * r, 0.2 * r, 80, 1);
-    const near = Math.max(0.12, 1 - dist / (8 * r)); this.sfx.nukeBoom(0.35 + 0.4 * near, Math.min(1.2, dist / (12 * r))); this.screenFlash(0.1 + 0.4 * near, '#fff', 260); this.trauma(0.2 + 0.4 * near);
+    this.dome(l.to, l.elev, 0.3 * r, 3.0 * r, 1.8 * r, 1); this.light(l.to, 5 * r, 1.0, 5); this.fxBlast(Math.max(0.12, 1 - dist / (8 * r)) * 0.8); // (the rod: a flat white dome out of the crater, the same family as the nuke)
+    for (let q = 0; q < 3; q++) { v4.copy(v1).setLength(R + l.elev * W.E + r * (0.3 + q * 0.6)); this.glow.spawn(v4, null, 0.8 * r, 2.0 * r, 0.5 + 0.2 * q, FIRE[1 + (q > 0)], 1.4, 0); }
+    const near = Math.max(0.12, 1 - dist / (8 * r)); this.sfx.nukeBoom(0.35 + 0.4 * near, Math.min(1.2, dist / (12 * r))); this.screenFlash(0.04 + 0.12 * near, '#fff', 220); this.trauma(0.2 + 0.4 * near);
     if (l.out === 'hit') { this.hurt(T3.rodHit, 'Orbital strike!', 'rod', T3.rodK, 0.25, l.hadZone && l.locked ? this.t - l.lockAt : -1, l.to); this.notice(5); }
   }
   eatSat(l) {
@@ -741,7 +759,7 @@ export class Threat {
     this.hT.fill(-99); this.hF.fill(0); this.cont = {}; this.budget = 3; this.noto = 0; for (const k of this.K) this.cool[k.name] = k.cool0 ?? 8; this.siteT = 4; this.t = 0; this.tAdd = 0; this.unfairLog = null;
     this.state.frenzy = 0; this.state.fallout = false; this.state.surge = false; this.state.magma = 0; this.state.rubble = false; this.state.ash = false;
     const u = this.W.globe.u; for (let i = 0; i < 20; i++) u.uZoneP[i].value.y = 0; for (let i = 0; i < NS; i++) u.uScarP[i].value.y = 0; for (let i = 0; i < NZ; i++) this.zoneUsed[i] = false; u.uStrafeP.value.x = 0;
-    this.glow.age.fill(9); this.smoke.age.fill(9);
+    this.glow.age.fill(9); this.smoke.age.fill(9); for (const q of this.domes) { q.t = q.life; q.mesh.visible = false; } for (const q of this.lights) q.t = 99; Object.assign(this.fx, { w: 0, warm: 0, bloom: 0 });
   }
 
   // ---------------------------------------------------------------- HUD, the bot's view, the debug API
