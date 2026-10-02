@@ -280,3 +280,7 @@ export function rivalEaten() { reverseGulp(); choir(1); tone('sine', 36, 22, 3.4
 export function cruise() { noise(1.1, 3200, 0.22); tone('sawtooth', 240, 900, 0.7, 0.07); tone('sine', 120, 60, 0.6, 0.2); }
 /** A ship swallowed: a splash and a low gulp. */
 export function gulpShip() { noise(0.5, 1800, 0.3, 0.05, 300); tone('sine', 180, 50, 0.5, 0.5); }
+/** A tsunami: a long rising roar that breaks into surf. */
+export function tsunami() { noiseUp(2.2, 900, 0.5); tone('sine', 44, 30, 2.6, 0.5); noise(3, 700, 0.35, 2.0, 200); }
+/** A volcano: a rumble, then (erupt) the blast, a deep sub drop and a crackle. */
+export function volcano(erupt = false) { if (erupt) { noise(2.6, 500, 0.6); tone('sine', 46, 24, 3, 0.9); tone('sawtooth', 70, 30, 1.8, 0.14); noise(0.5, 3000, 0.45, 0.05); } else rumble(0.9, 0); }

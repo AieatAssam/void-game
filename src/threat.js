@@ -13,6 +13,7 @@ import { sunDir } from './look.js';
 import { Rivals } from './planetrival.js';
 import { makeLaser } from './threat/laser.js';
 import { makeFleet } from './threat/fleet.js';
+import { makeTsunami, makeVolcano } from './threat/nature.js';
 import { smooth, rnd, _Y, v1, v2, v3, v4, v5, v6, qa, C, FIRE, SMOKE0, SMOKE1, ASH, DUST, KMs, tangentAt, sv, aim, vel3, slerp, Ribbon, Pool } from './threat/kit.js';
 
 const qs = new URLSearchParams(location.search);
@@ -86,6 +87,7 @@ export class Threat {
     this.rivals = new Rivals(this); this.register(this.rivals.kind());
     this.register(makeLaser(this));
     this.register(makeFleet(this));
+    this.register(makeTsunami(this)); this.register(makeVolcano(this));
     window.__threat = this.api();
     for (const o of [this.glow.sprite, this.smoke.sprite]) o.frustumCulled = false;
     try { await ctx.post.precompile(this.root, 6000, this.game.around); await ctx.post.precompile({ traverse: (f) => { f(this.glow.sprite); f(this.smoke.sprite); } }, 3000, this.game.around); } catch (e) { console.warn('threat precompile', e); }
@@ -175,6 +177,7 @@ export class Threat {
     this.glow.step(dt); this.smoke.step(dt);
     this.sealWatch(dt);
     state.frenzy = Math.max(0, (state.frenzy || 0) - dt); state.slow = Math.max(0, (state.slow || 0) - dt); state.magma = Math.max(0, (state.magma || 0) - dt);
+    state.rubble = !!state.rubbleNow; state.rubbleNow = false; state.ash = !!state.ashNow; state.ashNow = false; // (flags the kinds raise each frame: the game reads them next frame)
     this.updateLine(dt);
     if (this.flashA > 0) { this.flashT += dt; const k = Math.max(0, 1 - this.flashT / this.flashDur); this.flashEl.style.background = this.flashC; this.flashEl.style.opacity = (this.flashA * k * k).toFixed(3); if (k <= 0) this.flashA = 0; }
     this.ms = (this.ms ?? 0) * 0.95 + (performance.now() - t0) * 0.05;
@@ -232,6 +235,8 @@ export class Threat {
     if (ok) this.noteSeen();
     return ok;
   }
+  /** A coastal unit (class >= 2) was torn off: its sea throws a wave (T1-T2). */
+  coastTear(ev) { const v = this.W.bite.lf?.lv[ev.L]; if (v && v.np[ev.u] && v.coast[ev.u] / v.np[ev.u] > 0.5) this.byName.tsunami.at(ev.dir, { cause: 'coast' }); }
   noteSeen() { const S = this.stats; S.seen = (S.strafes > 0) + (S.nukes > 0) + (S.rods > 0) + (S.mirvs > 0) + (S.lasers > 0) + (S.fleets > 0) + (S.tsunamis > 0) + (S.volcanoes > 0) + (S.aegis > 0) + (S.rockets > 0) + (S.cracker > 0) + (S.rivals > 0); }
 
   /** The three Phase 3 kinds as table entries (their logic is below); the WP-B kinds are src/threat/*.js. */
@@ -448,6 +453,7 @@ export class Threat {
     const delay = Math.min(1.2, dist / (12 * r));
     if (dist < n.inner) return this.swallowNuke(n, dist);
     n.out = dist < n.B ? 'hit' : 'miss';
+    if (!n.child && !n.first && r < 450e3 && W.bite.landAt(n.to) < 0) this.byName.tsunami.at(n.to, { cause: 'nuke' }); // (a blast over the sea throws up a wave)
     // layered detonation: flash (1 frame, additive, 3 r) -> fireball -> shock ring over the ground -> smoke column / mushroom -> ash plume -> scorch
     v2.copy(n.pg).setLength(R + n.elev * W.E + 0.3 * n.B);
     this.glow.spawn(v2, null, 7 * r, 8 * r, 0.14, FIRE[0], 3.2, 0);

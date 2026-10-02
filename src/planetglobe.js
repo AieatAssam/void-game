@@ -610,7 +610,8 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
           const las = mix(warmL, hotL, smoothstep(0.0, 0.25, lock));
           const wb = max(q.x, 1e-5), band = exp(pow(th.sub(A).div(wb), 2).negate()), streak = mx_noise_float(dir.mul(float(1.6).div(wb)).add(vec3(u.uTime.mul(0.4), 0, 0))).mul(0.5).add(0.5);
           const wet = smoothstep(A.sub(wb.mul(7)), A.sub(wb.mul(0.5)), th).mul(float(1).sub(smoothstep(A.sub(wb.mul(0.2)), A.add(wb), th)));
-          const wav = vec3(0.82, 0.97, 1.0).mul(band.mul(streak.mul(0.9).add(0.9))).mul(1.7).add(vec3(0.12, 0.42, 0.5).mul(wet).mul(0.55));
+          const crest = exp(pow(th.sub(A).div(wb.mul(0.22)), 2).negate());
+          const wav = vec3(0.7, 0.93, 1.0).mul(band.mul(streak.mul(0.8).add(0.35))).mul(0.95).add(vec3(1.0, 1.0, 1.0).mul(crest).mul(1.1)).add(vec3(0.1, 0.38, 0.5).mul(wet).mul(0.4));
           gz.addAssign(ash.mul(mAsh).add(las.mul(mLas)).add(wav.mul(mWav)));
           col.assign(mix(col, col.mul(vec3(0.5, 0.46, 0.42)), inside.mul(q.y).mul(nzA.mul(0.4).add(0.35)).mul(mAsh)));
           col.assign(mix(col, col.mul(vec3(0.7, 0.85, 0.95)), wet.mul(q.y).mul(0.35).mul(mWav)));

@@ -227,7 +227,7 @@ export class PlanetGame {
     if (this.wetPrev) mult = P3.oceanSpeed(tier) * (state.mods?.sea ?? 1); // the sea: no credit, slower while small (wet = the centre is at sea AND the disc ate nothing last frame: a coast is not the sea)
     else if (here.e < D) mult = 1.1; // lowland feast
     else if (here.e < P3.wallK * D) mult = 1 - 0.5 * (here.e - D) / (3 * D); // ridge drag: eaten from the top down over several passes
-    const slow = state.slow > 0 ? (state.slowK ?? 0.45) : 1;
+    const slow = (state.slow > 0 ? (state.slowK ?? 0.45) : 1) * (state.ash ? 0.7 : 1);
     const speed = P3.speed(r) * mult * slow * (state.frenzy > 0 ? 1.3 : 1) * (state.mods?.speed ?? 1) * (ctx.speedK?.() ?? 1);
     const kick = state.kick || (state.kick = { x: 0, z: 0 });
     let dx = (hole.sx * speed + kick.x * r / 60) * dt, dz = (hole.sz * speed + kick.z * r / 60) * dt;
@@ -254,7 +254,7 @@ export class PlanetGame {
     // tear-offs and the pull-in (§12.3): the units the disc touched, the remnants within reach; their credit is not land credit under the ocean rule
     const B = W.bite;
     B.tearCheck(W.hdir, r); B.pullCheck(W.hdir, r, state.time, state.mods?.pull ?? 1); B.stepTears(dt);
-    const G = P3.g(r) * P3.feast * (state.fallout ? T3.falloutLand : 1) * (state.surge ? 1.5 : 1), tc = B.cTear * G * (state.mods?.tear ?? 1) * (state.time - (this.comboAt ?? -9) < 2.5 ? 1 + 0.1 * Math.min(5, this.combo || 0) : 1), pc = B.cPull * G; // (fallout x0.5, Hunger Surge x1.5: threat.js)
+    const G = P3.g(r) * P3.feast * (state.fallout ? T3.falloutLand : 1) * (state.surge ? 1.5 : 1) * (state.magma > 0 ? T3.kinds.volcano.surge : 1) * (state.rubble ? T3.kinds.tsunami.rubble : 1), tc = B.cTear * G * (state.mods?.tear ?? 1) * (state.time - (this.comboAt ?? -9) < 2.5 ? 1 + 0.1 * Math.min(5, this.combo || 0) : 1), pc = B.cPull * G; // (fallout x0.5, Hunger Surge x1.5: threat.js)
     if (tc + pc > 0) { const a0 = hole.area; hole.area += tc + pc; state.belly = Math.min(1, state.belly + (tc + pc) / (a0 * P3.meal)); L.tear = (L.tear || 0) + tc; L.pull = (L.pull || 0) + pc; }
     for (const ev of B.events) this.swallow(ev, ctx);
     B.events.length = 0;
@@ -324,6 +324,7 @@ export class PlanetGame {
     else if (rEq < 0.3 * r) cls = Math.min(cls, 1);
     if (cls === 0) { if (rEq > 0.04 * r) ctx.sfx.pebble(); return; } // (a parcel: a dry crackle)
     this.threat?.notice([0, 1, 3, 6, 10][cls]);
+    if (cls >= 2 && ev.kind !== 'pull') this.threat?.coastTear(ev);
     if (ev.kind !== 'pull') { // the collapse combo (A5): tears within 2.5 s of the last one chain; +10% credit per level (to 5)
       this.combo = t - (this.comboAt ?? -9) < 2.5 ? (this.combo || 0) + 1 : 0; this.comboAt = t;
       if (this.combo >= 3 && t - (this.comboCard ?? -9) > 3) { this.comboCard = t; ctx.card(`×${this.combo} COLLAPSE`, `+${10 * Math.min(5, this.combo)}% on torn land`); }
