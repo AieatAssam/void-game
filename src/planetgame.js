@@ -15,7 +15,7 @@ import { PlanetMap } from './planetmap.js';
 const KM = (m) => (m >= 1e5 ? `${(m / 1000).toFixed(0)} km` : m >= 1e4 ? `${(m / 1000).toFixed(1)} km` : `${(m / 1000).toFixed(2)} km`);
 const qs = new URLSearchParams(location.search);
 const num = (k, d) => (qs.has(k) && qs.get(k) !== '' && Number.isFinite(+qs.get(k)) ? +qs.get(k) : d);
-const _v = new THREE.Vector3(), _s = new THREE.Vector3();
+const _v = new THREE.Vector3(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _n2 = new THREE.Vector3();
 const DUST = new THREE.Color(0xb3a48c);
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 /** Share of a bite that becomes growth: crumbs much smaller than the hole barely count (Phase 1's growthShare). */
@@ -53,6 +53,7 @@ export class PlanetGame {
     if (!qs.has('nomap')) { this.map = new PlanetMap(ctx.renderer, W.globe); this.map.show(true); this.map.place(W, hole); await this.map.precompile(); } // (the minimap: §6.3)
     state.pop = 0; state.ledger = { meal: 0, crumb: 0, land: 0, fed: 0, starve: 0, ate: 0, crumbs: 0 }; state.tierAt = { 1: 0 }; state.shake = 0; state.slowT = 0;
     this.camDist = 0;
+    this.snap0 = W.bite.save(); this.r0 = r0; // (the start of the run: __planet.reset() for balance sweeps)
     window.__planet = this.debugApi(ctx);
     window.__planetLand = () => W.bite.landEaten * 100; // % of the world's land eaten
     window.__planetDbg = window.__planet.dbg; // r, tier, e_eff, speed, patch builds, bite/world/step ms
@@ -75,11 +76,14 @@ export class PlanetGame {
     const r = hole.r, tier = P3.tier(r);
     // ---- camera (§6.1): pitch and E ride r; target = the origin plus a small lead along the velocity
     const portrait = Math.max(1, 1.2 / camera.aspect) ** 0.7;
-    const want = P3.camDist(r) * portrait * ctx.LENS;
+    const fx = this.fx;
+    let pk = 1;
+    if (fx && fx.pullT < 3.6) { fx.pullT += dt; const e = fx.pullT; pk = 1 + 0.15 * Math.min(1, e / 0.6) * Math.max(0, Math.min(1, (3.6 - e) / 1.2)); } // (a continent: the camera backs off 15% for 3 s)
+    const want = P3.camDist(r) * portrait * ctx.LENS * pk;
     this.camDist = this.camDist ? this.camDist + (want - this.camDist) * Math.min(1, dt * 2) : want;
     const camDist = this.camDist, pitch = P3.pitch(r);
     const kl = Math.min(1, dt * 3);
-    this.lead.x += ((hole.sx || 0) * 0.12 * camDist - this.lead.x) * kl; this.lead.y += ((hole.sz || 0) * 0.12 * camDist - this.lead.y) * kl;
+    this.lead.x += ((hole.sx || 0) * 0.025 * camDist - this.lead.x) * kl; this.lead.y += ((hole.sz || 0) * 0.025 * camDist - this.lead.y) * kl; // (the lead pushes the hole down the frame; the aim already put it at ~70%)
     const horiz = Math.cos(pitch) * camDist;
     camera.position.set(this.lead.x, Math.sin(pitch) * camDist, this.lead.y + horiz);
     const sh = state.shake * camDist * 0.015;
@@ -156,6 +160,18 @@ export class PlanetGame {
     for (const ev of B.events) this.swallow(ev, ctx);
     B.events.length = 0;
     state.pop = B.pop;
+    // the swath's dust curtain: an arc off the leading rim every 0.4 r of travel (§12.5), and the cap's rim band widens with the credit rate
+    this.dustMoved = (this.dustMoved || 0) + (credit > 0 ? moved : 0);
+    if (this.dustMoved > 0.4 * r && credit > 0) {
+      this.dustMoved = 0;
+      const hl = Math.hypot(hole.sx, hole.sz) || 1, th = Math.atan2(hole.sz / hl, hole.sx / hl), S = Math.min(0.34 * r, ctx.camera.position.length() * 0.14);
+      for (let q = -2; q <= 2; q++) {
+        const a = th + q * 0.34 + (Math.random() - 0.5) * 0.15, cx = Math.cos(a), cz = Math.sin(a), x = cx * r * 1.02, z = cz * r * 1.02, y = W.groundY(x, z) + S * 0.55, sp = r * (0.2 + Math.random() * 0.15);
+        ctx.debris.puff(x, y, z, cx * sp * 0.5, S * (0.5 + Math.random() * 0.4), cz * sp * 0.5, S * (0.8 + Math.random() * 0.5), S * 0.5, 2.0 + Math.random() * 0.8, DUST, 0.26); // (it lifts off the rim: a curtain above the lip, not a smudge on it)
+      }
+    }
+    this.rim = (this.rim || 0) + (Math.min(1, (credit * P3.g(r) * P3.feast) / (Math.max(dt, 1e-3) * hole.area) * 40) - (this.rim || 0)) * Math.min(1, dt * 3);
+    W.globe.u.uRim.value = this.rim;
     const dA = credit * G * (here.h < 0 ? 0 : 1);
     if (dA > 0) {
       const a0 = hole.area;
@@ -190,7 +206,7 @@ export class PlanetGame {
     const nt = P3.tier(hole.r);
     if (nt > (state.tier || 1)) {
       state.tier = nt; state.tierAt[nt] = state.time;
-      hole.shockwave();
+      hole.shockwave(); W.shock(W.hdir, 0.6 * hole.r / R, 1.5 * hole.r / R, 1.2, 1);
       state.hitstop = Math.max(state.hitstop || 0, 0.25); state.slowmo = 0.4; state.slowT = 0.6; state.punch = 1;
       ctx.card(`Tier ${nt} · ${KM(hole.r)}`, TIERS[nt - 1].name);
       ctx.sfx.levelUp();
@@ -199,9 +215,54 @@ export class PlanetGame {
     }
   }
 
-  /** A unit tears off or is pulled in (§12.5): the feel lives here. */
+  /**
+   * A unit tears off or is pulled in (§12.5): the feel lives here. Class by what it is relative to the hole: 0 nothing but the swath's own dust (a parcel, a speck),
+   * 1 district / island, 2 province, 3 nation, 4 continent. Hitstop / shake / slow-mo are budgeted: the max of what is asked, at most one hitstop per 1.5 s.
+   */
   swallow(ev, ctx) {
-    if (ev.type === 'start') ctx.state.lastTear = ev;
+    if (ev.type !== 'start') return;
+    const { state, hole, sfx, debris, news } = ctx, W = this.world, r = hole.r, t = state.time, rEq = ev.rEq;
+    state.lastTear = ev;
+    let cls = ev.L === 0 ? 0 : ev.L === 1 ? 1 : ev.L === 2 ? 2 : ev.L === 3 ? (ev.area0 < 3e5 ? 1 : 3) : (ev.area0 < 3e5 ? 1 : 4);
+    if (rEq < 0.12 * r) cls = 0; // (a speck beside this hole)
+    else if (rEq < 0.3 * r) cls = Math.min(cls, 1);
+    if (cls === 0) return;
+    const fx = this.fx ??= { hitAt: -9, hitCls: 0, pull: 0, pullT: 9, tok: 3, tokAt: 0 }, pull = ev.kind === 'pull';
+    fx.tok = Math.min(3, fx.tok + (t - fx.tokAt) * 2); fx.tokAt = t; // effect tokens: 2 a second, 3 banked (a cascade of tears is one big event to the eye)
+    const cost = cls >= 3 ? 3 : cls === 2 ? 2 : 1, show = fx.tok >= cost; if (show) fx.tok -= cost;
+    const dist = W.distTo(ev.dir), life = 1.2 + cls * 0.25, k = Math.min(1, Math.max(0.2, Math.sqrt(rEq / r) * 0.5));
+    // the shock ring across the land: from the centroid out to 1.5 r_eq (the shader clears the clouds inside it)
+    const a0 = 0.05 * rEq / R, a1 = 1.5 * rEq / R;
+    if (show) W.shock(ev.dir, a0, (a1 - a0) / life, life, pull ? 0.5 : 0.7 + 0.1 * cls);
+    // dust and ash where it stood: puffs of rEq size, a ring rolling out and (province up) two column layers
+    const h = Math.max(0, W.P.elevation(ev.dir, 6)), p0 = W.renderPos(ev.dir, h, _p.set(0, 0, 0)), up = W.normalAt(ev.dir, _n2), cap = ctx.camera.position.length() * 0.22, S = Math.min(rEq * 0.65, cap, r * 0.35), near = p0.x * p0.x + p0.z * p0.z < (1.7 * r) ** 2; // (an event at the hole itself shows as the ring, not as smoke over the cap)
+    const ring = show && !near ? 10 + 4 * cls : 0, pc = new THREE.Color(DUST).lerp(new THREE.Color(0x5a4f45), 0.5);
+    for (let i = 0; i < ring; i++) {
+      const a = (i / ring) * 6.283 + Math.random() * 0.4, tx = Math.cos(a), tz = Math.sin(a), sp = rEq * (0.18 + Math.random() * 0.12);
+      const px = p0.x + tx * rEq * 0.45 + up.x * S * 0.5, pz = p0.z + tz * rEq * 0.45;
+      if (px * px + pz * pz < (1.15 * r) ** 2) continue; // (no dust floating over the hole)
+      debris.puff(px, p0.y + up.y * S * 0.5, pz, tx * sp, S * 0.05, tz * sp, S * (0.7 + Math.random() * 0.6), S * 0.35, 3 + Math.random(), pc, 0.65);
+    }
+    if (cls >= 2 && show && !near) {
+      const layers = cls >= 3 ? 3 : 2; // ash columns: a dark low layer and a pale high one
+      for (let l = 0; l < layers; l++) for (let i = 0; i < 7; i++) {
+        const a = Math.random() * 6.283, d = Math.random() * rEq * 0.3, col = l === 0 ? new THREE.Color(0x2d2a28) : new THREE.Color(0xc9bba8);
+        debris.puff(p0.x + Math.cos(a) * d, p0.y + S * (0.3 + 0.9 * l), p0.z + Math.sin(a) * d, 0, S * (0.35 + 0.35 * l + Math.random() * 0.2), 0, S * (0.8 + 0.4 * l), S * 0.4, 4.5 + 1.5 * l, col, 0.8 - 0.15 * l);
+      }
+    }
+    // budgets
+    state.shake = Math.max(state.shake, [0, 0.15, 0.3, 0.45, 0.6][cls] * (pull ? 0.5 : 1));
+    if (!pull && (t - fx.hitAt > 1.5 || cls > fx.hitCls) && rEq >= 0.2 * r) {
+      fx.hitAt = t; fx.hitCls = cls;
+      state.hitstop = Math.max(state.hitstop || 0, [0, 0.06, 0.08, 0.12, 0.2][cls]);
+      if (cls >= 3) { state.slowmo = cls === 3 ? 0.5 : 0.4; state.slowT = (cls === 3 ? 0.8 : 1.5) * state.slowmo; }
+      if (cls === 4) { fx.pull = 0; fx.pullT = 0; }
+    }
+    // sound: crack + gulp, rumble late by distance, choir, the continent's silence-swell-boom
+    const dl = Math.min(1.2, dist / (6 * r));
+    if (!show) return;
+    if (cls === 1) sfx.tear(k); else if (cls === 2) { sfx.tear(k); sfx.rumble(k, 0.15 + dl); } else if (cls === 3) { sfx.choir(k); sfx.rumble(k, 0.2 + dl); } else sfx.swell();
+    if (ev.pop > 5e5 && !pull && (cls >= 2 || news.queue.length < 2)) { const pp = ev.pop >= 1e9 ? `${(ev.pop / 1e9).toFixed(1)} B` : ev.pop >= 1e6 ? `${(ev.pop / 1e6).toFixed(0)} M` : `${(ev.pop / 1e3).toFixed(0)} k`; news.say(cls === 3 ? `${ev.name} is gone — ${pp} swallowed` : `${ev.name} swallowed — ${pp} evacuated`); }
   }
 
   /** A meal has started to fall: growth now (the HUD answers at once), then the feel (§5.3) and the news. */
@@ -366,6 +427,15 @@ export class PlanetGame {
         // the camera sits hz behind the hole and hc above it, so the planet's local horizon is tilted away from the render horizontal: the limb is at atan2(R + hc, hz) - asin(R / |C|) below it
         const horizon = Math.atan2(R + hc, hz) - Math.asin(R / Math.hypot(R + hc, hz));
         return +(((horizon - (view - half)) * 180) / Math.PI).toFixed(2);
+      },
+      /** Back to the start of the run (bite map, units, hole, ledger, trail): for balance sweeps in one page load. */
+      reset() {
+        W.bite.restore(self.snap0); W.bite.jobs.length = 0; W.bite.events.length = 0; W.bite.tflag.fill(0); W.bite.nTouched = 0;
+        W.placeAt(W.P.startDir, W.P.city); W.h0Set = false; W.job = null; W.patchInfo = null; W.nStamps = 0; W.globe.trailData.fill(0); W.globe.trailTex.needsUpdate = true;
+        W.capMode = false; hole.capMode = false; W.globe.hidePatch?.(); hole.area = Math.PI * self.r0 * self.r0; hole.sx = hole.sz = 0;
+        Object.assign(state, { belly: 1, tier: P3.tier(self.r0), land: 0, time: 0, pop: 0, best: 0, walls: 0, goalDone: {}, tierAt: { 1: 0 }, shake: 0, slowT: 0, slowmo: 1, hitstop: 0, ledger: { meal: 0, crumb: 0, land: 0, fed: 0, starve: 0, ate: 0, crumbs: 0 } });
+        W.update(0, hole, ctx.camera, innerHeight); W.buildPatchNow(self.r0); self.camDist = 0; self.fx = null;
+        return 'reset';
       },
       /** Set the hole radius (m) at the current spot. */
       setR(m) { hole.area = Math.PI * m * m; },

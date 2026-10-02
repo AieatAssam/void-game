@@ -347,3 +347,23 @@ window.__planetBot = (seconds = 600, who = 'human', dt = 1 / 30) => {
   log.push(`ledger ${JSON.stringify(Object.fromEntries(Object.entries(L).map(([k, v]) => [k, f(v / 1e3) + 'k'])))}`);
   return log;
 };
+
+/**
+ * Phase 3 test helpers (docs/PHASE3.md §12.7 R3): `await __planetTT.tear(L, maxKm2, minKm2, off, bearing, r, frames)` stands the hole beside the nearest unit of level L
+ * (area in the range) and starts its tear, then renders `frames` frames; `__planetTT.step(n)` renders n more (1/30 s each); `__planetTT.hud(false)` hides the HUD for screenshots.
+ */
+window.__planetTT = {
+  async tear(L, hi, lo, off = 1.5, brg = 2.0, r = null, frames = 14) {
+    const U = window.__planetUnits(), P = window.__planet, st = P.ctx.state;
+    st.playing = true; window.__bot = () => [0, 0];
+    if (r) P.ctx.hole.area = Math.PI * r * r;
+    const un = U.nearest(L, hi, lo);
+    U.goto(L, un.u, off, brg);
+    await new Promise((res) => setTimeout(res, 600));
+    P.bite.startTear(L, un.u, P.W.hdir, 'tear');
+    for (let i = 0; i < frames; i++) window.__tick(1 / 30);
+    return { un, jobs: U.jobs().length };
+  },
+  step(n) { for (let i = 0; i < n; i++) window.__tick(1 / 30); return window.__planetUnits().jobs().length; },
+  hud(v) { for (const id of ['hud']) { const e = document.getElementById(id); if (e) e.style.display = v ? '' : 'none'; } },
+};

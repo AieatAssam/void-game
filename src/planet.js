@@ -13,6 +13,7 @@ import { P3 } from './phase3.js';
 const SM = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const _q = new THREE.Quaternion(), _ax = new THREE.Vector3(), _v = new THREE.Vector3(), _qi = new THREE.Quaternion();
 const STAMPS = 4096;
+const HOLE3D = typeof location !== 'undefined' && new URLSearchParams(location.search).has('hole3d');
 
 export class PlanetWorld {
   /** Bake + build everything (async: a tick between stages so the loading line stays alive). */
@@ -84,6 +85,24 @@ export class PlanetWorld {
     return h * this.E - this.h0 - (dx * dx + dz * dz) / (2 * R);
   }
 
+  /** Render-space position of a planet direction `d` at height h (m, x relief E): the hole is at the origin, the planet curves under it. */
+  renderPos(d, h = 0, out = new THREE.Vector3()) {
+    out.set(d.x, d.y, d.z).applyQuaternion(_qi.copy(this.holeQ).invert()).multiplyScalar(R + h * this.E);
+    out.y -= R + this.h0;
+    return out;
+  }
+  /** The local up (render space) at a planet direction. */
+  normalAt(d, out = new THREE.Vector3()) { return out.set(d.x, d.y, d.z).applyQuaternion(_qi.copy(this.holeQ).invert()); }
+  /** Great-circle distance (m) from the hole to a planet direction. */
+  distTo(d) { return Math.acos(Math.min(1, Math.max(-1, this.hdir.x * d.x + this.hdir.y * d.y + this.hdir.z * d.z))) * R; }
+
+  /** A shock ring (§12.5): a lilac band from angle a0 (rad) at `speed` rad/s for `life` s, strength k, centred on planet direction `dir`. Four slots, round robin; the shader draws them on the globe and the patch. */
+  shock(dir, a0, speed, life, k = 1) {
+    const u = this.globe.u, i = this._si = ((this._si ?? -1) + 1) % 4;
+    u.uShock[i].value.set(dir.x, dir.y, dir.z, a0);
+    u.uShockP[i].value.set(u.uTime.value, speed, life, k);
+  }
+
   // ------------------------------------------------------------------ the sun
   setSunRender(v) { this.sunPlanet.copy(v).normalize().applyQuaternion(this.holeQ); this.globe.setSun(this.sunPlanet); }
   sunRender(out) { return out.copy(this.sunPlanet).applyQuaternion(_qi.copy(this.holeQ).invert()); }
@@ -109,10 +128,15 @@ export class PlanetWorld {
     this.tilt.y = ys[0]; this.tilt.nx = (ys[1] - ys[2]) / (2 * k); this.tilt.nz = (ys[3] - ys[4]) / (2 * k);
     // hole cut: flat disc of the hole's radius in render space (T1-T3); caps (T4+) are angular
     if (!this.capMode && r >= P3.capR) this.toCapMode(hole);
-    g.u.uCut.value = this.capMode ? 0 : r;
+    // the hole is the shader's cap at every size (§12.5: one look, a real shaft with a wall and a floor); ?hole3d keeps the Phase 1/2 mesh for T1 (A/B)
+    const cap = this.capMode || !HOLE3D;
+    hole.capMode = cap;
+    g.u.uCut.value = cap ? 0 : r;
     g.u.uHoleD.value.set(this.hdir.x, this.hdir.y, this.hdir.z, r / R);
     g.u.uClouds.value = 0.5 + 0.5 * SM(8000, 100000, r);
-    if (this.capMode) g.setHole(0, this.hdir, r / R); else g.setHole(0, this.hdir, 0);
+    g.u.uAtmo.value = 0.26 + 0.74 * SM(50000, 450000, r);
+    g.u.uAtmoH.value = 0.35 + 0.65 * SM(50000, 450000, r); // (thinner scatter while the camera sits inside the shell, T1: crisp ground)
+    if (cap) g.setHole(0, this.hdir, r / R); else g.setHole(0, this.hdir, 0);
     // wound depth: the patch's trail sinks ~0.6 r_build; the bite map 3 km (x E applied by the shader's own height)
     const wg = this.patchInfo && !this.capMode ? 0.6 * this.patchInfo.rB : Math.min(60000, Math.max(3000, 0.08 * r)); // (§12.1: while the patch exists tears sink as deep as the swath)
     this.woundG = this.woundG === undefined ? wg : this.woundG + (wg - this.woundG) * Math.min(1, dt * 2);

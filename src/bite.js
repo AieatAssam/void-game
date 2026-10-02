@@ -264,7 +264,7 @@ export class BiteMap {
     const list = Int32Array.from(idx, (k) => cand[k]), ds = Float32Array.from(idx, (k) => dist[k]);
     const T = 0.8 + 1.7 * Math.min(1, Math.max(0, Math.log(Math.max(left, 1) / 1500) / Math.log(8e6 / 1500)));
     const d = lf.dirOf(L, u, {});
-    const job = { L, u, kind, list, dist: ds, n: list.length, next: 0, t: 0, T, dmax: ds[ds.length - 1] || 1e-6, act: [], credit: 0, area: left, name: lf.name(L, u) };
+    const job = { L, u, kind, list, dist: ds, n: list.length, next: 0, t: 0, T, d0: ds[0], dmax: ds[ds.length - 1], act: [], credit: 0, area: left, name: lf.name(L, u) };
     this.jobs.push(job);
     const popLeft = (L === 0 ? lf.sN[u] : v.nsum[u]) * this.popK * (left / (v.area0[u] || 1));
     this.stat[L === 0 ? 'parcelTears' : kind === 'pull' ? 'pulls' : 'tears']++;
@@ -281,7 +281,7 @@ export class BiteMap {
     for (let ji = this.jobs.length - 1; ji >= 0; ji--) {
       const J = this.jobs[ji];
       J.t += dt;
-      const reach = Math.min(1, J.t / J.T) * J.dmax * 1.0001;
+      const reach = J.d0 + Math.min(1, J.t / J.T) * (J.dmax - J.d0) * 1.0001 + 1e-9; // (the wave starts at the parcel nearest the hole and runs out to the farthest)
       while (J.next < J.n && budget > 0 && J.dist[J.next] <= reach) {
         const pk = J.list[J.next++], tx = this.parcelTexels(pk);
         budget -= 64;

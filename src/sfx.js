@@ -148,3 +148,38 @@ export function bells() {
     tone('triangle', f * 2.01, f * 2.01, 0.6, 0.02, i * 0.28);
   });
 }
+
+// ---------- Phase 3 (docs/PHASE3.md §12.5): land being torn off ----------
+let noiseBuf = null;
+/** A burst of filtered noise (rock breaking, surf, a roar). */
+function noise(dur, lp, vol, delay = 0, hp = 0) {
+  if (!ctx || muted) return;
+  if (!noiseBuf) { noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+  const t = ctx.currentTime + delay, src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+  src.buffer = noiseBuf; src.loop = true; f.type = hp ? 'highpass' : 'lowpass'; f.frequency.value = hp || lp;
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + Math.min(0.05, dur * 0.2)); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(f).connect(g).connect(master); src.start(t); src.stop(t + dur + 0.02);
+}
+let lastTear = 0;
+/** A district / island: a crack of rock and a gulp (k 0..1 size). */
+export function tear(k = 0.3) {
+  if (!ctx || ctx.currentTime - lastTear < 0.12) return;
+  lastTear = ctx.currentTime;
+  noise(0.25 + k * 0.3, 2400, 0.35 + k * 0.2); tone('sine', 140 - k * 60, 38, 0.5 + k * 0.4, 0.5 + k * 0.2); tone('triangle', 520, 90, 0.12, 0.1);
+}
+/** A province: a rumble that arrives late, as it would from far away. */
+export function rumble(k = 0.5, delay = 0.3) {
+  noise(1.4 + k * 1.2, 300, 0.4 + k * 0.3, delay); tone('sine', 52, 26, 1.8 + k * 1.2, 0.55, delay); tone('sawtooth', 62, 30, 1.2, 0.08, delay);
+}
+/** A nation: a choir hit (a stacked chord) over a sub drop. */
+export function choir(k = 0.7) {
+  [196, 294, 392, 494, 588].forEach((f, i) => { tone('sine', f, f * 0.99, 2.2, 0.1, 0.02 * i); tone('triangle', f * 2.005, f * 2, 1.6, 0.03, 0.02 * i); });
+  tone('sine', 110, 24, 2.6, 0.6 * k + 0.2);
+}
+/** A continent: the world holds its breath, an organ swell, then the boom. */
+export function swell() {
+  [65, 98, 131, 196, 262].forEach((f) => { tone('sawtooth', f, f * 1.02, 1.6, 0.07, 0.15); tone('sine', f * 2, f * 2, 1.6, 0.05, 0.15); });
+  boom(1); noise(2.5, 500, 0.4, 1.6);
+}
+/** A coastline torn away: surf roar. */
+export function surf() { noise(1.6, 1200, 0.22, 0.05, 250); }

@@ -54,6 +54,13 @@ export class Landforms {
     return (f << 16) | (pj << 8) | pi;
   }
 
+  /** Smooth value noise in 0..1 on face f at lattice coordinates (x, y): hashed integer nodes, smoothstep blend. */
+  vnoise(f, x, y, salt) {
+    const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0, sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy), h = (a, b) => H5(this.seed, f, a, b, salt) / 4294967296;
+    const a0 = h(x0, y0), a1 = h(x0 + 1, y0), b0 = h(x0, y0 + 1), b1 = h(x0 + 1, y0 + 1);
+    return a0 + (a1 - a0) * sx + (b0 + (b1 - b0) * sx - a0 - (a1 - a0) * sx) * sy;
+  }
+
   /** The neighbour of parcel (f, pi, pj) at step (di, dj), across a face edge if need be (a step just past the edge, mapped back through the cube). */
   nb(f, pi, pj, di, dj) {
     const ni = pi + di, nj = pj + dj;
@@ -64,7 +71,7 @@ export class Landforms {
 
   /** After the texel pass: centroids, nations, landmasses, the unit tables of every level, CSR lists, names' raw data. A generator: yields every ~3 ms. */
   *build() {
-    const { P } = this, B = this.B;
+    const { P } = this, B = this.B, vn = (f, x, y, salt) => this.vnoise(f, x, y, salt), cl = (v, m) => (v < 0 ? 0 : v > m ? m : v);
     let ts = performance.now();
     const due = () => performance.now() - ts > SLICE;
     const pDir = new Float32Array(NP * 3), pNat = new Uint8Array(NP), pComp = new Uint16Array(NP);
@@ -105,7 +112,10 @@ export class Landforms {
     const cnt = [0, 0, 0, 0, ncomp + 1];
     for (let li = 0; li < land.length; li++) {
       const pk = land[li], f = pk >> 16, pj = (pk >> 8) & 255, pi = pk & 255, nat = pNat[pk], comp = pComp[pk];
-      const k1 = (((f << 12) | ((pj >> 2) << 6) | (pi >> 2)) * 64 + nat) * 65536 + comp, k2 = (((f << 8) | ((pj >> 4) << 4) | (pi >> 4)) * 64 + nat) * 65536 + comp, k3 = nat * 65536 + comp;
+      // organic cells: a district is a 4x4 block of parcels in a smoothly warped grid, a province a 4x4 block of districts in a second warp (province cell = a function of the district cell, so they nest)
+      const dci = cl(((pi + (vn(f, pi / 7, pj / 7, 11) - 0.5) * 4.4) * 0.25) | 0, 63), dcj = cl(((pj + (vn(f, pi / 7, pj / 7, 12) - 0.5) * 4.4) * 0.25) | 0, 63);
+      const pci = cl(((dci + (vn(f, dci / 3, dcj / 3, 21) - 0.5) * 3.6) * 0.25) | 0, 15), pcj = cl(((dcj + (vn(f, dci / 3, dcj / 3, 22) - 0.5) * 3.6) * 0.25) | 0, 15);
+      const k1 = (((f << 12) | (dcj << 6) | dci) * 64 + nat) * 65536 + comp, k2 = (((f << 8) | (pcj << 4) | pci) * 64 + nat) * 65536 + comp, k3 = nat * 65536 + comp;
       let u3 = maps[3].get(k3); if (u3 === undefined) { u3 = cnt[3]++; maps[3].set(k3, u3); par[3].push(comp); }
       let u2 = maps[2].get(k2); if (u2 === undefined) { u2 = cnt[2]++; maps[2].set(k2, u2); par[2].push(u3); }
       let u1 = maps[1].get(k1); if (u1 === undefined) { u1 = cnt[1]++; maps[1].set(k1, u1); par[1].push(u2); }

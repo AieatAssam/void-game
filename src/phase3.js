@@ -12,7 +12,7 @@ export const TIERS = [
 ];
 // smooth ramps: r in metres, smoothstep in log r between anchors. VIEW = [r, pitch (deg), relief exaggeration E, aim (deg: the camera looks this far above the hole, so the limb is in frame)]
 const VIEW = [
-  [40 * KM, 28, 3, 7], [150 * KM, 36, 4, 4], [450 * KM, 40, 6, 0], [1200 * KM, 36, 7, 0], [2400 * KM, 32, 7, 0],
+  [40 * KM, 25, 3, 7], [150 * KM, 36, 4, 4], [450 * KM, 40, 6, 0], [1200 * KM, 36, 7, 0], [2400 * KM, 32, 7, 0],
 ];
 // land credit G(r): the §12.1 anchors (swath-only sim values)
 const GRAMP = [[40 * KM, 0.06], [450 * KM, 0.065], [1000 * KM, 0.09], [1600 * KM, 0.2], [2600 * KM, 0.3]];
@@ -34,7 +34,8 @@ export const P3 = {
   pitch: (r) => ramp(VIEW, r, 1) * Math.PI / 180,
   relief: (r) => ramp(VIEW, r, 2),
   aim: (r) => ramp(VIEW, r, 3), // degrees
-  g: (r) => ramp(GRAMP, r, 1),
+  gScale: 0.55, // interim (R3): the bot's tear share was 60% at gScale 1 / collapseK 1 and a run took 9 min; R5 retunes the anchors on the unit bot
+  g: (r) => P3.gScale * ramp(GRAMP, r, 1),
   tier: (r) => { let t = 1; for (const q of TIERS) if (r >= q.r * 0.999 || q.n === 1) t = q.n; return t; },
   tierName: (r) => TIERS[P3.tier(r) - 1].name,
   camDist: (r) => 14 + 8 * r, // x portrait x LENS in the game
@@ -52,6 +53,6 @@ export const P3 = {
   feast: 1, // land-credit multiplier (?feast=N overrides: balance knob)
   // food.js knobs (food leaves in R4)
   growth: [0, 1.7, 1.1, 1.0, 0.8, 0.7], crumbGrowth: 0.4, crumb: 0.02, floorK: 0.7,
-  collapseK: 1.0, // credit multiplier on torn-off land (§12.3)
+  collapseK: 0.5, // credit multiplier on torn-off land (§12.3; 1.0 gave a 60% tear share)
   startR: 40 * KM,
 };
