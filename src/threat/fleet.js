@@ -85,7 +85,7 @@ export function makeFleet(th) {
         const aa = base + made * (6.283 / n) + rnd(-0.3, 0.3), d = (made === 0 ? rnd(0.15, 0.45) : rnd(0.7, 1.9)) * r;
         Object.assign(m, { on: true, age: 0, lock, T: lock + 2.0, locked: false, ox: 0, oz: 0, cx: Math.cos(aa) * d, cz: Math.sin(aa) * d, ux, uz, B: 0.55 * r, r0: r, salvo, boom: false, puff: 0, hadZone: true });
         m.from.copy(q.ships[0].dir); m.to.copy(W.hdir); m.chord = W.distTo(m.from); m.apex = Math.min(0.12 * m.chord, 6 * r) + 0.3 * r;
-        m.zone = th.zoneAlloc(); m.mod.visible = true;
+        m.zone = th.zoneAlloc(); m.hadZone = m.zone >= 0; m.mod.visible = true;
         m.mk = th.map?.addMarker({ kind: 'ring', dir: m.to, r: m.B, label: 'CRUISE', color: '#5dc8ff', eta: m.T });
         made++;
       }

@@ -599,7 +599,8 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
           If(fall.greaterThan(0.5), () => { gz.assign(vec3(0.7, 0.85, 0.14).mul(edge.mul(0.7).add(inside.mul(mx_noise_float(dir.mul(float(9).div(A))).mul(0.5).add(0.5).mul(0.2))))); /* fallout: a sick, mottled glow */ }).Else(() => { gz.assign(g); });
           col.assign(mix(col, col.mul(vec3(0.82, 0.92, 0.6)), inside.mul(fall).mul(q.y).mul(0.45)));
           });
-          // kinds 3-5 are plain arithmetic (masks), not If branches: a TSL If with noise in it drew its body for every zone kind here
+          // kinds 3-5 (tsunami front, laser spot, ash): arithmetic masks inside one If (the noise is only evaluated for those zones; ripe / danger / fallout zones skip it)
+          If(q.w.greaterThan(2.5), () => {
           const kW = q.w, mAsh = step(4.5, kW), mLas = step(3.5, kW).mul(step(kW, 4.5)), mWav = step(2.5, kW).mul(step(kW, 3.5));
           const nzA = mx_noise_float(dir.mul(float(7).div(A)).add(vec3(0, 0, u.uTime.mul(0.15)))).mul(0.5).add(0.5);
           const ash = vec3(0.5, 0.33, 0.18).mul(edge.mul(0.8).add(inside.mul(nzA.mul(0.3).add(0.05))));
@@ -615,6 +616,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
           gz.addAssign(ash.mul(mAsh).add(las.mul(mLas)).add(wav.mul(mWav)));
           col.assign(mix(col, col.mul(vec3(0.5, 0.46, 0.42)), inside.mul(q.y).mul(nzA.mul(0.4).add(0.35)).mul(mAsh)));
           col.assign(mix(col, col.mul(vec3(0.7, 0.85, 0.95)), wet.mul(q.y).mul(0.35).mul(mWav)));
+          });
           col.addAssign(gz.mul(q.y));
         });
       }

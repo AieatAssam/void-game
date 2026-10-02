@@ -129,8 +129,9 @@ export function makeVolcano(th) {
     },
     bomb(q, bm) {
       const r = q.r0, hr = hole.r, lock = th.lockFor(0.4, 1.5), sp = Math.hypot(hole.vx, hole.vz), ux = sp > 0.05 * P3.speed(hr) ? hole.vx / sp : 0, uz = sp > 0.05 * P3.speed(hr) ? hole.vz / sp : -1, aa = rnd(0, 6.283), d = rnd(0.3, 1.4) * hr;
+      const zone = th.zoneAlloc(); if (zone < 0) return; // (no free ring slot: no bomb: a hit must always have a drawn, locked ring behind it)
       Object.assign(bm, { on: true, age: 0, lock, T: lock + 2.0, locked: false, ox: 0, oz: 0, cx: Math.cos(aa) * d, cz: Math.sin(aa) * d, ux, uz, B: 0.7 * hr, r0: hr, boom: false, bt: 0, hadZone: true, puff: 0 });
-      bm.zone = th.zoneAlloc(); bm.to.copy(W.hdir);
+      bm.zone = zone; bm.to.copy(W.hdir);
       bm.mk = th.map?.addMarker({ kind: 'ring', dir: bm.to, r: bm.B, label: 'LAVA', color: '#ff7a3c', eta: bm.T });
       th.sfx.rumble?.(0.6, 0.1); th.trauma(0.15); th.ctx.hint('LAVA BOMB — step out of the ring');
     },
