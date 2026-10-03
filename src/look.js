@@ -37,7 +37,7 @@ export async function createRenderer(canvas) {
     trackTimestamp: /[?&]fps\b/.test(location.search) });
   // start at 1x: post.js's dynamic resolution climbs toward the tier's ceiling while frames hold 60 (a laptop GPU measured
   // 28 fps at 1.5x and 41 at 1x behind the menu: starting high meant a stuttery first impression while it stepped down)
-  renderer.setPixelRatio(Math.min(devicePixelRatio, Q.dpr, 1));
+  renderer.setPixelRatio(+(new URLSearchParams(location.search).get('pr')) || Math.min(devicePixelRatio, Q.dpr, 1)); // (?pr=2 forces a ratio: pricing runs with ?nowatch)
   // Unreal-style filmic curve: rich toe, soft highlight shoulder. AgX was evaluated per time of day (?tone=agx):
   // it greys out the saturated toy paint in the brights, so ACES stays for every preset (the LUTs do the rest).
   const agx = typeof location !== 'undefined' && location.search.includes('tone=agx');

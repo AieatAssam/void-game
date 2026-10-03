@@ -26,6 +26,7 @@ function check(label, m, verbose) {
 
 let ok = check('base', base, true);
 for (const p of packNames) {
+  if (p === 'planet') continue; // (Phase 3's set pieces, not ladder food: the land is the food)
   const extra = Object.fromEntries(Object.entries(packs).filter(([, a]) => a.pack === p));
   ok = check(`base + ${p}`, { ...base, ...extra }, false) && ok;
 }

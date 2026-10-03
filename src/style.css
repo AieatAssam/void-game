@@ -18,6 +18,12 @@ button { font: inherit; font-size: 18px; border: 0; border-radius: 999px; paddin
   box-shadow: 0 4px 0 #b8912a; cursor: pointer; }
 button:active { transform: translateY(2px); box-shadow: 0 2px 0 #b8912a; }
 #hud[hidden] { display: none; }
+/* Phase 3: five pills (size, belly, land eaten + people, the goal, DEFCON) wrap onto a second row on narrow screens instead of breaking inside a pill */
+#hud.p3 { flex-wrap: wrap; gap: 6px 10px; }
+#hud.p3 .pill { white-space: nowrap; }
+#hud.p3 .meter { width: min(20vw, 170px); }
+#hud.p3 #left { font-weight: 600; }
+@media (max-width: 640px) { #hud.p3 .meter { width: 28vw; } #hud.p3 .pill { font-size: 12.5px; padding: 4px 10px; } #hud.p3 #left { order: 9; } }
 
 .stars { color: #e4473c; letter-spacing: 2px; }
 #status { position: fixed; top: 56px; left: 0; right: 0; text-align: center; color: var(--red); text-shadow: 0 1px 0 #fff8; pointer-events: none; }
@@ -254,5 +260,15 @@ button.ghost { background: #fff8ee22; color: var(--cream); box-shadow: none; fon
   box-shadow: 0 0 0 3px #fff8eecc, 0 0 0 6px #1a0f3a88, 0 6px 18px #0006; }
 #minimap[hidden] { display: none; }
 @media (max-width: 600px) { #minimap { width: 112px; height: 112px; left: 10px; bottom: 60px; } }
+/* Phase 3 minimap: the GPU globe is drawn into this canvas's screen rect by planetmap.js, the canvas itself is the 2D overlay */
+#pmap { position: fixed; left: 14px; bottom: 64px; width: 200px; height: 200px; border-radius: 50%; pointer-events: none; box-shadow: 0 6px 18px #0006; }
+#pmap[hidden] { display: none; }
+@media (max-width: 600px) { #pmap { width: 124px; height: 124px; left: 8px; bottom: 58px; } }
+/* DEFCON pips (Phase 3 threat level; threat.js sets .on) */
+#defcon { display: flex; gap: 4px; align-items: center; padding: 6px 12px; font-size: 12px; font-weight: 800; letter-spacing: .06em; }
+#defcon[hidden] { display: none; }
+#defcon i { width: 9px; height: 9px; border-radius: 50%; background: #1a0f3a22; box-shadow: inset 0 0 0 1.5px #1a0f3a55; }
+#defcon i.on { background: #e4473c; box-shadow: 0 0 6px #e4473c99; }
+#defcon i.on:nth-of-type(5) { background: #8d8a9e; box-shadow: none; } #defcon i.on:nth-of-type(4) { background: #e9a23b; box-shadow: 0 0 5px #e9a23b88; } #defcon i.on:nth-of-type(3) { background: #ee7a2e; box-shadow: 0 0 6px #ee7a2e99; } /* (grey and amber at 5-4, red only at 2-1) */
 #fps pre { margin: 0; font: inherit; }
 #fps canvas { display: block; width: 300px; height: 60px; margin-top: 4px; background: #0006; border-radius: 4px; }

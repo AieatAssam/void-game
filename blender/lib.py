@@ -420,8 +420,11 @@ def run(name, grid=(0, 0)):
     for dep in ('kit', 'peg', 'people'):
         if dep in sys.modules:
             importlib.reload(sys.modules[dep])
+    global Q
+    Q = 1.6  # per-asset detail override: a module-level `DETAIL = 0.8` trims segment counts (planet pack: tight tri budgets)
     mod = importlib.import_module(name)
     importlib.reload(mod)
+    Q = getattr(mod, 'DETAIL', 1.6)
     begin('A_' + name)
     root = mod.build()
     root.name = name

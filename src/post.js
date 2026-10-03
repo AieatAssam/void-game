@@ -5,7 +5,7 @@
 import * as THREE from 'three/webgpu';
 import {
   pass, sample, uniform, vec2, vec3, vec4, float, mix, dot, renderOutput, clamp, max, time, fract, sin, luminance,
-  pow, toneMappingExposure, convertToTexture, texture3D, step, smoothstep,
+  pow, toneMappingExposure, convertToTexture, texture3D, step, smoothstep, exp,
 } from 'three/tsl';
 
 const LUT = 16;
@@ -36,8 +36,19 @@ import { radialBlur } from 'three/addons/tsl/display/radialBlur.js';
 import { sunDir, sunCol } from './look.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import { Q } from './quality.js';
+import { lensNodes, lensUniforms } from './blackhole.js';
 
 const _sp = new THREE.Vector3();
+/**
+ * compileAsync() looks its render context up at call depth 0, but the scene pass renders nested inside the post pipeline's own render call (depth 1): objects it compiles get another
+ * context, so the real frame found no node-builder state for them and built it all again at first draw (15 ms per instanced mesh: 1.3 s the first time the cinematic's high camera saw
+ * the island). Looking the context up at depth 1 for the duration of the call makes the compile hit.
+ */
+function nested(r, fn, depth = 1) {
+  const rc = r._renderContexts, get = rc.get;
+  rc.get = function (t, m) { return get.call(this, t, m, depth); };
+  try { return fn(); } finally { rc.get = get; }
+}
 const NOWATCH = typeof location !== 'undefined' && location.search.includes('nowatch'); // profiling: hold the tier as set
 
 export class Post {
@@ -52,7 +63,7 @@ export class Post {
     this.good = 0;
     this.grade = uniform(new THREE.Vector3(1, 1, 1));
     this.opts = { ao: Q.ao && !q.has('noao'), aoRes: Q.aoRes, aoSamples: Q.aoSamples, bloom: Q.bloom, aa: Q.aa, grain: Q.grain,
-      shafts: Q.tier === 'high' && !q.has('noshafts'), lut: !q.has('nolut'), shadowEvery: Q.shadowEvery };
+      shafts: Q.tier === 'high' && !q.has('noshafts'), lut: !q.has('nolut'), shadowEvery: Q.shadowEvery, lensLow: Q.tier === 'low' || q.has('webgl') };
     this.lutTex = new THREE.Data3DTexture(new Uint8Array(LUT ** 3 * 4), LUT, LUT, LUT);
     this.lutTex.minFilter = this.lutTex.magFilter = THREE.LinearFilter;
     this.lutTex.wrapS = this.lutTex.wrapT = this.lutTex.wrapR = THREE.ClampToEdgeWrapping;
@@ -60,6 +71,12 @@ export class Post {
     bakeLut(this.lutTex, {});
     this.sunUV = uniform(new THREE.Vector2(0.5, -1));
     this.shaftK = uniform(0);
+    this.pk0 = uniform(new THREE.Vector4(0.5, 0.5, 9, 0)); // hit feedback (src/pain.js): hole on screen (uv), seconds since the hit, impact 0..1
+    this.pk1 = uniform(new THREE.Vector4(0, 0, 1, 0)); // wound 0..1, heartbeat pulse, aspect
+    this.fxu = uniform(new THREE.Vector4(0, 0, 0, 0)); // a blast (threat.js): white-out (added in HDR, so bloom bursts), warm grade, bloom boost
+    this.lens = lensUniforms(); // the finale's black hole (src/blackhole.js): the lens bends the picture, a thin accretion disk is drawn over it; A.w = 0 costs nothing
+    this.aoShare = uniform(1); // AO's share of the picture (suspendAO: 0 on a planet, with no rebuild of the pipeline)
+    this.aoOff = false;
     this.lowSpec = false; // set by the watchdog: thins grass, never draws LOD0
     if (!this.enabled) return;
     this.pipeline = new THREE.RenderPipeline(renderer);
@@ -72,6 +89,7 @@ export class Post {
     const { scenePass, camera, opts } = this;
     this.aoPass?.dispose?.();
     this.aoK = 0;
+    this.passDepth = undefined; // (re-learned on the next frame)
     this.bloomPass?.dispose?.();
     this.aoPass = this.bloomPass = null;
     for (const t of this.rtts || []) t.dispose();
@@ -100,7 +118,7 @@ export class Post {
         this.aoRtt = aoTex;
         this.rtts.push(aoTex);
       }
-      lit = lit.mul(mix(float(1), pow(aoTex.r, 1.6), 0.9));
+      lit = lit.mul(mix(float(1), pow(aoTex.r, 1.6), this.aoShare.mul(0.9)));
       // the denoise is inline (16 depth-aware taps per pixel), and bloom, shafts and the composite each evaluate
       // `lit` at full res: bake it once so they all read a texture
       const litTex = convertToTexture(vec4(lit, 1));
@@ -128,21 +146,33 @@ export class Post {
       hdr = hdr.add(rays.rgb.mul(sunCol).mul(this.shaftK));
     }
     // grade in scene-linear: per-time white balance, a touch more saturation (ACES desaturates brights)
-    const wb = hdr.mul(this.grade);
+    hdr = hdr.add(vec3(1, 0.93, 0.78).mul(this.fxu.x.mul(3.2)));
+    const wb = hdr.mul(this.grade).mul(mix(vec3(1), vec3(1.14, 0.95, 0.78), this.fxu.y));
     const graded = mix(vec3(luminance(wb)), wb, 1.12);
     const toned = renderOutput(vec4(max(graded, vec3(0)), 1));
     let mapped = vec4(mix(toned.rgb, toned.rgb.mul(toned.rgb).mul(float(3).sub(toned.rgb.mul(2))), 0.35), 1);
     if (opts.lut) mapped = vec4(lut3D(mapped, texture3D(this.lutTex), LUT, float(1)).rgb, 1); // per-preset grade
     const aa = opts.aa === 'smaa' ? smaa(mapped).getTextureNode() : convertToTexture(fxaa(mapped));
     const grain = opts.grain;
-    this.pipeline.outputNode = sample((uv) => {
+    const pk0 = this.pk0, pk1 = this.pk1;
+    this.pipeline.outputNode = sample((uv0) => {
+      // hit feedback: a shock ring out of the hole (the picture is pushed away along it), a zoom punch, split colour channels, a red vignette and a drained, heartbeat-pulsed picture while wounded
+      const age = pk0.z, amp = pk0.w, wound = pk1.x, heart = pk1.y, asp = pk1.z;
+      const lens = lensNodes(uv0, asp, this.lens, time, opts.lensLow); // (the finale: the picture is sampled through the black hole's lens, then the shadow and the disk go over it)
+      const hv = uv0.sub(pk0.xy), hd = hv.mul(vec2(asp, 1)), hr = hd.length().max(1e-4);
+      const imp = amp.mul(exp(age.mul(-1.7)));
+      const ring = exp(pow(hr.sub(age.mul(1.5)).div(0.075), 2).negate()).mul(imp).mul(smoothstep(0, 0.05, age));
+      const uv = lens.uv.add(hd.div(hr).div(vec2(asp, 1)).mul(ring).mul(0.02)).sub(hv.mul(imp.mul(exp(age.mul(-5))).mul(0.03)));
       const c0 = uv.sub(0.5);
       const r2 = dot(c0, c0);
       let c;
-      if (grain) { // faint chromatic fringe toward the corners
-        const ca = c0.mul(r2).mul(0.012);
-        c = vec3(aa.sample(uv.sub(ca)).r, aa.sample(uv).g, aa.sample(uv.add(ca)).b);
-      } else c = aa.sample(uv).rgb;
+      const caP = hv.mul(imp.mul(0.008)).add(c0.mul(r2).mul(grain ? 0.012 : 0));
+      if (grain) c = vec3(aa.sample(uv.sub(caP)).r, aa.sample(uv).g, aa.sample(uv.add(caP)).b); // faint chromatic fringe toward the corners, and the hit's split
+      else c = aa.sample(uv).rgb;
+      c = c.mul(float(1).sub(lens.over.w)).add(lens.over.xyz);
+      const vig = smoothstep(0.06, 0.5, r2), red = imp.mul(0.8).add(wound.mul(heart.mul(0.4).add(0.25)).mul(0.8));
+      c = mix(c, vec3(luminance(c)), clamp(imp.mul(0.3).add(wound.mul(0.22)), 0, 0.6)); // drained
+      c = c.mul(vec3(1).sub(vec3(0.05, 0.75, 0.8).mul(vig.mul(red).mul(0.8)))).add(vec3(0.5, 0.015, 0.01).mul(vig).mul(vig).mul(red).mul(0.55)); // red at the edges
       c = c.mul(clamp(float(1).sub(r2.mul(0.95)), 0, 1).pow(0.9)); // vignette
       if (grain) {
         const seed = fract(sin(dot(uv.mul(vec2(1920, 1080)).add(fract(time.mul(13.7)).mul(97)), vec2(12.9898, 78.233))).mul(43758.5453));
@@ -155,6 +185,11 @@ export class Post {
 
   setSize() {}
 
+  /** Switch AO off / on without rebuilding the pipeline (a rebuild is a ~1 s freeze while its shaders compile): its share goes to 0 and its buffers shrink to nothing. The planet (Phase 3) has no use for it. */
+  suspendAO(off) {
+    this.aoOff = off; this.aoShare.value = off ? 0 : 1;
+  }
+
   /**
    * Compile what `root` will draw (default: the scene) in the scene pass's own render context (its target and MRT:
    * renderer.compileAsync on the canvas built different variants, so the first real draw compiled again).
@@ -165,12 +200,12 @@ export class Post {
    * rendering (the breakout cinematic dropped to 10 fps). The wait gives up after `timeout` ms: three's WebGL backend
    * polls with requestAnimationFrame, which never fires in a background tab.
    */
-  async precompile(root = null, timeout = 8000) {
+  async precompile(root = null, timeout = 8000, around = null) {
     const r = this.renderer, sp = this.scenePass, scene = this.scene, cam = this.camera;
     const withPass = (fn) => { // (collect synchronously in the scene pass's context, then put the renderer back)
       if (!sp) return fn();
       const rt = r.getRenderTarget(), mrt = r.getMRT();
-      try { r.setRenderTarget(sp.renderTarget); r.setMRT(sp.getMRT()); return fn(); } finally { r.setRenderTarget(rt); r.setMRT(mrt); }
+      try { r.setRenderTarget(sp.renderTarget); r.setMRT(sp.getMRT()); return nested(r, fn, this.passDepth); } finally { r.setRenderTarget(rt); r.setMRT(mrt); }
     };
     const race = (p, ms) => Promise.race([p, new Promise((res) => setTimeout(res, ms))]).catch((e) => console.warn('precompile skipped', e));
     if (!root) { // the whole scene at once, behind the loading screen
@@ -209,12 +244,33 @@ export class Post {
       o.frustumCulled = false;
       const n = o.count;
       if (o.isInstancedMesh && !n) o.count = 1; // (culled traffic and crumbs sit at 0 until the first cull: three skips them)
-      const p = withPass(() => r.compileAsync(o, cam, scene));
+      const p = withPass(() => (around ? around(() => r.compileAsync(o, cam, scene)) : r.compileAsync(o, cam, scene))); // (around: the ascension compiles the planet in the planet's scene state, synchronously, so the swap finds the pipelines cached)
       for (const [q, pv] of parents) q.visible = pv;
       o.visible = v; o.frustumCulled = f; o.count = n;
       await race(p, 1000);
       await new Promise((res) => (document.hidden ? setTimeout(res, 0) : requestAnimationFrame(() => res())));
     }
+  }
+
+  /**
+   * One mesh's render object and pipeline, created now and not awaited (precompile() does one a frame, behind a timeout, and skips the rest of a big region): the ascension
+   * warms every mesh of the region (LODs share an instanced mesh's node state), 3 ms a frame, so the cinematic's high camera does not meet ~900 first draws at once (1.3 s).
+   */
+  warm(o, mats = null) {
+    const r = this.renderer, sp = this.scenePass, scene = this.scene, cam = this.camera, rt = r.getRenderTarget(), mrt = r.getMRT();
+    const parents = [], f = o.frustumCulled, n = o.count, m0 = o.material, ps = [];
+    for (let q = o; q; q = q.parent) { parents.push([q, q.visible]); q.visible = true; }
+    o.frustumCulled = false;
+    if (o.isInstancedMesh && !n) o.count = 1; // (culled traffic and crumbs sit at 0 until the first cull: three skips them)
+    try {
+      if (sp) { r.setRenderTarget(sp.renderTarget); r.setMRT(sp.getMRT()); }
+      for (const m of mats || [m0]) { o.material = m; nested(r, () => ps.push(r.compileAsync(o, cam, scene)), this.passDepth); } // (mats: the variants it can switch to: the ground's cut / solid sets)
+    } finally {
+      o.material = m0; o.frustumCulled = f; o.count = n;
+      for (const [q, pv] of parents) q.visible = pv;
+      r.setRenderTarget(rt); r.setMRT(mrt);
+    }
+    return Promise.all(ps).catch(() => {});
   }
 
   /** Pulled-back views (Phase 2): contact AO reaches as far as things are big on screen. k = viewScale (1 in town). */
@@ -281,10 +337,11 @@ export class Post {
   render(grade) {
     if (!this.enabled) { this.renderer.render(this.scene, this.camera); return; }
     this.grade.value.fromArray(grade);
+    if (this.bloomPass) this.bloomPass.strength.value = 0.24 + this.fxu.value.z;
     // AO resolution is held at opts.aoRes of a CSS pixel: above 1x the extra device pixels add no AO detail (it is soft and
     // denoised) but its cost grows with them, and retina screens are where the GPU is slowest
     if (this.aoPass) {
-      const k = this.opts.aoRes / Math.max(1, this.renderer.getPixelRatio());
+      const k = this.aoOff ? 0.02 : this.opts.aoRes / Math.max(1, this.renderer.getPixelRatio());
       if (k !== this.aoK) { this.aoK = k; this.aoPass.resolutionScale = k; this.aoRtt?.setResolutionScale(k); }
     }
     if (this.opts.shafts) { // where the sun sits on screen (uv, y down)
@@ -295,6 +352,10 @@ export class Post {
       // morning, noon, night (and the sun behind the camera): the two half-res ray passes would be multiplied by zero
       if (this.rayRtts) for (const t of this.rayRtts) t.autoUpdate = this.shaftK.value > 0;
     }
-    this.pipeline.render();
+    if (this.passDepth === undefined && this.scenePass) { // (learn the call depth the scene pass renders at: nested() compiles at that depth, so the compile hits)
+      const rc = this.renderer._renderContexts, get = rc.get, self = this;
+      rc.get = function (t, m, d) { if (t === self.scenePass.renderTarget) self.passDepth = d; return get.call(this, t, m, d); };
+      try { this.pipeline.render(); } finally { rc.get = get; }
+    } else this.pipeline.render();
   }
 }
