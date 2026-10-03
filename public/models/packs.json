@@ -1,21 +1,4 @@
 {
- "aa_battery": {
-  "pack": "planet",
-  "lod": [
-   0.4,
-   0.15
-  ],
-  "tier": 15,
-  "mass": 4481.946,
-  "kind": "unit",
-  "height": 12.611,
-  "unit": "aa",
-  "tris": 1480,
-  "lodTris": 1278,
-  "lod2Tris": 1256,
-  "bytes": 26144,
-  "clips": []
- },
  "aegis_platform": {
   "pack": "planet",
   "lod": [
@@ -191,23 +174,6 @@
   "lodTris": 6288,
   "lod2Tris": 3252,
   "bytes": 194580,
-  "clips": []
- },
- "cargo_ship": {
-  "pack": "planet",
-  "lod": [
-   0.4,
-   0.15
-  ],
-  "tier": 150,
-  "mass": 513360,
-  "kind": "unit",
-  "height": 69,
-  "unit": "cargo",
-  "tris": 1856,
-  "lodTris": 1772,
-  "lod2Tris": 1762,
-  "bytes": 29336,
   "clips": []
  },
  "carousel": {
@@ -839,40 +805,6 @@
   "lodTris": 754,
   "lod2Tris": 644,
   "bytes": 18280,
-  "clips": []
- },
- "mushroom_cloud": {
-  "pack": "planet",
-  "lod": [
-   0.5,
-   0.2
-  ],
-  "tier": 0.5,
-  "mass": 0.521,
-  "kind": "fx",
-  "height": 1.175,
-  "unit": "cloud",
-  "tris": 1472,
-  "lodTris": 1344,
-  "lod2Tris": 914,
-  "bytes": 24224,
-  "clips": []
- },
- "oil_rig": {
-  "pack": "planet",
-  "lod": [
-   0.4,
-   0.15
-  ],
-  "tier": 52,
-  "mass": 455073.221,
-  "kind": "unit",
-  "height": 107.5,
-  "unit": "rig",
-  "tris": 1086,
-  "lodTris": 966,
-  "lod2Tris": 952,
-  "bytes": 19124,
   "clips": []
  },
  "parade_float": {

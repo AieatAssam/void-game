@@ -9,6 +9,12 @@ export const v1 = new THREE.Vector3(), v2 = new THREE.Vector3(), v3 = new THREE.
 export const m4 = new THREE.Matrix4(), qa = new THREE.Quaternion(), qi = new THREE.Quaternion();
 export const C = (hex, k = 1) => new THREE.Color(hex).multiplyScalar(k);
 export const FIRE = [C(0xfff4d6, 4), C(0xffc060, 3), C(0xff7a24, 2.2), C(0xc8340c, 1.4)], SMOKE0 = C(0x2a2522), SMOKE1 = C(0x7d7266), ASH = C(0x5a534b), DUST = C(0xb9a98f);
+/** People as text: '2.4 M' (long: '2 million'); under 500 it is 'nobody' (long) or '0'. One copy for the HUD, the news, the cities, the finale card and the results. */
+export const popStr = (p, long = false) => {
+  const u = long ? [' billion', ' million', ' thousand'] : [' B', ' M', ' k'];
+  if (p < 500) return long ? 'nobody' : '0';
+  return p >= 1e9 ? `${(p / 1e9).toFixed(p >= 1e10 ? 1 : 2)}${u[0]}` : p >= 1e6 ? `${(p / 1e6).toFixed(p >= 1e7 || long ? 0 : 1)}${u[1]}` : `${Math.round(p / 1e3)}${u[2]}`;
+};
 export const KMs = (m) => (m >= 1e6 ? `${(m / 1e6).toFixed(1)} Mm` : `${Math.round(m / 1000)} km`);
 
 /** Tangent unit vector at dir d with the given compass bearing (0 = toward +Y's north, clockwise), planet space. */

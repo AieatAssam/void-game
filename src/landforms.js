@@ -8,7 +8,7 @@
 import { R, faceDir } from './planetgen.js';
 
 // ---------------------------------------------------------------- hashing and names 
-export const H5 = (a, b, c, d, e) => {
+const H5 = (a, b, c, d, e) => {
   let h = (0x9e3779b9 ^ a) | 0;
   h = Math.imul(h ^ b, 0x85ebca6b); h ^= h >>> 13;
   h = Math.imul(h ^ c, 0xc2b2ae35); h ^= h >>> 16;
@@ -19,10 +19,10 @@ export const H5 = (a, b, c, d, e) => {
 export const rng = (h) => () => { h = (h + 0x6d2b79f5) | 0; let t = Math.imul(h ^ (h >>> 15), 1 | h); t ^= t + Math.imul(t ^ (t >>> 7), 61 | t); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 const SYL_A = ['Ard', 'Bel', 'Cor', 'Dun', 'Eld', 'Fen', 'Gal', 'Har', 'Ist', 'Jor', 'Kes', 'Lor', 'Mar', 'Nev', 'Ost', 'Pel', 'Quen', 'Ros', 'Sal', 'Tor', 'Ul', 'Ver', 'Wyn', 'Yar', 'Zel', 'Bran', 'Cas', 'Dov'];
 const SYL_B = ['ent', 'ora', 'ham', 'wick', 'port', 'mere', 'ton', 'ford', 'bury', 'ley', 'stad', 'dale', 'grad', 'ville', 'haven', 'by', 'ria', 'on', 'ash', 'more'];
-export const nameOf = (rnd) => SYL_A[Math.floor(rnd() * SYL_A.length)] + SYL_B[Math.floor(rnd() * SYL_B.length)];
+const nameOf = (rnd) => SYL_A[Math.floor(rnd() * SYL_A.length)] + SYL_B[Math.floor(rnd() * SYL_B.length)];
 const SYL_C = ['a', 'ia', 'ora', 'ana', 'ica', 'ara']; // continents: Austra, Kesia ...
 
-export const LEVELS = ['parcel', 'district', 'province', 'nation', 'landmass'];
+const LEVELS = ['parcel', 'district', 'province', 'nation', 'landmass'];
 const NPAR = 256, FACE_P = NPAR * NPAR, NP = 6 * FACE_P; // parcels per face side / face / planet
 const LAT = 129; // 8-texel lattice nodes per face side
 const SLICE = 3; // ms per generator slice

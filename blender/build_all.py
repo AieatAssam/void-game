@@ -58,7 +58,7 @@ REGION = [
 # Phase 3 (docs/PHASE3.md 6.6): the planet pack - adversaries, space hardware and set pieces (pack 'planet').
 PLANET = [
     'icbm', 'missile_silo', 'aircraft_carrier', 'kinetic_sat', 'laser_platform', 'aegis_platform', 'rocket', 'space_station',
-    'bomber', 'mushroom_cloud', 'launch_pad', 'cargo_ship', 'destroyer', 'oil_rig', 'aa_battery', 'cracker',
+    'bomber', 'launch_pad', 'destroyer', 'cracker',
 ]
 ALL = ASSETS + PACKS + REGION + PLANET
 ONLY = globals().get('ONLY') or ASSETS

@@ -13,6 +13,7 @@ import { buildShards, cutMaterial, coreMaterial, shardUniforms, NSH, R_IN } from
 import { streakUniforms, makeStreaks, makeDiskGlow } from './streaks.js';
 import { holeSphere, holeHalo } from './blackhole.js';
 import { save, persist } from './meta.js';
+import { popStr } from './threat/kit.js';
 
 if (/[?&]trace\b/.test(location.search)) THREE.Node.captureStackTrace = true; // (dev: TSL errors with stacks)
 const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
@@ -37,7 +38,6 @@ const CSS = `
 #finbtn button:hover{background:#2a1670dd;border-color:#c9a8ff}#finbtn button.pri{background:linear-gradient(#6a48e8,#4a2cc0);border-color:#c9a8ff;color:#fff}
 #finskip{position:fixed;right:18px;bottom:16px;z-index:33;font:600 12px system-ui,sans-serif;letter-spacing:.14em;color:#9a98c4;background:#0a0618aa;padding:6px 12px;border-radius:999px;cursor:pointer;opacity:0;transition:opacity .6s;pointer-events:none}#finskip.on{opacity:.8;pointer-events:auto}`;
 
-const popStr = (p) => (p >= 1e9 ? `${(p / 1e9).toFixed(p >= 1e10 ? 1 : 2)} billion` : p >= 1e6 ? `${(p / 1e6).toFixed(0)} million` : `${Math.round(p / 1e3)} thousand`);
 const tmStr = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 
 /** Cubic Hermite through [t, v] keys with Catmull-Rom tangents: a camera that never stops dead between keys. */
@@ -314,7 +314,7 @@ export class Finale {
 
   showCard() {
     const { state } = this.ctx;
-    this.cardEl.innerHTML = `<h1>${NAME}</h1><div class="st">World eaten · <b>${tmStr(this.worldTime ?? state.time)}</b> · <b>${popStr(state.pop || 0)}</b> swallowed</div><div class="tz">The void is hungry for more…</div>`;
+    this.cardEl.innerHTML = `<h1>${NAME}</h1><div class="st">World eaten · <b>${tmStr(this.worldTime ?? state.time)}</b> · <b>${popStr(state.pop || 0, true)}</b> swallowed</div><div class="tz">The void is hungry for more…</div>`;
     this.cardEl.append(this.btnEl); this.cardEl.classList.add('on');
     this.btnEl.innerHTML = '';
     const mk = (txt, cls, fn) => { const b = document.createElement('button'); b.textContent = txt; if (cls) b.className = cls; b.onclick = fn; this.btnEl.append(b); return b; };

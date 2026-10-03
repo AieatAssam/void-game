@@ -3,6 +3,7 @@
 // (worlds eaten, records, the skin unlocked) and the New World choice: one legacy perk of three carries over.
 import { save, persist } from './meta.js';
 import { PERKS, offerPerks } from './perks.js';
+import { popStr } from './threat/kit.js';
 
 const CSS = `
 #wres{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 40%,#0a0420cc,#020108ee);font-family:system-ui,sans-serif;color:#e9e6ff;animation:wresin .8s ease both;overflow:auto;padding:18px;box-sizing:border-box}
@@ -29,7 +30,6 @@ const CSS = `
 #wres .go button.pri{background:linear-gradient(#6a48e8,#4a2cc0);border-color:#c9a8ff;color:#fff}#wres .go button:hover{filter:brightness(1.2)}`;
 
 const tm = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
-const popStr = (p) => (p >= 1e9 ? `${(p / 1e9).toFixed(2)} B` : p >= 1e6 ? `${(p / 1e6).toFixed(0)} M` : `${Math.round(p / 1e3)} k`);
 const KM = (m) => (m >= 1e5 ? `${(m / 1000).toFixed(0)} km` : `${(m / 1000).toFixed(1)} km`);
 const TIER_COL = ['#4a7fd8', '#6a5cd8', '#9a4cd8', '#d84c9a'], TIER_NAME = ['Regions', 'Nations', 'Continents', 'The World'];
 

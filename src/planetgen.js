@@ -8,7 +8,7 @@ export const LAND = 0.29;
 // surf.R height byte, square-root coded so the coast keeps ~1 m precision and the 8.8 km summits still fit:
 //   x = byte * SQ_STEP - SQ_MIN;  e = sign(x) * x^2   (range -5256 .. +8930 m; 0.4 m steps at the shore, 120 m at the summits)
 export const SQ_MIN = 72.5, SQ_STEP = (72.5 + 94.5) / 255;
-export const encodeHeight = (e) => Math.max(0, Math.min(255, Math.round(((e < 0 ? -Math.sqrt(-e) : Math.sqrt(e)) + SQ_MIN) / SQ_STEP)));
+const encodeHeight = (e) => Math.max(0, Math.min(255, Math.round(((e < 0 ? -Math.sqrt(-e) : Math.sqrt(e)) + SQ_MIN) / SQ_STEP)));
 export const decodeHeight = (b) => { const x = b * SQ_STEP - SQ_MIN; return x * Math.abs(x); };
 
 // ---------- tan-warped cube mapping ----------
