@@ -1,0 +1,54 @@
+diff --git a/src/phase3.js b/src/phase3.js
+index c19cdf6..7b8f255 100644
+--- a/src/phase3.js
++++ b/src/phase3.js
+@@ -62,7 +62,7 @@ export const P3 = {
+ // Threat tuning (docs/PHASE3-REVIEW.md A9): damage is the larger of the old fixed fraction and `k` seconds of current income (state.gRate), so a hit costs the same
+ // number of seconds of progress at every tier. Bonuses are the area multipliers for swallowing the weapons (x mods.gulp).
+ export const T3 = {
+-  nukeK: 25, rodK: 18, bomberK: 12, // seconds of income lost to a hit
++  nukeK: 25, rodK: 14, bomberK: 12, // seconds of income lost to a hit
+   nukeHit: 0.07, rodHit: 0.06, bomberHit: 0.06, firstHit: 0.07, // floors (the scripted first ICBM is capped at firstHit)
+   nukeGulp: 0.03, rodGulp: 0.02, satGulp: 0.01,
+   woundAdd: 0.15, woundK: 2, woundMax: 1.2, woundHeal: 60, woundSlow: 0.5, // the wound state: each hit adds (woundAdd + woundK x fraction), it heals in woundHeal s; speed and tear credit x (1 - woundSlow x wound), so only a player who keeps getting hit stays hobbled
+diff --git a/src/post.js b/src/post.js
+index 1a23006..07dd266 100644
+--- a/src/post.js
++++ b/src/post.js
+@@ -60,7 +60,7 @@ export class Post {
+     this.enabled = !q.has('nopost');
+     this.frames = 0;
+     this.time = 0;
+-    this.good = 0;
++    this.good = 0; this.bad = 0;
+     this.grade = uniform(new THREE.Vector3(1, 1, 1));
+     this.opts = { ao: Q.ao && !q.has('noao'), aoRes: Q.aoRes, aoSamples: Q.aoSamples, bloom: Q.bloom, aa: Q.aa, grain: Q.grain,
+       shafts: Q.tier === 'high' && !q.has('noshafts'), lut: !q.has('nolut'), shadowEvery: Q.shadowEvery, lensLow: Q.tier === 'low' || q.has('webgl') };
+@@ -300,9 +300,12 @@ export class Post {
+     // Dynamic resolution first: trim the render scale in small steps until frames hold ~60, and give it back when
+     // there is headroom. Only below the resolution floor do whole features go, least visible first.
+     const maxPR = Math.min(devicePixelRatio, Q.dpr), minPR = Math.min(maxPR, Math.max(0.75, maxPR * 0.5));
+-    if (fps < 52) {
++    if (fps < 56 && (fps < 52 || pr > minPR + 0.01)) { // (below 56: trim the render scale; features only go when it is already at the floor and frames are below 52)
+       this.good = 0;
++      if (fps >= 35 && ++this.bad < 2) return; // (one slow window is a hitch, not a verdict: two in a row step down)
+       if (pr > minPR + 0.01) {
++        this.bad = 0;
++        this.ceil = pr; this.ceilAt = performance.now(); this.hold = Math.min(300000, (this.hold || 22500) * 2); // (the ratio that failed: no climbing back to it for 45 s, doubling at each failure up to 5 min, or the watchdog hunts up and down around it and every probe costs a few slow seconds)
+         r.setPixelRatio(Math.max(minPR, pr * (fps < 35 ? 0.8 : 0.9)));
+         this.scaled = true;
+         return;
+@@ -322,9 +325,11 @@ export class Post {
+       if (step !== 'half grass, no LOD0' && !step.startsWith('shadows every')) this.build();
+       return;
+     }
+-    if (fps >= 57 && pr < maxPR - 0.01 && ++this.good >= 3) { // steady: take some sharpness back
++    this.bad = 0;
++    const cap = this.ceil && performance.now() - this.ceilAt < this.hold ? this.ceil - 0.05 : maxPR; // (hysteresis: stay under the failing ratio for `hold`, then try again)
++    if (fps >= 58 && pr < Math.min(maxPR, cap) - 0.01 && ++this.good >= 5) { // steady for 5 s: take some sharpness back
+       this.good = 0;
+-      r.setPixelRatio(Math.min(maxPR, pr + 0.1));
++      r.setPixelRatio(Math.min(maxPR, cap, pr + 0.1));
+     }
+   }
+ 
