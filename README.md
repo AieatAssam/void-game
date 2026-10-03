@@ -23,6 +23,9 @@ island-scale second phase are this project's own spin on it.
 | ![The island: its coast is the edge of the map](docs/screens/phase2-coast.jpg) | ![The snowy range walls off one stretch of the island](docs/screens/phase2-mountains.jpg) |
 | ![A rival hole (Rusty) breaks out and eats the same country](docs/screens/phase2-rival.jpg) | ![Rubble spills over the rim when a building crumbles](docs/screens/phase2-rubble.jpg) |
 | ![Too weak: a heavy-lift chopper hangs the Void Lid over the hole](docs/screens/phase2-seal.jpg) | ![The minimap: coast, range, roads, settlements, the next target ringed](docs/screens/phase2-minimap.jpg) |
+| ![Phase 3, a 40 km hole: farmland mosaic, relief, rivers and discrete cities on a seed's coast](docs/screens/phase3-scale-start-40km.jpg) | ![150 km: a landmass read as biomes, drainage and a ragged coast](docs/screens/phase3-scale-150km.jpg) |
+| ![430 km: hills, ranges and a missile field on the continent](docs/screens/phase3-scale-430km.jpg) | ![1,200 km: the whole planet in the frame](docs/screens/phase3-scale-1170km.jpg) |
+| ![Eaten land: a round crumbling edge, strata cliff, molten rim, basalt floor](docs/screens/phase3-wound-t1.jpg) | |
 | ![Ascension: the island cracks to its coast as the capital falls](docs/screens/phase3-ascend-cracks.jpg) | ![Ascension: the pull-out, the limb, the stars and the Moon](docs/screens/phase3-ascend-pullout.jpg) |
 | ![Ascension: the reveal, the wound pulsing beside a coast](docs/screens/phase3-ascend-reveal.jpg) | ![Ascension: the plunge back to the hole, control returns](docs/screens/phase3-ascend-arrival.jpg) |
 | ![Adversity: a carrier group's cruise-missile salvo, one ring per missile](docs/screens/phase3-threat-fleet-salvo.jpg) | ![Adversity: a tsunami front racing across the sea](docs/screens/phase3-threat-tsunami.jpg) |
@@ -30,7 +33,7 @@ island-scale second phase are this project's own spin on it.
 | ![The Aegis: six platforms and the closing lid ring](docs/screens/phase3-threat-aegis-lid.jpg) | ![The Last Resort: the planet-cracker charging over the limb, fed by three power stations](docs/screens/phase3-threat-cracker-charge.jpg) |
 | ![The Moon cracks as it falls over the horizon](docs/screens/phase3-moon-fall.jpg) | ![The Moon breaks at the Roche limit](docs/screens/phase3-moon-break.jpg) |
 | ![Moon rocks rain down, each a ring to dive into](docs/screens/phase3-moon-rain.jpg) | ![Finale: fault lines ignite as the hole becomes a sphere](docs/screens/phase3-finale-faults.jpg) |
-| ![Finale: the globe splits, the mantle glows](docs/screens/phase3-finale-rupture.jpg) | ![Finale: chunks stretched toward the hole, the core exposed](docs/screens/phase3-finale-shred.jpg) |
+| ![Finale: the crust opens along its faults over a maelstrom hole](docs/screens/phase3-finale-rupture.jpg) | ![Finale: chunky shards tumble and stretch toward the hole, the mantle glowing](docs/screens/phase3-finale-shred.jpg) |
 | ![Finale: the accretion disk builds as the core falls in](docs/screens/phase3-finale-disk.jpg) | ![Finale: the core spaghettified into a thread](docs/screens/phase3-finale-core.jpg) |
 | ![Finale: the black hole, lensed disk and photon ring](docs/screens/phase3-finale-blackhole.jpg) | |
 
