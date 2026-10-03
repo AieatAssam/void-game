@@ -205,6 +205,7 @@ export function planetUniforms() {
 // ---------------------------------------------------------------- the ground (patch): baked patterns, scanned layers, relief
 const rot2 = (p, a) => vec2(p.x.mul(Math.cos(a)).sub(p.y.mul(Math.sin(a))), p.x.mul(Math.sin(a)).add(p.y.mul(Math.cos(a))));
 const fadeTo = (lam, px) => float(1).sub(smoothstep(lam * 0.1, lam * 0.42, px)); // a feature of period lam (m) goes when the pixel (m) outgrows it
+const MID_L = [60e3, 22e3, 8e3, 2.8e3]; // wavelengths (m) of the mid-scale terrain octaves
 const luma = (c) => dot(c, vec3(0.3, 0.55, 0.15));
 
 /**
@@ -359,11 +360,11 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
     });
     const oceanCol = vec3(0).toVar(), landCol = vec3(0).toVar(), dbgV = vec3(0).toVar();
     const cnU = mx_fractal_noise_float(dir.mul(210), 3, 2.1, 0.5, 1).mul(0.5).add(0.5).toVar(), cityD = nRaw.r.mul(cnU).mul(1.2).toVar(); // (a city is where the population density meets a ~30 km blotch of noise: discrete towns on a dense plain)
-    const urbV = patch ? sstep(0.58, 0.72, cityD) : float(0);
+    const urbV = patch ? sstep(0.74, 0.9, cityD) : float(0);
     // the water's lighting: sun glint, Fresnel to the sky, a body colour and a little diffuse
     const shadeWater = (oc, on, iceO, nrmL) => {
       const Hh = normalize(L.add(V)), nh = max(dot(on, Hh), 0), nv = max(dot(on, V), 0);
-      const fres = float(0.02).add(pow(float(1).sub(nv), 5).mul(0.98));
+      const fres = float(0.02).add(pow(max(float(1).sub(nv), 0), 5).mul(0.98));
       const glint = pow(nh, 2200).mul(10).add(pow(nh, 260).mul(0.3)).mul(fres.mul(8).add(0.4)).mul(step(0, nlGeo)).mul(sstep(0, 0.05, dot(on, L)));
       const diffO = max(dot(on, L), 0).mul(0.9).add(0.05);
       const skyRef = vec3(0.16, 0.3, 0.6).mul(sstep(-0.3, 0.5, nlGeo).mul(0.9).add(0.04));
@@ -420,15 +421,31 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
     });
     // ---- the land: climate (T, M) + altitude + slope, then the close ground, then the wound
     If(landMask.greaterThan(0.001), () => {
+      // ---- mid-scale terrain (premium pass): hill octaves arrive as the pixel shrinks (60 / 22 / 8 / 2.8 km), driving relief shading and the biome edges
+      //      (wetter in the hollows, drier on the crests, a patchwork where the baked climate is flat): the bake's 20 km texel is no longer what the eye reads
+      const M = S.b.toVar(), ghill = vec3(0).toVar();
+      if (!OFF.has('mid')) {
+        const wL = MID_L.map((L) => fadeTo(L, pxM).toVar());
+        const dw = mx_noise_vec3(dir.mul(R / 140e3)).mul(11e3 / R); // (a slow warp: the octaves bend, nothing runs in a straight lattice)
+        const dW = dir.add(dw).toVar();
+        const ax2 = select(abs(dir.y).lessThan(0.99), vec3(0, 1, 0), vec3(1, 0, 0)), tm1 = normalize(cross(dir, ax2)), tm2 = cross(dir, tm1);
+        const hillA = mix(0.05, 0.24, sstep(60, 1800, e.add(nm.mul(300)))).mul(float(1).sub(sstep(0.0, 4, e.negate())));
+        const hh = (d) => { let h = float(0); MID_L.forEach((L, i) => { h = h.add(mx_noise_float(d.mul(R / L).add(vec3(i * 3.7, i * 1.3, i * 5.1))).mul(wL[i]).mul(L * 0.25)); }); return h; };
+        const del = 1800 / R, h0 = hh(dW).toVar(), h1 = hh(dW.add(tm1.mul(del))), h2 = hh(dW.add(tm2.mul(del)));
+        const g1 = h1.sub(h0).div(1800), g2 = h2.sub(h0).div(1800);
+        ghill.assign(tm1.mul(g1).add(tm2.mul(g2)).mul(hillA));
+        M.addAssign(h0.mul(-0.00002).add(mx_noise_float(dW.mul(R / 2800).add(vec3(9.1, 4.4, 2.3))).mul(0.12).mul(wL[3])).mul(sstep(0.0, 6, e)).mul(mix(0.35, 1, sstep(0.05, 0.3, S.b))));
+        slope.addAssign(length(ghill).mul(1.2));
+      }
       const Te = T0.sub(max(e.sub(400), 0).div(9000)).add(nm.mul(0.05)).toVar();
       const hot = sstep(0.52, 0.74, Te), cold = sstep(0.42, 0.2, Te);
-      const mildC = mix(mix(srgb(0.66, 0.57, 0.38), srgb(0.5, 0.52, 0.28), sstep(0.06, 0.22, M)), mix(srgb(0.38, 0.5, 0.2), srgb(0.17, 0.33, 0.15), sstep(0.4, 0.68, M)), sstep(0.22, 0.42, M));
+      const mildC = mix(mix(srgb(0.58, 0.52, 0.37), srgb(0.44, 0.5, 0.27), sstep(0.06, 0.22, M)), mix(srgb(0.38, 0.5, 0.2), srgb(0.17, 0.33, 0.15), sstep(0.4, 0.68, M)), sstep(0.22, 0.42, M));
       const warmC = mix(mix(srgb(0.78, 0.63, 0.42), srgb(0.66, 0.57, 0.31), sstep(0.18, 0.42, M)), mix(srgb(0.36, 0.48, 0.17), srgb(0.09, 0.28, 0.11), sstep(0.6, 0.85, M)), sstep(0.42, 0.62, M));
       const coolC = mix(srgb(0.5, 0.5, 0.43), srgb(0.15, 0.26, 0.18), sstep(0.35, 0.55, M));
       const land = mix(mix(mildC, warmC, hot), coolC, cold).toVar();
       const fine = mx_fractal_noise_float(dir.mul(300), 3, 2.2, 0.5, 1).mul(near).mul(u.uDetail);
       land.mulAssign(float(1).add(nm.mul(0.4)).add(fine.mul(0.3)));
-      const rockC = mix(srgb(0.42, 0.38, 0.34), srgb(0.55, 0.49, 0.41), sstep(-0.3, 0.4, nm)), rockAmt = max(sstep(0.22, 0.6, slope), sstep(1900, 3800, e.add(nm.mul(600)))).toVar();
+      const rockC = mix(srgb(0.34, 0.33, 0.33), srgb(0.5, 0.45, 0.39), sstep(-0.3, 0.4, nm)), rockAmt = max(sstep(0.22, 0.6, slope), sstep(1900, 3800, e.add(nm.mul(600)))).toVar();
       const sr = vec2(st.x.mul(0.906).sub(st.y.mul(0.423)), st.x.mul(0.423).add(st.y.mul(0.906))); // (the wound's crack pattern: a turn from the cube's axes)
       const gK = u.uGroundK.mul(near).toVar();
       const nrmD = nrm.toVar(); // the shading normal: the heightfield's, plus the detail relief below
@@ -441,7 +458,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
         const ridgeK = max(sstep(0.12, 0.5, slope), sstep(700, 2200, e)).toVar();
         const gA = mix(rA.xy.sub(0.5), rA.zw.sub(0.5), ridgeK).mul(GM);
         const gB = rot2(mix(rB.xy.sub(0.5), rB.zw.sub(0.5), ridgeK).mul(GM), -0.9);
-        const relAmt = mix(0.3, 0.95, sstep(60, 700, e)).mul(float(0.7).add(u.uRelief.mul(0.3))).mul(gOn).mul(float(1).sub(sstep(300, 6000, pxM).mul(0.8)));
+        const relAmt = mix(0.3, 0.95, sstep(60, 700, e)).mul(float(0.7).add(u.uRelief.mul(0.3))).mul(gM).mul(float(1).sub(sstep(300, 6000, pxM).mul(0.8)));
         const ds = gA.mul(fadeTo(9000, pxM).mul(0.55).add(0.1)).add(gB.mul(0.45).mul(fadeTo(500, pxM))).mul(relAmt).toVar();
         const bump = gwx.mul(ds.x).add(gwy.mul(ds.y)).toVar();
         if (PB) {
@@ -469,18 +486,19 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
         const rowK = fadeTo(30, pxM);
         const bigR = fC.r; // 2 km parcels, what is left of the pattern once a pixel is 100 m
         const parcel = cult.mul(fadeTo(260, pxM)).mul(gOn);
-        const bigK = cult.mul(sstep(40, 160, pxM)).mul(float(1).sub(sstep(1500, 5000, pxM))).mul(gOn);
+        const bigK = cult.mul(sstep(40, 160, pxM)).mul(float(1).sub(sstep(1500, 5000, pxM))).mul(gM);
         const fcol = mix(land, crop.mul(float(0.9).add(fine.mul(0.25))), 0.66).mul(float(1).add(rows.mul(0.12).mul(rowK)));
         const hedgeCol = land.mul(vec3(0.34, 0.46, 0.28));
         const hed = float(1).sub(sstep(0.04, 0.5, F.g)).mul(float(0.3).add(hedStr.mul(0.7))).mul(0.55);
         land.assign(mix(land, mix(fcol, hedgeCol, hed.mul(fadeTo(120, pxM).mul(0.6).add(0.4))), parcel));
-        let bigCol = srgb(0.37, 0.49, 0.21);
-        bigCol = mix(bigCol, srgb(0.3, 0.44, 0.17), step(0.25, bigR));
-        bigCol = mix(bigCol, srgb(0.7, 0.62, 0.33), step(float(0.5).sub(dryK.mul(0.2)), bigR));
-        bigCol = mix(bigCol, srgb(0.45, 0.35, 0.24), step(0.75, bigR));
-        bigCol = mix(bigCol, srgb(0.58, 0.54, 0.36), step(0.88, bigR));
+        let bigCol = srgb(0.36, 0.5, 0.2);
+        bigCol = mix(bigCol, srgb(0.24, 0.42, 0.16), step(0.22, bigR));
+        bigCol = mix(bigCol, srgb(0.44, 0.54, 0.22), step(0.42, bigR));
+        bigCol = mix(bigCol, srgb(0.72, 0.62, 0.3), step(float(0.62).sub(dryK.mul(0.25)), bigR));
+        bigCol = mix(bigCol, srgb(0.42, 0.31, 0.2), step(0.8, bigR));
+        bigCol = mix(bigCol, srgb(0.3, 0.46, 0.2), step(0.9, bigR));
         const bigEdge = float(1).sub(sstep(0.0, 0.3, fC.g)).mul(0.28);
-        land.assign(mix(land, mix(bigCol, land.mul(0.5), bigEdge), bigK.mul(0.6)));
+        land.assign(mix(land, mix(bigCol, land.mul(0.5), bigEdge), bigK.mul(0.5)));
         const mot = mx_fractal_noise_float(dir.mul(650), 3, 2.1, 0.5, 1).mul(1.6).add(0.5).toVar(); // (smooth gradient noise: the baked value-noise tile shows its 5 km lattice as a plaid at this scale)
         urE.assign(sstep(0.35, 0.85, urbV.mul(mot.mul(1.1).add(0.35)).add(mot.sub(0.5).mul(0.5))).mul(0.55).mul(gM)); // (a city is a mottled tan patch in the green: from 477 km a metro belt is blotches, not a sheet) // (settlement: a ragged edge, the suburbs fray into the fields)
         // ---- woods: stands (a few km), canopy clumps, glades; a conifer / broadleaf / jungle mix by climate
@@ -504,7 +522,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
         }
         // ---- settlements: dense urban fabric under the skyline kit, fraying into suburbs (gardens) at the edge
         const ur = urbV, uK = fadeTo(110, pxM); // (the street grid only from ~50 m a pixel: from a landmass it aliases into a plaid)
-        const lotC = mix(srgb(0.44, 0.4, 0.34), srgb(0.6, 0.55, 0.46), mix(float(0.5), uB.g, uK).mul(0.6).add(mot.mul(0.5)));
+        const lotC = mix(srgb(0.36, 0.32, 0.28), srgb(0.52, 0.46, 0.38), mix(float(0.5), uB.g, uK).mul(0.6).add(mot.mul(0.5)));
         const garden = mix(land.mul(vec3(0.85, 1.1, 0.8)), srgb(0.2, 0.34, 0.14), 0.4);
         const dense = sstep(0.55, 0.95, ur);
         let fab = mix(garden, lotC.mul(float(1).sub(mix(float(0.5), uB.b, uK).mul(0.22))), dense.mul(0.8).add(0.2).mul(sstep(0.0, 0.5, ur)).mul(mot.mul(0.8).add(0.35)).clamp(0, 1));
@@ -513,6 +531,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
         land.assign(mix(land, fab, urE));
         rough.assign(mix(rough, 0.5, urE));
       }
+      nrmD.assign(normalize(nrmD.sub(ghill.mul(min(float(4.5), float(0.55).div(max(length(ghill), 1e-4)).mul(4.5)))))); // (capped: a ridge shades, it does not blot)
       // ---- scree and rock
       const rockCol = GR && PB ? rockC.mul(mix(float(1), scA.b.mul(2), 0.7)) : rockC;
       land.assign(mix(land, rockCol, rockAmt.mul(0.9)));
@@ -522,7 +541,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
       land.assign(mix(land, sandC.mul(float(0.9).add(nm.mul(0.18))), beach.mul(0.88)));
       land.mulAssign(float(1).sub(sstep(1.5, 0.0, e).mul(0.28)));
       // ---- rivers and lakes (lowlands only, painted where it rains): thin water lines of fixed pixel width, still bodies
-      const wet = float(0).toVar(), wetD = float(0).toVar(), wcolV = vec3(0).toVar();
+      const wet = float(0).toVar(), wetD = float(0).toVar(), wcolV = vec3(0).toVar(), midRv = float(0).toVar();
       if (GR) {
         const flow = nz.b;
         const wide = mix(14, 70, flow).mul(sstep(520, 90, e));
@@ -532,6 +551,16 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
         const lake = sstep(0.5, 0.56, lk).mul(sstep(320, 60, e)).mul(sstep(14, 40, e)).mul(sstep(0.3, 0.45, M)).mul(float(1).sub(urE)).mul(u.uGroundK);
         wet.assign(max(riv, lake).mul(u.uGroundK)); // (rivers are fixed-pixel lines: black scratches from 40 km up, where a river is a few px)
         wetD.assign(sstep(0.5, 0.75, lk).mul(lake.greaterThan(0.01).select(1, 0)));
+      }
+      if (!OFF.has('mid') && !OFF.has('rv')) { // (the drainage: two noise ridges, a main river and its tributaries, ~1.3 px wide, from a few hundred km a pixel up to ~2 km a pixel; the baked rivers (K) take over close in)
+        If(pxM.lessThan(2600).and(e.greaterThan(6)).and(e.lessThan(900)), () => {
+          const rwm = mx_noise_vec3(dir.mul(R / 320e3)).mul(26e3 / R), rdW = dir.add(rwm);
+          const rn1 = mx_noise_float(rdW.mul(R / 210e3).add(vec3(1.7, 8.1, 3.3))), rn2 = mx_noise_float(rdW.mul(R / 70e3).add(vec3(5.2, 2.2, 9.4)));
+          const rf1 = pxM.mul(1.3 / 210e3).max(1e-6), rf2 = pxM.mul(1.3 / 70e3).max(1e-6); // (the noise's gradient is ~1.3 per cell: a pixel's worth of it, without derivatives)
+          const lineF = (n, f, w) => float(1).sub(sstep(w * 0.55, w * 1.5, abs(n).div(f))).mul(sstep(0.07, 0.025, abs(n))); // (the absolute cut: where the noise is flat the pixel-width rule would blow a line into a blob)
+          const trib = lineF(rn2, rf2, 1.0).mul(sstep(0.3, 0.08, abs(rn1))).mul(0.8), mainR = lineF(rn1, rf1, 1.15);
+          midRv.assign(max(mainR, trib).mul(sstep(0.22, 0.4, M)).mul(sstep(0.1, 0.22, Te)).mul(float(1).sub(urE)).mul(float(1).sub(sstep(900, 2600, pxM))));
+        });
       }
       If(wet.greaterThan(0.01), () => {
         const wbody = mix(srgb(0.16, 0.34, 0.3), srgb(0.05, 0.17, 0.22), wetD.max(0.2));
@@ -569,7 +598,8 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
       const fill = amb.mul(mix(0.55, 1.2, sky)).mul(aoV).mul(mix(1.0, rough.mul(0.5).add(0.6), 0.6));
       const lit = land.mul(sunLit.mul(diffL).mul(day).mul(shadow).mul(shV).add(fill)).add(glow);
       landCol.assign(mix(lit, wcolV, wet));
-      if (DBG === 1) dbgV.assign(land); else if (DBG === 2) dbgV.assign(nrmD.mul(0.5).add(0.5)); else if (DBG === 3) dbgV.assign(vec3(aoV, aS.y, 0)); else if (DBG === 4) dbgV.assign(vec3(diffL, day, shadow)); else if (DBG === 5) dbgV.assign(vec3(pxM.div(100), nlGeo, 0)); else if (DBG === 12) dbgV.assign(vec3(woodK, urE, rockAmt)); else if (DBG === 6) dbgV.assign(vec3(day)); else if (DBG === 7) dbgV.assign(sunLit.div(3)); else if (DBG === 8) dbgV.assign(fill.mul(4)); else if (DBG === 9) dbgV.assign(lit.mul(0.3));
+      landCol.assign(mix(landCol, srgb(0.1, 0.3, 0.38).mul(day.mul(0.85).add(0.12)).add(vec3(0.03, 0.07, 0.1).mul(day)), midRv.mul(0.85))); // (a mid-scale river: the land's own light, cooled)
+      if (DBG === 1) dbgV.assign(land); else if (DBG === 2) dbgV.assign(nrmD.mul(0.5).add(0.5)); else if (DBG === 3) dbgV.assign(vec3(aoV, aS.y, 0)); else if (DBG === 4) dbgV.assign(vec3(diffL, day, shadow)); else if (DBG === 5) dbgV.assign(vec3(pxM.div(100), nlGeo, 0)); else if (DBG === 12) dbgV.assign(vec3(woodK, urE, rockAmt)); else if (DBG === 6) dbgV.assign(vec3(day)); else if (DBG === 7) dbgV.assign(sunLit.div(3)); else if (DBG === 8) dbgV.assign(fill.mul(4)); else if (DBG === 9) dbgV.assign(lit.mul(0.3)); else if (DBG === 13) dbgV.assign(vec3(midRv, wetD, 0));
     });
     // ---- shock rings (§12.5): a lilac band racing over the planet, pushing the clouds out of its way; four slots, written by PlanetWorld.shock()
     const shockGlow = vec3(0).toVar(), shockClr = float(0).toVar();
@@ -589,10 +619,10 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
     const foot = float(0).toVar(), cityGlow = float(0).toVar();
     if (!OFF.has('city')) If(nRaw.r.greaterThan(0.4).and(landMask.greaterThan(0.4)), () => {
       const cn2 = mx_noise_float(dir.mul(2600)).mul(0.5).add(0.5);
-      const core = sstep(0.58, 0.72, cityD), rem = float(1).sub(wound.mul(4).min(1));
+      const core = sstep(0.74, 0.9, cityD), rem = float(1).sub(wound.mul(4).min(1));
       foot.assign(core.mul(rem));
       const roadK = fadeTo(2600, pxM), g1 = abs(fract(wp.x.div(1900)).sub(0.5)), g2 = abs(fract(wp.y.div(1900)).sub(0.5)), web = float(1).sub(sstep(0.012, 0.03, min(g1, g2))).mul(roadK);
-      const fabric = mix(vec3(0.3, 0.27, 0.25), vec3(0.5, 0.45, 0.39), cn2.mul(0.7).add(core.mul(0.3))).mul(float(1).sub(web.mul(0.34)));
+      const fabric = mix(vec3(0.24, 0.21, 0.19), vec3(0.42, 0.37, 0.31), cn2.mul(0.7).add(core.mul(0.3))).mul(float(1).sub(web.mul(0.34)));
       col.assign(mix(col, fabric, foot.mul(0.82).mul(float(1).sub(near.mul(u.uGroundK).mul(0.8)))));
       const speck = sstep(0.72, 0.9, mx_noise_float(dir.mul(9000)).mul(0.5).add(0.5)).mul(sstep(0.3, 0.7, cn2)), edge = wound.mul(float(1).sub(wound)).mul(4).min(1).mul(core);
       cityGlow.assign(foot.mul(speck.mul(0.5).add(web.mul(0.5)).add(0.12)));
