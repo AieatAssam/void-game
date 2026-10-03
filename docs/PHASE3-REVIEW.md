@@ -648,7 +648,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
 - The stale comments listed in §1.3.
 - **Acceptance:** an interleaved A/B at `setPixelRatio(3)` (baseline T1 18 fps): the gain is reported in the commit, there's no visual change at T1 (screenshot diff), and `?webgl` boots.
 
-**D2 (P1). T1 fill cost.**
+**D2 (P1). T1 fill cost. NOT DONE, measured instead (WP-D: the dead fetches cost ~5%, see docs/PERFORMANCE.md; the mid-scale terrain added ~27% at pixel ratio 3, 8.2 ms at pixel ratio 1).**
 - Bisect with `?off=fields|canopy|urban|relief|noise|pbr|cloud|wave|atmo` at pixel ratio 3, interleaved and at least 3 pairs (the memory-note method).
 - **Verify the gating per fetch first.** `uGroundK` (parcels, hedges, rows, rivers, lakes) is 0 above 14 km. `uGroundM` (relief, woods, settlements, `planetglobe.js:189` and `:403`) stays live to 60-150 km. So some fetches are dead in play (r ≥ 40 km) and some are not.
 - **Compile only the dead ones out:**
@@ -665,7 +665,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
 - Fix the "6 MB" claims in §12.9/§12.10.
 - **Acceptance:** `save()` ≤ 20 MB, and no allocation on tier-up (Performance panel).
 
-**D4 (P2). Per-frame allocations (§1.2).**
+**D4 (P2). Per-frame allocations (§1.2). NOT DONE (WP-D measured ~5 KB per game frame: no sawtooth).**
 - `Threat.direct`: counters instead of `filter`, and a reused `tryK`.
 - `PlanetWorld.update`: an inline min / max over 5 values.
 - `W.eff(dx, dz, out = this._eff)`.
@@ -673,12 +673,12 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
 - `Pool.flush`: skip when `this.live === 0`; track `live` in `spawn` / `step`.
 - **Acceptance:** an allocation timeline in Chrome DevTools shows no steady sawtooth over 10 s of T1 play.
 
-**D5 (P2). Memory at the swap.**
+**D5 (P2). Memory at the swap. NOT DONE.**
 - Take a heap snapshot after `commit()` and list what the town and region still retain: city meshes, `grass`, `vegetation` instances, region tables.
 - Release them in `dropTown()`.
 - **Target:** under 800 MB used heap in Phase 3, from 1.25 GB.
 
-**D6 (P1). Music and the soundscape.**
+**D6 (P1). Music and the soundscape. DONE in WP-D** (`sfx.js`: the music bed (pad chord per tier, sub drone, choir, wind, DEFCON pulse, surf wash at 2 Hz), the tier lowpass bus, booms panned by screen x (nukes, rods), master compressor + soft clip, mute stage, hidden-tab suspend, voice cap, `__sfxProbe` levels; not listened to by a person: reviewed and level-probed offline only).
 - **`sfx.js`:** add a synthesised **music bed** per tier (a sustained pad of 3 detuned saws through a lowpass, one chord per tier: T1 Dm, T2 Bb, T3 Gm, T4 a drone on D).
   - It crossfades on tier-up.
   - It ducks under tears (`duck` / `unduck` exist).
@@ -688,7 +688,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
 - Continents keep the silence → organ → boom (`swell`).
 - **Acceptance:** a listening pass, and mute (`m`) still silences everything.
 
-**D7 (P1). Visual polish (from play).**
+**D7 (P1). Visual polish (from play). PARTLY DONE in WP-D:** DONE: the wound (cubic B-spline bite field, two-scale crumble, molten rim only at the edge, dark basalt floor with sparse embers), night-light glitter faded by pixel size, T4 camera pitch 48 / 58 deg (limb stays > 6 deg), strafe band fill, ICBM arc lateral bias and size 0.03, Moon impostor at -0.8, DEFCON pips grey / amber / red. NOT DONE: silo decals instead of GLBs, the fireball / glow cap at 0.25 camDist, the ash column cap. Also new in WP-D: mid-scale terrain at every tier (hill octaves, drainage, farmland mosaic and relief at T1-T2, discrete cities), chunky tumbling finale shards, the maelstrom hole.
 - **The wound:**
   - The vein pattern is busy over hundreds of km. Keep a hot molten band only at the eaten boundary (distance to `rem` crossing, available from the bite texture gradient). Make the interior dark basalt with sparse cooling embers.
   - **Break the texel staircase:** warp the bite-map sample uv by a noise offset of about 1.5 texels before thresholding, so the silhouette is torn rather than stepped (B9).

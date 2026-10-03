@@ -269,5 +269,6 @@ button.ghost { background: #fff8ee22; color: var(--cream); box-shadow: none; fon
 #defcon[hidden] { display: none; }
 #defcon i { width: 9px; height: 9px; border-radius: 50%; background: #1a0f3a22; box-shadow: inset 0 0 0 1.5px #1a0f3a55; }
 #defcon i.on { background: #e4473c; box-shadow: 0 0 6px #e4473c99; }
+#defcon i.on:nth-of-type(5) { background: #8d8a9e; box-shadow: none; } #defcon i.on:nth-of-type(4) { background: #e9a23b; box-shadow: 0 0 5px #e9a23b88; } #defcon i.on:nth-of-type(3) { background: #ee7a2e; box-shadow: 0 0 6px #ee7a2e99; } /* (grey and amber at 5-4, red only at 2-1) */
 #fps pre { margin: 0; font: inherit; }
 #fps canvas { display: block; width: 300px; height: 60px; margin-top: 4px; background: #0006; border-radius: 4px; }

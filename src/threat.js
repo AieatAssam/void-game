@@ -375,6 +375,7 @@ export class Threat {
   /** Ballistic point of nuke n at t (0..1): the great circle from the silo to the target, a parabola over it. */
   arcAt(n, t, out) {
     slerp(n.from, n.to, t, v3).normalize();
+    { const sd = (this._sd ??= new THREE.Vector3()).crossVectors(n.from, n.to); if (sd.lengthSq() > 1e-12) v3.addScaledVector(sd.normalize(), 0.15 * Math.acos(Math.min(1, n.from.dot(n.to))) * 4 * t * (1 - t)).normalize(); } // (a lateral bias: from the T1 camera the arc reads as an arc, not a line toward you)
     const e0 = n.site.elev, e1 = n.elevT ?? 0, h = n.hs !== undefined ? n.hs * Math.pow(1 - t, 1.4) + e1 * this.W.E * t + n.r0 * 0.4 * t * t * t * t : (e0 * (1 - t) + e1 * t) * this.W.E + n.apex * 4 * t * (1 - t) + n.r0 * 0.4 * t * t * t * t; // (the last quarter drops to the airburst height)
     return out.copy(v3).multiplyScalar(R + h);
   }
@@ -405,7 +406,7 @@ export class Threat {
       for (let i = 0; i <= 27; i++) { const k = i / 27, t = th - span * (1 - k); this.arcAt(n, Math.max(0, t), v1); const f = Math.pow(k, 1.6); n.trail.set(c++, v1, cd * (0.0035 + 0.011 * f), 1.0 * f + 0.3, 0.6 * f + 0.25, 0.3 * f + 0.2, 0.9 * f * Math.min(1, n.age * 2)); }
       n.trail.done(c, camP);
       this.arcAt(n, th, n.pos); this.arcAt(n, Math.min(1, th + 0.01), v2); v2.sub(n.pos).normalize();
-      aim(n.mis, v2, v4.copy(n.pos).normalize(), 'x'); n.mis.position.copy(n.pos); n.mis.scale.setScalar(cd * 0.07 / 35.3); n.mis.visible = true;
+      aim(n.mis, v2, v4.copy(n.pos).normalize(), 'x'); n.mis.position.copy(n.pos); n.mis.scale.setScalar(cd * 0.03 / 35.3); n.mis.visible = true;
       if (n.age > 0.25) this.glow.spawn(n.pos, null, cd * 0.012, cd * 0.022, 0.2, FIRE[1], 1.3, 0); // the motor
       if (eta <= 0) this.detonate(n);
       return;

@@ -72,6 +72,41 @@ The region is 3 km of land with ten settlements, ~500 buildings and 34k trees, h
 | The swap: drawing the whole new world on its first frame froze for 1.2 s (first-sight shader builds). Precompiling it (canvas or scene-pass target) froze for 1–5 s instead. | The region's meshes reveal five per frame under the dust; finish and the grass mask in separate frames. | worst frame ~200 ms, reveal frames 65–90 ms for ~0.7 s |
 | The breakout dust was fill-rate bound (dozens of 30–40 m sprites). | Fewer, smaller puffs. | — |
 
+## Phase 3 (the planet) — WP-D measurements
+
+Method: the Browser pane is *hidden* during agent runs and throttles `requestAnimationFrame` to 1 Hz, so the numbers below are not rAF timings. `window.__bench` (tools/bench-snippet.js) steps the game with `__tick(1/60)` and waits for the GPU
+(`device.queue.onSubmittedWorkDone()` on WebGPU, a 1-pixel `readPixels` on WebGL) every 10 frames: ms per frame = CPU and GPU together, no vsync. Apple Silicon, seed 4242, hole set with `__planet.setR` and settled
+for 120 ticks; pixel ratio 1 is the game's own cap (`look.js`), pixel ratio 2 is the iPad / retina stress case.
+
+| ms / frame (pr 1 / pr 2) | T1 40 km | T2 150 km | T3 450 km | T4 1200 km |
+|---|---|---|---|---|
+| WebGPU high | 8.1 / 26.1 | 5.5 / 18.9 | 4.8 / 15.9 | 5.2 / 14.5 |
+| WebGPU `?q=low` | 6.5 / 21.0 | 4.7 / 16.3 | 4.0 / 13.9 | 3.9 / 11.7 |
+| `?webgl` high | 5.5 / 19.6 | 5.7 / 19.8 | 5.3 / 18.0 | 5.2 / 15.3 |
+| `?webgl&q=low` | 7.2 / 23.1 | 5.5 / 18.5 | 4.7 / 15.5 | 4.0 / 12.0 |
+
+- **Budgets (§6.7):** draws 34-46 (budget 75 / 60), triangles 0.25-0.28 M high and 0.09-0.10 M low (budget 1.0 M / 0.45 M), CPU game step 0.6-0.9 ms per frame in `__tick` (budget 4 ms). Everything is far inside; the game is fill-bound.
+- **Pixel ratio 1: 120+ fps equivalent at every tier, every backend.** Pixel ratio 2 is 38-69 fps (T1 is the heaviest: 26 ms on WebGPU high). The game caps its pixel ratio at 1, so this only matters for a device that forces a higher one; the dynamic-resolution watchdog (`post.watch`) covers it.
+- **Cost of the new mid-scale terrain (WP-D):** at pixel ratio 3, T1: 42.6 ms (`?off=mid`) vs 53.9 ms: +27% of a fill-bound frame, 6.1 vs 8.2 ms at pixel ratio 1. The noise is hill octaves (3 evaluations of 4 octaves for the shading gradient) and the drainage. `?q=low` keeps two octaves and the main river only. It is gated by pixel size, so it costs nothing where a pixel outgrows it (the rivers are skipped by an `If` above 2.6 km a pixel).
+- **D2 (T1 fill cost), not done, with the reason:** the dead texture fetches at T1 (`fields` A/B, `urban`, scan B: 4 of 11) priced at about 5% (`?off=fields,urban,pbr`: 24.9 vs 26.1 ms at pixel ratio 2; run-to-run noise on this pane is the same size). A no-close material variant would add a shader compile and a swap for that. Left alone.
+- **Allocations (D4):** the game step allocates ~5 KB per frame (`__headless` ticks, coarse `performance.memory`), a render frame ~19 KB: no sawtooth worth chasing. The D4 rewrites were not done.
+- **Texture memory:** surf 6 MB + night 3 MB + bite 6 MB + trail 0.25 MB + the baked ground (fields 4 MB, canopy / urban / relief 1 MB each, with mips ~9 MB) ~ 25 MB; `renderer.info.memory.textures` = 61-62.
+- **Tier-up and first-frame hitches (`__tick` time, 40 frames after each `setR`):** the worst frame at 20 -> 45 -> 70 -> 110 km is 17-18 ms (the patch rebuilds are sliced), and at 160 / 300 / 450 / 800 / 1200 / 2000 km 2-6 ms. The one hitch is the **first frame drawn after load: ~330-350 ms** (the first `post.render` of the patch material in a page whose pane was hidden); it sits under the loading line in a visible page but should be re-checked with a visible `__perf()`.
+- **Finale at `?q=low`:** `Finale.prepare` already builds fewer shards (30, icosphere level 5) and streaks on the low tier; the lens runs in the post pass (closed form, only within ~9 shadow radii). Not re-measured visibly.
+
+### Audio level probe (`window.__sfxProbe(scenario, secs)`)
+
+An `OfflineAudioContext` renders the heaviest moments through the same graph. Peak / RMS in dBFS at the output:
+
+| Scenario | Peak | RMS | Same without the compressor / clip |
+|---|---|---|---|
+| nuke + hit + grind + rumble + klaxon + tear, bed on at T3 DEFCON 1 | -10.5 | -21.4 | -9.7 / -22.8 |
+| the finale's fall (every lane busy, rupture, hits, last mouthful) | -3.4 | -11.6 | **+0.8** / -12.6 |
+| everything at once (finale + cracker + Aegis + level-up) | -3.1 | -11.5 | -1.6 / -12.5 |
+
+Without the limiter the finale clipped (+0.8 dBFS); the finale's own bus also bypassed the master gain (it was 1.0, the rest 0.35): it is now 0.4. Chrome's compressor adds make-up gain (+9 dB on the nuke scene); a 0.6 trim after it brings the loudness back to the old mix. The output stage is
+`master (duck) -> tier lowpass -> bus (mute) -> compressor -> trim -> tanh soft clip`, so it is bounded to +-1 by construction.
+
 ## Measuring on the target machine
 
 - `?fps`: frame rate, CPU split (game logic / render submission), GPU time, draws, triangles, tier, dynamic-resolution steps.

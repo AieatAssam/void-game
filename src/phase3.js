@@ -12,7 +12,7 @@ export const TIERS = [
 ];
 // smooth ramps: r in metres, smoothstep in log r between anchors. VIEW = [r, pitch (deg), relief exaggeration E, aim (deg: the camera looks this far above the hole, so the limb is in frame)]
 const VIEW = [
-  [40 * KM, 25, 3, 7], [150 * KM, 36, 4, 4], [450 * KM, 40, 6, 0], [1200 * KM, 36, 7, 0], [2400 * KM, 32, 7, 0],
+  [40 * KM, 25, 3, 7], [150 * KM, 36, 4, 4], [450 * KM, 40, 6, 0], [1200 * KM, 48, 7, 0], [2400 * KM, 58, 7, 0],
 ];
 // land credit G(r): the §12.1 anchors (swath-only sim values)
 const GRAMP = [[40 * KM, 0.035], [150 * KM, 0.05], [450 * KM, 0.08], [1000 * KM, 0.13], [1600 * KM, 0.2], [2600 * KM, 0.3]]; // (R4 balance, docs/BALANCE.md: the doc's anchors 0.06 / 0.065 / 0.09 put the bot into T2 in 100 s; these give 4.5-6 min a tier on the unit bot)

@@ -213,7 +213,7 @@ export function planetUniforms() {
 // ---------------------------------------------------------------- the ground (patch): baked patterns, scanned layers, relief
 const rot2 = (p, a) => vec2(p.x.mul(Math.cos(a)).sub(p.y.mul(Math.sin(a))), p.x.mul(Math.sin(a)).add(p.y.mul(Math.cos(a))));
 const fadeTo = (lam, px) => float(1).sub(smoothstep(lam * 0.1, lam * 0.42, px)); // a feature of period lam (m) goes when the pixel (m) outgrows it
-const MID_L = [60e3, 22e3, 8e3, 2.8e3]; // wavelengths (m) of the mid-scale terrain octaves
+const MID_HI = [60e3, 22e3, 8e3, 2.8e3], MID_LO = [22e3, 8e3]; // wavelengths (m) of the mid-scale terrain octaves (high / low tier: the low tier keeps the two that read)
 const luma = (c) => dot(c, vec3(0.3, 0.55, 0.15));
 
 /**
@@ -434,6 +434,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
       //      (wetter in the hollows, drier on the crests, a patchwork where the baked climate is flat): the bake's 20 km texel is no longer what the eye reads
       const M = S.b.toVar(), ghill = vec3(0).toVar();
       if (!OFF.has('mid')) {
+        const MID_L = low ? MID_LO : MID_HI;
         const wL = MID_L.map((L) => fadeTo(L, pxM).toVar());
         const dw = mx_noise_vec3(dir.mul(R / 140e3)).mul(11e3 / R); // (a slow warp: the octaves bend, nothing runs in a straight lattice)
         const dW = dir.add(dw).toVar();
@@ -443,7 +444,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
         const del = 1800 / R, h0 = hh(dW).toVar(), h1 = hh(dW.add(tm1.mul(del))), h2 = hh(dW.add(tm2.mul(del)));
         const g1 = h1.sub(h0).div(1800), g2 = h2.sub(h0).div(1800);
         ghill.assign(tm1.mul(g1).add(tm2.mul(g2)).mul(hillA));
-        M.addAssign(h0.mul(-0.00002).add(mx_noise_float(dW.mul(R / 2800).add(vec3(9.1, 4.4, 2.3))).mul(0.12).mul(wL[3])).mul(sstep(0.0, 6, e)).mul(mix(0.35, 1, sstep(0.05, 0.3, S.b))));
+        M.addAssign(h0.mul(-0.00002).add(mx_noise_float(dW.mul(R / 2800).add(vec3(9.1, 4.4, 2.3))).mul(0.12).mul(wL[MID_L.length - 1])).mul(sstep(0.0, 6, e)).mul(mix(0.35, 1, sstep(0.05, 0.3, S.b))));
         slope.addAssign(length(ghill).mul(1.2));
       }
       const Te = T0.sub(max(e.sub(400), 0).div(9000)).add(nm.mul(0.05)).toVar();
@@ -567,7 +568,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
           const rn1 = mx_noise_float(rdW.mul(R / 210e3).add(vec3(1.7, 8.1, 3.3))), rn2 = mx_noise_float(rdW.mul(R / 70e3).add(vec3(5.2, 2.2, 9.4)));
           const rf1 = pxM.mul(1.3 / 210e3).max(1e-6), rf2 = pxM.mul(1.3 / 70e3).max(1e-6); // (the noise's gradient is ~1.3 per cell: a pixel's worth of it, without derivatives)
           const lineF = (n, f, w) => float(1).sub(sstep(w * 0.55, w * 1.5, abs(n).div(f))).mul(sstep(0.07, 0.025, abs(n))); // (the absolute cut: where the noise is flat the pixel-width rule would blow a line into a blob)
-          const trib = lineF(rn2, rf2, 1.0).mul(sstep(0.3, 0.08, abs(rn1))).mul(0.8), mainR = lineF(rn1, rf1, 1.15);
+          const mainR = lineF(rn1, rf1, 1.15), trib = low ? float(0) : lineF(rn2, rf2, 1.0).mul(sstep(0.3, 0.08, abs(rn1))).mul(0.8);
           midRv.assign(max(mainR, trib).mul(sstep(0.22, 0.4, M)).mul(sstep(0.1, 0.22, Te)).mul(float(1).sub(urE)).mul(float(1).sub(sstep(900, 2600, pxM))));
         });
       }
@@ -643,7 +644,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
     If(dark.greaterThan(0.002), () => { // night lights: clustered, speckled, off in cloud and in eaten land
       const nlight = nRaw.r.toVar();
       const cl1 = mx_noise_float(dir.mul(640)).mul(0.5).add(0.5), cl2 = mx_noise_float(dir.mul(2100)).mul(0.5).add(0.5);
-      const lights = nlight.mul(sstep(0.35, 0.9, cl1.mul(0.6).add(nlight.mul(0.7))).mul(sstep(0.56, 0.78, cl2)).mul(2.2).add(nlight.mul(nlight).mul(sstep(0.5, 0.75, cl1)).mul(0.5))).mul(landMask);
+      const lights = nlight.mul(sstep(0.35, 0.9, cl1.mul(0.6).add(nlight.mul(0.7))).mul(mix(float(0.45), sstep(0.56, 0.78, cl2), fadeTo(3000, pxM))).mul(2.2).add(nlight.mul(nlight).mul(sstep(0.5, 0.75, cl1)).mul(0.5))).mul(landMask);
       col.addAssign(vec3(1.0, 0.62, 0.24).mul(cityGlow.mul(2.6).add(foot.mul(0.5))).mul(dark).mul(float(1).sub(near.mul(u.uGroundK))));
       col.addAssign(vec3(1.0, 0.56, 0.2).mul(lights).mul(dark).mul(1.7).mul(float(1).sub(near.mul(u.uGroundK))));  // (close up the food's own windows take over: the bake's blobs would be 5 km soft clouds)
       if (patch) col.addAssign(vec3(1.0, 0.5, 0.18).mul(urbV).mul(dark).mul(0.09).mul(u.uGroundK).mul(near)); // street glow under the skyline
@@ -726,7 +727,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
         const lock = u.uStrafeP.z, hd = u.uStrafeP.y.mul(len), edgeB = exp(pow(across.sub(hw).div(hw.mul(0.05)), 2).negate()).mul(smoothstep(0, len.mul(0.01), along)).mul(float(1).sub(smoothstep(len.mul(0.99), len, along)));
         const chev = sin(along.sub(across.mul(0.8)).div(len).mul(60).sub(u.uTime.mul(6))).mul(0.5).add(0.5), sweep = exp(pow(along.sub(hd).div(len.mul(0.03)), 2).negate()).mul(step(0.001, u.uStrafeP.y));
         const base = mix(vec3(1.0, 0.6, 0.12), vec3(1.0, 0.1, 0.06), step(0.001, lock));
-        col.addAssign(base.mul(edgeB.mul(2.4).add(inB.mul(chev.mul(0.12).add(0.05))).add(sweep.mul(inB).mul(1.6))).mul(sa));
+        col.addAssign(base.mul(edgeB.mul(2.4).add(inB.mul(chev.mul(0.1).add(0.11))).add(sweep.mul(inB).mul(1.6))).mul(sa));
       });
     }
     // ---- hole caps (spherical): void inside, a lilac glowing lip
@@ -958,7 +959,7 @@ export class PlanetGlobe {
     this.atmo.scale.setScalar(R); this.atmo.frustumCulled = false; this.atmo.renderOrder = 5;
     this.moon = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 48), moonMaterial(this.u));
     this.moon.scale.setScalar(1737400);
-    this.moonAt = [-0.93, 0.8]; // (where the Moon impostor hangs in the frame, as fractions of the half-width / half-height: the ascension's reveal moves it into the open)
+    this.moonAt = [-0.8, 0.8]; // (where the Moon impostor hangs in the frame, as fractions of the half-width / half-height: the ascension's reveal moves it into the open)
     this.moonDir = new THREE.Vector3(-0.55, 0.28, -0.78).normalize();
     this.moon.position.copy(this.moonDir).multiplyScalar(R * moonDist);
     this.moon.frustumCulled = false;
