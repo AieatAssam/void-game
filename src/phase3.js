@@ -2,6 +2,13 @@
 // Starting values for the bot balance pass (docs/BALANCE.md).
 const lerp = (a, b, k) => a + (b - a) * k;
 const KM = 1000;
+/** Schedule one eased, raw-wall-time slow-motion beat shared by tier and adversity feedback. */
+export function slowBeat(state, factor, seconds) {
+  const duration = Math.max(state.slowT || 0, seconds);
+  state.slowFrom = Math.min(state.slowFrom ?? state.slowmo ?? 1, factor);
+  state.slowT = state.slowDuration = duration;
+  state.slowmo = state.slowFrom;
+}
 
 // scale tiers (docs/PHASE3.md §12.1): [floor r (m), name card]
 export const TIERS = [

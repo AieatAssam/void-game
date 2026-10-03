@@ -4,7 +4,7 @@
 // Step 6/R4 (§12): the land is the meal (src/landforms.js units), growth, belly/decay, the goal chain + arrow + HUD, the unit ladder. Not here yet: ascension (8), threats (9).
 import * as THREE from 'three/webgpu';
 import { PlanetWorld } from './planet.js';
-import { P3, TIERS, T3, portraitK } from './phase3.js';
+import { P3, TIERS, T3, portraitK, slowBeat } from './phase3.js';
 import { debugMethods } from './planetdebug.js';
 import { R } from './planetgen.js';
 import { sunDir } from './look.js';
@@ -52,12 +52,23 @@ export class PlanetGame {
     if (!slice) { // (?planet: no Phase 2 to hide behind, but the loading line is still up: compile the globe, patch, atmosphere, Moon and sky now, not on the first frames of play and at the first climb to 120 km, where they were 0.5-0.9 s hitches)
       try { await ctx.post.precompile(W.globe.group, 20000, this.around); await ctx.post.precompile(W.globe.sky, 8000, this.around); } catch (e) { console.warn('planet precompile', e); }
     }
-    if (slice) { // (under Phase 2: the globe, sky and patch pipelines compile here, one mesh a frame; the textures go up to the GPU one a frame; the first patch is built: the swap does none of it)
+    if (slice) { // (under Phase 2: the globe / sky pipelines compile and the textures upload a frame at a time)
       await ctx.post.precompile(W.globe.group, 20000, this.around);
       await ctx.post.precompile(W.globe.sky, 8000, this.around);
       const g = W.globe;
       for (const t of [g.surfTex, g.nightTex, g.biteTex, g.trailTex, ...Object.values(g.gt)]) { ctx.renderer.initTexture(t); await slice(); }
-      this.placeStart(r0); W.buildPatchNow(r0);
+    }
+    this.placeStart(r0);
+    if (r0 < P3.patchMax && !W.capMode) {
+      const job = W.patchGen(r0);
+      let frameStart = performance.now();
+      const nextFrame = () => new Promise((resolve) => (document.hidden ? setTimeout(resolve, 0) : requestAnimationFrame(() => resolve())));
+      while (!W.capMode) {
+        if (job.next().done) break;
+        if (slice) await slice();
+        else if (performance.now() - frameStart >= 3) { await nextFrame(); frameStart = performance.now(); }
+      }
+      // patchGen commits only on completion; dropping it on cap takeover leaves the invisible patch untouched.
     }
     this.prepared = true;
     return this;
@@ -102,13 +113,13 @@ export class PlanetGame {
     hole.x = hole.z = 0; hole.vx = hole.vz = 0; hole.sx = hole.sz = 0; hole.hidden = false; hole.capMode = false;
     state.phase = 3; state.belly = 1; state.tier = P3.tier(r0); state.left = 0; state.wallHint = 0; state.land = 0;
     W.update(0, hole, ctx.camera, innerHeight);
-    if (!W.capMode && !W.patchInfo) W.buildPatchNow(r0); // (the cinematic built it behind Phase 2)
+    if (!W.capMode && !W.patchInfo) W.buildPatchNow(r0); // defensive fallback for a caller that skipped prepare()
     W.update(0, hole, ctx.camera, innerHeight);
     this.hole = hole; this.ctxRef = ctx;
     if (this.map) { this.map.show(!cinematic); this.map.place(W, hole); } // (the minimap waits for the end of the cinematic)
     state.sealed = false; state.over = false; state.gRate = 0; state.hitsByTier = {}; this.landLog = []; this.logT = -99;
     { const st = document.getElementById('status'); if (st) st.textContent = ''; } ctx.chips?.(); // (A12: no stale Phase 2 line, no Phase 2 perk chips)
-    state.pop = this.world.bite.pop; state.ledger = { land: 0, tear: 0, pull: 0, fed: 0, starve: 0 }; state.tierAt = { 1: 0 }; state.goalDone = []; state.continents = 0; state.won = false; state.shake = 0; state.slowT = 0; state.stun = 0; state.wound = 0;
+    state.pop = this.world.bite.pop; state.ledger = { land: 0, tear: 0, pull: 0, fed: 0, starve: 0 }; state.tierAt = { 1: 0 }; state.goalDone = []; state.continents = 0; state.won = false; state.shake = 0; state.slowT = state.slowDuration = 0; state.slowFrom = 1; state.stun = 0; state.wound = 0;
     this.camDist = 0;
     if (!cinematic) this.armRun(ctx, r0);
     this.installDebug(ctx);
@@ -350,13 +361,12 @@ export class PlanetGame {
     state.land = W.bite.landEaten;
     state.gRate = (state.gRate || 0) + ((dA + tc + pc) / Math.max(dt, 1e-3) - (state.gRate || 0)) * Math.min(1, dt / 30); // (EMA of income, area/s, tau 30 s: tears land in bursts, a 10 s window made a hit cost 1-48% depending on luck; the threats' damage is a number of seconds of it)
     state.shake = Math.max(0, state.shake - dt * 1.5);
-    if (state.slowT > 0 && (state.slowT -= dt) <= 0) state.slowmo = 1;
     // tier-up (§6.1): hitstop, a slow beat, the name card
     const nt = P3.tier(hole.r);
     if (nt > (state.tier || 1)) {
       state.tier = nt; state.tierAt[nt] = state.time; (state.tierLand ??= {})[nt] = state.land;
       hole.shockwave(); W.shock(W.hdir, 0.6 * hole.r / R, 1.5 * hole.r / R, 1.2, 1);
-      state.hitstop = Math.max(state.hitstop || 0, 0.25); state.slowmo = 0.4; state.slowT = 0.6; state.punch = 1;
+      state.hitstop = Math.max(state.hitstop || 0, 0.15); slowBeat(state, 0.4, 0.5); state.punch = 1;
       this.checkpoint(ctx); this.camDist *= 1.12; { const sz = document.getElementById('size'); sz?.classList.remove('pulse'); void sz?.offsetWidth; sz?.classList.add('pulse'); } // (the pull-out beat: the hole visibly swells, then the camera settles)
       ctx.card(`Tier ${nt} · ${KM(hole.r)}`, TIERS[nt - 1].name);
       ctx.sfx.levelUp();
@@ -411,7 +421,7 @@ export class PlanetGame {
     if (!pull && (t - fx.hitAt > 1.5 || cls > fx.hitCls) && rEq >= 0.2 * r) {
       fx.hitAt = t; fx.hitCls = cls;
       state.hitstop = Math.max(state.hitstop || 0, [0, 0.06, 0.08, 0.12, 0.2][cls]);
-      if (cls >= 3) { state.slowmo = cls === 3 ? 0.5 : 0.4; state.slowT = (cls === 3 ? 0.8 : 1.5) * state.slowmo; }
+      if (cls >= 3) slowBeat(state, cls === 3 ? 0.5 : 0.4, cls === 3 ? 0.8 : 1.5);
       if (cls === 4) { fx.pull = 0; fx.pullT = 0; }
     }
     // sound: crack + gulp, rumble late by distance, choir, the continent's silence-swell-boom
@@ -527,7 +537,7 @@ export class PlanetGame {
     W.holeQ.copy(c.holeQ).normalize(); W.hdir.set(0, 1, 0).applyQuaternion(W.holeQ); W.h0Set = false; W.job = null; W.patchInfo = null; W.nStamps = 0; W.globe.trailData.fill(0); W.globe.trailTex.needsUpdate = true;
     W.capMode = false; hole.capMode = false; W.globe.hidePatch?.();
     hole.area = Math.PI * TIERS[c.tier - 1].r ** 2; hole.sx = hole.sz = 0;
-    Object.assign(state, { belly: 1, tier: c.tier, playing: true, over: false, sealed: false, shake: 0, slowT: 0, slowmo: 1, hitstop: 0, frenzy: 0, surge: false, fallout: false, land: B.landEaten, pop: B.pop });
+    Object.assign(state, { belly: 1, tier: c.tier, playing: true, over: false, sealed: false, shake: 0, slowT: 0, slowDuration: 0, slowFrom: 1, slowmo: 1, hitstop: 0, frenzy: 0, surge: false, fallout: false, land: B.landEaten, pop: B.pop });
     this.goal = null; this.gT = 0; this.worldGoal = null; this.fx = null; this.rim = 0; this.dustMoved = 0;
     this.threat?.clear(); ctx.news.queue.length = 0; state.gRate = 0;
     W.update(0, hole, ctx.camera, innerHeight); if (hole.r < P3.capR) W.buildPatchNow(hole.r);
