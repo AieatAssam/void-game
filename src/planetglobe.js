@@ -1074,5 +1074,11 @@ export class PlanetGlobe {
     this.uStarR.value = far * 0.98;
   }
 
-  dispose() { this.surfTex.dispose(); this.nightTex.dispose(); this.biteTex.dispose(); this.trailTex.dispose(); for (const k of Object.values(this.gt)) k.dispose(); this.globe.geometry.dispose(); this.patch.geometry.dispose(); }
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    for (const t of [this.surfTex, this.nightTex, this.biteTex, this.trailTex, ...Object.values(this.gt)]) t.dispose();
+    for (const g of [this.globe.geometry, this.patch.geometry, this.atmo.geometry, this.moon.geometry, this.dome.geometry]) g.dispose();
+    for (const m of [this.material, this.patchMat, this.atmo.material, this.moon.material, this.dome.material, this.stars.material]) m.dispose();
+  }
 }

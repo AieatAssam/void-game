@@ -620,6 +620,7 @@ function powerChips() {
 // (created on first use: newRun builds the buttons before this part of the module has run)
 function abilBox() { return $('abil') || document.body.appendChild(Object.assign(document.createElement('div'), { id: 'abil' })); }
 function useAbility(i) {
+  if (state?.phase === 3) return; // City/island abilities do not have planet-stage effects.
   if (abilities?.use(i, { hole, city, director, state })) sfx.whoosh();
 }
 function renderAbilityButtons() {
@@ -634,7 +635,7 @@ function renderAbilityButtons() {
 }
 function abilityHud() {
   const box = abilBox();
-  box.hidden = !state.playing || !abilities.list.length;
+  box.hidden = !state.playing || state.phase === 3 || !abilities.list.length;
   abilities.list.forEach((a, i) => {
     const el = box.children[i];
     if (!el) return;
@@ -1679,9 +1680,9 @@ if (import.meta.env.DEV) window.__views = async (...only) => {
 };
 
 function frame(dt, wallDt = dt) {
-  const raw = dt;
+  const visibleWallDt = Math.min(wallDt, 0.1);
   if (state.breakoutSlowmo != null) {
-    state.breakoutSlowmo = Math.min(1, state.breakoutSlowmo + raw / 0.9);
+    state.breakoutSlowmo = Math.min(1, state.breakoutSlowmo + visibleWallDt / 0.9);
     const u = state.breakoutSlowmo;
     state.slowmo = 0.3 + 0.7 * u * u * (3 - 2 * u);
     if (u >= 1) state.breakoutSlowmo = null;
@@ -1697,13 +1698,13 @@ function frame(dt, wallDt = dt) {
   dt *= state.slowmo; // Phase 2 breakout cinematic
   pain.update(dt);
   const w = innerWidth, h = innerHeight;
-  if (canvas.width !== Math.floor(w * renderer.getPixelRatio())) {
+  if (canvas.width !== Math.floor(w * renderer.getPixelRatio()) || canvas.height !== Math.floor(h * renderer.getPixelRatio())) {
     renderer.setSize(w, h, false);
     post.setSize(w, h);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
   }
-  if (state.asc) { state.asc.advance(raw); if (!state.playing) state.time += dt; } // the Ascension owns the clock (its own real-time beats) and the camera
+  if (state.asc) { state.asc.advance(visibleWallDt); if (!state.playing) state.time += visibleWallDt; } // the Ascension owns the clock (its own real-time beats) and the camera
   if (state.phase === 3) { planetGame?.frame(dt, planetCtx()); return; } // (null while the world is still forming, and for the frame after toMenu) // Phase 3 has its own loop (src/planetgame.js)
 
   if (state.playing) {

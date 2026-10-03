@@ -28,9 +28,7 @@ export class BiteMap {
     this.hm = new Uint16Array(n); // land height (m, rounded); OCEAN (65535) = never counts
     this.area = new Float32Array(B * B); // km2 per texel, the same on every face
     this.tanT = new Float32Array(B);
-    for (let i = 0; i < B; i++) this.tanT[i] = Math.tan(Q4 * ((i / (B - 1)) * 2 - 1));
     this.tau = new Float32Array(B * B); // angular size of a texel (rad)
-    for (let j = 0; j < B; j++) for (let i = 0; i < B; i++) { const a = texelArea(B, i, j); this.area[j * B + i] = a; this.tau[j * B + i] = Math.sqrt(a) * 1000 / R; }
     this.bake = bake;
     this.dirty = new Uint8Array(6); this.lastUp = 0;
     this.frame = 0;
@@ -53,6 +51,18 @@ export class BiteMap {
     const t00 = performance.now();
     let ts = t00, worst = 0;
     const { B, lf } = this, { surf, night, N } = this.bake, fl = N * N, H = new Float32Array(6 * fl);
+    // These per-texel lookup tables are immutable and were previously calculated in the
+    // constructor, blocking the first planet-stage frame for tens of milliseconds at B=1024.
+    // Build the same values here in row slices so the existing world-preparation yield path
+    // can keep the transition responsive.
+    for (let i = 0; i < B; i++) this.tanT[i] = Math.tan(Q4 * ((i / (B - 1)) * 2 - 1));
+    for (let j = 0; j < B; j++) {
+      for (let i = 0; i < B; i++) {
+        const a = texelArea(B, i, j), k = j * B + i;
+        this.area[k] = a; this.tau[k] = Math.sqrt(a) * 1000 / R;
+      }
+      if (performance.now() - ts > SLICE) { worst = Math.max(worst, performance.now() - ts); yield; ts = performance.now(); }
+    }
     for (let k = 0; k < 6 * fl; k++) { H[k] = decodeHeight(surf[k * 4]); if ((k & 65535) === 0) if (performance.now() - ts > SLICE) { worst = Math.max(worst, performance.now() - ts); yield; ts = performance.now(); } }
     let sum = 0, sumN = 0;
     const sc = (N - 1) / (B - 1), { nIdx, nRow } = this;
@@ -116,7 +126,7 @@ export class BiteMap {
    * Chew the land under a hole disc for dt seconds. c = unit direction (planet space), r = radius (m), moved = metres travelled
    * this frame. Returns the credit in m2 (already x land share, not x G). Visits at most P3.texelBudget texels, round robin.
    */
-  chew(c, r, dt, moved, hExp = 0.5, opts = null) { // opts (a rival, src/planetrival.js): { budget, fr: { n }, pop, area, credit } - no tear flags, its own round-robin phase and texel budget, the player's counters untouched
+  chew(c, r, dt, moved, hExp = 0.5, opts = null, depthScale = 1) { // opts (a rival, src/planetrival.js): { budget, fr: { n }, pop, area, credit } - no tear flags, its own round-robin phase and texel budget, the player's counters untouched; depthScale is for player perks/surges only
     const t0 = performance.now(), { B, rem, ov, hm, area, tau: tauT, tanT, rem8, lf } = this;
     const lv = lf?.lv, l0 = lv?.[0].left, l1 = lv?.[1].left, l2 = lv?.[2].left, l3 = lv?.[3].left, l4 = lv?.[4].left, pu1 = lf?.pu[1], pu2 = lf?.pu[2], pu3 = lf?.pu[3], pu4 = lf?.pu[4];
     const { tflag, touched: tlist, nIdx, nRow } = this, night = this.bake.night, fl = this.bake.N * this.bake.N;
@@ -148,7 +158,7 @@ export class BiteMap {
       total += (i1 - i0 + 1) * (j1 - j0 + 1);
     }
     const stride = Math.max(1, Math.ceil(total / (opts ? opts.budget : P3.texelBudget))), phase = (opts ? opts.fr.n++ : this.frame++) % stride;
-    const dtE = dt * stride, mvE = moved * stride, D = P3.depth(r), sweep = r > 0 ? Math.min(1, (2 * mvE) / (Math.PI * r)) : 0;
+    const dtE = dt * stride, mvE = moved * stride, D = P3.depth(r) * depthScale, sweep = r > 0 ? Math.min(1, (2 * mvE) / (Math.PI * r)) : 0;
     const crust = P3.crust, chewK = D / P3.chewT;
     let credit = 0, remArea = 0, n = 0;
     for (let f = 0; f < 6; f++) {

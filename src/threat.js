@@ -91,8 +91,32 @@ export class Threat {
   show() { this.glow.sprite.visible = this.smoke.sprite.visible = true; }
 
   dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
     this.rivals?.dispose(); this.lineEl.remove(); this.flashEl.remove(); document.getElementById('sealed')?.remove();
-    this.ctx.scene.remove(this.glow.sprite, this.smoke.sprite); this.W.globe.group.remove(this.root);
+    if (this.glow?.sprite) this.ctx.scene.remove(this.glow.sprite);
+    if (this.smoke?.sprite) this.ctx.scene.remove(this.smoke.sprite);
+    this.W.globe.group.remove(this.root);
+    // Attack models are clones of shared pack assets. Dispose only resources created by
+    // this director, while keeping the asset pack and the planet's Moon material alive.
+    const sharedGeo = new Set(), sharedMat = new Set([this.W.globe.moon.material]);
+    for (const a of Object.values(this.ctx.assets)) a?.scene?.traverse?.((o) => {
+      if (!o.isMesh) return;
+      if (o.geometry) sharedGeo.add(o.geometry);
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) if (m) sharedMat.add(m);
+    });
+    const geos = new Set(), mats = new Set();
+    this.root?.traverse((o) => {
+      if (!o.isMesh) return;
+      if (o.geometry && !sharedGeo.has(o.geometry)) geos.add(o.geometry);
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+        // Ribbon meshes share one module-level material across all director instances.
+        if (m && !sharedMat.has(m) && !o.geometry?.getAttribute('aSide')) mats.add(m);
+      }
+    });
+    for (const g of geos) g.dispose();
+    for (const m of mats) m.dispose();
+    this.glow?.sprite.material.dispose(); this.smoke?.sprite.material.dispose();
     for (const m of this.map?.markers ?? []) m.remove?.();
     delete window.__threat;
   }
@@ -725,7 +749,9 @@ export class Threat {
   sealWatch(dt) {
     const { hole, state } = this;
     if (!this.sealOn || state.over || !state.playing) { if (!state.playing && this.lid.visible && !state.sealed) this.lid.visible = false; return; }
-    const fl = Math.max(this.floorR(), 0.75 * (state.best || 0)), r = hole.r; // (P0-1c: the lid follows your peak: a run that bleeds a third of its best is warned)
+    const r = hole.r;
+    state.sealBest = Math.max(state.sealBest || 0, r);
+    const fl = Math.max(this.floorR(), 0.75 * state.sealBest); // (P0-1c: the lid follows the post-checkpoint peak, independent of the run's historical best)
     if (!this.seal && r < 0.7 * fl && this.t > 8) {
       this.seal = { t: 0, zone: this.zoneAlloc() }; this.stats.sealWarn++; this.sfx.lidWarn(); this.sfx.klaxon(1); this.news('Too weak: the Void Lid is coming down — eat, or be sealed for good');
       this.ctx.card('SEALING', `grow past ${KMs(0.75 * fl)} in 14 s`);
@@ -782,7 +808,7 @@ export class Threat {
     const { state } = this; let txt = '', cls = '', k = 1e9;
     const pick = (eta, s, c) => { if (eta < k) { k = eta; txt = s; cls = c; } };
     for (const kd of this.K) if (kd.line) for (const x of kd.items) if (x.on) kd.line(x, pick);
-    if (this.seal) { txt = `SEALING · grow past <b>${KMs(0.75 * Math.max(this.floorR(), 0.75 * (this.state.best || 0)))}</b> · <b>${this.seal.left.toFixed(0)} s</b>`; cls = 'lock'; }
+    if (this.seal) { txt = `SEALING · grow past <b>${KMs(0.75 * Math.max(this.floorR(), 0.75 * (this.state.sealBest || 0)))}</b> · <b>${this.seal.left.toFixed(0)} s</b>`; cls = 'lock'; }
     else if (!txt && state.frenzy > 0) { txt = `FRENZY · <b>${state.frenzy.toFixed(0)} s</b>`; cls = 'good'; }
     else if (!txt && state.magma > 0) { txt = `MAGMA SURGE · land counts ×${T3.kinds.volcano.surge} · <b>${state.magma.toFixed(0)} s</b>`; cls = 'good'; }
     else if (!txt && state.fallout) { txt = 'FALLOUT · hunger ×1.8 · land ×0.5'; }
