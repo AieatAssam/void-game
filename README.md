@@ -28,6 +28,11 @@ island-scale second phase are this project's own spin on it.
 | ![Adversity: a carrier group's cruise-missile salvo, one ring per missile](docs/screens/phase3-threat-fleet-salvo.jpg) | ![Adversity: a tsunami front racing across the sea](docs/screens/phase3-threat-tsunami.jpg) |
 | ![Adversity: an orbital laser platform sweeping its beam toward the hole](docs/screens/phase3-threat-laser.jpg) | ![Adversity: a MIRV's four warheads, one ring each](docs/screens/phase3-threat-mirv-rings.jpg) |
 | ![The Aegis: six platforms and the closing lid ring](docs/screens/phase3-threat-aegis-lid.jpg) | ![The Last Resort: the planet-cracker charging over the limb, fed by three power stations](docs/screens/phase3-threat-cracker-charge.jpg) |
+| ![The Moon cracks as it falls over the horizon](docs/screens/phase3-moon-fall.jpg) | ![The Moon breaks at the Roche limit](docs/screens/phase3-moon-break.jpg) |
+| ![Moon rocks rain down, each a ring to dive into](docs/screens/phase3-moon-rain.jpg) | ![Finale: fault lines ignite as the hole becomes a sphere](docs/screens/phase3-finale-faults.jpg) |
+| ![Finale: the globe splits, the mantle glows](docs/screens/phase3-finale-rupture.jpg) | ![Finale: chunks stretched toward the hole, the core exposed](docs/screens/phase3-finale-shred.jpg) |
+| ![Finale: the accretion disk builds as the core falls in](docs/screens/phase3-finale-disk.jpg) | ![Finale: the core spaghettified into a thread](docs/screens/phase3-finale-core.jpg) |
+| ![Finale: the black hole, lensed disk and photon ring](docs/screens/phase3-finale-blackhole.jpg) | |
 
 ## The game
 - **Grow:** everything has a size. Swallow what fits; each bite widens the hole by a share of the object's footprint —
