@@ -505,7 +505,7 @@ export class Threat {
     this.scar(n.to, 1.2 * n.B, 0.2 * r, 90, 0); // (the scorch stays: its ring is short)
     if (!n.child) { this.fall.push({ dir: n.to.clone(), R: 2 * r, t: 0, life: T3.falloutLife, zone: this.zoneAlloc() }); if (this.fall.length > 2) { const o = this.fall.shift(); this.zoneFree(o.zone); } }
     const near = Math.max(0.12, 1 - dist / (8 * r));
-    this.sfx.nukeBoom(Math.min(1, (n.child ? 0.35 : 0.5) + 0.5 * near), delay);
+    this.sfx.nukeBoom(Math.min(1, (n.child ? 0.35 : 0.5) + 0.5 * near), delay, this.pan(n.to));
     this.fxBlast((n.child ? 0.35 : 1) * near); this.screenFlash((n.child ? 0.05 : 0.08) + 0.2 * near, '#fff4dc', 260);
     this.trauma((n.child ? 0.1 : 0.2) + 0.4 * near);
     if (n.out === 'hit') {
@@ -624,11 +624,13 @@ export class Threat {
     for (let i = 0; i <= 96; i++) { const a = (i / 96) * 6.2832, d = a - th, dd = Math.atan2(Math.sin(d), Math.cos(d)); v1.copy(l.a).multiplyScalar(Math.cos(a)).addScaledVector(l.b, Math.sin(a)).setLength(R + l.alt); const f = 0.012 + 0.5 * Math.exp(-(dd * dd) / 0.05); l.orbit.set(i, v1, cd * 0.0011, 0.45, 0.85, 1.0, f); }
     l.orbit.done(97, camP);
   }
+  /** Stereo position (-0.85..0.85) of a planet direction: its screen x, for the booms. */
+  pan(dir) { const p = this.W.renderPos(dir, 0, this._pv ??= new THREE.Vector3()).project(this.ctx.camera); return Math.max(-0.85, Math.min(0.85, p.x * 0.8)); }
   fireRod(l) {
     const { W, hole } = this, dist = W.distTo(l.to);
     l.phase = 'rod'; l.rodT = 0; l.satFire = l.pos.clone(); l.out = dist < l.inner ? 'swallow' : dist < l.B ? 'hit' : 'miss';
     l.mk?.remove(); l.mk = null; l.beam.hide();
-    this.sfx.rodStrike(0.8, 0.34 + Math.min(1.2, dist / (12 * l.r0)));
+    this.sfx.rodStrike(0.8, 0.34 + Math.min(1.2, dist / (12 * l.r0)), this.pan(l.to));
   }
   rodImpact(l) {
     const { W, hole, state } = this, r = l.r0, dist = W.distTo(l.to), cd = this.game.camDist || 1;
@@ -649,7 +651,7 @@ export class Threat {
     this.scar(l.to, 1.6 * r, 3.0 * r, 14, 1); this.scar(l.to, 0.9 * r, 0.2 * r, 80, 1);
     this.dome(l.to, l.elev, 0.3 * r, 3.0 * r, 1.8 * r, 1); this.light(l.to, 5 * r, 1.0, 5); this.fxBlast(Math.max(0.12, 1 - dist / (8 * r)) * 0.8); // (the rod: a flat white dome out of the crater, the same family as the nuke)
     for (let q = 0; q < 3; q++) { v4.copy(v1).setLength(R + l.elev * W.E + r * (0.3 + q * 0.6)); this.glow.spawn(v4, null, 0.8 * r, 2.0 * r, 0.5 + 0.2 * q, FIRE[1 + (q > 0)], 1.4, 0); }
-    const near = Math.max(0.12, 1 - dist / (8 * r)); this.sfx.nukeBoom(0.35 + 0.4 * near, Math.min(1.2, dist / (12 * r))); this.screenFlash(0.04 + 0.12 * near, '#fff', 220); this.trauma(0.2 + 0.4 * near);
+    const near = Math.max(0.12, 1 - dist / (8 * r)); this.sfx.nukeBoom(0.35 + 0.4 * near, Math.min(1.2, dist / (12 * r)), this.pan(l.to)); this.screenFlash(0.04 + 0.12 * near, '#fff', 220); this.trauma(0.2 + 0.4 * near);
     if (l.out === 'hit') { this.hurt(T3.rodHit, 'Orbital strike!', 'rod', T3.rodK, 0.25, l.hadZone && l.locked ? this.t - l.lockAt : -1, l.to); this.notice(5); }
   }
   eatSat(l) {

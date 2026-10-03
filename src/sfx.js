@@ -1,23 +1,53 @@
 // Tiny WebAudio synth: no audio files to ship.
-let ctx, master, muted = false, lastGulp = 0;
+// The graph (built once): every voice -> `master` (the world's duck) -> `tierLP` (a lowpass that closes as the scale grows: a bigger world is farther away) -> `bus`;
+// the finale and the tinnitus ring skip the duck and the lowpass and join at `bus`. `bus` is the mute (a gain), then a compressor (a limiter in effect) and a soft clipper, so the
+// heaviest moment (a nuke, a hit, the grind together) can never clip: the output is bounded to +-1 by construction. A tab that is hidden suspends the context.
+let dest = null; // (a StereoPanner while `panned` runs: the voices it schedules join the mix there)
+let ctx, master, tierLP, bus, comp, trim, shaper, muted = false, lastGulp = 0, duckK = 1, live = 0;
+const MASTER = 0.35, TIER_HZ = [11000, 8000, 5000, 3000]; // (the lowpass per scale tier T1..T4)
+const softClip = (() => { const n = 2049, c = new Float32Array(n), k = 1.4, d = Math.tanh(k); for (let i = 0; i < n; i++) c[i] = Math.tanh(k * ((i / (n - 1)) * 2 - 1)) / d; return c; })();
+
+/** Build the output graph on a context (the real one, or the offline one the level probe renders with). */
+function buildGraph(c, { limit = true } = {}) {
+  bus = c.createGain(); bus.gain.value = muted ? 0 : 1;
+  comp = c.createDynamicsCompressor(); comp.threshold.value = -6; comp.knee.value = 6; comp.ratio.value = 10; comp.attack.value = 0.003; comp.release.value = 0.22;
+  shaper = c.createWaveShaper(); shaper.curve = softClip; shaper.oversample = '2x';
+  trim = c.createGain(); trim.gain.value = 0.6; // (Chrome's compressor adds its own makeup gain: the trim brings the loudness back to the un-limited mix)
+  if (limit) bus.connect(comp).connect(trim).connect(shaper).connect(c.destination); else bus.connect(c.destination);
+  tierLP = c.createBiquadFilter(); tierLP.type = 'lowpass'; tierLP.frequency.value = TIER_HZ[0]; tierLP.Q.value = 0.5; tierLP.connect(bus);
+  master = c.createGain(); master.gain.value = MASTER * duckK; master.connect(tierLP);
+}
+
+/** Run `fn` (which schedules voices) with everything it makes panned to `p` (-1 left .. 1 right). */
+function panned(p, fn) {
+  if (!ctx || !p) return fn();
+  const sp = ctx.createStereoPanner(); sp.pan.value = Math.max(-1, Math.min(1, p)); sp.connect(master); dest = sp;
+  try { fn(); } finally { dest = null; }
+}
 
 export function unlock() {
   if (ctx) return;
   ctx = new AudioContext();
-  master = ctx.createGain();
-  master.gain.value = 0.35;
-  master.connect(ctx.destination);
+  buildGraph(ctx);
+  document.addEventListener('visibilitychange', () => { if (!ctx) return; if (document.hidden) ctx.suspend(); else ctx.resume(); }); // (no sound, and no CPU, from a hidden tab)
 }
 
 export function toggleMute() {
   muted = !muted;
-  if (master) master.gain.value = muted ? 0 : 0.35;
-  if (fa) fa.out.gain.value = fvol();
+  if (bus) bus.gain.setTargetAtTime(muted ? 0 : 1, ctx.currentTime, 0.02); // (one stage mutes everything: the voices, the bed, the finale, the ring)
   return muted;
 }
 
+/** The scale tier (1..4): the world's lowpass closes a notch per tier, and the music bed changes chord. */
+export function setTier(t) {
+  if (!ctx || !tierLP) return;
+  const k = Math.max(1, Math.min(4, t | 0));
+  tierLP.frequency.setTargetAtTime(TIER_HZ[k - 1], ctx.currentTime, 0.7);
+  bed.tier(k);
+}
+
 function tone(type, f0, f1, dur, vol = 0.5, delay = 0) {
-  if (!ctx || muted) return;
+  if (!ctx || muted || live > 80) return; // (a voice cap: a storm of events can never pile up nodes)
   const t = ctx.currentTime + delay;
   const o = ctx.createOscillator(), g = ctx.createGain();
   o.type = type;
@@ -26,9 +56,10 @@ function tone(type, f0, f1, dur, vol = 0.5, delay = 0) {
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(g).connect(master);
+  o.connect(g).connect(dest || master);
   o.start(t);
   o.stop(t + dur + 0.02);
+  live++; o.onended = () => { live--; g.disconnect(); };
 }
 
 /** Bigger things gulp lower. */
@@ -154,12 +185,13 @@ export function bells() {
 let noiseBuf = null;
 /** A burst of filtered noise (rock breaking, surf, a roar). */
 function noise(dur, lp, vol, delay = 0, hp = 0) {
-  if (!ctx || muted) return;
+  if (!ctx || muted || live > 80) return;
   if (!noiseBuf) { noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
   const t = ctx.currentTime + delay, src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
   src.buffer = noiseBuf; src.loop = true; f.type = hp ? 'highpass' : 'lowpass'; f.frequency.value = hp || lp;
   g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + Math.min(0.05, dur * 0.2)); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  src.connect(f).connect(g).connect(master); src.start(t); src.stop(t + dur + 0.02);
+  src.connect(f).connect(g).connect(dest || master); src.start(t); src.stop(t + dur + 0.02);
+  live++; src.onended = () => { live--; g.disconnect(); };
 }
 let lastTear = 0;
 /** A district / island: a crack of rock and a gulp (k 0..1 size). */
@@ -188,13 +220,13 @@ export function surf() { noise(1.6, 1200, 0.22, 0.05, 250); }
 // ---------- Phase 3 threats (docs/PHASE3.md §5.3): all WebAudio synthesis; `delay` carries the sound's travel time ----------
 /** Filtered noise whose envelope RISES (a boom played backwards) and then cuts. */
 function noiseUp(dur, lp, vol, delay = 0) {
-  if (!ctx || muted) return;
+  if (!ctx || muted || live > 80) return;
   if (!noiseBuf) noise(0.01, 100, 0.0001); // (builds the shared buffer)
   const t = ctx.currentTime + delay, src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
   src.buffer = noiseBuf; src.loop = true; f.type = 'lowpass';
   f.frequency.setValueAtTime(lp * 0.15, t); f.frequency.exponentialRampToValueAtTime(lp, t + dur);
   g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + dur * 0.96); g.gain.linearRampToValueAtTime(0.0001, t + dur);
-  src.connect(f).connect(g).connect(master); src.start(t); src.stop(t + dur + 0.02);
+  src.connect(f).connect(g).connect(dest || master); src.start(t); src.stop(t + dur + 0.02);
 }
 /** An ICBM leaves its silo: a rising roar and a low shudder (k 0..1 loudness: the silo's distance). */
 export function nukeLaunch(k = 1) { noise(2.4, 700 + 900 * k, 0.28 * k + 0.06); tone('sawtooth', 70, 160, 2.2, 0.07 * k); tone('sine', 48, 36, 2.0, 0.3 * k); }
@@ -206,9 +238,11 @@ export function klaxon(level = 3) {
   for (let i = 0; i < n; i++) { tone('sawtooth', f, f * 0.7, 0.26, 0.09, i * 0.34); tone('square', f * 1.5, f * 1.1, 0.26, 0.03, i * 0.34); }
 }
 /** A detonation: the flash is silent, the boom arrives `delay` s later (k 0..1 size). */
-export function nukeBoom(k = 1, delay = 0) {
-  noise(0.35, 5000, 0.5, delay); noise(2.6 + k, 600, 0.5, delay + 0.05);
-  tone('sine', 62, 22, 2.8 + k, 0.8, delay); tone('sawtooth', 90, 30, 1.2, 0.12, delay + 0.05);
+export function nukeBoom(k = 1, delay = 0, pan = 0) {
+  panned(pan, () => {
+    noise(0.35, 5000, 0.5, delay); noise(2.6 + k, 600, 0.5, delay + 0.05);
+    tone('sine', 62, 22, 2.8 + k, 0.8, delay); tone('sawtooth', 90, 30, 1.2, 0.12, delay + 0.05);
+  });
 }
 /** The best moment: the boom played backwards into a gulp, over a choir (the nuke fell into the void). */
 export function reverseGulp() {
@@ -217,8 +251,8 @@ export function reverseGulp() {
   [196, 294, 392, 494, 588, 784].forEach((f, i) => { tone('sine', f, f, 2.6, 0.1, 0.62 + 0.03 * i); tone('triangle', f * 2.005, f * 2, 1.8, 0.03, 0.62 + 0.03 * i); });
 }
 /** A kinetic rod: a thin whine falling in, a crack and a deep thud. */
-export function rodStrike(k = 1, delay = 0) {
-  tone('sine', 5200, 900, 0.5, 0.06, delay - 0.45 < 0 ? 0 : delay - 0.45); noise(0.2, 6000, 0.45, delay); tone('sine', 78, 24, 1.8, 0.8, delay); noise(1.6, 400, 0.35, delay + 0.05);
+export function rodStrike(k = 1, delay = 0, pan = 0) {
+  panned(pan, () => { tone('sine', 5200, 900, 0.5, 0.06, delay - 0.45 < 0 ? 0 : delay - 0.45); noise(0.2, 6000, 0.45, delay); tone('sine', 78, 24, 1.8, 0.8, delay); noise(1.6, 400, 0.35, delay + 0.05); });
 }
 /** The strafe: jets rushing past, rattling blasts. */
 export function strafe() { noise(2.2, 1800, 0.14); for (let i = 0; i < 9; i++) { noise(0.2, 900, 0.3, 0.2 + i * 0.16); tone('sine', 90, 36, 0.3, 0.3, 0.2 + i * 0.16); } }
@@ -231,7 +265,7 @@ export function lidWarn() { tone('sawtooth', 70, 62, 1.8, 0.14); tone('square', 
 /** The whole mix drops to `k` (0..1 of normal) over `secs`: the silence before the island breaks. */
 export function duck(k = 0.12, secs = 0.25) {
   if (!ctx || !master || muted) return;
-  master.gain.cancelScheduledValues(ctx.currentTime); master.gain.setTargetAtTime(0.35 * k, ctx.currentTime, secs / 3);
+  duckK = k; master.gain.cancelScheduledValues(ctx.currentTime); master.gain.setTargetAtTime(MASTER * k, ctx.currentTime, secs / 3);
 }
 export function unduck(secs = 1.5) { duck(1, secs); }
 /** A low drone (two sines a beat apart) that holds for `dur`: the breath held. */
@@ -309,8 +343,8 @@ export function pain(k = 0.5) {
   noise(0.22 + 0.25 * kk, 3600, 0.5 + 0.3 * kk); tone('sawtooth', 210 - 60 * kk, 34, 0.45, 0.16 + 0.1 * kk);
   tone('sine', 130 - 50 * kk, 22, 0.8 + 0.8 * kk, 0.9); tone('sine', 54, 19, 1.4 + 1.2 * kk, 0.7 + 0.3 * kk, 0.03); noise(0.9 + kk, 420, 0.4, 0.06);
   if (kk > 0.25 && master) {
-    master.gain.cancelScheduledValues(t); master.gain.setTargetAtTime(0.35 * (0.6 - 0.35 * kk), t, 0.012); master.gain.setTargetAtTime(0.35, t + 0.3 + 0.5 * kk, 0.45 + 0.5 * kk);
-    if (!ringG) { ringG = ctx.createGain(); ringG.gain.value = 0; ringG.connect(ctx.destination); for (const f of [5400, 7600]) { const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f; o.connect(ringG); o.start(); } }
+    master.gain.cancelScheduledValues(t); master.gain.setTargetAtTime(MASTER * duckK * (0.6 - 0.35 * kk), t, 0.012); master.gain.setTargetAtTime(MASTER * duckK, t + 0.3 + 0.5 * kk, 0.45 + 0.5 * kk);
+    if (!ringG) { ringG = ctx.createGain(); ringG.gain.value = 0; ringG.connect(bus); for (const f of [5400, 7600]) { const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f; o.connect(ringG); o.start(); } }
     ringG.gain.cancelScheduledValues(t); ringG.gain.setValueAtTime(0, t); ringG.gain.linearRampToValueAtTime(0.012 + 0.03 * kk, t + 0.05); ringG.gain.setTargetAtTime(0, t + 0.4, 0.7 + 1.1 * kk);
   }
 }
@@ -319,34 +353,33 @@ export function heart(k = 0.5) { tone('sine', 66, 38, 0.16, 0.3 * k + 0.08); ton
 
 // ---------- the finale (src/finale.js): one persistent graph, driven by finale.mix(t-derived targets); the chunks are one-shots over it ----------
 let fa = null;
-const fvol = () => (muted ? 0 : 1);
 /** Build the finale's graph (once) and open its bus. It bypasses the master's duck (the world goes silent, the finale does not). */
 export const finale = {
   start() {
     if (!ctx) return;
     if (!noiseBuf) noise(0.01, 100, 0.0001);
-    if (fa) { fa.out.gain.setTargetAtTime(fvol(), ctx.currentTime, 0.05); return; }
-    const out = ctx.createGain(); out.gain.value = fvol(); out.connect(ctx.destination);
-    const bus = (v = 0) => { const g = ctx.createGain(); g.gain.value = v; g.connect(out); return g; };
+    if (fa) return;
+    const out = ctx.createGain(); out.gain.value = 0.4; out.connect(bus); // (it bypasses the duck, so it is trimmed to sit with the rest: 0.4 ~ the master's 0.35)
+    const lane = (v = 0) => { const g = ctx.createGain(); g.gain.value = v; g.connect(out); return g; };
     const osc = (type, f, dest, det = 0) => { const o = ctx.createOscillator(); o.type = type; o.frequency.value = f; o.detune.value = det; o.connect(dest); o.start(); return o; };
     const nz = (dest) => { const s = ctx.createBufferSource(); s.buffer = noiseBuf; s.loop = true; s.connect(dest); s.start(); return s; };
     fa = { out, noise: noiseBuf };
     // sub: two detuned sines and a saw an octave down through a lowpass: the world's weight
-    fa.gSub = bus(); const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 160; lp.connect(fa.gSub);
+    fa.gSub = lane(); const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 160; lp.connect(fa.gSub);
     fa.sub = [osc('sine', 41, lp), osc('sine', 41.7, lp), osc('sawtooth', 20.5, lp)];
     // groan: noise through a slow, resonant lowpass (the crust straining)
-    fa.gGroan = bus(); fa.fGroan = ctx.createBiquadFilter(); fa.fGroan.type = 'lowpass'; fa.fGroan.Q.value = 7; fa.fGroan.frequency.value = 160; nz(fa.fGroan); fa.fGroan.connect(fa.gGroan);
+    fa.gGroan = lane(); fa.fGroan = ctx.createBiquadFilter(); fa.fGroan.type = 'lowpass'; fa.fGroan.Q.value = 7; fa.fGroan.frequency.value = 160; nz(fa.fGroan); fa.fGroan.connect(fa.gGroan);
     const lfo = ctx.createOscillator(), lg = ctx.createGain(); lfo.frequency.value = 0.19; lg.gain.value = 70; lfo.connect(lg).connect(fa.fGroan.frequency); lfo.start();
     // the choir / organ: a stacked D minor, sines and triangles, a slow tremolo
-    fa.gChoir = bus(); fa.choir = [];
+    fa.gChoir = lane(); fa.choir = [];
     [73.4, 110, 146.8, 174.6, 220, 293.7, 440].forEach((f, i) => { const g = ctx.createGain(); g.gain.value = 0.16 / (1 + i * 0.35); g.connect(fa.gChoir); fa.choir.push(osc(i % 2 ? 'triangle' : 'sine', f, g, (i - 3) * 3), osc('sine', f * 2.003, g, i * 2)); });
     // grinding: band-passed noise, shuddering
-    fa.gGrind = bus(); const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 480; bp.Q.value = 0.9; nz(bp); const am = ctx.createGain(); am.gain.value = 0.5; bp.connect(am); am.connect(fa.gGrind);
+    fa.gGrind = lane(); const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 480; bp.Q.value = 0.9; nz(bp); const am = ctx.createGain(); am.gain.value = 0.5; bp.connect(am); am.connect(fa.gGrind);
     const l2 = ctx.createOscillator(), l2g = ctx.createGain(); l2.type = 'sawtooth'; l2.frequency.value = 11; l2g.gain.value = 0.5; l2.connect(l2g).connect(am.gain); l2.start(); fa.bp = bp;
     // the shimmer: high sines drifting up, only after the silence
-    fa.gShim = bus(); fa.shim = [1760, 2637, 3520, 5274].map((f, i) => osc('sine', f, (() => { const g = ctx.createGain(); g.gain.value = 0.05 / (1 + i * 0.5); g.connect(fa.gShim); return g; })(), i * 7));
+    fa.gShim = lane(); fa.shim = [1760, 2637, 3520, 5274].map((f, i) => osc('sine', f, (() => { const g = ctx.createGain(); g.gain.value = 0.05 / (1 + i * 0.5); g.connect(fa.gShim); return g; })(), i * 7));
     // the resolved drone: a fifth over a sub, breathing
-    fa.gDrone = bus(); const dl = ctx.createGain(); dl.gain.value = 0.5; dl.connect(fa.gDrone); fa.drone = [osc('sine', 55, dl), osc('sine', 82.5, dl, 2), osc('sine', 110.2, dl, -2)];
+    fa.gDrone = lane(); const dl = ctx.createGain(); dl.gain.value = 0.5; dl.connect(fa.gDrone); fa.drone = [osc('sine', 55, dl), osc('sine', 82.5, dl, 2), osc('sine', 110.2, dl, -2)];
     const l3 = ctx.createOscillator(), l3g = ctx.createGain(); l3.frequency.value = 0.23; l3g.gain.value = 0.3; l3.connect(l3g).connect(dl.gain); l3.start();
   },
   /** targets 0..1 per layer (smoothed here): sub, groan, choir, grind, shim, drone; rise 0..1 lifts the sub's pitch and the grind's band. */
@@ -357,7 +390,6 @@ export const finale = {
     fa.sub[0].frequency.setTargetAtTime(41 + 24 * (m.rise || 0), t, 0.2); fa.sub[1].frequency.setTargetAtTime(41.7 + 24.6 * (m.rise || 0), t, 0.2); fa.sub[2].frequency.setTargetAtTime(20.5 + 12 * (m.rise || 0), t, 0.2);
     fa.fGroan.frequency.setTargetAtTime(150 + 160 * (m.groan || 0), t, 0.3); fa.bp.frequency.setTargetAtTime(380 + 900 * (m.rise || 0), t, 0.2);
     for (let i = 0; i < fa.shim.length; i++) fa.shim[i].frequency.setTargetAtTime([1760, 2637, 3520, 5274][i] * (1 + 0.35 * (m.up || 0)), t, 0.4);
-    if (muted) fa.out.gain.setTargetAtTime(0, t, 0.05); else fa.out.gain.setTargetAtTime(1, t, 0.05);
   },
   /** A chunk swallowed (k 0..1 its share, n how many so far): a thump whose pitch climbs, a crunch of grit. */
   hit(k = 0.3, n = 0) {
@@ -388,3 +420,79 @@ export const finale = {
   /** Everything but the sub-bass out within a breath: the sudden silence at the transformation. */
   silence(tau = 0.04) { if (fa && ctx) { const t = ctx.currentTime; for (const g of [fa.gSub, fa.gGroan, fa.gChoir, fa.gGrind, fa.gShim, fa.gDrone]) g.gain.setTargetAtTime(0, t, tau); } },
 };
+
+// ---------- the music bed (docs/PHASE3-REVIEW.md D6): one persistent graph, a chord per scale tier; everything is a gain or a pitch target, so a tier-up is a glide, not a cut ----------
+const CHORD = [[146.83, 174.61, 220], [116.54, 146.83, 174.61], [98, 116.54, 146.83], [73.42, 110, 146.83]]; // T1 Dm, T2 Bb, T3 Gm, T4 an open D (the drone)
+const ROOT = [73.42, 58.27, 49, 36.71], AMB_HZ = [620, 480, 330, 200], AMB_G = [0.5, 0.55, 0.42, 0.12], PAD_HZ = [820, 640, 520, 380], PAD_G = [0.8, 0.8, 0.75, 0.55];
+let bd = null;
+/**
+ * bed.tier(k): the chord glides (3 notes x 3 detuned saws through a lowpass), the sub drone and the choir follow; ambience (wind, thinning with the scale, nearly gone in space).
+ * bed.defcon(d): a low pulse rises as DEFCON falls 5 -> 1. bed.surf(k 0..1): a wash when the cap overlaps a coast. bed.duck(k, s): the bed ducks under big events. bed.stop(): fade out.
+ */
+export const bed = {
+  start() {
+    if (!ctx || bd) return;
+    if (!noiseBuf) noise(0.01, 100, 0.0001);
+    const t = ctx.currentTime, out = ctx.createGain(); out.gain.value = 0; out.gain.setTargetAtTime(1, t, 2.5); out.connect(master);
+    const osc = (type, f, dest, det = 0) => { const o = ctx.createOscillator(); o.type = type; o.frequency.value = f; o.detune.value = det; o.connect(dest); o.start(); return o; };
+    const nz = (dest) => { const n = ctx.createBufferSource(); n.buffer = noiseBuf; n.loop = true; n.connect(dest); n.start(); return n; };
+    const k = 0; bd = { out, k };
+    // the pad: three notes, each three detuned saws, lowpassed (a soft, slow-breathing bed)
+    const pl = ctx.createBiquadFilter(); pl.type = 'lowpass'; pl.frequency.value = PAD_HZ[k]; pl.Q.value = 0.6; const pg = ctx.createGain(); pg.gain.value = 0.05 * PAD_G[k]; pl.connect(pg).connect(out);
+    bd.padLP = pl; bd.padG = pg; bd.pad = CHORD[k].map((f) => [-9, 0, 9].map((c) => osc('sawtooth', f, pl, c)));
+    const br = ctx.createOscillator(), brg = ctx.createGain(); br.frequency.value = 0.07; brg.gain.value = 140; br.connect(brg).connect(pl.frequency); br.start();
+    // the sub drone (the root, an octave and a half down) and the choir (open sines over the chord, a slow tremolo)
+    const sg = ctx.createGain(); sg.gain.value = 0.16; sg.connect(out); bd.sub = osc('sine', ROOT[k], sg);
+    const cg = ctx.createGain(); cg.gain.value = 0.045; cg.connect(out); const tr = ctx.createGain(); tr.gain.value = 0.7; tr.connect(cg); bd.choir = [2, 3, 4].map((m, i) => osc('sine', CHORD[k][i] * m * 0.5, tr, i * 4));
+    const lf = ctx.createOscillator(), lg = ctx.createGain(); lf.frequency.value = 0.13; lg.gain.value = 0.3; lf.connect(lg).connect(tr.gain); lf.start();
+    // ambience: wind
+    const ab = ctx.createBiquadFilter(); ab.type = 'bandpass'; ab.frequency.value = AMB_HZ[k]; ab.Q.value = 0.5; const ag = ctx.createGain(); ag.gain.value = 0.1 * AMB_G[k]; nz(ab); ab.connect(ag).connect(out); bd.ambF = ab; bd.ambG = ag;
+    const wl = ctx.createOscillator(), wg = ctx.createGain(); wl.frequency.value = 0.09; wg.gain.value = 0.35 * AMB_HZ[k] * 0.5; wl.connect(wg).connect(ab.frequency); wl.start(); // (gusts)
+    // the pulse (DEFCON): a low sine gated by a slow LFO
+    const pu = ctx.createGain(); pu.gain.value = 0; const pd = ctx.createGain(); pd.gain.value = 0; const pl2 = ctx.createOscillator(); pl2.frequency.value = 1; pl2.connect(pd).connect(pu.gain); pl2.start();
+    osc('sine', 55, pu); pu.connect(out); bd.pulseBase = pu; bd.pulseDepth = pd; bd.pulseLfo = pl2;
+    // the surf wash: noise through a bandpass, swelling
+    const sf = ctx.createBiquadFilter(); sf.type = 'bandpass'; sf.frequency.value = 900; sf.Q.value = 0.7; const sfg = ctx.createGain(); sfg.gain.value = 0; nz(sf); sf.connect(sfg).connect(out); bd.surfG = sfg;
+    const sl = ctx.createOscillator(), slg = ctx.createGain(); sl.frequency.value = 0.15; slg.gain.value = 0.35; sl.connect(slg).connect(sfg.gain); sl.start();
+  },
+  tier(k) {
+    if (!ctx) return;
+    if (!bd) this.start();
+    if (!bd || bd.k === k - 1) return;
+    const t = ctx.currentTime, i = k - 1; bd.k = i;
+    bd.pad.forEach((row, n) => row.forEach((o) => o.frequency.setTargetAtTime(CHORD[i][n], t, 1.6)));
+    bd.sub.frequency.setTargetAtTime(ROOT[i], t, 1.6); bd.choir.forEach((o, n) => o.frequency.setTargetAtTime(CHORD[i][n] * [2, 3, 4][n] * 0.5, t, 1.6));
+    bd.padLP.frequency.setTargetAtTime(PAD_HZ[i], t, 1.6); bd.padG.gain.setTargetAtTime(0.05 * PAD_G[i], t, 1.6);
+    bd.ambF.frequency.setTargetAtTime(AMB_HZ[i], t, 1.6); bd.ambG.gain.setTargetAtTime(0.1 * AMB_G[i], t, 1.6);
+  },
+  defcon(d) {
+    if (!bd || !ctx) return;
+    const k = Math.max(0, Math.min(1, (5 - d) / 4)), t = ctx.currentTime;
+    bd.pulseBase.gain.setTargetAtTime(0.045 * k, t, 0.6); bd.pulseDepth.gain.setTargetAtTime(0.045 * k, t, 0.6); bd.pulseLfo.frequency.setTargetAtTime(0.8 + 1.9 * k, t, 0.6);
+  },
+  surf(k) { if (bd && ctx) bd.surfG.gain.setTargetAtTime(0.06 * Math.max(0, Math.min(1, k)), ctx.currentTime, 0.5); },
+  duck(k = 0.4, secs = 0.2) { if (bd && ctx) bd.out.gain.setTargetAtTime(k, ctx.currentTime, secs / 3); },
+  stop() { if (bd && ctx) bd.out.gain.setTargetAtTime(0, ctx.currentTime, 0.5); },
+  start0() { if (bd && ctx) bd.out.gain.setTargetAtTime(1, ctx.currentTime, 1.5); },
+};
+
+// ---------- the level probe (dev: window.__sfxProbe): the heaviest moments rendered offline, peak and RMS in dBFS ----------
+/** Render `secs` of a scenario with an OfflineAudioContext and report { peakDb, rmsDb } of the output, with the limiter chain in and with it out. Restores the live graph afterwards. */
+export async function levelProbe(scenario = 'nuke', secs = 6) {
+  const keep = { ctx, master, tierLP, bus, comp, shaper, noiseBuf, gr, fa, bd, muted, duckK, live, ringG };
+  const out = {};
+  for (const limit of [true, false]) {
+    ctx = new OfflineAudioContext(2, 44100 * secs, 44100); muted = false; duckK = 1; live = 0; noiseBuf = null; gr = null; fa = null; bd = null; ringG = null; lastGulp = -9; lastTear = -9; lastSiren = -9; lastHonk = -9; lastEek = -9; lastRaid = -9; lastPebble = -9;
+    buildGraph(ctx, { limit });
+    bed.tier(3); bed.defcon(1); bed.surf(1);
+    if (scenario === 'nuke' || scenario === 'all') { nukeBoom(1, 0.2); pain(1); grind.set(1, 3); rumble(1, 0.3); klaxon(1); tear(1, 12); }
+    if (scenario === 'finale' || scenario === 'all') { finale.start(); finale.mix({ sub: 0.8, groan: 0.4, choir: 0.7, grind: 0.7, shim: 0.3, drone: 0.4, rise: 0.5, up: 0.3 }, 0.01); /* the busiest real moment: the body of the fall */ finale.rupture(); finale.hit(1, 20); finale.last(); }
+    if (scenario === 'all') { crackerFire(); aegisBreak(); levelUp(); star(); }
+    const buf = await ctx.startRendering(), a = buf.getChannelData(0), b = buf.getChannelData(1);
+    let pk = 0, sq = 0; for (let i = 0; i < a.length; i++) { pk = Math.max(pk, Math.abs(a[i]), Math.abs(b[i])); sq += a[i] * a[i] + b[i] * b[i]; }
+    out[limit ? 'limited' : 'raw'] = { peakDb: +(20 * Math.log10(pk || 1e-9)).toFixed(1), rmsDb: +(10 * Math.log10(sq / (a.length * 2) || 1e-12)).toFixed(1) };
+  }
+  ({ ctx, master, tierLP, bus, comp, shaper, noiseBuf, gr, fa, bd, muted, duckK, live, ringG } = keep);
+  return out;
+}
+if (typeof window !== 'undefined') window.__sfxProbe = levelProbe;

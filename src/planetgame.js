@@ -309,6 +309,17 @@ export class PlanetGame {
     this.rim = (this.rim || 0) + (Math.min(1, (credit * P3.g(r) * P3.feast) / (Math.max(dt, 1e-3) * hole.area) * 40) - (this.rim || 0)) * Math.min(1, dt * 3);
     W.globe.u.uRim.value = this.rim;
     ctx.sfx.grind.set(state.won ? 0 : this.rim, tier); // (A4: the grind swells on land, falls to silence over the sea)
+    { // the music bed (D6): the chord follows the tier, a pulse follows DEFCON, a surf wash where the cap overlaps a coast (8 rim probes at 2 Hz)
+      const sx = ctx.sfx;
+      if (tier !== this._bedTier) { this._bedTier = tier; sx.setTier(tier); }
+      if ((state.defcon ?? 5) !== this._bedDc) { this._bedDc = state.defcon ?? 5; sx.bed.defcon(this._bedDc); }
+      this._surfT = (this._surfT || 0) - dt;
+      if (this._surfT <= 0) {
+        this._surfT = 0.5; let sea = 0, land = 0;
+        for (let q = 0; q < 8; q++) { const d = W.P.step(W.hdir, q * 0.785, r); if (W.bite.landAt(d) < 0) sea++; else land++; }
+        sx.bed.surf(sea && land ? 1 : 0);
+      }
+    }
     const dA = credit * G; // (ocean texels already give 0 credit: the old centre-at-sea multiplier threw a third of the T4 swath away)
     this.wetPrev = here.h < 0 && credit <= 0;
     if (dA > 0) {
@@ -772,7 +783,7 @@ export class PlanetGame {
   }
 
   leave(ctx) {
-    ctx.sfx.grind.stop();
+    ctx.sfx.grind.stop(); ctx.sfx.bed.stop();
     this.threat?.dispose(); this.threat = null; this.cities?.dispose(); this.cities = null;
     this.map?.dispose(); this.map = null;
     for (const id of ['stars', 'eaten', 'left']) { const e = document.getElementById(id); if (e) e.hidden = false; }
