@@ -204,3 +204,46 @@ Browser pane at 1085 x 714, devicePixelRatio 2, `document.visibilityState = visi
 - The game is GPU-bound at this window and DPR 2 (JS 1-2 ms a frame): it holds 40-52 fps, not 60. Not reproducing the doc's 8.1 / 4.8 / 5.2 ms (pixel ratio 1).
 - `__bench` (tools/bench-snippet.js) in the same visible window, with the game's own rAF loop still running (so it is inflated, about 2x): pixel ratio 1 gives 20.2 / 26.5 / 32.1 / 27.6 ms and pixel ratio 2 gives 68 / 85 / 108 / 96 ms for T1 / T2 / T3 / T4. T1 at pr 1 is over the 12 ms line in the review, so **D2 (the no-close terrain variant) is still open**: not done in this loop; do it before a low-end target.
 - Not measured: `?off=mid` at T1, WebGL fps, a 25-minute continuous run. The sweeps' time stays headless.
+
+## Phase 3: weak GPUs (this branch)
+
+The loop-2 table above is an Apple GPU at device pixel ratio 2. It is not a number from this machine. Startup pixel ratio is `min(devicePixelRatio, Q.dpr, 1)` (`src/look.js`), so a fresh page is 1× unless `?pr=` is set. The watchdog may then climb toward `min(devicePixelRatio, Q.dpr)`. On the high tier that ceiling is 2, which is the case the loop-2 table measured. The climb now waits for five steady seconds at 58 fps and will not step back up to a ratio that just failed.
+
+Desktops used to start on high with no look at the GPU. Low still ran ambient occlusion, bloom, SMAA and grain. This branch reads the WebGL renderer string once: SwiftShader and the other software rasterizers, and phones, start on low; integrated GPUs and a page opened with `?webgl` and no `?q=` start on medium. `?q=` still wins. Safari's measured settings are unchanged.
+
+### Town, SwiftShader, WebGL2
+
+Headless Chrome, ANGLE SwiftShader, 1280×720, `devicePixelRatio` 1, `?webgl&nothumbs&nowatch&seed=3&fps`. Click play, 5 s settle, median of the next animation frames. Draw calls and triangles are `renderer.info` on the last of those frames. Low and medium redraw the shadow map every second frame, so that count can be the frame without the shadow pass. These are software-raster milliseconds, not a frame rate on a real GPU. `tools/perf.mjs` is the same play-and-read path; its Playwright import is hardcoded to a path this machine does not have, so the run used that tool's steps with Playwright installed beside it.
+
+| | quality log | post | median frame | draws | tris |
+|---|---|---|---|---|---|
+| main, no `?q=` | `quality: high` | AO 12 samples, bloom, SMAA, grain, shadow every frame | 2926 ms (1217–2973) | 130 | 780k |
+| this branch, no `?q=` | `quality: low (software renderer)` | no AO, no bloom, FXAA, no grain, shadow every 2nd frame | 1334 ms (1260–1376) | 74 | 400k |
+| this branch, `?q=medium` | `quality: medium (software renderer)` | AO 6 samples at 0.25×, no bloom, FXAA, no grain | 1484 ms (200–1519) | 58 | 386k |
+| this branch, `?q=high` | `quality: high (software renderer)` | AO 8 samples at 0.35×, bloom, SMAA, grain | 2912 ms (26–3047) | 130 | 783k |
+
+The hole was 0.45 m in every run, and the renderer pixel ratio stayed 1. Forcing high on this branch matches main: the shadow map is 2048 instead of 4096 and AO takes 8 samples instead of 12, and that did not move a SwiftShader town frame. The gain on this GPU is not starting on high. Low is about half the frame time and about half the triangles of the old default.
+
+### Planet viewer, same GPU
+
+`?planet=view&webgl&nowatch&still&seed=7&cam=20,-30,1.06` (camera at 1.06 planet radii). Median of 6–8 frames after the bake:
+
+| | median frame |
+|---|---|
+| main, `?q=high` | 31459 ms (7–31602) |
+| this branch, `?q=high` | 31010 ms (5–31828) |
+| this branch, no `?q=` (low) | 30108 ms (28727–60407) |
+
+Within the noise of a 30 s software frame. The high-tier shader cuts (one fewer hill octave, the cubic wound only on the contour, fewer atmosphere samples) do not show up here. The patch material, which is the one with the close-ground texture branches, was compiled on this branch at high and at low by showing the hidden patch for two frames: no page error, `gl.getError()` 0.
+
+### Ground-patch CPU (Node, not a frame)
+
+Seed 7, a land anchor, the high-tier 129² grid, unsliced. One height pass is 23–30 ms here, and the slowest row is under 1 ms, so the ~290 ms T3 hitch in the loop-2 table is not this loop on this machine. The build still yields every two height rows (it was six) so one `next()` stays short on a slower CPU. Shadow rays:
+
+| r | spacing | height | 20 rays (previous) | this branch |
+|---|---|---|---|---|
+| 40 km | 5.1 km | 30.2 ms | 12.3 ms | 12.8 ms (8 rays; the march exits early, so the total barely moves) |
+| 100 km | 12.7 km | 23.2 ms | 6.0 ms | 0.7 ms (rays skipped; curvature occlusion stays) |
+| 140 km | 17.8 km | 26.0 ms | 1.2 ms | 0.1 ms |
+
+`docs/wip-loop3-perf.patch` lowered `T3.rodK` from 18 to 14. That is threat damage, not a frame-time fix, and it was not applied. The patch's pixel-ratio hysteresis was.
