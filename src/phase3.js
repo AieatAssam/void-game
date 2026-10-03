@@ -28,10 +28,10 @@ function ramp(tab, r, col) {
 }
 
 export const P3 = {
-  // movement (§12.1): 24 km/s at the start, 585 km/s at 2.4k km. NOT a constant 0.6 r/s: the sweep (2 r v) grows with r^2 and the slowing screen speed is the "mass" cue.
-  speedExp: -0.30, // (balance knob: a more negative exponent slows the big hole down)
-  speed: (r) => 0.6 * r * (r / (40 * KM)) ** P3.speedExp,
-  turn: (r) => 0.45 * (r / (40 * KM)) ** 0.14, // steering smoothing time constant (s): the hole gets heavier (0.8 s at 2.4k km)
+  // movement: retain responsive screen-relative travel across the scale jump (46 km/s at 40 km, ~1.7 Mm/s at 2.4k km).
+  speedExp: -0.12, // a mild mass cue; the previous -0.30 made planetary motion nearly stop on screen at T4
+  speed: (r) => 1.15 * r * (r / (40 * KM)) ** P3.speedExp,
+  turn: (r) => 0.18 * (r / (40 * KM)) ** 0.07, // steering smoothing time constant (s): responsive at T1 and still deliberate at T4
   pitch: (r) => ramp(VIEW, r, 1) * Math.PI / 180,
   relief: (r) => ramp(VIEW, r, 2),
   aim: (r) => ramp(VIEW, r, 3), // degrees
@@ -50,7 +50,7 @@ export const P3 = {
   patchMax: 150 * KM,
   // belly / decay: land credit tops the belly up 1:1 in area terms
   bellyDrain: 1 / 30, meal: 0.06, decayFed: 0.0010, decayStarving: 0.005, huntSoft: 0.3, // decay fades out between 67% and 97% of the land eaten (then none: the hunt)
-  oceanSpeed: (tier) => (tier < 3 ? 0.85 : tier === 3 ? 0.92 : 1), // (§3: 0.6 / 0.85 felt like wading)
+  oceanSpeed: (tier) => (tier < 3 ? 0.94 : tier === 3 ? 0.97 : 1), // sea crossings keep a small cost without stopping the early-scale flow
   oceanDrain: (tier) => (tier < 3 ? 1.1 : tier === 3 ? 1.05 : 1),
   feast: 1, // land-credit multiplier (?feast=N overrides: balance knob)
   floorK: 0.7, // the hole never shrinks below floorK x the floor of the highest tier reached (stand-in for the Sealed loss)

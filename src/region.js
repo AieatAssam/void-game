@@ -46,8 +46,8 @@ async function run(gen, slice) {
 
 /**
  * A time slicer for building in the background: at most one slice of `budget` ms per animation frame (so it never
- * stacks several between two frames), and none while `hold()` says the game is struggling (the fps watchdog must not
- * blame the GPU for our work). Set `.budget` higher when the result is needed now; set `.cancelled` to abandon it.
+ * stacks several between two frames), with work throttled while `hold()` says the game is struggling. A held job still
+ * gets a small slice every 200 ms so stage changes cannot wait forever. Set `.budget` higher when needed now.
  */
 export function slicer(budget = 3, hold = () => false) {
   let t0 = performance.now();
@@ -56,7 +56,10 @@ export function slicer(budget = 3, hold = () => false) {
     if (s.cancelled) throw new Error('region build cancelled');
     if (performance.now() - t0 < s.budget) return;
     await nextFrame();
-    while (s.budget < 20 && hold() && !s.cancelled) await nextFrame();
+    // Keep background work light on a struggling device, but never let a stage handoff wait forever for 55 fps.
+    // One 3 ms slice every 200 ms is enough to finish prebuilds while keeping the foreground responsive.
+    const heldAt = performance.now();
+    while (!document.hidden && s.budget < 20 && hold() && !s.cancelled && performance.now() - heldAt < 200) await nextFrame();
     t0 = performance.now();
   };
   s.budget = budget;
@@ -637,8 +640,8 @@ export class Region extends City {
     let k = 1, name = null;
     if (Math.max(Math.abs(x), Math.abs(z)) < this.half) return 1; // the hometown
     if (t.roadDist(x, z) < 7) { k = 1.35; name = 'Road: full speed'; }
-    else if (this.groundY(x, z) < t.water + 0.2) { k = 0.55; name = 'Draining the water: slow'; }
-    else if (t.river && t.riverDist(x, z) < 14) { k = 0.7; name = 'Marsh: slow'; }
+    else if (this.groundY(x, z) < t.water + 0.2) { k = 0.72; name = 'Draining the water: slow'; }
+    else if (t.river && t.riverDist(x, z) < 14) { k = 0.82; name = 'Marsh: slow'; }
     else if (t.forest(x, z) > 0.5) { k = 0.88; name = 'Woodland'; }
     else if (t.fieldAt(x, z)) { k = 1.1; name = 'Soft farmland'; }
     this.surface = name;

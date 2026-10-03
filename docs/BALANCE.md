@@ -169,7 +169,9 @@ Island, from `?region&r=16` (8 fixed seeds):
 
 ## Phase 3 (planet), R4 — the unit bot, 3 seeds (`__planetSweep(3)` in the browser pane, `?planet&seed=N`)
 
-The human-like `planetSteer` (units within 8 r, goal ×6, follows the arrow within 12 r, hunt from 97%), headless at 1/30 s steps; each run 12-20 s of real time. Config: G anchors 0.035 / 0.05 / 0.08 / 0.13 / 0.2 / 0.3 at 40 / 150 / 450 / 1000 / 1600 / 2600 km, `speedExp` -0.30, `collapseK` 0.3, decay 0.1% fed / 0.5% starving, faded out 67% → 97% land, none in the hunt. **All 15 runs win (99.5% land).**
+The human-like `planetSteer` (units within 8 r, goal ×6, follows the arrow within 12 r, hunt from 97%), headless at 1/30 s steps; each run 12-20 s of real time. Config: G anchors 0.035 / 0.05 / 0.08 / 0.13 / 0.2 / 0.3 at 40 / 150 / 450 / 1000 / 1600 / 2600 km, `speedExp` -0.30 at the time of this sweep, `collapseK` 0.3, decay 0.1% fed / 0.5% starving, faded out 67% → 97% land, none in the hunt. **All 15 runs win (99.5% land).**
+
+The movement response pass changes `P3.speed` to `1.15 r·(r / 40 km)^−0.12` and `P3.turn` to `0.18·(r / 40 km)^0.07`. It also raises the Phase 2 cap from 40 to 80 m/s and softens its water penalties. The sweep rows below remain the baseline for the previous curve; updated tier and total times are not yet measured.
 
 Minutes per tier (T1 is r 40-150 km ... T4 r ≥ 1200 km), total, land % at the tier-ups (T2 / T3 / T4; doc target 1 / 8 / 45), end radius:
 
