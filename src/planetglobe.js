@@ -171,7 +171,7 @@ function atmosphere(ro, rd, tmax, L, n, k = float(1)) {
 
 // ---------------------------------------------------------------- the material
 /** Uniforms shared by the globe, the patch (and later the minimap globe). */
-export function planetUniforms() {
+function planetUniforms() {
   return {
     uSun: uniform(new THREE.Vector3(0.8, 0.25, 0.55).normalize()), uCam: uniform(new THREE.Vector3(0, 0, 3)),
     uRelief: uniform(3), uDetail: uniform(1), uCloudRot: uniform(new THREE.Vector2(1, 0)), uBorders: uniform(0), uClouds: uniform(1),
@@ -633,7 +633,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
       const core = sstep(0.74, 0.9, cityD), rem = float(1).sub(wound.mul(4).min(1));
       foot.assign(core.mul(rem));
       const roadK = fadeTo(2600, pxM), g1 = abs(fract(wp.x.div(1900)).sub(0.5)), g2 = abs(fract(wp.y.div(1900)).sub(0.5)), web = float(1).sub(sstep(0.012, 0.03, min(g1, g2))).mul(roadK);
-      const fabric = mix(vec3(0.24, 0.21, 0.19), vec3(0.42, 0.37, 0.31), cn2.mul(0.7).add(core.mul(0.3))).mul(float(1).sub(web.mul(0.34)));
+      const fabric = mix(vec3(0.36, 0.22, 0.13), vec3(0.62, 0.4, 0.23), cn2.mul(0.7).add(core.mul(0.3))).mul(float(1).sub(web.mul(0.34)));
       col.assign(mix(col, fabric, foot.mul(0.82).mul(float(1).sub(near.mul(u.uGroundK).mul(0.8)))));
       const speck = sstep(0.72, 0.9, mx_noise_float(dir.mul(9000)).mul(0.5).add(0.5)).mul(sstep(0.3, 0.7, cn2)), edge = wound.mul(float(1).sub(wound)).mul(4).min(1).mul(core);
       cityGlow.assign(foot.mul(speck.mul(0.5).add(web.mul(0.5)).add(0.12)));
@@ -835,7 +835,7 @@ function atmosphereMaterial(globeU, low) {
 
 // ---------------------------------------------------------------- the Moon
 const _mw = new THREE.Vector3(), _mq = new THREE.Quaternion();
-export function moonMaterial(globeU) {
+function moonMaterial(globeU) {
   const m = new THREE.MeshBasicNodeMaterial({ fog: false }), uHeat = uniform(0); // (uHeat: the Moon's cracks glow as the tide takes it: src/threat/moon.js)
   m.userData.uHeat = uHeat;
   m.colorNode = Fn(() => {
@@ -891,7 +891,7 @@ function starPoints(n, seed = 5) {
 // ---------------------------------------------------------------- the local patch (T1-T3): geometry layout
 export const TRAIL = 512; // the fine trail map resolution (texels across the patch)
 /** Vertex counts and the shared index buffer of an n x n patch grid plus its skirt (4 sides, n verts each). */
-export function patchLayout(n) {
+function patchLayout(n) {
   const grid = n * n, count = grid + 4 * n;
   const idx = [];
   for (let j = 0; j < n - 1; j++) for (let i = 0; i < n - 1; i++) {

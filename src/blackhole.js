@@ -74,9 +74,10 @@ export function lensNodes(uv0, asp, U, tm, low = false) {
         };
         // only the half that is wanted is evaluated (the near half below the line, the far half above it; both in the thin band and under the shadow)
         const near = vec4(0).toVar(), far = vec4(0).toVar();
-        If(q.y.lessThan(0.012), () => { near.assign(em(q.x, q.y.div(sE))); });
-        If(bv.y.greaterThan(-0.01).and(rh.greaterThan(0.99)), () => { far.assign(em(bv.x, bv.y.div(sE))); });
-        const nearK = float(1).sub(smoothstep(-0.012, 0.01, q.y)).mul(near.w), farK = smoothstep(-0.01, 0.012, bv.y).mul(far.w).mul(smoothstep(0.99, 1.04, rh));
+        If(q.y.lessThan(0.25), () => { near.assign(em(q.x, q.y.div(sE))); });
+        If(bv.y.greaterThan(-0.25).and(rh.greaterThan(0.99)), () => { far.assign(em(bv.x, bv.y.div(sE))); });
+        // (P1-1: the two images of the disk cross-fade over a wide band: they sit at different disk radii on the line, so a thin join showed as a straight cut)
+        const farK = smoothstep(-0.22, 0.05, bv.y).mul(far.w).mul(smoothstep(0.99, 1.04, rh)), nearK = float(1).sub(smoothstep(-0.05, 0.22, q.y)).mul(near.w).mul(float(1).sub(farK.mul(0.6)));
         hdr.assign(near.xyz.mul(nearK).add(far.xyz.mul(farK)).mul(B.w));
         cover.assign(max(nearK, farK.mul(0.85)).mul(B.w));
       });
