@@ -60,6 +60,7 @@ export class Post {
     this.enabled = !q.has('nopost');
     this.frames = 0;
     this.time = 0;
+    this.longFrames = 0; // confirmed consecutive severe frames; one-off tab/download hitches are ignored
     this.good = 0; this.bad = 0; // (bad: one slow second is a hitch, not a verdict)
     this.grade = uniform(new THREE.Vector3(1, 1, 1));
     this.opts = { ao: Q.ao && !q.has('noao'), aoRes: Q.aoRes, aoSamples: Q.aoSamples, bloom: Q.bloom, aa: Q.aa, grain: Q.grain,
@@ -289,9 +290,18 @@ export class Post {
     // real frame time (the game's dt is clamped and slowed by hit-stop, so it can't be trusted for this)
     const now = performance.now(), ft = this.lastT ? now - this.lastT : 16.7;
     this.lastT = now;
-    if (ft > 250) return; // a hitch (tab switch, pack download): not a verdict on the GPU
-    this.frames++;
-    this.time += ft / 1000;
+    if (ft > 250) {
+      // Ignore an isolated hitch, but sustained visible stalls are real overload. Once three
+      // consecutive severe frames confirm it, count them as 250 ms samples (4 fps) so the
+      // existing one-second quality window can lower quality instead of waiting forever.
+      if (++this.longFrames < 3) return;
+      this.frames++;
+      this.time += 0.25;
+      if (this.time < 1) return;
+    } else {
+      this.longFrames = 0;
+      this.frames++; this.time += ft / 1000;
+    }
     if (this.time < 1) return;
     const fps = this.frames / this.time;
     this.frames = this.time = 0;

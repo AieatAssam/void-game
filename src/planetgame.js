@@ -112,6 +112,7 @@ export class PlanetGame {
     hole.area = Math.PI * r0 * r0;
     hole.x = hole.z = 0; hole.vx = hole.vz = 0; hole.sx = hole.sz = 0; hole.hidden = false; hole.capMode = false;
     state.phase = 3; state.belly = 1; state.tier = P3.tier(r0); state.left = 0; state.wallHint = 0; state.land = 0;
+    document.getElementById('abil')?.setAttribute('hidden', '');
     W.update(0, hole, ctx.camera, innerHeight);
     if (!W.capMode && !W.patchInfo) W.buildPatchNow(r0); // defensive fallback for a caller that skipped prepare()
     W.update(0, hole, ctx.camera, innerHeight);
@@ -130,9 +131,10 @@ export class PlanetGame {
 
   /** The start of the run proper: the bite map as it is now is what reset() and the Sealed checkpoint return to. */
   armRun(ctx, r0 = ctx.hole.r) {
-    const W = this.world;
+    const W = this.world, { state } = ctx;
+    state.time = 0; state.best = r0; state.sealBest = r0; state.tierAt = { [P3.tier(r0)]: 0 };
     this.snap0 = W.bite.save(); this.r0 = r0; // (the start of the run: __planet.reset() for balance sweeps)
-    this.ckpt = { tier: P3.tier(r0), snap: this.snap0, holeQ: W.holeQ.clone() }; // (the Sealed loss restores the latest tier-up: §8)
+    this.ckpt = { tier: P3.tier(r0), best: r0, time: 0, tierAt: { [P3.tier(r0)]: 0 }, goalDone: [], continents: 0, tierLand: {}, logN: 0, logT: -99, snap: this.snap0, holeQ: W.holeQ.clone() }; // (the Sealed loss restores the latest tier-up: §8)
   }
 
   installDebug(ctx) {
@@ -298,7 +300,8 @@ export class PlanetGame {
     const L = state.ledger;
     // the bite: credit = the decrease of the land left (§2.5)
     const tb = performance.now();
-    const credit = W.bite.chew(W.hdir, r, dt, moved, state.mods?.hcol ?? 0.5);
+    const depthScale = (state.mods?.depth ?? 1) * (state.frenzy > 0 ? 2 : 1);
+    const credit = W.bite.chew(W.hdir, r, dt, moved, state.mods?.hcol ?? 0.5, null, depthScale);
     W.bite.upload();
     this.cpu.bite = performance.now() - tb;
     // tear-offs and the pull-in (§12.3): the units the disc touched, the remnants within reach; their credit is not land credit under the ocean rule
@@ -528,7 +531,7 @@ export class PlanetGame {
   }
 
   /** The Sealed checkpoint (§8): the bite map and the hole's frame at the latest tier-up (17 MB, memory only; the snapshot is reused at every tier-up). */
-  checkpoint(ctx) { this.ckpt = { tier: ctx.state.tier, snap: this.world.bite.save(this.ckpt?.snap !== this.snap0 ? this.ckpt?.snap : null), holeQ: this.world.holeQ.clone() }; }
+  checkpoint(ctx) { const { state } = ctx; this.ckpt = { tier: state.tier, best: state.best, time: state.time, tierAt: { ...state.tierAt }, goalDone: [...(state.goalDone || [])], continents: state.continents || 0, tierLand: { ...(state.tierLand || {}) }, logN: this.landLog?.length ?? 0, logT: this.logT ?? -99, snap: this.world.bite.save(this.ckpt?.snap !== this.snap0 ? this.ckpt?.snap : null), holeQ: this.world.holeQ.clone() }; }
   /** "Retry tier N": back to the tier-up (land as it was, the hole at the tier's floor, belly full). */
   restoreCheckpoint(ctx) {
     ctx.pain?.clear(); this.cities?.reset();
@@ -537,7 +540,10 @@ export class PlanetGame {
     W.holeQ.copy(c.holeQ).normalize(); W.hdir.set(0, 1, 0).applyQuaternion(W.holeQ); W.h0Set = false; W.job = null; W.patchInfo = null; W.nStamps = 0; W.globe.trailData.fill(0); W.globe.trailTex.needsUpdate = true;
     W.capMode = false; hole.capMode = false; W.globe.hidePatch?.();
     hole.area = Math.PI * TIERS[c.tier - 1].r ** 2; hole.sx = hole.sz = 0;
-    Object.assign(state, { belly: 1, tier: c.tier, playing: true, over: false, sealed: false, shake: 0, slowT: 0, slowDuration: 0, slowFrom: 1, slowmo: 1, hitstop: 0, frenzy: 0, surge: false, fallout: false, land: B.landEaten, pop: B.pop });
+    const retryTime = c.time ?? state.time;
+    Object.assign(state, { belly: 1, tier: c.tier, time: retryTime, best: Math.max(state.best || 0, c.best ?? hole.r), sealBest: hole.r, tierAt: { ...(c.tierAt ?? { [c.tier]: retryTime }) }, goalDone: [...(c.goalDone || [])], continents: c.continents || 0, tierLand: { ...(c.tierLand || {}) }, wallHint: 0, hudT: 0, playing: true, over: false, sealed: false, shake: 0, slow: 0, slowK: 1, slowT: 0, slowDuration: 0, slowFrom: 1, slowmo: 1, hitstop: 0, stun: 0, wound: 0, kick: { x: 0, z: 0 }, frenzy: 0, surge: false, fallout: false, magma: 0, rubble: false, rubbleNow: false, ash: false, ashNow: false, land: B.landEaten, pop: B.pop });
+    this.combo = 0; this.comboAt = -9; this.comboCard = -9;
+    this.landLog.length = Math.min(this.landLog.length, c.logN ?? 0); this.logT = c.logT ?? -99;
     this.goal = null; this.gT = 0; this.worldGoal = null; this.fx = null; this.rim = 0; this.dustMoved = 0;
     this.threat?.clear(); ctx.news.queue.length = 0; state.gRate = 0;
     W.update(0, hole, ctx.camera, innerHeight); if (hole.r < P3.capR) W.buildPatchNow(hole.r);
