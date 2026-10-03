@@ -416,7 +416,8 @@ export class PlanetGame {
   }
   /** The Moon's break-up flash is the moment to build the finale's shaders (src/finale.js compile()). */
   finaleCompile() { this.finPromise?.then((F) => F?.compile()); }
-  async startFinale(ctx) {
+  startFinale(ctx) { return (this.finStart ??= this.startFinale1(ctx)); } // (once: the win and a test hook may both ask)
+  async startFinale1(ctx) {
     const F = this.fin || (await this.finalePrep(ctx));
     if (!F || F.started) return false;
     await F.compile(); // (a no-op if the Moon's break already did it)
@@ -452,6 +453,26 @@ export class PlanetGame {
       d.x = pd[pk * 3]; d.y = pd[pk * 3 + 1]; d.z = pd[pk * 3 + 2]; B.chew(d, r, 30, 0); B.upload(); B.tflag.fill(0); B.nTouched = 0; B.events.length = 0;
     }
     B.jobs.length = 0; this.ctxRef.state.pop = B.pop; return B.landEaten;
+  }
+  /**
+   * Test hook (the bot sweeps): play the finale headless at 40x until its card, and report what happened (the card up, the shards swallowed, the hole's final radius, any error).
+   * Needs `window.__finaleBot = true` before the run (the build is skipped in headless play otherwise).
+   */
+  async fastFinale(ctx) {
+    const out = { ok: false };
+    try {
+      const t0 = performance.now(); this.threat?.stand(); window.__finK = 0.25; ctx.state.world ??= this.worldStats(ctx);
+      if (!(await this.startFinale(ctx))) return { ...out, why: 'not started' };
+      const F = this.fin, h = window.__headless; window.__headless = true;
+      let n = 0; while (F.t < FT.title + 1.5 && n++ < 3000) window.__tick(0.1);
+      window.__headless = h; window.__finK = 1;
+      Object.assign(out, { ok: F.cardEl.classList.contains('on') && F.swallowed >= F.K, t: +F.t.toFixed(1), swallowed: F.swallowed, shards: F.K, ticks: n, rBH: Math.round(F.holeR(F.t) / 1000), ms: Math.round(performance.now() - t0), card: F.cardEl.textContent.slice(0, 70) });
+    } catch (e) { out.err = String(e?.stack || e).slice(0, 300); window.__headless = false; window.__finK = 1; }
+    return out;
+  }
+  /** Back to the start: the finale's meshes and state go (a sweep runs again in the same page). */
+  finaleReset(ctx) {
+    this.fin?.dispose(); this.fin = null; this.finPromise = null; this.finStart = null; this.finFailed = false; ctx.state.asc = null; ctx.state.world = null;
   }
   /** Visual only: take the land away (the wound shader on every land texel) without touching the accounting. */
   fakeLand(frac = 1) {
@@ -558,7 +579,7 @@ export class PlanetGame {
       G.g = lf.makeGoal(KINDS[++G.idx], W.hdir); pr = lf.progress(G.g);
     }
     G.frac = pr.frac;
-    if (G.g.kind === 'world' && pr.cleared && !state.won) {
+    if (G.g.kind === 'world' && pr.cleared && !state.won && !this.threat?.byName.moon?.items[0].on) { // (the Moon is the last feast: the world is not won while its rocks still fall)
       state.won = true; state.goalDone[4] = state.time; save.worlds = (save.worlds || 0) + 1;
       this.threat?.stand(); ctx.edgeArrow('town', null); sfx.grind.stop();
       state.world = this.worldStats(ctx); // (the numbers, the stars, the pay: banked once, persisted)
@@ -688,7 +709,7 @@ export class PlanetGame {
       },
       /** Back to the start of the run (bite map, units, hole, ledger, trail): for balance sweeps in one page load. */
       reset() {
-        ctx.pain?.clear(); self.cities?.reset();
+        self.finaleReset(ctx); ctx.pain?.clear(); self.cities?.reset();
         W.bite.restore(self.snap0); W.bite.jobs.length = 0; W.bite.events.length = 0; W.bite.tflag.fill(0); W.bite.nTouched = 0; W.bite.pullAt = 0; W.bite.stat = { tears: 0, pulls: 0, parcelTears: 0 }; self.rim = 0; self.dustMoved = 0;
         W.placeAt(W.P.startDir, W.P.city); W.h0Set = false; W.job = null; W.patchInfo = null; W.nStamps = 0; W.globe.trailData.fill(0); W.globe.trailTex.needsUpdate = true;
         W.capMode = false; hole.capMode = false; W.globe.hidePatch?.(); hole.area = Math.PI * self.r0 * self.r0; hole.sx = hole.sz = 0;

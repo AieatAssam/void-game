@@ -175,7 +175,7 @@ export class Threat {
     if (!this.ready) return;
     const { hole, state } = this, t0 = performance.now();
     this.t += dt; this.tAdd = Math.max(0, this.tAdd - dt * 0.4);
-    if (this.t > 1e-3 && !this.disabled) this.direct(dt);
+    if (this.t > 1e-3 && !this.disabled) { this.moonCheck(); this.direct(dt); }
     this.updateSites(dt);
     for (const k of this.K) for (const x of k.items) if (x.on) k.step(x, dt);
     this.rivals?.update(dt);
@@ -192,6 +192,12 @@ export class Threat {
   /** Register an attack kind: { name, cost, cool [min, max], items (pooled objects with .on), window(r, dc), can?(), set?, spawn(o), step(x, dt), finish(x), live(x), danger(x, out), line(x, pick), age(x), clear?() }. */
   register(k) { k.items ??= []; k.live ??= () => true; k.finish ??= (x) => { x.on = false; }; this.K.push(k); this.byName[k.name] = k; this.cool[k.name] = k.cool0 ?? 8; return k; }
   liveCount() { let n = 0; for (const k of this.K) { if (k.passive) continue; for (const x of k.items) if (x.on && k.live(x)) n++; } return n; }
+
+  /** The Moon is a scripted beat, not a budgeted attack: from 90% of the land (once the cracker has settled) it comes, whatever else is live. */
+  moonCheck() {
+    const k = this.byName.moon, x = k?.items[0]; if (!k || x.on || x.done || this.seal || !this.state.playing || (this.moonT = (this.moonT || 0) + 1) % 30) return;
+    if (k.window(this.hole.r) && k.can()) this.spawn('moon', { force: true });
+  }
 
   direct(dt) {
     const { hole, state } = this, r = hole.r;

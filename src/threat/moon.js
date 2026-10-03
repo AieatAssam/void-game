@@ -1,4 +1,4 @@
-// The Moon (docs/PHASE3.md 12.13, T4, once, from 90% of the land once the cracker is settled): the sky's impostor becomes a real body. It is pulled out of its orbit and falls over the horizon
+// The Moon (docs/PHASE3.md 12.13, T4, once, from 88% of the land; the cracker waits for it): the sky's impostor becomes a real body. It is pulled out of its orbit and falls over the horizon
 // (16 s, its cracks heating up), breaks up at the Roche limit (a 6 s cinematic beat: hit-stop, slow-mo, a white flash, a ring of debris), and then rains fragments for ~40 s: nine
 // rocks of 0.3-0.65 r, each telegraphed like a nuke (a tracking ring that locks, an inner swallow circle): dive into the circle and the fragment is EDIBLE (+3.5%, Frenzy), stay
 // in the ring and it hits (a hard hit), leave it and it makes a crater. Swallow them all: "THE MOON FALLS INTO THE VOID" (+5%, slow-mo), and the moonlight goes out.
@@ -46,7 +46,7 @@ export function makeMoon(th) {
   };
   const k = {
     name: 'moon', cost: 0, cool: [999, 999], cool0: 5, items: [x], set: true, zones: 1,
-    window: (r) => !x.done && P3.tier(r) >= 4 && W.bite.landEaten >= T.land && (th.byName.cracker.items[0].done || W.bite.landEaten >= T.land + 0.04) && !th.byName.cracker.items[0].on, can: () => th.zonesFree() >= 2, live: () => true, age: (q2) => q2.t - T.fall,
+    window: (r) => !x.done && P3.tier(r) >= 4 && W.bite.landEaten >= T.land, can: () => th.zonesFree() >= 2, live: () => true, age: (q2) => q2.t - T.fall,
     spawn() {
       if (x.on || x.done) return false;
       const r = hole.r;
@@ -85,7 +85,7 @@ export function makeMoon(th) {
       b.copy(moon.position); qq.pb.copy(b);
       moon.scale.setScalar(1e-3); // (hidden: globe.update would show the mesh again)
       for (const f of qq.frag) {
-        f.st = 'float'; f.age = 0; f.tL = 4 + f.i * 3.35 + rnd(-0.3, 0.3); f.Tf = 8.5 + rnd(0, 3); f.rho = rnd(0.3, 0.65) * Math.max(hole.r, 600e3);
+        f.st = 'float'; f.age = 0; f.tL = 4 + f.i * 3.9 + rnd(-0.3, 0.3); f.Tf = 8.8 + rnd(0, 1.6); f.rho = rnd(0.3, 0.65) * Math.max(hole.r, 600e3);
         a.set(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).normalize(); f.p.copy(b).addScaledVector(a, rnd(0.2, 0.95) * MOONR); f.v.copy(a).multiplyScalar(rnd(0.02, 0.07) * R).add(c.copy(b).normalize().multiplyScalar(-0.02 * R));
         f.spin.set(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).normalize(); f.rot = rnd(0, 6); f.mesh.scale.setScalar(f.rho); f.mesh.position.copy(f.p); f.mesh.visible = true; f.locked = false; f.eaten = false; f.zone = -1;
       }
@@ -114,7 +114,7 @@ export function makeMoon(th) {
       eul.set(f.rot + f.spin.x * f.age * 0.3, f.rot * 0.6 + f.spin.y * f.age * 0.3, f.spin.z * f.age * 0.3); f.mesh.quaternion.setFromEuler(eul);
       if (f.st === 'float') { // the rocks drift apart over the break-up point, glowing hot, until their turn
         f.p.addScaledVector(f.v, dt); f.mesh.position.copy(f.p); f.v.multiplyScalar(Math.max(0, 1 - 0.25 * dt));
-        if (tf >= 0) { f.st = 'fly'; f.t0 = qq.tb; f.from.copy(f.p).normalize(); f.r0 = f.p.length(); f.zone = th.zoneAlloc(); f.to.copy(W.hdir); f.B = Math.max(1.0 * hr, 1.7 * f.rho); f.inner = 0.5 * hr; f.lock = th.lockFor(0.8, 2.0, 4); f.side = Math.random() < 0.5 ? -1 : 1; f.ox = f.oz = 0; f.ux = 0; f.uz = -1; f.lockAt = -1; f.hs = f.p.length();
+        if (tf >= 0) { f.st = 'fly'; f.t0 = qq.tb; f.from.copy(f.p).normalize(); f.r0 = f.p.length(); f.zone = th.zoneAlloc(); f.to.copy(W.hdir); f.B = Math.max(1.0 * hr, 1.7 * f.rho); f.inner = 0.5 * hr; f.lock = th.lockFor(1.0, 2.4, 6.0); f.side = Math.random() < 0.5 ? -1 : 1; f.ox = f.oz = 0; f.ux = 0; f.uz = -1; f.lockAt = -1; f.hs = f.p.length();
           f.mk = th.map?.addMarker({ kind: 'nuke', from: f.from, dir: f.to, dur: f.Tf, eta: f.Tf, r: f.B, label: 'MOON ROCK', color: '#d8d4cc' }); th.sfx.nukeLaunch?.(0.8); }
         return;
       }
@@ -122,7 +122,7 @@ export function makeMoon(th) {
         const age = qq.tb - f.t0, eta = f.Tf - age, u = Math.min(1, age / f.Tf);
         if (eta > f.lock) { // tracking: the ring rides where the hole will be, offset so standing still is a hit and diving in is a choice
           const sp = Math.hypot(hole.vx, hole.vz); if (sp > 0.05 * P3.speed(hr)) { f.ux = hole.vx / sp; f.uz = hole.vz / sp; }
-          const kk = Math.min(1, dt * 5); f.ox += (hole.vx * f.lock - f.uz * f.side * 0.5 * r - f.ox) * kk; f.oz += (hole.vz * f.lock + f.ux * f.side * 0.5 * r - f.oz) * kk; W.dirAt(f.ox, f.oz, f.to);
+          const kk = Math.min(1, dt * 5); f.ox += (hole.vx * f.lock - f.uz * f.side * 0.6 * r - f.ox) * kk; f.oz += (hole.vz * f.lock + f.ux * f.side * 0.6 * r - f.oz) * kk; W.dirAt(f.ox, f.oz, f.to);
           f.elev = Math.max(0, W.P.elevation(f.to, 3));
         } else if (!f.locked) { f.locked = true; f.lockAt = th.t; th.stats.locks++; th.sfx.lockBeep?.(); th.ctx.hint?.('LOCKED — dive into the inner circle to swallow the rock, or leave the ring'); }
         th.zoneSet(f.zone, f.to, f.B, f.inner, Math.min(1, age * 1.5) * (f.locked ? 1 : 0.8), f.locked ? Math.min(1, (f.lock - eta) / f.lock) + 0.001 : 0, 0);
@@ -167,7 +167,7 @@ export function makeMoon(th) {
       for (let i = 0; i < 18; i++) { const an = (i / 18) * 6.283 + rnd(0, 0.4), tg = tangentAt(up, an, v4); b.copy(v1).addScaledVector(tg, 0.25 * f.B); th.smoke.spawn(b, sv.copy(tg).multiplyScalar(0.9 * hr).addScaledVector(up, 0.06 * hr), 0.7 * hr, 1.5 * hr, 5, i % 2 ? ASH : DUST, 0.55, 0.45); }
       th.light(f.to, 7 * hr, 1.3, 7); th.scar(f.to, 2.0 * f.B, 0.9 * hr, 14, 0); th.scar(f.to, 1.2 * f.B, 0.2 * hr, 100, 0);
       th.sfx.nukeBoom?.(Math.min(1, 0.5 + 0.5 * near), Math.min(1.2, dist / (12 * hr))); th.fxBlast(0.3 * near); th.screenFlash(0.06 + 0.2 * near, '#fff4dc', 260); th.trauma(0.25 + 0.4 * near);
-      if (dist < f.B) { th.stats.moonHits = (th.stats.moonHits || 0) + 1; th.hurt(T.hit, 'Moon rock!', 'moon', T.k, 0.2, f.locked ? th.t - f.lockAt : -1, f.to); th.news('A piece of the Moon strikes the void'); } else th.news('A piece of the Moon crashes harmlessly');
+      if (dist < f.B) { th.stats.moonHits = (th.stats.moonHits || 0) + 1; th.hurt(T.hit, 'Moon rock!', 'moon', T.k, 0.1, f.locked ? th.t - f.lockAt : -1, f.to); th.news('A piece of the Moon strikes the void'); } else th.news('A piece of the Moon crashes harmlessly');
     },
     end(qq) {
       const all = qq.swallowed === qq.N;

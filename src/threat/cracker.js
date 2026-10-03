@@ -24,7 +24,7 @@ export function makeCracker(th) {
   };
   const k = {
     name: 'cracker', cost: 0, cool: [30, 30], cool0: 10, items: [x], set: true, zones: 1,
-    window: (r) => !x.done && P3.tier(r) >= 4 && W.bite.landEaten >= T.land, can: () => th.zonesFree() >= 1, live: () => true, age: (q) => q.t - q.T,
+    window: (r) => !x.done && P3.tier(r) >= 4 && W.bite.landEaten >= T.land && (!th.byName.moon || th.byName.moon.items[0].done || W.bite.landEaten >= 0.96), // (the Moon comes first, at 88%: the last feast) can: () => th.zonesFree() >= 1, live: () => true, age: (q) => q.t - q.T,
     spawn(opt = {}) {
       if (x.on || th.zonesFree() < 1) return false;
       const r = hole.r, spots = stationSpots(r); if (spots.length < 1) return false;

@@ -343,12 +343,19 @@ export class Finale {
     this.apply(t); this.silent = false;
   }
 
+  /** Put the world back as it was before the finale (a sweep resets and runs again in the same page; also the end of the debug view). */
   dispose() {
     removeEventListener('keydown', this.keyH); removeEventListener('mousedown', this.mdown); removeEventListener('mousemove', this.mmove); removeEventListener('mouseup', this.mup);
     for (const e of [this.bars, this.flashEl, this.cardEl, this.skipEl]) e?.remove();
-    this.g.globe.visible = true;
-    this.g.group.remove(this.top, this.cut, this.core, this.streaks.mesh, this.diskGlow); this.ctx.scene.remove(this.bh, this.halo);
+    const { state } = this.ctx, g = this.g, W = this.W;
+    if (state.asc === this) state.asc = null;
+    W.holeVis = undefined; g.globe.visible = true; g.u.uFault.value = 0; g.u.uPeel.value.w = -1; g.u.uSunK.value = 1; g.u.uSkyK.value = 1; g.moon.scale.setScalar(1737400);
+    g.group.remove(this.top, this.cut, this.core, this.streaks.mesh, this.diskGlow); this.ctx.scene.remove(this.bh, this.halo);
     for (const o of [this.top, this.cut, this.core, this.streaks.mesh, this.bh, this.halo, this.diskGlow]) { o.geometry.dispose(); o.material.dispose(); }
     this.post.lens.A.value.w = 0; this.post.fxu.value.set(0, 0, 0, 0);
+    { const e = document.getElementById('hud'); if (e) e.hidden = false; }
+    { const c = this.game.cities; if (c) c.pool.sprite.visible = true; const th = this.game.threat; if (th) th.glow.sprite.visible = th.smoke.sprite.visible = true; }
+    this.game.map?.show(true); this.ctx.sfx.finale.stop();
+    this.disposed = true;
   }
 }

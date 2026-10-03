@@ -581,7 +581,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
 
 ### WP-C: the endgame
 
-**C1 (P0). The Moon: capture and Roche break-up (at 90% land or r ≥ 1600 km).**
+**C1 (P0). The Moon: capture and Roche break-up (at 90% land or r ≥ 1600 km). DONE** (`src/threat/moon.js`: 16 s fall over the horizon, a 6 s break-up beat, nine edible fragments of 0.3-0.65 r over ~45 s, a debris ring; 90 % of the land, not r; 3.5% a rock, 5% for all nine; the human bot swallows 3-5 of 9; PHASE3.md 12.13).
 - **`planetglobe.js`:** `moonSky = false` hands the Moon from impostor to a real object. Interpolate its planet-space distance from `12 R` to `2.4 R` over 40 s, with the news "The Moon is falling", so it grows in the sky.
 - **At the Roche distance:** swap the sphere for 8 fragment meshes (instanced `SphereGeometry(1, 24, 16)` with `moonMaterial`, scaled 0.25-0.45 of the Moon).
 - Each fragment falls as a meteor at the planet: a nuke-like zone, `inner = 0.5 r`, +3% on a swallow, 6% on a hit, a huge scar.
@@ -589,7 +589,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
 - This is the "larger thing" for r > 1737 km until the World-Eater.
 - **Acceptance:** forceable via `__threat.force('moon')`. `ladderTest` counts falling fragments as bigger at T4.
 
-**C2 (P0). The void-star finale** (replaces the A3 card; the A3 results come after it).
+**C2 (P0). The void-star finale** (replaces the A3 card; the A3 results come after it). **DONE, as a black hole and far bigger than this list** (`src/finale.js`, `shatter.js`, `streaks.js`, `blackhole.js`: the globe splits into 44 shards with lit mantle / core cross-sections, tidal spaghettification, the sea peels into droplet streams, an accretion disk forms, the hole becomes a lensing black hole; a ~32 s sequence, skippable after the first; PHASE3.md 12.13).
 - On `state.won`, play a 12 s cinematic using the Ascension's camera hook (`state.asc = { cam, advance, afterWorld }`). Build a small `src/finale.js` modelled on `ascend.js`:
   1. silence;
   2. the oceans drain into the hole: a new `uSeaDrop` uniform in `planetMaterial` that blends ocean pixels toward the dark wound colour, radially from `hdir`;
@@ -599,7 +599,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
 - Then the results.
 - **Acceptance:** worst frame ≤ 50 ms on WebGPU, measured as in §12.10.
 
-**C3 (P1). Results and legacy.**
+**C3 (P1). Results and legacy. DONE, partly** (`src/results.js`, `bankPlanet`: dust, worlds eaten, fastest / best per seed, the list of eaten worlds, the Event Horizon and Black Hole skins, the menu entry "Start at the planet"; not built: the planet thumbnail on the card).
 - **The results overlay** from A3, extended with:
   - a world card: the seed's planet thumbnail via `planetview.js` (exists, 93 lines);
   - eaten-world count;
@@ -607,7 +607,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
   - "Legacy": the list of eaten worlds with dates.
 - **The start menu:** a "Worlds eaten: N" chip and a gallery entry.
 
-**C4 (P1). Star challenges for the planet.**
+**C4 (P1). Star challenges for the planet. DONE** (`progress.js` `WORLD`: six, all shown, each a star toward the skins; the "no-hit tier" counts hits per tier).
 - **`progress.js`:** add `C('The World', …)` entries in the existing pattern:
   - eat the world in under 22 min;
   - swallow 5 ICBMs;
@@ -619,7 +619,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
 - Three are offered per run (seeded). Dust rewards as in Phase 2.
 - **Acceptance:** stars show on the results screen and persist.
 
-**C5 (P1). NG+ and world archetypes.**
+**C5 (P1). NG+ and world archetypes. DONE, partly** (New World = a fresh seed, one legacy perk of three taken at the start, damage x1.3; the archetypes (Pangaea, Archipelago, ice, desert) are not built).
 - **`planetgen.js`:** expose `makePlanet(seed, { archetype })` with land-fraction and noise presets:
 
   | Archetype | Land | Shape |
@@ -633,7 +633,7 @@ Compare against the BALANCE.md Phase 3 table and add the new rows.
 - **NG+ difficulty:** damage k ×1.3, rivals spawn one tier earlier, the decay threshold is lower.
 - **Acceptance:** each archetype passes `__planetLadder()` 80/80 and a 3-run sweep of 18-28 min.
 
-**C6 (P2). Retry and continue.**
+**C6 (P2). Retry and continue. NOT BUILT** ("Continue" on the finale's card is a free-look hold on the black hole).
 - "Retry tier N" also restores the director's DEFCON, cooldowns and budget at the checkpoint. Today `clear()` resets `t = 0` and `noto = 0`, so a retry is easier than the original.
 - Store `{ budget, noto, cool }` in `checkpoint()`.
 

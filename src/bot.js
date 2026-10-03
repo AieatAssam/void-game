@@ -430,15 +430,15 @@ function* botLoop(seconds, who, dt, run) {
     minBelly = Math.min(minBelly, state.belly);
     const k = Math.floor(t / 30);
     if (k !== last) { last = k; const L = state.ledger, d = window.__botDbg; log.push(`${f(t)}s T${state.tier} r=${km(hole.r)}km belly=${state.belly.toFixed(2)} land=${(state.land * 100).toFixed(2)}% pop=${((state.pop || 0) / 1e9).toFixed(2)}B +land ${f(L.land / 1e9)} +tear ${f((L.tear || 0) / 1e9)} +pull ${f((L.pull || 0) / 1e9)} fed ${f(L.fed / 1e9)} starve ${f(L.starve / 1e9)} (Gm2) | ${window.__planet.game.goal?.g.name ?? '-'} ${(100 * (window.__planet.game.goal?.frac ?? 0)).toFixed(0)}% | ${d.tgt} stuck ${d.stuck} wall ${d.wall} | ${['dodge', 'target', 'flee', 'wave', 'beam', 'rival', 'sat', 'lid', 'dive'].map((q) => { const dv = (d[q] || 0) - (run.prev?.[q] || 0); return dv ? `${q} ${dv}` : ''; }).filter(Boolean).join(' ')}`); run.prev = { ...d }; }
-    if (state.land >= 0.995 || state.sealed) break;
+    if (state.won || state.sealed) break; // (the win is flagged by the goal scan, which waits for the Moon's rocks to finish)
     if (++n % 20 === 0) yield;
   }
   window.__bot = was; window.__headless = wh;
   const L = state.ledger, tierAt = Object.fromEntries(Object.entries(state.tierAt || {}).map(([k, v]) => [k, f(v - t0)])), goalAt = (state.goalDone || []).map((v) => f(v - t0));
   const ts = window.__threat?.state().stats;
-  log.push(`${state.land >= 0.995 ? 'WON' : state.sealed ? 'SEALED' : 'time up'} ${f(t)}s tierAt ${JSON.stringify(tierAt)} goalAt ${JSON.stringify(goalAt)} dbg ${JSON.stringify(window.__botDbg)} minBelly ${minBelly.toFixed(2)} land ${(state.land * 100).toFixed(2)}% r ${km(hole.r)}km threats ${JSON.stringify(ts)}`);
+  log.push(`${state.won ? 'WON' : state.sealed ? 'SEALED' : 'time up'} ${f(t)}s tierAt ${JSON.stringify(tierAt)} goalAt ${JSON.stringify(goalAt)} dbg ${JSON.stringify(window.__botDbg)} minBelly ${minBelly.toFixed(2)} land ${(state.land * 100).toFixed(2)}% r ${km(hole.r)}km threats ${JSON.stringify(ts)}`);
   log.push(`ledger ${JSON.stringify(Object.fromEntries(Object.entries(L).map(([k, v]) => [k, f(v / 1e3) + 'k'])))}`);
-  run.done = true; run.sealed = !!state.sealed; run.threat = ts; run.won = state.land >= 0.995; run.time = t; run.tierAt = tierAt; run.tierLand = Object.fromEntries(Object.entries(state.tierLand || {}).map(([k, v]) => [k, +(v * 100).toFixed(1)])); run.r = hole.r; run.goalAt = goalAt; run.ledger = { ...L };
+  run.done = true; run.sealed = !!state.sealed; run.threat = ts; run.won = !!state.won; run.time = t; run.tierAt = tierAt; run.tierLand = Object.fromEntries(Object.entries(state.tierLand || {}).map(([k, v]) => [k, +(v * 100).toFixed(1)])); run.r = hole.r; run.goalAt = goalAt; run.ledger = { ...L };
 }
 window.__planetBot = (seconds = 600, who = 'human', dt = 1 / 30) => { const run = { log: [], done: false }; for (const _ of botLoop(seconds, who, dt, run)); return run.log; };
 window.__planetBotAsync = (seconds = 1800, who = 'human', dt = 1 / 30) => {
@@ -456,7 +456,8 @@ window.__planetSweep = async (n = 3, secs = 3000, who = 'human') => {
     const run = window.__planetBotAsync(secs, who);
     while (!run.done) await new Promise((r) => setTimeout(r, 300));
     const L = run.ledger, tot = L.land + L.tear + L.pull;
-    rows.push({ won: run.won, sealed: run.sealed, threat: run.threat, min: m(run.time), tierMin: Object.fromEntries(Object.entries(run.tierAt).map(([k, v]) => [k, m(v)])), tierLand: run.tierLand, goalMin: run.goalAt.map(m), rEnd: Math.round(run.r / 1000), share: [L.land, L.tear, L.pull].map((v) => Math.round((100 * v) / tot)), decay: Math.round((100 * (L.fed + L.starve)) / -tot), dmg: +((100 * -(L.dmg || 0)) / tot).toFixed(1), bonus: +((100 * (L.bonus || 0)) / tot).toFixed(1), sat: +((100 * (L.sat || 0)) / tot).toFixed(1), kinds: Object.fromEntries(Object.entries(L).filter(([k]) => !['land', 'tear', 'pull', 'fed', 'starve', 'dmg', 'bonus'].includes(k)).map(([k, v]) => [k, +((100 * v) / tot).toFixed(1)])), walls: window.__planet.ctx.state.walls || 0, thr: { ...window.__threat?.stats } });
+    const fin = window.__finaleBot && run.won ? await window.__planet.game.fastFinale(window.__planet.ctx) : undefined; // (the finale played headless at 8x: it must start and reach its card without an error)
+    rows.push({ fin,  won: run.won, sealed: run.sealed, threat: run.threat, min: m(run.time), tierMin: Object.fromEntries(Object.entries(run.tierAt).map(([k, v]) => [k, m(v)])), tierLand: run.tierLand, goalMin: run.goalAt.map(m), rEnd: Math.round(run.r / 1000), share: [L.land, L.tear, L.pull].map((v) => Math.round((100 * v) / tot)), decay: Math.round((100 * (L.fed + L.starve)) / -tot), dmg: +((100 * -(L.dmg || 0)) / tot).toFixed(1), bonus: +((100 * (L.bonus || 0)) / tot).toFixed(1), sat: +((100 * (L.sat || 0)) / tot).toFixed(1), kinds: Object.fromEntries(Object.entries(L).filter(([k]) => !['land', 'tear', 'pull', 'fed', 'starve', 'dmg', 'bonus'].includes(k)).map(([k, v]) => [k, +((100 * v) / tot).toFixed(1)])), walls: window.__planet.ctx.state.walls || 0, thr: { ...window.__threat?.stats } });
   }
   window.__sweepDone = true;
   return rows;
