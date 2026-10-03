@@ -17,7 +17,7 @@ const CSS = `.rvl{position:fixed;left:0;top:0;z-index:4;pointer-events:none;font
 
 export class Rivals {
   constructor(th) {
-    this.th = th; this.uid = 0; this.list = []; this.slots = [false, false, false]; this.did = { maw: false, eater: false }; this.t3 = null; this.t4 = null; this.dT = 0;
+    this.th = th; this.uid = 0; this.list = []; this.slots = [false, false, false]; this.did = { maw: false, eater: false, eater2: false }; this.t3 = null; this.t4 = null; this.dT = 0;
     if (!document.getElementById('rival-css')) document.head.append(Object.assign(document.createElement('style'), { id: 'rival-css', textContent: CSS }));
     this.labels = [0, 1, 2].map(() => document.body.appendChild(Object.assign(document.createElement('div'), { className: 'rvl', hidden: true })));
   }
@@ -46,8 +46,8 @@ export class Rivals {
       if (pk < 0) pk = lf.land[(Math.random() * lf.land.length) | 0];
       d.set(pd[pk * 3], pd[pk * 3 + 1], pd[pk * 3 + 2]);
     }
-    const r = hole.r * (kind === 'maw' ? T.maw : T.eater), hv = new THREE.Vector3().copy(W.hdir).addScaledVector(d, -d.dot(W.hdir)); if (hv.lengthSq() < 1e-8) hv.set(1, 0, 0).addScaledVector(d, -d.x); hv.normalize();
-    const x = { on: true, id: ++this.uid, kind, name: NAMES[kind], slot, dir: d, hv, area: Math.PI * r * r, r, mood: 'hunt', tgt: null, tgtT: rnd(0, 1), cd: 0, age: 0, feed: 1, starve: 0, dp: 99e6, zone: th.zoneAlloc(), near: 0, pct0: 0, k: 0, opts: { budget: 2400, fr: { n: 0 }, pop: 0, area: 0, credit: 0 }, mk: null, ate: 0 };
+    const r = hole.r * (o.second ? T.eater2 : kind === 'maw' ? T.maw : T.eater), hv = new THREE.Vector3().copy(W.hdir).addScaledVector(d, -d.dot(W.hdir)); if (hv.lengthSq() < 1e-8) hv.set(1, 0, 0).addScaledVector(d, -d.x); hv.normalize();
+    const x = { on: true, id: ++this.uid, kind, second: !!o.second, ttl: o.second ? T.ttl.eater2 : undefined, name: NAMES[kind], slot, dir: d, hv, area: Math.PI * r * r, r, mood: 'hunt', tgt: null, tgtT: rnd(0, 1), cd: 0, age: 0, feed: 1, starve: 0, dp: 99e6, zone: th.zoneAlloc(), near: 0, pct0: 0, k: 0, opts: { budget: 2400, fr: { n: 0 }, pop: 0, area: 0, credit: 0 }, mk: null, ate: 0 };
     this.slots[slot] = true; this.list.push(x);
     x.mk = th.map?.addMarker({ kind: 'rival', dir: x.dir, r: x.r, big: true, label: x.name, color: '#ff5d5d' });
     th.stats.rivals++; th.sfx.rivalGrowl?.(); th.screenFlash(0.18, '#ff5a47', 500); th.trauma(0.25);
@@ -57,11 +57,12 @@ export class Rivals {
   }
 
   kill(x) {
+    if (x.kind === 'eater' && !x.second) this.eaterGone = this.th.t;
     x.on = false; if (this.slots[x.slot]) { this.slots[x.slot] = false; this.th.W.globe.setHole(1 + x.slot, x.dir, 0); this.th.W.globe.u.uRivalK[x.slot].value = 0; }
     x.mk?.remove(); x.mk = null; this.th.zoneFree(x.zone); x.zone = -1; this.labels[x.slot].hidden = true;
   }
 
-  clear() { for (const x of this.list) if (x.on) this.kill(x); this.list.length = 0; this.did.maw = this.did.eater = false; this.t3 = this.t4 = null; }
+  clear() { for (const x of this.list) if (x.on) this.kill(x); this.list.length = 0; this.did.maw = this.did.eater = this.did.eater2 = false; this.eaterGone = null; this.t3 = this.t4 = null; }
   dispose() { this.clear(); for (const l of this.labels) l.remove(); }
 
   /** The events: the Maw 25 s after T3 begins, the World-Eater 20 s after T4 begins. */
@@ -70,6 +71,8 @@ export class Rivals {
     if (tier >= 3 && this.t3 == null) this.t3 = th.t; if (tier >= 4 && this.t4 == null) this.t4 = th.t;
     if (!this.did.maw && this.t3 != null && th.t - this.t3 > 25 && th.phase !== 'relax') { this.did.maw = true; this.spawn('maw'); }
     if (!this.did.eater && this.t4 != null && th.t - this.t4 > 20) { this.did.eater = true; this.spawn('eater'); }
+    // P2-2: between the World-Eater's end and the Moon there was nothing bigger than you: a second, shorter-lived one (1.25x, 90 s) 30 s after the first is gone, while < 88% of the land is eaten
+    if (this.did.eater && !this.did.eater2 && this.eaterGone != null && th.t - this.eaterGone > 30 && th.W.bite.landEaten < T3.kinds.moon.land - 0.02 && !this.list.some((x) => x.on) && th.phase !== 'relax') { this.did.eater2 = true; this.spawn('eater', { second: true }); }
   }
 
   update(dt) {
@@ -82,7 +85,7 @@ export class Rivals {
   step(x, dt) {
     const th = this.th, { W, hole, state } = th, T = T3.kinds.rival, rP = hole.r, lf = W.bite.lf;
     x.age += dt; x.cd -= dt; x.r = Math.sqrt(x.area / Math.PI);
-    if (x.age > T.ttl[x.kind]) { // its hunger is spent: it collapses into the void (a rival lives 2.8 min / 3.5 min)
+    if (x.age > (x.ttl ?? T.ttl[x.kind])) { // its hunger is spent: it collapses into the void (a rival lives 2.8 min / 3.5 min)
       x.area *= 1 - 0.3 * dt; if (!x.fade) { x.fade = true; th.news(`${x.name} starves: its hunger is spent and it folds into the void`); }
       if (x.area < 0.03 * hole.area) { this.kill(x); return; }
     }

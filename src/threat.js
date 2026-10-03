@@ -35,7 +35,7 @@ export const sealedCss = `#sealed{position:fixed;inset:0;z-index:50;display:flex
 @keyframes thr{to{transform:translateX(-50%) scale(1.04)}}
 #fxflash{position:fixed;inset:0;z-index:5;pointer-events:none;opacity:0;background:#fff}`;
 
-export const NZ = 16; // threat zone slots (planetglobe uZone 0..15; 16..19 are the ripe rings)
+const NZ = 16; // threat zone slots (planetglobe uZone 0..15; 16..19 are the ripe rings)
 const NS = 12; // scar slots (planetglobe uScar)
 const STATS0 = { nukes: 0, swallowed: 0, hits: 0, near: 0, rods: 0, rodGulps: 0, sats: 0, strafes: 0, strafeHits: 0, mercy: 0, loss: 0, sites: 0, sealWarn: 0, surge: 0, locks: 0, unfair: 0,
   mirvs: 0, mirvGulps: 0, lasers: 0, laserHits: 0, laserEaten: 0, fleets: 0, fleetGulps: 0, fleetSunk: 0, salvos: 0, tsunamis: 0, volcanoes: 0, magma: 0, aegis: 0, aegisBroke: 0, aegisHits: 0, rockets: 0, rocketGulps: 0,
@@ -157,6 +157,7 @@ export class Threat {
     const L = state.ledger; L[key] = (L[key] || 0) + (hole.area - a0); L.dmg = (L.dmg || 0) + (hole.area - a0); this.stats.loss += frac; this.stats.hits++; (this.stats.by ??= {})[key] = (this.stats.by[key] || 0) + 1; { const hb = state.hitsByTier ??= {}, tt = P3.tier(hole.r); hb[tt] = (hb[tt] || 0) + 1; }
     this.trauma(0.2 + 2 * frac);
     state.stun = Math.min(14, Math.max(state.stun || 0, T3.stunBase + T3.stunK * frac) + 0.5 * (state.stun || 0)); // (P0-1: a hit costs the land clock: seconds at 0.35x speed, compounding on a wound that is still open)
+    if ((state.wound = Math.min(T3.woundMax, (state.wound || 0) + T3.woundAdd + T3.woundK * frac)) > 0.4 && !this.woundHint) { this.woundHint = 1; this.ctx.hint('Wounded — slower until it heals: dodge the next one'); } // (P0-1: the wounds stack, so a player who never dodges is permanently hobbled)
     this.ctx.flash(why);
     this.painHit(frac, why, from);
     return frac;
@@ -184,7 +185,7 @@ export class Threat {
     this.updateFallout(dt);
     this.glow.step(dt); this.smoke.step(dt); this.domeStep(dt); this.fxStep(dt);
     this.sealWatch(dt);
-    state.frenzy = Math.max(0, (state.frenzy || 0) - dt); state.slow = Math.max(0, (state.slow || 0) - dt); state.stun = Math.max(0, (state.stun || 0) - dt); state.magma = Math.max(0, (state.magma || 0) - dt);
+    state.frenzy = Math.max(0, (state.frenzy || 0) - dt); state.slow = Math.max(0, (state.slow || 0) - dt); state.stun = Math.max(0, (state.stun || 0) - dt); state.wound = Math.max(0, (state.wound || 0) - dt / T3.woundHeal); state.magma = Math.max(0, (state.magma || 0) - dt);
     state.rubble = !!state.rubbleNow; state.rubbleNow = false; state.ash = !!state.ashNow; state.ashNow = false; // (flags the kinds raise each frame: the game reads them next frame)
     this.updateLine(dt);
     if (this.flashA > 0) { this.flashT += dt; const k = Math.max(0, 1 - this.flashT / this.flashDur); this.flashEl.style.background = this.flashC; this.flashEl.style.opacity = (this.flashA * k * k).toFixed(3); if (k <= 0) this.flashA = 0; }
@@ -317,10 +318,10 @@ export class Threat {
       if (d > 70 * r) { this.dropSite(s); this.sites.splice(i, 1); continue; }
       s.age += dt;
       if (d < 18 * r) { // the field: silos at readable size, a blinking launch light
-        const k = r * 0.5 / 10; this.surf(s.dir, 0, v1, s.elev); // (silo model: 20 m wide, 9.5 m tall)
+        const k = r * 0.12 / 20; this.surf(s.dir, 0, v1, s.elev); // (silo model: 20 m wide, 9.5 m tall; P2-1: each is 0.12 r wide, the field about 0.6 r across, so a silo complex is no longer half the hole)
         const east = v3.crossVectors(_Y, s.dir).normalize(), north = v4.crossVectors(s.dir, east);
         s.mesh.parts.forEach((o, j) => {
-          const a = j * 1.2566 + 0.3, rad = j ? 0.62 * r : 0;
+          const a = j * 1.2566 + 0.3, rad = j ? 0.3 * r : 0;
           o.position.copy(v1).addScaledVector(east, Math.cos(a) * rad).addScaledVector(north, Math.sin(a) * rad); o.position.setLength(R + s.elev * W.E + 0);
           aim(o, east, s.dir, 'x'); o.scale.setScalar(k * (j ? 0.7 : 1)); o.visible = true;
         });

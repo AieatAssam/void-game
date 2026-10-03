@@ -65,6 +65,7 @@ export const T3 = {
   nukeK: 25, rodK: 25, bomberK: 12, // seconds of income lost to a hit
   nukeHit: 0.07, rodHit: 0.08, bomberHit: 0.06, firstHit: 0.07, // floors (the scripted first ICBM is capped at firstHit)
   nukeGulp: 0.03, rodGulp: 0.02, satGulp: 0.01,
+  woundAdd: 0.15, woundK: 2, woundMax: 1.2, woundHeal: 60, woundSlow: 0.5, // the wound state: each hit adds (woundAdd + woundK x fraction), it heals in woundHeal s; speed and tear credit x (1 - woundSlow x wound), so only a player who keeps getting hit stays hobbled
   tierHit: [1, 1.2, 1.5, 1.8], // the hit floors x by tier 1..4
   stunBase: 3.5, stunK: 45, stunSlow: 0.35, // P0-1: a hit = (stunBase + stunK x fraction) s at stunSlow x speed (a 7% nuke = 5.8 s), compounding 50% on an open wound
   falloutLife: 45, falloutLand: 0.5, grace: 14,
@@ -84,6 +85,8 @@ export const T3 = {
     exodus: { cost: 0, cool: [70, 95], eat: 0.003 },
     cracker: { hit: 0.2, gulp: 0.05, land: 0.9 },
     moon: { land: 0.88, n: 9, fall: 16, brk: 6, gulp: 0.035, hit: 0.03, k: 6, last: 0.05 }, // (the Moon: falls over the horizon, breaks at the Roche limit, rains 9 edible rocks)
-    rival: { ttl: { maw: 140, eater: 170 }, maw: 1.3, eater: 1.4, speed: 0.74, hit: 0.18, eat: 0.6, cap: 0.25, starve: 0.0015, grow: 0.35 },
+    rival: { ttl: { maw: 140, eater: 170, eater2: 90 }, maw: 1.3, eater: 1.4, eater2: 1.25, speed: 0.74, hit: 0.18, eat: 0.6, cap: 0.25, starve: 0.0015, grow: 0.35 },
   },
 };
+/** The camera backs off in a tall frame (phones see as much width as desktops), but less than the town does (^0.7): the planet's horizon has to stay in a tall frame, and a big hole reads best. */
+export const portraitK = (aspect) => Math.max(1, 1.2 / aspect) ** 0.45;

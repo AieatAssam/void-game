@@ -242,7 +242,7 @@ export class BiteMap {
     const lf = this.lf;
     if (!lf || !this.tearOn || now < this.pullAt) return;
     this.pullAt = now + 0.35;
-    const lim = 0.08 * Math.PI * (r / 1000) ** 2, cosR = Math.cos(Math.min(3, (3 * r * pullK) / R));
+    const lim = 0.08 * Math.PI * (r / 1000) ** 2, cosR = Math.cos(Math.min(3, (3 * r * pullK * (this.landEaten >= 0.9 ? 1.5 : 1)) / R)); // (P1-4: from 90% of the land the pull reaches 1.5x, so the last remnants come to you)
     for (let L = 4; L >= 1; L--) {
       const v = lf.lv[L], cc = v.c;
       for (let u = 0; u < v.n; u++) {
