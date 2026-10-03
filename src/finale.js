@@ -113,7 +113,7 @@ export class Finale {
     order.forEach(([ang, i], rank) => {
       const s = sh[i];
       s.ang = ang; s.tk = FT.fall0 + (FT.fall1 - FT.fall0) * (rank / Math.max(1, K - 1)) ** 0.85 + (rnd() - 0.5) * 0.4; s.Dk = 2.4 + 2.2 * (ang / Math.PI) + rnd() * 0.5; s.ts = s.tk + 0.93 * s.Dk;
-      s.off = 0.012 + rnd() * 0.05; s.w.set(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize(); s.om = (rnd() < 0.5 ? -1 : 1) * (0.25 + rnd() * 0.6); s.rot0 = (rnd() - 0.5) * 0.12;
+      s.off = 0.012 + rnd() * 0.05; s.w.set(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize(); s.om = (rnd() < 0.5 ? -1 : 1) * (0.35 + rnd() * 0.8); s.rot0 = (rnd() - 0.5) * 0.12;
       s.qo.setFromAxisAngle(s.w, s.rot0); s.rank = rank; s.done = false;
     });
     this.sorted = order.map((o) => o[1]);
@@ -251,7 +251,7 @@ export class Finale {
       const q = Math.pow(u, 1.7), rho = rho0 * Math.pow(1 - q, 1.4) + Rb * 0.2 * q, h = h0 * Math.pow(1 - q, 2.3), th = th0 + s.om * 5.0 * (Math.pow(u, 0.9) * (1 + 2.2 * u));
       _a.copy(H).addScaledVector(n, h).addScaledVector(this.e1, Math.cos(th) * rho).addScaledVector(this.e2, Math.sin(th) * rho);
       _v.copy(_a).sub(H); const dl = _v.length(); if (dl > 1e-6) _v.divideScalar(dl); else _v.copy(n);
-      const S = 1 + 7.5 * Math.pow(q, 2.0), spin = s.om * (t - s.tk) * (1.4 - 0.9 * q);
+      const S = 1 + 3.3 * Math.pow(q, 1.9), spin = s.om * (t - s.tk) * (1.7 - 0.9 * q); // (stretched to ~4x at most, the other two axes shrink by 1/sqrt(S): a chunk, not a stick; and it tumbles)
       _q2.setFromAxisAngle(s.w, spin); _q.copy(s.qo).multiply(_q2);
       A.set(_a.x, _a.y, _a.z, S); Q.set(_q.x, _q.y, _q.z, _q.w); V.set(_v.x, _v.y, _v.z, 1 - sm(0.8, 1.0, u)); X.w = 0.3 + 0.7 * sm(0.05, 0.8, u);
     }
@@ -263,7 +263,7 @@ export class Finale {
       _a.copy(H).addScaledVector(n, h).addScaledVector(this.e1, Math.cos(th) * rho).addScaledVector(this.e2, Math.sin(th) * rho);
       _v.copy(_a).sub(H); const dl = _v.length(); if (dl > 1e-6) _v.divideScalar(dl); else _v.copy(n);
       _q.setFromAxisAngle(_w.set(0.3, 1, 0.2).normalize(), 0.5 * (t - c.tk));
-      CU.A.value.set(_a.x, _a.y, _a.z, 1 + 11 * Math.pow(q, 2.2)); CU.Q.value.set(_q.x, _q.y, _q.z, _q.w); CU.V.value.set(_v.x, _v.y, _v.z, u >= 1 ? 0 : 1 - sm(0.82, 1.0, u)); CU.X.value.set(0, 0, 0, 0);
+      CU.A.value.set(_a.x, _a.y, _a.z, 1 + 5.5 * Math.pow(q, 2.2)); CU.Q.value.set(_q.x, _q.y, _q.z, _q.w); CU.V.value.set(_v.x, _v.y, _v.z, u >= 1 ? 0 : 1 - sm(0.82, 1.0, u)); CU.X.value.set(0, 0, 0, 0);
       CU.uHeat.value = 0.35 + 0.65 * sm(FT.fall1 - 3, FT.core0 + 3, t);
     }
     // ---- the world's skin: faults ignite, the crust opens, the sea peels, the air and the clouds go
@@ -276,7 +276,7 @@ export class Finale {
     // ---- the hole: a sphere at the origin, drained to black; then the lens takes it
     const bh = this.bh, U = bh.material.userData.U, kl = sm(FT.lens0, FT.lens1, t), drained = sm(FT.quiet, FT.drained, t);
     { const x = clamp((t - FT.rupt) / 0.7) - 1, ob = 1 + 2.70158 * x * x * x + 1.70158 * x * x; bh.visible = t >= FT.rupt && kl < 0.02; bh.scale.setScalar(rb * (0.55 + 0.45 * ob)); } // (the pit inflates into a sphere with an overshoot)
-    { const hl = this.halo, HU = hl.material.userData.U; hl.visible = bh.visible; hl.scale.setScalar(bh.scale.x * 5); HU.uHeat.value = clamp(this.pulse * 0.8); HU.uK.value = drained; HU.uA.value = sm(FT.rupt, FT.rupt + 0.8, t) * (0.7 + 0.3 * sm(FT.fall0, FT.last, t)); }
+    { const hl = this.halo, HU = hl.material.userData.U; hl.visible = bh.visible; hl.scale.setScalar(bh.scale.x * 5); HU.uHeat.value = clamp(this.pulse * 0.8); HU.uT.value = t; HU.uK.value = drained; HU.uA.value = sm(FT.rupt, FT.rupt + 0.8, t) * (0.7 + 0.3 * sm(FT.fall0, FT.last, t)); }
     U.uHeat.value = clamp(this.pulse * 0.9); U.uK.value = drained; U.uT.value = t;
     this.bhOn = t >= FT.rupt;
     // ---- fx

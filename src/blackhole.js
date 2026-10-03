@@ -101,10 +101,14 @@ export function holeSphere() {
   const m = new THREE.MeshBasicNodeMaterial({ fog: false });
   m.colorNode = Fn(() => {
     const n = normalize(normalView), V = normalize(positionView.negate()), ndv = clamp(dot(n, V), 0, 1), dd = sqrt(max(float(1).sub(ndv.mul(ndv)), 0)), ang = atan(n.y, n.x);
-    const arms = sin(ang.mul(3).add(dd.mul(-14)).add(U.uT.mul(1.2))).mul(0.5).add(0.5);
-    const floorCol = mix(vec3(0.05, 0.02, 0.15), vec3(0.003, 0.0015, 0.018), float(1).sub(smoothstep(0.15, 0.9, dd))).add(vec3(0.3, 0.16, 0.7).mul(arms).mul(float(1).sub(smoothstep(0.2, 0.9, dd))).mul(0.24));
-    const rim = pow(dd, 14).mul(float(1.9).add(U.uHeat.mul(2.5))), lil = mix(vec3(0.62, 0.42, 1.0), vec3(1.0, 0.95, 0.9), U.uHeat.mul(0.8));
-    return vec4(mix(floorCol.add(lil.mul(rim)), vec3(0), U.uK), 1);
+    // a maelstrom: spiral arms flowing in (the phase runs toward the centre), two layers at different depths (parallax), a funnel darkening to a black throat, a lit ring at the lip
+    const flow = U.uT.mul(1.5), tw = float(1).sub(dd).mul(5.5);
+    const a1 = sin(ang.mul(3).add(dd.mul(-16)).add(flow).add(tw)).mul(0.5).add(0.5), a2 = sin(ang.mul(5).add(dd.mul(-27)).add(flow.mul(1.7)).sub(tw.mul(1.4))).mul(0.5).add(0.5);
+    const throat = float(1).sub(smoothstep(0.0, 0.62, dd)), body = smoothstep(0.1, 0.5, dd).mul(float(1).sub(smoothstep(0.7, 1.0, dd).mul(0.65)));
+    const swirl = pow(a1, 2.2).mul(0.7).add(pow(a2, 3.0).mul(0.4)).mul(body).mul(float(1).sub(throat.mul(0.85)));
+    const floorCol = mix(vec3(0.05, 0.02, 0.15), vec3(0.0015, 0.0008, 0.01), throat).add(mix(vec3(0.36, 0.18, 0.78), vec3(0.78, 0.5, 1.0), pow(dd, 3)).mul(swirl).mul(0.34));
+    const rim = pow(dd, 12).mul(float(1.9).add(U.uHeat.mul(2.5))), lil = mix(vec3(0.62, 0.42, 1.0), vec3(1.0, 0.95, 0.9), U.uHeat.mul(0.8)), ember = vec3(1.0, 0.5, 0.18).mul(pow(dd, 26)).mul(0.9).mul(float(1).sub(U.uK));
+    return vec4(mix(floorCol.add(lil.mul(rim)).add(ember), vec3(0), U.uK), 1);
   })();
   m.userData.U = U;
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 96, 64), m);
@@ -114,12 +118,12 @@ export function holeSphere() {
 
 /** The glow round the void: a camera-facing quad (4 radii across) drawn additively behind the sphere's lip. uHeat flares it white, uK drains it (the transformation). */
 export function holeHalo() {
-  const U = { uHeat: uniform(0), uK: uniform(0), uA: uniform(1) };
+  const U = { uHeat: uniform(0), uK: uniform(0), uA: uniform(1), uT: uniform(0) };
   const m = new THREE.MeshBasicNodeMaterial({ fog: false, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
   m.colorNode = Fn(() => {
-    const p = uv().sub(0.5).mul(5), rho = length(p), out = smoothstep(0.98, 1.04, rho);
+    const p = uv().sub(0.5).mul(5), rho = length(p), out = smoothstep(0.98, 1.04, rho), wisp = sin(atan(p.y, p.x).mul(3).add(rho.mul(-7)).add(U.uT.mul(1.5))).mul(0.5).add(0.5);
     const g = exp(rho.sub(1).mul(-2.3)).mul(1.0).add(exp(rho.sub(1).mul(-0.7)).mul(0.22)).mul(out).mul(float(1).sub(smoothstep(1.2, 2.5, rho)).mul(0.8).add(0.2)).mul(float(1).sub(smoothstep(1.6, 2.5, rho)).mul(0.5).add(0.5));
-    return vec4(mix(vec3(0.5, 0.3, 1.0), vec3(1.0, 0.92, 0.85), U.uHeat).mul(g).mul(U.uA).mul(float(1).sub(U.uK)).mul(float(1).add(U.uHeat.mul(2.2))), 1);
+    return vec4(mix(vec3(0.5, 0.3, 1.0), vec3(1.0, 0.92, 0.85), U.uHeat).mul(g).mul(float(0.65).add(wisp.mul(0.7).mul(float(1).sub(smoothstep(1.1, 2.0, rho))))).mul(U.uA).mul(float(1).sub(U.uK)).mul(float(1).add(U.uHeat.mul(2.2))), 1);
   })();
   m.userData.U = U;
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), m);
