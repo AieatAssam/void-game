@@ -221,6 +221,8 @@ carried onto the sphere:
 ## 3. Terrain height as gameplay
 
 > Bite depth, wall and drag numbers are superseded by §12.2 (D = 0.03 r).
+>
+> **What height is worth (loop 2, PHASE3-REVIEW-2 P2-9):** walls and ridge drag matter in T1 only (`state.walls` is 0 in every sweep from T2, and `heightK` 0 or 1 made no pacing difference). Past T1 height is land credit (the √h in the credit) and look. The claim "height matters past T1" is withdrawn; nothing in the brief or the README depends on it.
 
 | Rule | Formula / number | Feel |
 |---|---|---|
