@@ -148,6 +148,7 @@ export class Threat {
   /** A damaging hit: capped at 25%, and at 25% in any 30 s (past it a hit is a near miss). Returns the fraction taken. fairAge: seconds the telegraph was visible and fixed. from: where it came from (planet direction), for the recoil. */
   hurt(frac, why, key, k = 0, cap = 0.25, fairAge = 9, from = null) {
     const { hole, state } = this;
+    if (k) frac *= T3.tierHit[Math.max(0, P3.tier(hole.r) - 1)]; // (P0-1: the floors grow with the tier: a T4 nuke is 14%, not 7%)
     if (k) frac = Math.max(frac, Math.min(cap, k * (state.gRate || 0) / hole.area)); // (seconds of income: A9)
     frac = Math.min(frac, cap) * (state.mods?.hurt ?? 1) * (state.ng ? 1.3 : 1); // (a New World hits 30% harder)
     if (this.mercySum() + frac > 0.25 + 1e-9) { this.stats.mercy++; this.stats.near++; this.trauma(0.25); this.ctx.pain?.nearMiss(); this.ctx.hint('Near miss — the world blinks'); return 0; }
@@ -155,6 +156,7 @@ export class Threat {
     const a0 = hole.area; hole.area *= 1 - frac;
     const L = state.ledger; L[key] = (L[key] || 0) + (hole.area - a0); L.dmg = (L.dmg || 0) + (hole.area - a0); this.stats.loss += frac; this.stats.hits++; (this.stats.by ??= {})[key] = (this.stats.by[key] || 0) + 1; { const hb = state.hitsByTier ??= {}, tt = P3.tier(hole.r); hb[tt] = (hb[tt] || 0) + 1; }
     this.trauma(0.2 + 2 * frac);
+    state.stun = Math.min(14, Math.max(state.stun || 0, T3.stunBase + T3.stunK * frac) + 0.5 * (state.stun || 0)); // (P0-1: a hit costs the land clock: seconds at 0.35x speed, compounding on a wound that is still open)
     this.ctx.flash(why);
     this.painHit(frac, why, from);
     return frac;
@@ -164,7 +166,7 @@ export class Threat {
     const { hole, state } = this, c = this.cont[key] ??= { acc: 0, t: -9, hint: -9, fxAcc: 0 };
     let f = Math.max(rate, k ? k * (state.gRate || 0) / hole.area : 0) * dt * (state.mods?.hurt ?? 1);
     if (this.mercySum() + c.acc + f > 0.25 + 1e-9) { if (this.t - c.hint > 2) { c.hint = this.t; this.stats.mercy++; this.stats.near++; this.ctx.pain?.nearMiss(); this.ctx.hint('Near miss — the world blinks'); } return 0; }
-    const a0 = hole.area; hole.area *= 1 - f; c.acc += f; c.fxAcc += f; const L = state.ledger; L[key] = (L[key] || 0) + (hole.area - a0); L.dmg = (L.dmg || 0) + (hole.area - a0); this.stats.loss += f;
+    const a0 = hole.area; hole.area *= 1 - f; c.acc += f; c.fxAcc += f; const L = state.ledger; L[key] = (L[key] || 0) + (hole.area - a0); L.dmg = (L.dmg || 0) + (hole.area - a0); this.stats.loss += f; state.stun = Math.max(state.stun || 0, T3.stunBase * 0.4);
     if (this.t - c.t > 0.4) { this.mercyPush(c.acc); c.acc = 0; c.t = this.t; this.fair(fairAge, key); }
     if (this.t - (c.fx ?? -9) > 0.9) { c.fx = this.t; this.trauma(0.12); this.ctx.flash(why); this.stats.hits++; (this.stats.by ??= {})[key] = (this.stats.by[key] || 0) + 1; { const hb = state.hitsByTier ??= {}, tt = P3.tier(hole.r); hb[tt] = (hb[tt] || 0) + 1; } this.painHit(c.fxAcc, why, from, true); c.fxAcc = 0; }
     return f;
@@ -182,7 +184,7 @@ export class Threat {
     this.updateFallout(dt);
     this.glow.step(dt); this.smoke.step(dt); this.domeStep(dt); this.fxStep(dt);
     this.sealWatch(dt);
-    state.frenzy = Math.max(0, (state.frenzy || 0) - dt); state.slow = Math.max(0, (state.slow || 0) - dt); state.magma = Math.max(0, (state.magma || 0) - dt);
+    state.frenzy = Math.max(0, (state.frenzy || 0) - dt); state.slow = Math.max(0, (state.slow || 0) - dt); state.stun = Math.max(0, (state.stun || 0) - dt); state.magma = Math.max(0, (state.magma || 0) - dt);
     state.rubble = !!state.rubbleNow; state.rubbleNow = false; state.ash = !!state.ashNow; state.ashNow = false; // (flags the kinds raise each frame: the game reads them next frame)
     this.updateLine(dt);
     if (this.flashA > 0) { this.flashT += dt; const k = Math.max(0, 1 - this.flashT / this.flashDur); this.flashEl.style.background = this.flashC; this.flashEl.style.opacity = (this.flashA * k * k).toFixed(3); if (k <= 0) this.flashA = 0; }
@@ -722,7 +724,7 @@ export class Threat {
   sealWatch(dt) {
     const { hole, state } = this;
     if (!this.sealOn || state.over || !state.playing) { if (!state.playing && this.lid.visible && !state.sealed) this.lid.visible = false; return; }
-    const fl = this.floorR(), r = hole.r;
+    const fl = Math.max(this.floorR(), 0.75 * (state.best || 0)), r = hole.r; // (P0-1c: the lid follows your peak: a run that bleeds a third of its best is warned)
     if (!this.seal && r < 0.7 * fl && this.t > 8) {
       this.seal = { t: 0, zone: this.zoneAlloc() }; this.stats.sealWarn++; this.sfx.lidWarn(); this.sfx.klaxon(1); this.news('Too weak: the Void Lid is coming down — eat, or be sealed for good');
       this.ctx.card('SEALING', `grow past ${KMs(0.75 * fl)} in 14 s`);
@@ -779,7 +781,7 @@ export class Threat {
     const { state } = this; let txt = '', cls = '', k = 1e9;
     const pick = (eta, s, c) => { if (eta < k) { k = eta; txt = s; cls = c; } };
     for (const kd of this.K) if (kd.line) for (const x of kd.items) if (x.on) kd.line(x, pick);
-    if (this.seal) { txt = `SEALING · grow past <b>${KMs(0.75 * this.floorR())}</b> · <b>${this.seal.left.toFixed(0)} s</b>`; cls = 'lock'; }
+    if (this.seal) { txt = `SEALING · grow past <b>${KMs(0.75 * Math.max(this.floorR(), 0.75 * (this.state.best || 0)))}</b> · <b>${this.seal.left.toFixed(0)} s</b>`; cls = 'lock'; }
     else if (!txt && state.frenzy > 0) { txt = `FRENZY · <b>${state.frenzy.toFixed(0)} s</b>`; cls = 'good'; }
     else if (!txt && state.magma > 0) { txt = `MAGMA SURGE · land counts ×${T3.kinds.volcano.surge} · <b>${state.magma.toFixed(0)} s</b>`; cls = 'good'; }
     else if (!txt && state.fallout) { txt = 'FALLOUT · hunger ×1.8 · land ×0.5'; }

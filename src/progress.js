@@ -86,10 +86,13 @@ export const WORLD = [
 ];
 export const worldStars = () => WORLD.filter((_, i) => ((save.worldStars | 0) >> i) & 1).length;
 /** Score a finished world: { list: [{ text, done, fresh }], fresh }. */
+/** A debug / bot world pays nothing and records nothing (P1-2): ?finale, ?land, ?r, ?defcon, the bots; `?banksave` is the dev flag that lets it bank. */
+export const devRun = () => !/[?&]banksave\b/.test(location.search) && !!(window.__bot || window.__headless || /[?&](finale|land|r|defcon)\b/.test(location.search));
+
 export function scoreWorld(stats) {
   const before = save.worldStars | 0; let mask = before;
   const list = WORLD.map((c, i) => { let ok = false; try { ok = !!c.end(stats); } catch { ok = false; } if (ok) mask |= 1 << i; return { text: c.text, done: !!(mask & (1 << i)), fresh: ok && !(before & (1 << i)) }; });
-  save.worldStars = mask; persist();
+  if (!devRun()) { save.worldStars = mask; persist(); }
   return { list, fresh: list.filter((c) => c.fresh).length };
 }
 

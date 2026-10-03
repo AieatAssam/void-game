@@ -293,12 +293,13 @@ export function planetSteer(who = 'human') {
   const steer = (hole) => {
     const P = window.__planet;
     if (!P) return [0, 0];
-    const W = P.W, B = W.bite, lf = B.lf, state = P.ctx.state, t = state.time, r = hole.r, human = who === 'human', G = P.game.goal, R = 6371000;
+    const W = P.W, B = W.bite, lf = B.lf, state = P.ctx.state, t = state.time, r = hole.r, human = who === 'human' || who === 'naive', G = P.game.goal, R = 6371000;
     const dbg = (window.__botDbg ??= { stuck: 0, unit: 0, goal: 0, hunt: 0, wall: 0, idle: 0, tgt: '' });
     // threats (src/threat.js): rings that have locked. Greedy dives into the inner circle (the swallow) whenever it can get there in time; human-like does so 1 time in 3 and reacts 0.35 s late; else it leaves the ring / the strafe band
     const th = window.__threat?.t;
     if (th && state.playing) {
-      const ds = th.dangers(s.buf ??= []), v = P3.speed(r); s.pick ??= {};
+      let ds = th.dangers(s.buf ??= []); if (who === 'naive') ds = ds.filter((d) => d.kind === 'target' || d.kind === 'sat' || d.kind === 'scenery'); // (P0-1: the no-dodge gate: errands only, never leaves a ring, beam, wave or lid)
+      const v = P3.speed(r); s.pick ??= {};
       let go = null, goD = 1e30; // (the best non-urgent errand this frame: an edible target or a smaller rival; rings and beams are handled first, and win)
       for (const d of ds) {
         const dist = Math.hypot(d.x, d.z) || 1;
@@ -457,7 +458,7 @@ window.__planetSweep = async (n = 3, secs = 3000, who = 'human') => {
     while (!run.done) await new Promise((r) => setTimeout(r, 300));
     const L = run.ledger, tot = L.land + L.tear + L.pull;
     const fin = window.__finaleBot && run.won ? await window.__planet.game.fastFinale(window.__planet.ctx) : undefined; // (the finale played headless at 8x: it must start and reach its card without an error)
-    rows.push({ fin,  won: run.won, sealed: run.sealed, threat: run.threat, min: m(run.time), tierMin: Object.fromEntries(Object.entries(run.tierAt).map(([k, v]) => [k, m(v)])), tierLand: run.tierLand, goalMin: run.goalAt.map(m), rEnd: Math.round(run.r / 1000), share: [L.land, L.tear, L.pull].map((v) => Math.round((100 * v) / tot)), decay: Math.round((100 * (L.fed + L.starve)) / -tot), dmg: +((100 * -(L.dmg || 0)) / tot).toFixed(1), bonus: +((100 * (L.bonus || 0)) / tot).toFixed(1), sat: +((100 * (L.sat || 0)) / tot).toFixed(1), kinds: Object.fromEntries(Object.entries(L).filter(([k]) => !['land', 'tear', 'pull', 'fed', 'starve', 'dmg', 'bonus'].includes(k)).map(([k, v]) => [k, +((100 * v) / tot).toFixed(1)])), walls: window.__planet.ctx.state.walls || 0, thr: { ...window.__threat?.stats } });
+    rows.push({ who, fin,  won: run.won, sealed: run.sealed, threat: run.threat, min: m(run.time), tierMin: Object.fromEntries(Object.entries(run.tierAt).map(([k, v]) => [k, m(v)])), tierLand: run.tierLand, goalMin: run.goalAt.map(m), rEnd: Math.round(run.r / 1000), share: [L.land, L.tear, L.pull].map((v) => Math.round((100 * v) / tot)), decay: Math.round((100 * (L.fed + L.starve)) / -tot), dmg: +((100 * -(L.dmg || 0)) / tot).toFixed(1), bonus: +((100 * (L.bonus || 0)) / tot).toFixed(1), sat: +((100 * (L.sat || 0)) / tot).toFixed(1), kinds: Object.fromEntries(Object.entries(L).filter(([k]) => !['land', 'tear', 'pull', 'fed', 'starve', 'dmg', 'bonus'].includes(k)).map(([k, v]) => [k, +((100 * v) / tot).toFixed(1)])), walls: window.__planet.ctx.state.walls || 0, thr: { ...window.__threat?.stats } });
   }
   window.__sweepDone = true;
   return rows;
@@ -473,7 +474,7 @@ window.__runSum = (r = window.__botRun) => {
 };
 
 /** `__sweepRows()`: the last sweep for the WP-B gate: minutes (and cumulative minutes at the tier-ups), end r, damage / bonus % of gains, decay %, kinds seen, unfair / mercy / seal counts, hits by kind, rivals' share of the world's land and rivals eaten, set pieces (Aegis attempts / broken, cracker spawned / fizzled / hit). */
-window.__sweepRows = (rows = window.__sweep) => rows.map((r) => ({ m: r.min, tier: Object.values(r.tierMin).join('/'), land: Object.values(r.tierLand).join('/'), rEnd: r.rEnd, dmg: r.dmg, bonus: r.bonus, dec: r.decay, seen: r.thr.seen, unfair: r.thr.unfair, mercy: r.thr.mercy, seal: r.thr.sealWarn, hits: r.thr.hits, by: r.thr.by, riv: +((100 * r.thr.rivalKm2) / 1.48e8).toFixed(1), rivEaten: r.thr.rivalEaten, ag: [r.thr.aegis, r.thr.aegisBroke].join('/'), ck: [r.thr.cracker, r.thr.fizzles, r.thr.crackerHits].join('/'), won: r.won }));
+window.__sweepRows = (rows = window.__sweep) => rows.map((r) => ({ who: r.who, m: r.min, tier: Object.values(r.tierMin).join('/'), land: Object.values(r.tierLand).join('/'), rEnd: r.rEnd, dmg: r.dmg, bonus: r.bonus, dec: r.decay, seen: r.thr.seen, unfair: r.thr.unfair, mercy: r.thr.mercy, seal: r.thr.sealWarn, hits: r.thr.hits, by: r.thr.by, riv: +((100 * r.thr.rivalKm2) / 1.48e8).toFixed(1), rivEaten: r.thr.rivalEaten, ag: [r.thr.aegis, r.thr.aegisBroke].join('/'), ck: [r.thr.cracker, r.thr.fizzles, r.thr.crackerHits].join('/'), won: r.won }));
 
 /**
  * Phase 3 test helpers (docs/PHASE3.md §12.7 R3): `await __planetTT.tear(L, maxKm2, minKm2, off, bearing, r, frames)` stands the hole beside the nearest unit of level L

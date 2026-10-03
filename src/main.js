@@ -14,7 +14,7 @@ import { Chains } from './chains.js';
 import { Powerups, POWERS } from './powerups.js';
 import { Abilities, ABILITIES, owned, slots, buyAbility, equip } from './abilities.js';
 import { thisWeek, recordWeek, MUTATORS } from './mutators.js';
-import { newStats, scoreRun, renderPicker, unlocked, totalStars, LANDMARK } from './progress.js';
+import { newStats, scoreRun, renderPicker, unlocked, totalStars, LANDMARK, devRun } from './progress.js';
 import { installBot, installHumanRun } from './bot.js';
 import { UPGRADES, ECON, save, persist, level, buy, todaySeed } from './meta.js';
 import * as sfx from './sfx.js';
@@ -195,7 +195,7 @@ const pickedMode = new URLSearchParams(location.search).get('mode') === 'blitz' 
 function newRun(seed = randomSeed(), daily = false, card = 'none', mood = null, mutator = null, heat = 0, mode = 'city') {
   minimap.stop();
   rubble.clear();
-  if (state?.phase === 3) { planetGame?.leave(); planetGame = null; }
+  if (state?.phase === 3) { planetGame?.leave(planetCtx()); planetGame = null; }
   if (state?.warmSlice) state.warmSlice.cancelled = true;
   if (state?.planetSlice) { // a planet was being prebuilt behind Phase 2: drop it
     planetReady = false;
@@ -1098,6 +1098,7 @@ const planetCtx = () => planetCtxObj ??= ({
     const g = st.goalDone || [], th = o.stats || {}, parts = {
       world: 150, nations: 20 * ((g[2] ? 1 : 0) + (g[3] ? 5 : 0)), moon: th.moonAll ? 60 : 6 * (th.moonGulps || 0), time: Math.round(2 * Math.max(0, 30 - st.time / 60)), nukes: 5 * (st.nukesSwallowed || 0), rivals: 8 * (th.rivalEaten || 0),
     };
+    if (devRun()) return { total: 0, parts: {}, practice: true }; // (P1-2: a bot or debug world banks nothing)
     const total = Math.round(Object.values(parts).reduce((a, b) => a + b, 0));
     save.dust += total; save.best = Math.max(save.best || 0, st.best || 0);
     save.worldFastest = Math.min(save.worldFastest || Infinity, st.time);
@@ -1106,6 +1107,8 @@ const planetCtx = () => planetCtxObj ??= ({
     persist();
     return { total, parts };
   },
+  /** The way back from the world: the planet goes (listeners, DOM, meshes, lens) and the page restarts at the start menu. */
+  toMenu() { planetGame?.leave(planetCtx()); planetGame = null; location.href = location.pathname; },
   takePerk: (id) => takePerk(id), // (the legacy perk of a New World: taken for the player at the start)
   save,
   draft() { state.draftsDue++; if (BOT || window.__headless) { openDraft(); if (state.draft) takePerk(state.draft[0]); } else setTimeout(openDraft, 1100); }, // (bots take the first offer at once, as the town's drafts do)

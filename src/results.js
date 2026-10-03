@@ -52,18 +52,19 @@ export function showResults(ctx, w, opt = {}) {
   const pay = w.pay ? Object.entries(w.pay.parts).filter(([, v]) => v > 0).map(([k, v]) => `${k} ${v}`).join(' · ') : '';
   const best = save.worldBest?.[w.seed], worlds = save.worlds || 1;
   const offer = offerPerks((w.seed || 7) * 31 + worlds, 77, [], true);
-  el.innerHTML = `<div class="pn"><h1>THE WORLD IS CONSUMED</h1><div class="sub">world ${w.seed} · ${worlds === 1 ? 'your first' : `world number ${worlds}`}</div>
+  el.innerHTML = `<div class="pn"><h1>THE WORLD IS CONSUMED</h1><div class="sub">${w.pay?.practice ? 'practice · ' : ''}world ${w.seed} · ${worlds === 1 ? 'your first' : `world number ${worlds}`}</div>
     <div class="big"><div><b>${tm(w.time)}</b><small>time</small></div><div><b>${popStr(w.pop)}</b><small>swallowed</small></div><div><b>${KM(w.best)}</b><small>peak size</small></div><div><b>+${w.pay?.total ?? 0}</b><small>void dust</small></div></div>
     <div class="two"><div><h3>Land eaten</h3>${spark}${tiers}</div><div><h3>The run</h3><div class="rows">${rows}</div></div></div>
     <div class="two"><div><h3>World stars</h3><div class="st">${stars}</div></div><div class="legacy"><h3>Legacy</h3>Worlds eaten <b>${worlds}</b> · fastest <b>${save.worldFastest ? tm(save.worldFastest) : tm(w.time)}</b>${best ? ` · this world <b>${tm(best)}</b>` : ''}<br>${pay ? `<span style="color:#8d89c0">${pay}</span><br>` : ''}${worlds === 1 ? '<b>Unlocked:</b> the Event Horizon and Black Hole skins.<br>' : ''}Choose one gift for the next world:
       <div class="perks">${offer.map((id) => `<button data-id="${id}"><b>${PERKS[id].icon} ${PERKS[id].name}</b><small>${PERKS[id].desc}</small></button>`).join('')}</div></div></div>
-    <div class="go"><button class="pri" id="wr-new">New World</button><button id="wr-close">Close</button></div></div>`;
+    <div class="go"><button class="pri" id="wr-new">New World</button><button id="wr-menu">Menu</button><button id="wr-close">Close</button></div></div>`;
   document.body.append(el);
   const sel = save.legacyPerk && offer.includes(save.legacyPerk) ? save.legacyPerk : null;
   const mark = (id) => el.querySelectorAll('.perks button').forEach((b) => b.classList.toggle('on', b.dataset.id === id));
   if (sel) mark(sel);
   el.querySelectorAll('.perks button').forEach((b) => { b.onclick = () => { save.legacyPerk = b.dataset.id; persist(); mark(b.dataset.id); }; });
   el.querySelector('#wr-close').onclick = () => { el.remove(); opt.onClose?.(); };
+  el.querySelector('#wr-menu').onclick = () => ctx.toMenu();
   el.querySelector('#wr-new').onclick = () => { const u = new URL(location.href); u.search = `?planet&ng=1&seed=${Math.floor(Math.random() * 9e5) + 1000}`; location.href = u.href; };
   return el;
 }

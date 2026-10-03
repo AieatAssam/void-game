@@ -106,7 +106,7 @@ export class PlanetGame {
     if (this.map) { this.map.show(!cinematic); this.map.place(W, hole); } // (the minimap waits for the end of the cinematic)
     state.sealed = false; state.over = false; state.gRate = 0; state.hitsByTier = {}; this.landLog = []; this.logT = -99;
     { const st = document.getElementById('status'); if (st) st.textContent = ''; } ctx.chips?.(); // (A12: no stale Phase 2 line, no Phase 2 perk chips)
-    state.pop = this.world.bite.pop; state.ledger = { land: 0, tear: 0, pull: 0, fed: 0, starve: 0 }; state.tierAt = { 1: 0 }; state.goalDone = []; state.continents = 0; state.won = false; state.shake = 0; state.slowT = 0;
+    state.pop = this.world.bite.pop; state.ledger = { land: 0, tear: 0, pull: 0, fed: 0, starve: 0 }; state.tierAt = { 1: 0 }; state.goalDone = []; state.continents = 0; state.won = false; state.shake = 0; state.slowT = 0; state.stun = 0;
     this.camDist = 0;
     if (!cinematic) this.armRun(ctx, r0);
     this.installDebug(ctx);
@@ -129,8 +129,8 @@ export class PlanetGame {
     window.__planetDbg = window.__planet.dbg; // r, tier, e_eff, speed, patch builds, bite/world/step ms
     window.__planetLadder = () => this.ladderTest(ctx);
     window.__planetUnits = () => this.unitsApi(ctx);
-    if (qs.has('land') && !this.landDebug) { this.landDebug = true; setTimeout(() => console.info(`[land] ${(this.fastLand(+qs.get('land') || 0.89) * 100).toFixed(2)}% eaten`), 1200); } // ?planet&land=0.89: the world as it is at 89% (the bite map really chewed, the credit thrown away)
-    if (qs.has('finale') && !this.finDebug) { // ?planet&finale[=t]: build the finale, take the land away and play it (or scrub to t)
+    if (import.meta.env.DEV && qs.has('land') && !this.landDebug) { this.landDebug = true; setTimeout(() => console.info(`[land] ${(this.fastLand(+qs.get('land') || 0.89) * 100).toFixed(2)}% eaten`), 1200); } // ?planet&land=0.89: the world as it is at 89% (the bite map really chewed, the credit thrown away)
+    if (import.meta.env.DEV && qs.has('finale') && !this.finDebug) { // ?planet&finale[=t]: build the finale, take the land away and play it (or scrub to t)
       this.finDebug = true;
       setTimeout(async () => {
         const st = ctx.state; st.playing = false; ctx.hole.area = Math.PI * (num('r', 2.3e6)) ** 2; window.__bot = () => [0, 0];
@@ -264,7 +264,7 @@ export class PlanetGame {
     if (this.wetPrev) mult = P3.oceanSpeed(tier) * (state.mods?.sea ?? 1); // the sea: no credit, slower while small (wet = the centre is at sea AND the disc ate nothing last frame: a coast is not the sea)
     else if (here.e < D) mult = 1.1; // lowland feast
     else if (here.e < P3.wallK * D) mult = 1 - 0.5 * (here.e - D) / (3 * D); // ridge drag: eaten from the top down over several passes
-    const slow = (state.slow > 0 ? (state.slowK ?? 0.45) : 1) * (state.ash ? 0.7 : 1);
+    const slow = (state.slow > 0 ? (state.slowK ?? 0.45) : 1) * (state.ash ? 0.7 : 1) * (state.stun > 0 ? T3.stunSlow : 1);
     const speed = P3.speed(r) * mult * slow * (state.frenzy > 0 ? 1.3 : 1) * (state.mods?.speed ?? 1) * (ctx.speedK?.() ?? 1);
     const kick = state.kick || (state.kick = { x: 0, z: 0 });
     let dx = (hole.sx * speed + kick.x * r / 60) * dt, dz = (hole.sz * speed + kick.z * r / 60) * dt;
@@ -447,7 +447,8 @@ export class PlanetGame {
   /** The title card's buttons (the finale calls it with a maker). */
   finaleButtons(ctx, mk) {
     mk('Results', '', () => this.resultsUi(ctx));
-    mk('Continue', '', () => { this.fin.btnEl.classList.remove('on'); this.fin.cardEl.classList.remove('on'); setTimeout(() => this.fin.btnEl.classList.remove('on'), 0); ctx.hint?.('Drag to look around — Esc for the menu'); });
+    mk('Continue', '', () => { this.fin.btnEl.classList.remove('on'); this.fin.cardEl.classList.remove('on'); setTimeout(() => this.fin.btnEl.classList.remove('on'), 0); ctx.hint?.('Drag to look around — Esc for the card'); });
+    mk('Menu', '', () => ctx.toMenu());
     mk('New World', 'pri', () => { const u = new URL(location.href); u.search = `?planet&ng=1&seed=${Math.floor(Math.random() * 9e5) + 1000}`; location.href = u.href; });
   }
   installFinaleDebug(ctx) {
@@ -783,6 +784,7 @@ export class PlanetGame {
   }
 
   leave(ctx) {
+    this.finaleReset(ctx); document.getElementById('wres')?.remove(); // (P0-2: the finale's listeners, DOM, meshes and lens go with the world)
     ctx.sfx.grind.stop(); ctx.sfx.bed.stop();
     this.threat?.dispose(); this.threat = null; this.cities?.dispose(); this.cities = null;
     this.map?.dispose(); this.map = null;

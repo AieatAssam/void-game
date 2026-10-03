@@ -65,6 +65,8 @@ export const T3 = {
   nukeK: 25, rodK: 25, bomberK: 12, // seconds of income lost to a hit
   nukeHit: 0.07, rodHit: 0.08, bomberHit: 0.06, firstHit: 0.07, // floors (the scripted first ICBM is capped at firstHit)
   nukeGulp: 0.03, rodGulp: 0.02, satGulp: 0.01,
+  tierHit: [1, 1.2, 1.5, 1.8], // the hit floors x by tier 1..4
+  stunBase: 3.5, stunK: 45, stunSlow: 0.35, // P0-1: a hit = (stunBase + stunK x fraction) s at stunSlow x speed (a 7% nuke = 5.8 s), compounding 50% on an open wound
   falloutLife: 45, falloutLand: 0.5, grace: 14,
   satEat: 0.7, // a satellite is swallowed when its subpoint passes within this x r of the hole
   // WP-B (docs/PHASE3-REVIEW.md B0): the director's numbers per kind. cost = budget points, cool = [min, max] s between spawns of the kind.
