@@ -49,6 +49,9 @@ export class PlanetGame {
     if (!qs.has('nomap')) { this.map = new PlanetMap(ctx.renderer, W.globe); this.map.show(false); await this.map.precompile(); } // (the minimap: §6.3)
     if (!qs.has('noarmy') && !qs.has('nothreat')) { ctx.stage?.('Arming the world…'); this.threat = new Threat(this, ctx); await this.threat.init(); } // (the DEFCON director, src/threat.js)
     this.cities = new Cities(this, ctx); this.cities.attach(this.map); try { await ctx.post.precompile({ traverse: (f) => f(this.cities.pool.sprite) }, 3000, this.around); } catch (e) { console.warn('cities precompile', e); }
+    if (!slice) { // (?planet: no Phase 2 to hide behind, but the loading line is still up: compile the globe, patch, atmosphere, Moon and sky now, not on the first frames of play and at the first climb to 120 km, where they were 0.5-0.9 s hitches)
+      try { await ctx.post.precompile(W.globe.group, 20000, this.around); await ctx.post.precompile(W.globe.sky, 8000, this.around); } catch (e) { console.warn('planet precompile', e); }
+    }
     if (slice) { // (under Phase 2: the globe, sky and patch pipelines compile here, one mesh a frame; the textures go up to the GPU one a frame; the first patch is built: the swap does none of it)
       await ctx.post.precompile(W.globe.group, 20000, this.around);
       await ctx.post.precompile(W.globe.sky, 8000, this.around);

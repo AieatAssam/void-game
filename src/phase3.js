@@ -62,11 +62,11 @@ export const P3 = {
 // Threat tuning (docs/PHASE3-REVIEW.md A9): damage is the larger of the old fixed fraction and `k` seconds of current income (state.gRate), so a hit costs the same
 // number of seconds of progress at every tier. Bonuses are the area multipliers for swallowing the weapons (x mods.gulp).
 export const T3 = {
-  nukeK: 25, rodK: 25, bomberK: 12, // seconds of income lost to a hit
-  nukeHit: 0.07, rodHit: 0.08, bomberHit: 0.06, firstHit: 0.07, // floors (the scripted first ICBM is capped at firstHit)
+  nukeK: 25, rodK: 18, bomberK: 12, // seconds of income lost to a hit
+  nukeHit: 0.07, rodHit: 0.06, bomberHit: 0.06, firstHit: 0.07, // floors (the scripted first ICBM is capped at firstHit)
   nukeGulp: 0.03, rodGulp: 0.02, satGulp: 0.01,
   woundAdd: 0.15, woundK: 2, woundMax: 1.2, woundHeal: 60, woundSlow: 0.5, // the wound state: each hit adds (woundAdd + woundK x fraction), it heals in woundHeal s; speed and tear credit x (1 - woundSlow x wound), so only a player who keeps getting hit stays hobbled
-  tierHit: [1, 1.2, 1.5, 1.8], // the hit floors x by tier 1..4
+  tierHit: [1, 1.15, 1.35, 1.55], // the hit floors x by tier 1..4
   stunBase: 3.5, stunK: 45, stunSlow: 0.35, // P0-1: a hit = (stunBase + stunK x fraction) s at stunSlow x speed (a 7% nuke = 5.8 s), compounding 50% on an open wound
   falloutLife: 45, falloutLand: 0.5, grace: 14,
   satEat: 0.7, // a satellite is swallowed when its subpoint passes within this x r of the hole
@@ -75,7 +75,7 @@ export const T3 = {
   refill: [0.6, 0.2], // budget per s = a + b x (5 - DEFCON)
   coolK: [1.3, 1.15, 1, 0.75, 0.6], // cooldown multiplier by tier 1..5 (T1-T2 gentle, T4 extinction-level)
   kinds: {
-    bomber: { cost: 3, cool: [42, 56] }, nuke: { cost: 6, cool: [48, 68] }, rod: { cost: 5, cool: [55, 75] },
+    bomber: { cost: 3, cool: [42, 56] }, nuke: { cost: 6, cool: [48, 68] }, rod: { cost: 5, cool: [65, 90] },
     mirv: { cost: 10, cool: [90, 120], hit: 0.04, k: 14, cap: 0.15, gulp: 0.02, children: 4 },
     laser: { cost: 8, cool: [90, 120], rate: 0.02, k: 1.1, sweep: 0.3, dur: 12, jam: 0.8, gulp: 0.02 },
     fleet: { cost: 3, cool: [100, 140], hit: 0.04, k: 8, eat: 0.015, all: 0.03, salvo: 12 },
