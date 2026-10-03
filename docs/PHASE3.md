@@ -718,18 +718,20 @@ User feedback: T1–T2 play like Phase 2 at 20× (skyline boxes, towns, a 1.4 km
 
 This section supersedes the conflicting lines in §0, §2.4–2.7, §3, §4, §5.1 (DEFCON floors), §6.1 (pitch), §6.3 (minimap extent), §6.7, §7, §8 (tier targets) and §9 (steps 6 and 10). Where they disagree, §12 wins.
 
+Movement follow-up: the screen-relative speed in §12.1 was raised from 0.6 r/s at T1 / 0.18 r/s at 2.4k km to about 1.15 / 0.70 r/s, and turn response from 0.45–0.80 s to 0.18–0.24 s. Planet balance timings below were measured before this response pass and are historical until a new sweep is run.
+
 ### 12.1 Scale, tiers, camera (`src/phase3.js`)
 
 | Tier | r (km) | Name card | camDist (km, ×LENS) | Pitch | E | G_land (ramp) | Speed (r/s) | Target |
 |---|---|---|---|---|---|---|---|---|
-| T1 | 40–150 | **REGIONS** | 477–1790 | 30 → 36° | 3 → 4 | 0.06 | 0.60 → 0.45 | 4–5 min |
-| T2 | 150–450 | **NATIONS** | 1.8k–5.4k | 36 → 40° | 4 → 6 | 0.06 → 0.065 | 0.45 → 0.35 | 4.5–5.5 min |
-| T3 | 450–1200 | **CONTINENTS** | 5.4k–14.3k | 40 → 36° | 6 → 7 | 0.065 → 0.09 (1000 km) → 0.13 | 0.35 → 0.28 | 5–6.5 min |
-| T4 | 1200 → end (~2.4k) | **THE WORLD** | 14.3k–28.6k | 36 → 32° | 7 | 0.13 → 0.2 (1600 km) → 0.3 (2600 km) | 0.28 → 0.24 | 5–7 min |
+| T1 | 40–150 | **REGIONS** | 477–1790 | 30 → 36° | 3 → 4 | 0.06 | 1.15 → 0.98 | 4–5 min |
+| T2 | 150–450 | **NATIONS** | 1.8k–5.4k | 36 → 40° | 4 → 6 | 0.06 → 0.065 | 0.98 → 0.86 | 4.5–5.5 min |
+| T3 | 450–1200 | **CONTINENTS** | 5.4k–14.3k | 40 → 36° | 6 → 7 | 0.065 → 0.09 (1000 km) → 0.13 | 0.86 → 0.77 | 5–6.5 min |
+| T4 | 1200 → end (~2.4k) | **THE WORLD** | 14.3k–28.6k | 36 → 32° | 7 | 0.13 → 0.2 (1600 km) → 0.3 (2600 km) | 0.77 → 0.70 | 5–7 min |
 
 - **Ramps:** `RAMP` gains columns for G and aim. G is a smooth ramp on r. The per-tier step `gLand[tier]` popped at every tier-up and flipped back whenever a mercy-cap hit dropped r below a floor. G anchors (r, G): (40 km, 0.06), (450 km, 0.065), (1000 km, 0.09), (1600 km, 0.2), (2600 km, 0.3).
-- **Speed:** `P3.speed(r) = 0.6 r · (r / 40 km)^−0.22`, which is 24 km/s at the start and 585 km/s at 2.4k km. **Do not restore a constant 0.6 r/s.** The sweep (2r·v) grows with r², and at a constant 0.6 r/s T3 alone eats ~77% of the world's land in 5 minutes. The slowing screen speed is also the "mass" cue.
-- **Turning:** `P3.turn(r) = 0.45 · (r / 40 km)^0.14`, which is 0.8 s at 2.4k km. The hole gets heavier.
+- **Speed:** `P3.speed(r) = 1.15 r · (r / 40 km)^−0.12`, which is 46 km/s at the start and 1,690 km/s at 2.4k km. The screen-relative speed stays responsive as the camera scales up, with a mild sense of added mass.
+- **Turning:** `P3.turn(r) = 0.18 · (r / 40 km)^0.07`, which is 0.24 s at 2.4k km. The hole gains weight without long steering lag.
 - **The limb is in frame from the first second.** The horizon is visible iff pitch − 13° (half the FOV) − aim < acos(R / (R + camDist·sin pitch)).
   - At 40 km: pitch 30° → altitude 238 km, horizon dip 15.4°. The camera aims 4° high: `lookAt` targets 0.14·camDist screen-up of the hole, so the hole sits ~65% down the frame. That puts the top ray at 13°, so the limb and black sky fill the top ~9% of the frame.
   - The aim fades to 0 between 150 and 450 km. At 150 km and 36° the margin is +7.9°.

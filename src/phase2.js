@@ -28,8 +28,8 @@ export const P2 = {
   lidHit: 0.12,
   capperHit: 0.1, // the Capper's slam (was 0.15 every 10 s: 11 hits ground a human-paced player down near the capital)
   capperCool: 14,
-  speed: (r) => Math.min(40, 18 + r * 0.5), // sub-linear: big feels heavy, the map stays crossable
-  turn: (r) => 0.1 + Math.min(0.35, r / 170), // steering smoothing time constant (s): heavier as it grows
+  speed: (r) => Math.min(80, 1.55 * (18 + r * 0.5)), // stays close to late-city pace as the hole grows; the region remains crossable
+  turn: (r) => 0.09 + Math.min(0.2, r / 400), // steering smoothing time constant (s): near-city response at breakout, with modest weight at scale
 };
 
 export const quietDirector = () => ({

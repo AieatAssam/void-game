@@ -134,7 +134,7 @@ const sampleFaceCubic = (tex, N, d) => {
   const f = faceST(d).toVar(), t = uvOf(f, N).mul(N).sub(0.5), i = floor(t), fr = t.sub(i), fr2 = fr.mul(fr), fr3 = fr2.mul(fr), fz = int(f.z);
   const w0 = float(1).sub(fr).pow(3).div(6), w1 = fr3.mul(3).sub(fr2.mul(6)).add(4).div(6), w2 = fr3.mul(-3).add(fr2.mul(3)).add(fr.mul(3)).add(1).div(6), w3 = fr3.div(6);
   const g0 = w0.add(w1), g1 = w2.add(w3), h0 = i.sub(1).add(w1.div(g0)).add(0.5).div(N), h1 = i.add(1).add(w3.div(g1)).add(0.5).div(N);
-  const s = (u, v) => texture(tex, vec2(u, v)).depth(fz).r;
+  const s = (u, v) => texture(tex, vec2(u, v)).level(0).depth(fz).r; // (explicit lod: this runs inside a per-pixel branch, where implicit derivatives are undefined)
   return g0.y.mul(g0.x.mul(s(h0.x, h0.y)).add(g1.x.mul(s(h1.x, h0.y)))).add(g1.y.mul(g0.x.mul(s(h0.x, h1.y)).add(g1.x.mul(s(h1.x, h1.y)))));
 };
 
@@ -241,7 +241,7 @@ export const shardXform = (p, SU, idx) => xformWith(p, SU.A.element(idx), SU.Q.e
 export { qRot, qInv };
 
 export function planetMaterial({ surf, night, bite, trail = null, gt = null, N = 512, B = 1024, quality = 'high', patch = false, u = planetUniforms(), shard = null }) {
-  const low = quality === 'low';
+  const low = quality === 'low', cheap = quality !== 'high'; // (medium and low: fewer taps. The high tier is the discrete-GPU look)
   const aSh = shard ? attribute('aSh', 'float') : null, shIdx = shard ? int(aSh.add(0.5)) : null; // (the finale's shards: one id per triangle)
   const shQ = shard ? shard.Q.element(shIdx) : null;
   const mat = new THREE.MeshBasicNodeMaterial({ fog: false });
@@ -280,33 +280,50 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
     const nRaw = sampleFace(night, N, dir).toVar(); // (R lights = habitability x population; G clouds)
     const pxM = dist.mul(R).mul(u.uPx).toVar(); // metres per pixel here
     const wp = st.xy.mul(5.0e6).add(vec2(st.z.mul(113.7e3), st.z.mul(57.1e3))).toVar(); // surface metres on the cube face (continuous within a face, so detail never swims)
-    const GR = patch && !!gt && !OFF.has('ground'), PB = !low && !OFF.has('pbr');
-    // ---- every texture the ground needs, fetched here in uniform control flow (derivatives inside the land / sea branches would not be defined)
+    const GR = patch && !!gt && !OFF.has('ground'), PB = !cheap && !OFF.has('pbr');
+    // ---- ground textures. Each group sits in a uniform branch (uGroundK / uGroundM), so a pixel does not fetch a pattern the tier has faded out.
+    //      Derivatives stay defined: the branch is the same for every pixel. (?off=fields,canopy,urban,relief,noise,pbr prices one pattern)
     let fA, fB, fC, cA, cB, uB, rA, rB, nz, scA, scB, gwx, gwy, riverN, riverFw;
     if (GR) {
-      const T_ = (k, mk) => (OFF.has(k) ? vec4(0.5, 0.5, 0.5, 0.5).toVar() : mk().toVar()); // (?off=fields,canopy,urban,relief prices each baked pattern)
-      fA = T_('fields', () => texture(gt.fields, vec2(wp.x, wp.y.div(1.35)).div(FIELD_TILE)));
-      fB = T_('fields', () => texture(gt.fields, rot2(wp, 0.62).div(FIELD_TILE * 0.6).add(vec2(0.37, 0.11))));
-      fC = T_('fields', () => texture(gt.fields, rot2(wp, 0.3).div(FIELD_TILE * 9).add(vec2(0.2, 0.7))));
-      cA = T_('canopy', () => texture(gt.canopy, wp.div(CANOPY_TILE)));
-      cB = T_('canopy', () => texture(gt.canopy, rot2(wp, 1.1).div(CANOPY_TILE * 2.7).add(vec2(0.31, 0.57))));
-      uB = T_('urban', () => texture(gt.urban, wp.div(URBAN_TILE)));
-      const rw = mx_noise_vec3(vec3(wp.div(7300), 2.1)).xy.mul(900), wq = wp.add(rw); // (a slow warp so the tile never reads as a pattern)
-      rA = T_('relief', () => texture(gt.relief, wq.div(RELIEF_TILE)));
-      rB = T_('relief', () => texture(gt.relief, rot2(wq, 0.9).div(RELIEF_TILE * 0.29).add(vec2(0.13, 0.41))));
-      nz = T_('noise', () => texture(gt.noise, wp.div(NOISE_TILE)));
-      if (PB) { // (the scanned detail: rock normal + luminance at 260 m, grass luminance at 71 m)
-        scA = T_('pbr', () => texture(gt.scan, wp.div(260)));
-        scB = T_('pbr', () => texture(gt.scan, rot2(wp, 0.4).div(71)));
-      }
+      const z4 = () => vec4(0.5, 0.5, 0.5, 0.5).toVar();
+      fA = z4(); fB = z4(); fC = z4(); cA = z4(); cB = z4(); uB = z4(); rA = z4(); rB = z4(); nz = z4();
+      if (PB) { scA = z4(); scB = z4(); }
+      If(u.uGroundK.greaterThan(0.02), () => { // (parcels, streets, scans, the close river: gone by 14 km, so the whole planet game)
+        if (!OFF.has('fields')) {
+          fA.assign(texture(gt.fields, vec2(wp.x, wp.y.div(1.35)).div(FIELD_TILE)));
+          fB.assign(texture(gt.fields, rot2(wp, 0.62).div(FIELD_TILE * 0.6).add(vec2(0.37, 0.11))));
+        }
+        if (!OFF.has('urban')) uB.assign(texture(gt.urban, wp.div(URBAN_TILE)));
+        if (PB) { // (the scanned detail: rock normal + luminance at 260 m, grass luminance at 71 m)
+          scA.assign(texture(gt.scan, wp.div(260)));
+          scB.assign(texture(gt.scan, rot2(wp, 0.4).div(71)));
+        }
+      });
+      If(u.uGroundM.greaterThan(0.02), () => { // (2 km parcels, canopy, relief, the noise tile: gone by 150 km)
+        if (!OFF.has('fields')) fC.assign(texture(gt.fields, rot2(wp, 0.3).div(FIELD_TILE * 9).add(vec2(0.2, 0.7))));
+        if (!OFF.has('canopy')) {
+          cA.assign(texture(gt.canopy, wp.div(CANOPY_TILE)));
+          if (!cheap) cB.assign(texture(gt.canopy, rot2(wp, 1.1).div(CANOPY_TILE * 2.7).add(vec2(0.31, 0.57))));
+        }
+        if (!OFF.has('relief')) {
+          const rw = mx_noise_vec3(vec3(wp.div(7300), 2.1)).xy.mul(900), wq = wp.add(rw); // (a slow warp so the tile never reads as a pattern)
+          rA.assign(texture(gt.relief, wq.div(RELIEF_TILE)));
+          rB.assign(texture(gt.relief, rot2(wq, 0.9).div(RELIEF_TILE * 0.29).add(vec2(0.13, 0.41))));
+        }
+        if (!OFF.has('noise')) nz.assign(texture(gt.noise, wp.div(NOISE_TILE)));
+      });
       // the tangent frame of the surface (screen-space, planet metres): gradients of the metre coordinates, for normal-mapped detail
       const dM = dir.mul(R), dpx = dFdx(dM), dpy = dFdy(dM);
       const r1 = cross(dpy, dir), r2 = cross(dir, dpx), det = dot(dpx, r1), kk = sign(det).div(max(abs(det), 1e-4));
       gwx = r1.mul(dFdx(wp.x)).add(r2.mul(dFdy(wp.x))).mul(kk).toVar();
       gwy = r1.mul(dFdx(wp.y)).add(r2.mul(dFdy(wp.y))).mul(kk).toVar();
       gwx.assign(gwx.mul(min(float(1), float(2).div(max(length(gwx), 1e-4))))); gwy.assign(gwy.mul(min(float(1), float(2).div(max(length(gwy), 1e-4))))); // (a face seam breaks the metre coordinates: no spikes)
-      const rw1 = mx_noise_float(dir.mul(38)); riverN = mx_noise_float(dir.mul(13).add(vec3(rw1, rw1.mul(0.7), rw1.mul(-0.8)).mul(0.5))).toVar(); // (a river is where this crosses zero: a line of fixed pixel width)
-      riverFw = max(fwidth(riverN), 1e-6).toVar();
+      riverN = float(0).toVar(); riverFw = float(1).toVar();
+      If(u.uGroundK.greaterThan(0.02), () => {
+        const rw1 = mx_noise_float(dir.mul(38));
+        riverN.assign(mx_noise_float(dir.mul(13).add(vec3(rw1, rw1.mul(0.7), rw1.mul(-0.8)).mul(0.5)))); // (a river is where this crosses zero: a line of fixed pixel width)
+        riverFw.assign(max(fwidth(riverN), 1e-6));
+      });
     }
     let e, nrm, slope;
     const dn = mx_fractal_noise_float(dir.mul(80), 2, 2.3, 0.5, 1).mul(u.uDetail).toVar(); // fractal coasts and relief detail
@@ -321,14 +338,20 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
     } else {
       const e0 = heightOf(S.r);
       e = e0.add(dn.mul(mix(10, 110, sstep(-30, 60, e0)))).toVar();
-      // relief normal from two more taps (about one texel out)
+      // relief normal from taps about one texel out (one on medium/low, two on high)
       const ax = select(abs(dir.y).lessThan(0.99), vec3(0, 1, 0), vec3(1, 0, 0));
-      const t1 = normalize(cross(dir, ax)), t2 = cross(dir, t1), del = 0.0042;
+      const t1 = normalize(cross(dir, ax)), del = 0.0042;
       const hh = (d2) => max(heightOf(sampleFace(surf, N, normalize(d2)).r), 0);
-      const hc = max(e0, 0), g1 = hh(dir.add(t1.mul(del))).sub(hc).div(del), g2 = hh(dir.add(t2.mul(del))).sub(hc).div(del);
+      const hc = max(e0, 0), g1 = hh(dir.add(t1.mul(del))).sub(hc).div(del);
       const k = u.uRelief.div(R).mul(2.0);
-      nrm = normalize(dir.sub(t1.mul(g1.mul(k))).sub(t2.mul(g2.mul(k)))).toVar();
-      slope = length(vec2(g1, g2)).mul(k.mul(0.5)).toVar();
+      if (cheap) {
+        nrm = normalize(dir.sub(t1.mul(g1.mul(k)))).toVar();
+        slope = abs(g1).mul(k.mul(0.5)).toVar();
+      } else {
+        const t2 = cross(dir, t1), g2 = hh(dir.add(t2.mul(del))).sub(hc).div(del);
+        nrm = normalize(dir.sub(t1.mul(g1.mul(k))).sub(t2.mul(g2.mul(k)))).toVar();
+        slope = length(vec2(g1, g2)).mul(k.mul(0.5)).toVar();
+      }
     }
     const T0 = S.g, M = S.b;
     const nlGeo = dot(dir, L).toVar();
@@ -342,7 +365,9 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
     const nm = mx_fractal_noise_float(dir.mul(34).add(vec3(3.1, 1.7, 5.2)), 3, 2, 0.5, 1).toVar();
     const near = sstep(2.2, 0.35, dist).toVar(); // fine detail only when close
     // ---- wound (bite map + the patch's fine trail): eaten land sinks; strata walls over a glowing mantle
-    const rem = sampleFaceCubic(bite, B, dir).toVar();
+    // one bilinear tap everywhere; the 4-tap cubic only on the partial texels, which is the contour that would otherwise stair-step
+    const remLin = sampleFace(bite, B, dir).r.toVar(), rem = remLin.toVar();
+    If(remLin.greaterThan(0.02).and(remLin.lessThan(0.98)), () => { rem.assign(sampleFaceCubic(bite, B, dir)); });
     const trF = patch ? texture(trail, attribute('aUV', 'vec2')).r : float(0);
     const wRaw = max(trF, float(1).sub(rem).mul(patch ? u.uBiteWp : float(1))).toVar();
     // torn edges (§12.5): the wound's ~10 km texel stairs are thresholded with a fractal, so they read as torn rock
@@ -357,18 +382,18 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
     const dr = vec3(dir.x.mul(u.uCloudRot.x).add(dir.z.mul(u.uCloudRot.y)), dir.y, dir.z.mul(u.uCloudRot.x).sub(dir.x.mul(u.uCloudRot.y)));
     const hr = u.uHoleD.w.mul(R); // the hole's radius, m
     if (!OFF.has('cloud')) If(dist.greaterThan(0.0015), () => {
-      cn.assign(mx_noise_float(dr.mul(80)).mul(0.17).add(mx_noise_float(dr.mul(230)).mul(0.12)).add(mx_noise_float(dr.mul(640)).mul(0.05)).mul(u.uDetail));
+      cn.assign(mx_noise_float(dr.mul(80)).mul(0.17).add(cheap ? float(0) : mx_noise_float(dr.mul(230)).mul(0.12)).mul(u.uDetail));
       cloudRaw.assign(sampleFace(night, N, normalize(dr)).g);
       const clear = smoothstep(u.uHoleD.w.mul(3.5), u.uHoleD.w.mul(9), length(dir.sub(u.uHoleD.xyz))); // (no cloud skin up against the lens)
       cloud.assign(sstep(0.3, 0.68, cloudRaw.add(cn)).mul(u.uClouds).mul(sstep(0.0015, 0.02, dist)).mul(clear));
-      if (!low) { // shadows: thicker cloud only, soft, light, and only from T2 up (where a cloud is a few pixels, not a stain on the sea of fields)
+      if (!cheap) { // shadows: thicker cloud only, soft, light, and only on the high tier (where a cloud is a few pixels, not a stain on the sea of fields)
         const ds = normalize(dr.add(L.sub(dr.mul(dot(dr, L))).mul(0.006)));
         const thick = sstep(0.46, 0.92, sampleFace(night, N, ds).g.add(cn.mul(1.6)));
         shadow.assign(float(1).sub(thick.mul(0.3).mul(sstep(0, 0.3, nlGeo)).mul(sstep(0.0015, 0.02, dist)).mul(clear).mul(sstep(2500, 9000, hr))));
       }
     });
     const oceanCol = vec3(0).toVar(), landCol = vec3(0).toVar(), dbgV = vec3(0).toVar();
-    const cnU = mx_fractal_noise_float(dir.mul(210), 3, 2.1, 0.5, 1).mul(0.5).add(0.5).toVar(), cityD = nRaw.r.mul(cnU).mul(1.2).toVar(); // (a city is where the population density meets a ~30 km blotch of noise: discrete towns on a dense plain)
+    const cnU = mx_fractal_noise_float(dir.mul(210), cheap ? 1 : 2, 2.1, 0.5, 1).mul(0.5).add(0.5).toVar(), cityD = nRaw.r.mul(cnU).mul(1.2).toVar(); // (a city is where the population density meets a ~30 km blotch of noise: discrete towns on a dense plain)
     const urbV = patch ? sstep(0.74, 0.9, cityD) : float(0);
     // the water's lighting: sun glint, Fresnel to the sky, a body colour and a little diffuse
     const shadeWater = (oc, on, iceO, nrmL) => {
@@ -433,20 +458,20 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
       // ---- mid-scale terrain (premium pass): hill octaves arrive as the pixel shrinks (60 / 22 / 8 / 2.8 km), driving relief shading and the biome edges
       //      (wetter in the hollows, drier on the crests, a patchwork where the baked climate is flat): the bake's 20 km texel is no longer what the eye reads
       const M = S.b.toVar(), ghill = vec3(0).toVar();
-      if (!OFF.has('mid')) {
-        const MID_L = low ? MID_LO : MID_HI;
-        const wL = MID_L.map((L) => fadeTo(L, pxM).toVar());
+      if (!OFF.has('mid')) If(pxM.lessThan(28000), () => { // (past ~28 km a pixel every octave has faded: skip the noise instead of evaluating zeros)
+        const MID_L = cheap ? MID_LO : MID_HI.slice(0, 3); // (the 2.8 km octave aliases and costs a noise call per sample)
+        const wL = MID_L.map((Lm) => fadeTo(Lm, pxM).toVar());
         const dw = mx_noise_vec3(dir.mul(R / 140e3)).mul(11e3 / R); // (a slow warp: the octaves bend, nothing runs in a straight lattice)
         const dW = dir.add(dw).toVar();
-        const ax2 = select(abs(dir.y).lessThan(0.99), vec3(0, 1, 0), vec3(1, 0, 0)), tm1 = normalize(cross(dir, ax2)), tm2 = cross(dir, tm1);
         const hillA = mix(0.05, 0.24, sstep(60, 1800, e.add(nm.mul(300)))).mul(float(1).sub(sstep(0.0, 4, e.negate())));
-        const hh = (d) => { let h = float(0); MID_L.forEach((L, i) => { h = h.add(mx_noise_float(d.mul(R / L).add(vec3(i * 3.7, i * 1.3, i * 5.1))).mul(wL[i]).mul(L * 0.25)); }); return h; };
-        const del = 1800 / R, h0 = hh(dW).toVar(), h1 = hh(dW.add(tm1.mul(del))), h2 = hh(dW.add(tm2.mul(del)));
-        const g1 = h1.sub(h0).div(1800), g2 = h2.sub(h0).div(1800);
-        ghill.assign(tm1.mul(g1).add(tm2.mul(g2)).mul(hillA));
-        M.addAssign(h0.mul(-0.00002).add(mx_noise_float(dW.mul(R / 2800).add(vec3(9.1, 4.4, 2.3))).mul(0.12).mul(wL[MID_L.length - 1])).mul(sstep(0.0, 6, e)).mul(mix(0.35, 1, sstep(0.05, 0.3, S.b))));
-        slope.addAssign(length(ghill).mul(1.2));
-      }
+        const hh = (d) => { let h = float(0); MID_L.forEach((Lm, i) => { h = h.add(mx_noise_float(d.mul(R / Lm).add(vec3(i * 3.7, i * 1.3, i * 5.1))).mul(wL[i]).mul(Lm * 0.25)); }); return h; };
+        // two samples along the sun, not three on a tangent frame: the ridge still lights, at two thirds of the noise
+        const sunT = normalize(cross(dir, L).add(vec3(1e-3, 0, 0))), del = 1800 / R, h0 = hh(dW).toVar(), h1 = hh(dW.add(sunT.mul(del)));
+        const g = h1.sub(h0).div(1800);
+        ghill.assign(sunT.mul(g).mul(hillA));
+        M.addAssign(h0.mul(-0.00002).add(cheap ? float(0) : mx_noise_float(dW.mul(R / 2800).add(vec3(9.1, 4.4, 2.3))).mul(0.12).mul(wL[MID_L.length - 1])).mul(sstep(0.0, 6, e)).mul(mix(0.35, 1, sstep(0.05, 0.3, S.b))));
+        slope.addAssign(abs(g).mul(hillA).mul(1.2));
+      });
       const Te = T0.sub(max(e.sub(400), 0).div(9000)).add(nm.mul(0.05)).toVar();
       const hot = sstep(0.52, 0.74, Te), cold = sstep(0.42, 0.2, Te);
       const mildC = mix(mix(srgb(0.58, 0.52, 0.37), srgb(0.44, 0.5, 0.27), sstep(0.06, 0.22, M)), mix(srgb(0.38, 0.5, 0.2), srgb(0.17, 0.33, 0.15), sstep(0.4, 0.68, M)), sstep(0.22, 0.42, M));
@@ -568,7 +593,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
           const rn1 = mx_noise_float(rdW.mul(R / 210e3).add(vec3(1.7, 8.1, 3.3))), rn2 = mx_noise_float(rdW.mul(R / 70e3).add(vec3(5.2, 2.2, 9.4)));
           const rf1 = pxM.mul(1.3 / 210e3).max(1e-6), rf2 = pxM.mul(1.3 / 70e3).max(1e-6); // (the noise's gradient is ~1.3 per cell: a pixel's worth of it, without derivatives)
           const lineF = (n, f, w) => float(1).sub(sstep(w * 0.55, w * 1.5, abs(n).div(f))).mul(sstep(0.07, 0.025, abs(n))); // (the absolute cut: where the noise is flat the pixel-width rule would blow a line into a blob)
-          const mainR = lineF(rn1, rf1, 1.15), trib = low ? float(0) : lineF(rn2, rf2, 1.0).mul(sstep(0.3, 0.08, abs(rn1))).mul(0.8);
+          const mainR = lineF(rn1, rf1, 1.15), trib = cheap ? float(0) : lineF(rn2, rf2, 1.0).mul(sstep(0.3, 0.08, abs(rn1))).mul(0.8);
           midRv.assign(max(mainR, trib).mul(sstep(0.22, 0.4, M)).mul(sstep(0.1, 0.22, Te)).mul(float(1).sub(urE)).mul(float(1).sub(sstep(900, 2600, pxM))));
         });
       }
@@ -635,7 +660,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
       const roadK = fadeTo(2600, pxM), g1 = abs(fract(wp.x.div(1900)).sub(0.5)), g2 = abs(fract(wp.y.div(1900)).sub(0.5)), web = float(1).sub(sstep(0.012, 0.03, min(g1, g2))).mul(roadK);
       const fabric = mix(vec3(0.36, 0.22, 0.13), vec3(0.62, 0.4, 0.23), cn2.mul(0.7).add(core.mul(0.3))).mul(float(1).sub(web.mul(0.34)));
       col.assign(mix(col, fabric, foot.mul(0.82).mul(float(1).sub(near.mul(u.uGroundK).mul(0.8)))));
-      const speck = sstep(0.72, 0.9, mx_noise_float(dir.mul(9000)).mul(0.5).add(0.5)).mul(sstep(0.3, 0.7, cn2)), edge = wound.mul(float(1).sub(wound)).mul(4).min(1).mul(core);
+      const speck = cheap ? float(0) : sstep(0.72, 0.9, mx_noise_float(dir.mul(9000)).mul(0.5).add(0.5)).mul(sstep(0.3, 0.7, cn2)), edge = wound.mul(float(1).sub(wound)).mul(4).min(1).mul(core);
       cityGlow.assign(foot.mul(speck.mul(0.5).add(web.mul(0.5)).add(0.12)));
       col.addAssign(vec3(1.0, 0.78, 0.45).mul(cityGlow.mul(0.9).add(sstep(0.46, 0.6, cityD).mul(float(1).sub(core)).mul(rem).mul(0.1)))); // (windows catching the sun: sparkles that bloom, and a faint warm halo round the edge of a city)
       col.addAssign(vec3(1.0, 0.45, 0.12).mul(edge).mul(sin(u.uTime.mul(34).add(cn2.mul(60))).mul(0.5).add(0.9)).mul(1.2)); // (the lights flare and strobe as the land under them sinks)
@@ -681,7 +706,8 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
       }
       for (let i = 0; i < 20; i++) {
         const z = u.uZone[i], q = u.uZoneP[i];
-        If(q.y.greaterThan(0.001).and(dot(dir, z.xyz).greaterThan(cos(min(z.w.mul(1.1).add(1e-4), 3.1)))), () => { // (the cheap rejection: no noise, no trig past the zone's own disc)
+        If(q.y.greaterThan(0.001), () => { // (uniform: an empty slot is one branch for the whole screen)
+        If(dot(dir, z.xyz).greaterThan(cos(min(z.w.mul(1.1).add(1e-4), 3.1))), () => { // (no noise, no trig past the zone's own disc)
           const th = acos(clamp(dot(dir, z.xyz), -1, 1)).toVar(), A = z.w, lock = q.z, fall = q.w, wd = max(A.mul(0.03), 1e-5); // (.toVar(): a shared node first used inside an If branch is emitted there, and read as 0 by the others)
           const pul = sin(u.uTime.mul(select(lock.greaterThan(0.001), float(15), float(5)))).mul(0.3).add(0.7).toVar();
           const edge = exp(pow(th.sub(A).div(wd), 2).negate()).toVar(), inside = float(1).sub(smoothstep(A.mul(0.985), A, th)).toVar();
@@ -718,6 +744,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
           col.assign(mix(col, col.mul(vec3(0.7, 0.85, 0.95)), wet.mul(q.y).mul(0.35).mul(mWav)));
           });
           col.addAssign(gz.mul(q.y));
+        });
         });
       }
       const sa = u.uStrafeP.x;
@@ -807,7 +834,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
       const hzK = float(1).sub(capMask.mul(0.92));
       col.assign(mix(col, hazeC, hz.mul(hzK)));
       If(dist.greaterThan(0.0035), () => {
-        const A = (shard ? atmosphere(ro, toCam.div(dist).negate(), dist, u.uSun, low ? 3 : 4, u.uAtmo) : atmosphere(ro, V.negate(), dist, L, low ? 3 : 4, u.uAtmo)).toVar();
+        const A = (shard ? atmosphere(ro, toCam.div(dist).negate(), dist, u.uSun, cheap ? 2 : 3, u.uAtmo) : atmosphere(ro, V.negate(), dist, L, cheap ? 2 : 3, u.uAtmo)).toVar();
         col.assign(mix(col, col.mul(A.w).add(A.rgb), hk.mul(hzK)));
       });
     }
@@ -825,7 +852,7 @@ function atmosphereMaterial(globeU, low) {
     // distance to the planet along the ray (if it hits)
     const b = dot(ro, rd), c = dot(ro, ro).sub(1), disc = b.mul(b).sub(c);
     const tp = select(disc.greaterThan(0).and(b.lessThan(0)), b.negate().sub(sqrt(max(disc, 0))), float(1e9));
-    const A = atmosphere(ro, rd, tp, globeU.uSun, low ? 4 : 6, globeU.uAtmo);
+    const A = atmosphere(ro, rd, tp, globeU.uSun, low ? 3 : 4, globeU.uAtmo);
     // T1 (the camera sits at the top of the shell): the outer glow is cut short so the limb is a thin bright arc over black space, not a murky band
     const th = max(select(b.lessThan(0), sqrt(max(dot(ro, ro).sub(b.mul(b)), 0)), length(ro)).sub(1), 0), thin = float(1).sub(globeU.uAtmoH).div(0.65);
     return vec4(A.rgb.mul(mix(float(1), exp(th.div(-0.0085 * 3.2 * 0.4)), thin)), 1);
@@ -923,7 +950,7 @@ function patchLayout(n) {
  */
 export class PlanetGlobe {
   constructor(bake, { quality = 'high', relief = 3, segments = null, B = 1024, moonDist = 12, gt = null } = {}) {
-    const low = quality === 'low';
+    const low = quality === 'low', cheap = quality !== 'high';
     this.N = bake.N; this.B = B;
     this.surfTex = dataArray(bake.surf, bake.N, 6, THREE.RGBAFormat);
     this.nightTex = dataArray(bake.night, bake.N, 6, THREE.RGFormat);
@@ -938,13 +965,13 @@ export class PlanetGlobe {
     const mo = { surf: this.surfTex, night: this.nightTex, bite: this.biteTex, trail: this.trailTex, gt: this.gt, N: bake.N, B, quality, u: this.u };
     this.material = planetMaterial({ ...mo, map: null, gt: null }); // (the globe: macro colour only)
     this.u.uRelief.value = relief;
-    const n = segments ?? (quality === 'low' ? 64 : quality === 'medium' ? 96 : 128);
+    const n = segments ?? (quality === 'low' ? 64 : quality === 'medium' ? 80 : 128);
     this.n = n;
     this.globe = new THREE.Mesh(cubeSphere(n, bake.surf, bake.N), this.material);
     this.globe.scale.setScalar(R);
     this.globe.frustumCulled = false;
     // the local patch: one mesh whose attributes are rewritten in place (no new pipelines at a rebuild)
-    this.PN = low ? 97 : 129;
+    this.PN = cheap ? 97 : 129;
     const lay = this.layout = patchLayout(this.PN);
     const g = new THREE.BufferGeometry();
     const mk = (k) => new THREE.BufferAttribute(new Float32Array(lay.count * k), k).setUsage(THREE.DynamicDrawUsage);
@@ -955,7 +982,7 @@ export class PlanetGlobe {
     this.patchMat.side = THREE.DoubleSide;
     this.patch = new THREE.Mesh(g, this.patchMat);
     this.patch.frustumCulled = false; this.patch.visible = false;
-    this.atmo = new THREE.Mesh(new THREE.SphereGeometry(RA, low ? 48 : 96, low ? 24 : 48), atmosphereMaterial(this.u, low));
+    this.atmo = new THREE.Mesh(new THREE.SphereGeometry(RA, cheap ? 48 : 64, cheap ? 24 : 32), atmosphereMaterial(this.u, cheap));
     this.atmo.scale.setScalar(R); this.atmo.frustumCulled = false; this.atmo.renderOrder = 5;
     this.moon = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 48), moonMaterial(this.u));
     this.moon.scale.setScalar(1737400);
@@ -969,7 +996,7 @@ export class PlanetGlobe {
     this.sky = new THREE.Group();
     const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16), skyDome(this.u));
     dome.renderOrder = 4; dome.frustumCulled = false;
-    const sp = starPoints(low ? 2500 : 4500);
+    const sp = starPoints(cheap ? 2500 : 3500);
     const mat = new THREE.PointsNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: false });
     this.uStarR = uniform(1e8);
     mat.positionNode = instancedBufferAttribute(new THREE.InstancedBufferAttribute(sp.pos, 3)).mul(this.uStarR).add(cameraPosition);

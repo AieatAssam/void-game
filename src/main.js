@@ -1239,7 +1239,7 @@ async function breakout(quick = false) {
   state.left = city.buildingsLeft();
   state.breaking = false;
   if (quick) state.slowmo = 1;
-  else setTimeout(() => { state.slowmo = 1; }, 1600); // the slow climb continues over the new world
+  else { state.slowmo = 0.3; state.breakoutSlowmo = 0; } // the climb eases back to full pace once the countryside is live
   $('where').textContent = `${city.mood.name} countryside · ${city.settlements.length} settlements`;
   minimap.start(city);
   if (phase2Run()) prebuildPlanet(); // (Phase 3: the planet is baked and built behind the countryside, 3 ms a slice)
@@ -1254,7 +1254,7 @@ async function breakout(quick = false) {
 }
 window.__breakout = (quick = true) => breakout(quick); // (dev: __breakout(false) plays the real cinematic)
 
-/** Build the planet between frames while the country is being eaten (3 ms a slice; paused below 55 fps): the Ascension swaps it in (src/ascend.js). */
+/** Build the planet between frames while the country is being eaten (3 ms a slice; throttled below 55 fps): Ascension swaps it in. */
 function prebuildPlanet() {
   if (!PHASE3 || state.planetJob) return;
   const slice = state.planetSlice = slicer(3, () => post.fps > 0 && post.fps < 55);
@@ -1268,9 +1268,9 @@ function prebuildPlanet() {
   })().catch((e) => { if (!slice.cancelled) console.warn('planet prebuild failed', e); return null; });
 }
 
-/** Create the region's render objects (every mesh, every LOD) in the background, 3 ms a frame: the Ascension's high camera meets them all at once otherwise (1.3 s). */
-async function warmRegion() {
-  const slice = state.warmSlice = slicer(3, () => post.fps > 0 && post.fps < 55), reg = city, list = [];
+/** Create the region's render objects (every mesh, every LOD) in background slices: the Ascension's high camera meets them all at once otherwise (1.3 s). */
+async function warmRegion(budget = 3) {
+  const slice = state.warmSlice = slicer(budget, () => post.fps > 0 && post.fps < 55), reg = city, list = [];
   reg.group.traverse((o) => { if (o.isMesh || o.isPoints) list.push(o); });
   const t0 = performance.now();
   let pending = 0;
@@ -1307,6 +1307,9 @@ async function ascend(fast = false) {
   if (state.asc || state.ascending || state.phase !== 2) return;
   state.ascending = true;
   state.playing = false;
+  // The loading/cinematic handoff is a safe time to finish work that was throttled during play.
+  if (state.planetSlice) state.planetSlice.budget = 20;
+  if (state.warmSlice) state.warmSlice.budget = 20;
   const tA = performance.now();
   prebuildPlanet(); // (a no-op if it is already running)
   if (!state.planetJob) { state.ascending = false; state.playing = true; return; }
@@ -1315,7 +1318,7 @@ async function ascend(fast = false) {
   $('load').hidden = true;
   if (!game) { state.ascending = false; state.playing = true; state.phase === 2 && endRun(true, 'capital'); return; } // (endRun pays the region itself)
   const pay = bankRegion(); // (paid once, only when the cinematic is certain)
-  if (state.warmDepth !== post.passDepth) await warmRegion(); // (a watchdog rebuild changed the scene pass's call depth since the region was warmed: do it again now)
+  if (state.warmDepth !== post.passDepth) await warmRegion(20); // (a watchdog rebuild changed the scene pass's call depth since the region was warmed: do it again now)
   post.paused = true; // (the frame-rate watchdog must not rebuild the pipeline mid-cinematic: that is a ~1 s freeze and a new call depth)
   planetGame = game;
   rivals.hideLabels();
@@ -1347,7 +1350,7 @@ const phase2Run = () => PHASE2 && state.mode === 'city' && !state.mutator;
 
 /** Start building the region between frames while the town is still being eaten (3 ms a slice). */
 function prebuildRegion() {
-  state.slice = slicer(3, () => post.fps > 0 && post.fps < 55); // (pauses while the game is below 55 fps)
+  state.slice = slicer(3, () => post.fps > 0 && post.fps < 55); // (throttles while the game is below 55 fps)
   state.regionJob = loadPack(assets, 'region', null, { gentle: true }).then(() => Region.create(assets, city, field, state.slice, false))
     .catch((e) => { if (!state.slice?.cancelled) console.warn('region prebuild failed', e); return null; });
 }
@@ -1484,7 +1487,7 @@ const perf = {
 };
 function perfTag() {
   return [`p${state?.phase ?? 1}`, state?.breaking && 'breakout', city?.reveal != null && city.meshes && city.reveal < city.meshes.length && `reveal ${city.reveal}/${city.meshes.length}`,
-    state?.draft && 'draft', state?.asc && `asc ${state.asc.t.toFixed(1)}`, !state?.playing && !state?.asc && 'menu'].filter(Boolean).join(' ');
+    state?.draft && 'draft', state?.asc && `asc ${state.asc.t.toFixed(1)}`, planetGame?.world?.job && 'patch build', !state?.playing && !state?.asc && 'menu'].filter(Boolean).join(' ');
 }
 function perfStats(win = 10000) {
   const now = performance.now(), d = [];
@@ -1675,6 +1678,12 @@ if (import.meta.env.DEV) window.__views = async (...only) => {
 
 function frame(dt) {
   const raw = dt;
+  if (state.breakoutSlowmo != null) {
+    state.breakoutSlowmo = Math.min(1, state.breakoutSlowmo + raw / 0.9);
+    const u = state.breakoutSlowmo;
+    state.slowmo = 0.3 + 0.7 * u * u * (3 - 2 * u);
+    if (u >= 1) state.breakoutSlowmo = null;
+  }
   if (state.hitstop > 0) { state.hitstop -= dt; dt *= 0.1; } // hit-stop: the world freezes for a beat on a big bite
   if (state.draft) dt *= 0.04; // perk draft: the world all but stops while you choose
   dt *= state.slowmo; // Phase 2 breakout cinematic
@@ -1998,7 +2007,9 @@ function frame(dt) {
   setFogRange(camDist);
   viewScale.value = Math.max(1, camDist / 45); // surface detail must reach the ground at every size, or the town goes flat and milky
   post.setViewScale(Math.max(1, camDist / 130)); // (AO reach: only once the camera is really high)
-  const sc = sun.shadow.camera, ext = Math.max(25, (camDist / LENS) * 0.9);
+  // the shadow box covers the casters (about 35 m x lod scale), not the whole pulled-back view: a box that grows with the hole wastes the shadow map on empty ground
+  const lodK = city.lodScale ? city.lodScale(hole.r) : 1;
+  const sc = sun.shadow.camera, ext = Math.min(Math.max(25, (camDist / LENS) * 0.9), Math.max(40, 38 * lodK));
   if (sc.right !== ext) { sc.left = sc.bottom = -ext; sc.right = sc.top = ext; sc.updateProjectionMatrix(); }
 
   sparks.update(dt);

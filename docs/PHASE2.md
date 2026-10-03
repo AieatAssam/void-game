@@ -30,7 +30,7 @@ Built and playable end to end. Try it with `?region` (straight into Phase 2 at 1
 | Crumble | parts break away in a staggered pancake toward the hole (per-vertex part centres, per-instance progress, no new pipelines); dust fronts sized to the building; applies to the town's buildings too | `surface.js` `crumbleMaterial`, `city.js` `startCrumble` |
 | Army | threat 1-4: roadblocks, artillery, the castle's cannons, strike jets, heavy-lift Void Lids, and the Capper at the capital | `army.js` |
 | Human response | evacuation (cars queue out, crowds run), church bells and air-raid sirens, news ticker with a population counter | `region.js` `evacuate`, `phase2.js` `News`, `sfx.js` |
-| Surfaces | roads x1.35, farmland x1.1, woods x0.88, marsh x0.7, water x0.55 (shown in the status line) | `region.js` `surfaceSpeed` |
+| Surfaces | roads x1.35, farmland x1.1, woods x0.88, marsh x0.82, water x0.72 (shown in the status line) | `region.js` `surfaceSpeed` |
 | Island | the coast (an irregular ring, `coastR`) is the map edge and shelves into the sea; a snowy range walls one stretch (`mountain` mask; the hole and rivals slide along its foothills, settlements and the wind farm stay clear); rolling relief with the rim lying on the slope and uphill/downhill speed (x0.62–1.2); big forest tracts outside the town | `terrain.js` `coastR`/`mountain`/`island`, `main.js` |
 | Sealed | the scripted loss: below 9 m the army flies a Void Lid in and hangs it over the hole (warning, countdown in the status line); grow past 9.6 m within 14 s or it drops (at once below 7.5 m). Why: a hole only gets small enough to cap when it starves, and the army has been trying all along. Every run then restarts from a fresh town | `army.js` `sealWatch`, `phase2.js` `P2` |
 | Rivals | two other breakout holes appear after 40 s / 90 s at far settlements (80% of your size), hunt food and settlements, chase a smaller player and flee a bigger one, respect the coast and mountains, and are capped by the army if they starve (news bulletins) | `rivals.js` region mode |
@@ -116,8 +116,7 @@ are simply eaten by the surge.
 - **Hunger** rescales (the Phase 1 meal cap `min(area, π·36)` makes the belly trivial past 6 m): Phase 2 has its own
   belly with a meal = 8% of current area, drain 1/10 s, decay fed 0.6%/s, starving 4%/s. Between settlements the
   countryside (forests, farms, convoys) keeps you alive but not growing much: you *need* the towns.
-- **Speed/weight:** top speed `6.5 + r·1.8` becomes `min(40, 18 + r·0.5)` in Phase 2 (sub-linear: big feels heavy, the
-  map is still crossable in ~1 min), steering smoothing `kv` goes from ~0.1 s to ~0.45 s at 60 m.
+- **Speed/weight:** top speed `6.5 + r·1.8` becomes `min(80, 1.55 × (18 + r·0.5))` in Phase 2, keeping island travel close to late-city pace while remaining crossable; steering smoothing grows from ~0.1 s to ~0.24 s at 60 m.
 - **Losing:** the army seals a starving hole (see Status: Sealed); every run then starts over from a fresh town. Rule 3
   still holds: no hit > 25%.
 - **Length:** ~6–8 min for Phase 2 on top of the 3–5 min city.

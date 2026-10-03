@@ -8,6 +8,7 @@ import {
   smoothstep, max, length, normalize, pow, cameraViewMatrix, varying, positionWorld, Discard, If, uv, time,
 } from 'three/tsl';
 import { world } from './surface.js';
+import { Q } from './quality.js';
 import { MAX_HOLES } from './hole.js';
 import { wind } from './vegetation.js';
 
@@ -227,7 +228,7 @@ export class Grass {
     mesh.userData = { full: mesh.count, perPatch: side * side, all, offs, active, cellSize };
     mesh.frustumCulled = false;
     mesh.castShadow = false;
-    mesh.receiveShadow = true;
+    mesh.receiveShadow = Q.grassShadow !== false; // (low / medium: a blade that samples the shadow map is most of its cost)
     this.group.add(mesh);
     return mesh;
   }
