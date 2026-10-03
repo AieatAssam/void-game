@@ -1307,16 +1307,17 @@ async function ascend(fast = false) {
   if (state.asc || state.ascending || state.phase !== 2) return;
   state.ascending = true;
   state.playing = false;
+  const tA = performance.now();
+  prebuildPlanet(); // (a no-op if it is already running)
   // The loading/cinematic handoff is a safe time to finish work that was throttled during play.
   if (state.planetSlice) state.planetSlice.budget = 20;
   if (state.warmSlice) state.warmSlice.budget = 20;
-  const tA = performance.now();
-  prebuildPlanet(); // (a no-op if it is already running)
   if (!state.planetJob) { state.ascending = false; state.playing = true; return; }
   if (!planetReady) { $('load').hidden = false; setLoad('Forming the world…', 0.5); }
   const game = await state.planetJob;
   $('load').hidden = true;
   if (!game) { state.ascending = false; state.playing = true; state.phase === 2 && endRun(true, 'capital'); return; } // (endRun pays the region itself)
+  if (state.warmSlice) state.warmSlice.budget = 20;
   const pay = bankRegion(); // (paid once, only when the cinematic is certain)
   if (state.warmDepth !== post.passDepth) await warmRegion(20); // (a watchdog rebuild changed the scene pass's call depth since the region was warmed: do it again now)
   post.paused = true; // (the frame-rate watchdog must not rebuild the pipeline mid-cinematic: that is a ~1 s freeze and a new call depth)
@@ -1626,12 +1627,13 @@ renderer.setAnimationLoop(() => {
   if (window.__pause) return; // (dev: step with __tick / __snap)
   const t0 = fpsEl && performance.now();
   if (fpsEl) perf.sub = 0;
-  frame(Math.min(timer.getDelta(), 1 / 20));
+  const wallDt = timer.getDelta();
+  frame(Math.min(wallDt, 1 / 20), wallDt);
   if (fpsEl) { const all = performance.now() - t0; perfOverlay(all - perf.sub, perf.sub); }
 });
 // (stepping outside the animation loop: advance three's frame counter too, or per-frame passes won't re-render)
 window.__tick = (dt = 1 / 60, n = 1) => {
-  for (let i = 0; i < n; i++) { const nf = renderer._nodes?.nodeFrame; if (nf) { nf.update(); renderer.info.frame = nf.frameId; } frame(dt); }
+  for (let i = 0; i < n; i++) { const nf = renderer._nodes?.nodeFrame; if (nf) { nf.update(); renderer.info.frame = nf.frameId; } frame(dt, dt); }
 };
 // dev: step, then save the frame to .shots/<name>.jpg (vite.config.js) - works with the window in the background
 if (import.meta.env.DEV) window.__snap = async (name = 'shot', n = 1) => {
@@ -1676,13 +1678,19 @@ if (import.meta.env.DEV) window.__views = async (...only) => {
   return out;
 };
 
-function frame(dt) {
+function frame(dt, wallDt = dt) {
   const raw = dt;
   if (state.breakoutSlowmo != null) {
     state.breakoutSlowmo = Math.min(1, state.breakoutSlowmo + raw / 0.9);
     const u = state.breakoutSlowmo;
     state.slowmo = 0.3 + 0.7 * u * u * (3 - 2 * u);
     if (u >= 1) state.breakoutSlowmo = null;
+  }
+  if (state.phase === 3 && state.slowT > 0) {
+    state.slowT = Math.max(0, state.slowT - wallDt);
+    const u = 1 - state.slowT / Math.max(1e-3, state.slowDuration || state.slowT);
+    state.slowmo = (state.slowFrom ?? 1) + (1 - (state.slowFrom ?? 1)) * THREE.MathUtils.smoothstep(u, 0, 1);
+    if (state.slowT === 0) { state.slowDuration = 0; state.slowFrom = 1; state.slowmo = 1; }
   }
   if (state.hitstop > 0) { state.hitstop -= dt; dt *= 0.1; } // hit-stop: the world freezes for a beat on a big bite
   if (state.draft) dt *= 0.04; // perk draft: the world all but stops while you choose

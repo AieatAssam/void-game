@@ -8,7 +8,7 @@
 import * as THREE from 'three/webgpu';
 import { attribute, vec3, vec4, float, positionLocal, normalView, normalWorld, mx_noise_float, mix, smoothstep, pow, abs, exp, uniform } from 'three/tsl';
 import { R } from './planetgen.js';
-import { P3, TIERS, T3 } from './phase3.js';
+import { P3, TIERS, T3, slowBeat } from './phase3.js';
 import { sunDir } from './look.js';
 import { Rivals } from './planetrival.js';
 import { makeLaser } from './threat/laser.js';
@@ -122,8 +122,8 @@ export class Threat {
   /** Trauma, budgeted: at most 0.6 added per 1.5 s (§5.3). */
   trauma(k) { const room = Math.max(0, 0.6 - this.tAdd), add = Math.min(k, room); this.tAdd += add; this.state.shake = Math.min(1, this.state.shake + add); }
   news(t) { this.ctx.news.say(t); }
-  /** A tracked hitstop / slow-mo beat (budget: the max of what is asked; slowT ticks in scaled time). */
-  beat(hitstop, slow = 1, secs = 0) { const st = this.state; st.hitstop = Math.max(st.hitstop || 0, hitstop); if (slow < 1) { st.slowmo = slow; st.slowT = secs * slow + 0.3; } }
+  /** A tracked hitstop / slow-mo beat. The slow tail eases out on a raw-time clock. */
+  beat(hitstop, slow = 1, secs = 0) { const st = this.state; st.hitstop = Math.max(st.hitstop || 0, hitstop); if (slow < 1) slowBeat(st, slow, secs + 0.3 / slow); }
 
   // the mercy window (§5.1): <= 25% of the area in any 30 s, kept in a preallocated ring of [time, fraction]
   mercySum() { let s = 0; for (let i = 0; i < 24; i++) if (this.t - this.hT[i] < 30) s += this.hF[i]; return s; }
@@ -528,7 +528,7 @@ export class Threat {
     this.scar(W.hdir, 5.5 * r, 3.8 * r, 3, 2); hole.shockwave(); W.shock(W.hdir, 0.6 * r / R, 1.8 * r / R, 1.1, 1);
     for (let i = 0; i < 18; i++) { const a = (i / 18) * 6.283; v2.copy(v1).addScaledVector(tangentAt(W.hdir, a, v3), 1.1 * r); this.glow.spawn(v2, null, 0.3 * r, 0.08 * r, 0.7, C(0xc9a8ff, 2.4), 1.0, 1.5); }
     this.sfx.reverseGulp(); this.screenFlash(0.7, '#e8dcff', 420);
-    state.hitstop = Math.max(state.hitstop || 0, 0.15); state.slowmo = 0.5; state.slowT = 0.6 * 0.5 + 0.3; this.trauma(0.5);
+    state.hitstop = Math.max(state.hitstop || 0, 0.15); slowBeat(state, 0.5, 1.2); this.trauma(0.5);
     this.gain(n.child ? T3.kinds.mirv.gulp : T3.nukeGulp, n.child ? 'mirvGulp' : 'nukeGulp'); state.belly = Math.min(1, state.belly + 0.25);
     state.frenzy = 6; this.notice(10);
     this.ctx.card('NUKE SWALLOWED', 'the void eats the bomb: Frenzy'); this.news('The void swallowed an ICBM whole'); this.ctx.hint('FRENZY — speed up, bite deeper');
