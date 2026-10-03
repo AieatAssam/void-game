@@ -250,18 +250,22 @@ export class PlanetWorld {
         dir[k * 3] = d.x; dir[k * 3 + 1] = d.y; dir[k * 3 + 2] = d.z;
         aH[k] = h; aHm[k] = hm; aUV[k * 2] = gx / L + 0.5; aUV[k * 2 + 1] = gz / L + 0.5;
       }
-      if (j % 6 === 5) yield;
+      if (j % 2 === 1) yield; // (two rows: one next() stays a few ms even where elevation() is the slow path)
     }
     // slope vectors (dimensionless) from central differences of the clamped heights in the anchor's metre grid
-    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) {
       const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1), j0 = Math.max(0, j - 1), j1 = Math.min(n - 1, j + 1);
       const sx = (hs[j * n + i1] - hs[j * n + i0]) / (cs[i1] - cs[i0]), sz = (hs[j1 * n + i] - hs[j0 * n + i]) / (cs[j1] - cs[j0]), k = j * n + i;
       aG[k * 3] = X.x * sx + Z.x * sz; aG[k * 3 + 1] = X.y * sx + Z.y * sz; aG[k * 3 + 2] = X.z * sx + Z.z * sz;
+      }
+      if (j % 4 === 3) yield;
     }
     // terrain occlusion (curvature of the heights, two scales) and the sun's cast shadow, per vertex, in the build's relief E: soft, ~100-2000 m
     // (the ground shader multiplies the sky fill and the sun by them: valleys sit in shade, ridges throw it, with no shadow map)
     const Eb = P3.relief(rB), Sp = this.sunPlanet, sx = Sp.dot(X), sz = Sp.dot(Z), sy = Sp.dot(A), hl = Math.hypot(sx, sz) || 1;
     const hdx = sx / hl, hdz = sz / hl, tanP = sy / hl, shadowsOn = sy > 0.03 && tanP < 3;
+    const rays = spacing > 9000 ? 0 : 8; // (20 steps per vertex made one slice the whole frame once the grid was coarse; past ~9 km a vertex the curvature term is the shadow)
     const idxOf = (x) => (Math.asinh((x * sh) / half) / aW * 0.5 + 0.5) * (n - 1);
     const hAt = (x, z) => { // bilinear height (m) at anchor-plane metres, NaN outside the grid
       const fi = idxOf(x), fj = idxOf(z);
@@ -284,21 +288,22 @@ export class PlanetWorld {
           ao = 1 - Math.min(0.55, Math.max(0, c * Eb * 3.2)) + Math.min(0.12, Math.max(0, -c * Eb * 1.4));
         }
         let sh2 = 1;
-        if (shadowsOn && h > 0 && hMax > 0) {
+        if (rays && shadowsOn && h > 0 && hMax > 0) {
           const gx0 = cs[i], gz0 = cs[j], v0 = h * Eb - (gx0 * gx0 + gz0 * gz0) / (2 * R), sp = Math.max(60, (cs[Math.min(n - 1, i + 1)] - cs[Math.max(0, i - 1)]) * 0.5);
           let occ = 0;
-          for (let q = 0, t = sp * 1.2; q < 20 && t < 40000 && occ < 0.98; q++, t *= 1.32) {
+          for (let q = 0, t = sp * 1.5; q < rays && t < 24000 && occ < 0.98; q++, t *= 1.55) {
             const px = gx0 + hdx * t, pz = gz0 + hdz * t, hh = hAt(px, pz);
             if (hh !== hh) break;
-            const ray = v0 + t * tanP, terr = hh * Eb - (px * px + pz * pz) / (2 * R), w = 0.04 * t + 6, d = (terr - ray) / w;
-            if (d > -1) occ = Math.max(occ, Math.min(1, Math.max(0, d * 0.5 + 0.5)));
+            const ray = v0 + t * tanP, terr = hh * Eb - (px * px + pz * pz) / (2 * R), w = 0.04 * t + 6, dv = (terr - ray) / w;
+            if (dv > -1) occ = Math.max(occ, Math.min(1, Math.max(0, dv * 0.5 + 0.5)));
             if (ray > hMax * Eb + 50) break;
           }
           sh2 = 1 - occ;
         }
         aS[k * 2] = ao; aS[k * 2 + 1] = sh2;
+        if ((i & 31) === 31) yield;
       }
-      if (j % 8 === 7) yield;
+      yield;
     }
     // skirt: the border vertices again, lowered
     for (let s = 0; s < 4; s++) for (let k = 0; k < n; k++) {

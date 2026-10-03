@@ -60,10 +60,10 @@ export class Post {
     this.enabled = !q.has('nopost');
     this.frames = 0;
     this.time = 0;
-    this.good = 0;
+    this.good = 0; this.bad = 0; // (bad: one slow second is a hitch, not a verdict)
     this.grade = uniform(new THREE.Vector3(1, 1, 1));
     this.opts = { ao: Q.ao && !q.has('noao'), aoRes: Q.aoRes, aoSamples: Q.aoSamples, bloom: Q.bloom, aa: Q.aa, grain: Q.grain,
-      shafts: Q.tier === 'high' && !q.has('noshafts'), lut: !q.has('nolut'), shadowEvery: Q.shadowEvery, lensLow: Q.tier === 'low' || q.has('webgl') };
+      shafts: Q.tier === 'high' && !q.has('noshafts'), lut: !q.has('nolut'), shadowEvery: Q.shadowEvery, lensLow: Q.tier !== 'high' || q.has('webgl') };
     this.lutTex = new THREE.Data3DTexture(new Uint8Array(LUT ** 3 * 4), LUT, LUT, LUT);
     this.lutTex.minFilter = this.lutTex.magFilter = THREE.LinearFilter;
     this.lutTex.wrapS = this.lutTex.wrapT = this.lutTex.wrapR = THREE.ClampToEdgeWrapping;
@@ -300,9 +300,15 @@ export class Post {
     // Dynamic resolution first: trim the render scale in small steps until frames hold ~60, and give it back when
     // there is headroom. Only below the resolution floor do whole features go, least visible first.
     const maxPR = Math.min(devicePixelRatio, Q.dpr), minPR = Math.min(maxPR, Math.max(0.75, maxPR * 0.5));
-    if (fps < 52) {
+    // Below 56: trim the render scale. Whole features go only once the scale is on the floor and frames are under 52.
+    if (fps < 56 && (fps < 52 || pr > minPR + 0.01)) {
       this.good = 0;
+      if (fps >= 35 && ++this.bad < 2) return; // one slow window is a hitch, not a verdict: two in a row step down
       if (pr > minPR + 0.01) {
+        this.bad = 0;
+        // the ratio that failed: no climbing back to it for 45 s, doubling at each failure up to 5 min, or the
+        // watchdog hunts up and down around it and every probe costs a few slow seconds
+        this.ceil = pr; this.ceilAt = performance.now(); this.hold = Math.min(300000, (this.hold || 22500) * 2);
         r.setPixelRatio(Math.max(minPR, pr * (fps < 35 ? 0.8 : 0.9)));
         this.scaled = true;
         return;
@@ -316,15 +322,19 @@ export class Post {
       else if (!this.lowSpec) { this.lowSpec = true; step = 'half grass, no LOD0'; }
       else if (o.ao) { o.ao = false; step = 'AO off'; }
       else if (o.bloom) { o.bloom = false; step = 'bloom off'; }
+      else if (o.grain || !o.lensLow) { o.grain = false; o.aa = 'fxaa'; o.lensLow = true; step = 'grain off, FXAA, cheap lens'; }
       else return;
       this.steps = [...(this.steps || []), step];
       console.info(`low fps (${fps.toFixed(0)}): ${step}`);
       if (step !== 'half grass, no LOD0' && !step.startsWith('shadows every')) this.build();
       return;
     }
-    if (fps >= 57 && pr < maxPR - 0.01 && ++this.good >= 3) { // steady: take some sharpness back
+    this.bad = 0;
+    // hysteresis: stay under the failing ratio for `hold`, then try again
+    const cap = this.ceil && performance.now() - this.ceilAt < this.hold ? this.ceil - 0.05 : maxPR;
+    if (fps >= 58 && pr < Math.min(maxPR, cap) - 0.01 && ++this.good >= 5) { // steady for 5 s: take some sharpness back
       this.good = 0;
-      r.setPixelRatio(Math.min(maxPR, pr + 0.1));
+      r.setPixelRatio(Math.min(maxPR, cap, pr + 0.1));
     }
   }
 

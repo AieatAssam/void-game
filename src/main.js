@@ -1484,7 +1484,7 @@ const perf = {
 };
 function perfTag() {
   return [`p${state?.phase ?? 1}`, state?.breaking && 'breakout', city?.reveal != null && city.meshes && city.reveal < city.meshes.length && `reveal ${city.reveal}/${city.meshes.length}`,
-    state?.draft && 'draft', state?.asc && `asc ${state.asc.t.toFixed(1)}`, !state?.playing && !state?.asc && 'menu'].filter(Boolean).join(' ');
+    state?.draft && 'draft', state?.asc && `asc ${state.asc.t.toFixed(1)}`, planetGame?.world?.job && 'patch build', !state?.playing && !state?.asc && 'menu'].filter(Boolean).join(' ');
 }
 function perfStats(win = 10000) {
   const now = performance.now(), d = [];
@@ -1998,7 +1998,9 @@ function frame(dt) {
   setFogRange(camDist);
   viewScale.value = Math.max(1, camDist / 45); // surface detail must reach the ground at every size, or the town goes flat and milky
   post.setViewScale(Math.max(1, camDist / 130)); // (AO reach: only once the camera is really high)
-  const sc = sun.shadow.camera, ext = Math.max(25, (camDist / LENS) * 0.9);
+  // the shadow box covers the casters (about 35 m x lod scale), not the whole pulled-back view: a box that grows with the hole wastes the shadow map on empty ground
+  const lodK = city.lodScale ? city.lodScale(hole.r) : 1;
+  const sc = sun.shadow.camera, ext = Math.min(Math.max(25, (camDist / LENS) * 0.9), Math.max(40, 38 * lodK));
   if (sc.right !== ext) { sc.left = sc.bottom = -ext; sc.right = sc.top = ext; sc.updateProjectionMatrix(); }
 
   sparks.update(dt);
