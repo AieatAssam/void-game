@@ -129,6 +129,14 @@ const faceST = Fn(([d]) => {
 });
 const uvOf = (st, N) => st.xy.mul(0.5).add(0.5).mul((N - 1) / N).add(0.5 / N);
 const sampleFace = (tex, N, d) => { const f = faceST(d).toVar(); return texture(tex, uvOf(f, N)).depth(int(f.z)); };
+/** One channel (r) of a face texture reconstructed with a cubic B-spline (four bilinear taps): C2-smooth, so a threshold on it is a round contour, not the texel stairs of a bilinear field. */
+const sampleFaceCubic = (tex, N, d) => {
+  const f = faceST(d).toVar(), t = uvOf(f, N).mul(N).sub(0.5), i = floor(t), fr = t.sub(i), fr2 = fr.mul(fr), fr3 = fr2.mul(fr), fz = int(f.z);
+  const w0 = float(1).sub(fr).pow(3).div(6), w1 = fr3.mul(3).sub(fr2.mul(6)).add(4).div(6), w2 = fr3.mul(-3).add(fr2.mul(3)).add(fr.mul(3)).add(1).div(6), w3 = fr3.div(6);
+  const g0 = w0.add(w1), g1 = w2.add(w3), h0 = i.sub(1).add(w1.div(g0)).add(0.5).div(N), h1 = i.add(1).add(w3.div(g1)).add(0.5).div(N);
+  const s = (u, v) => texture(tex, vec2(u, v)).depth(fz).r;
+  return g0.y.mul(g0.x.mul(s(h0.x, h0.y)).add(g1.x.mul(s(h1.x, h0.y)))).add(g1.y.mul(g0.x.mul(s(h0.x, h1.y)).add(g1.x.mul(s(h1.x, h1.y)))));
+};
 
 // atmosphere constants (unit = planet radius; the shell is exaggerated: 2.5% of R, scale heights ~40 / 14 km)
 const RA = 1.03, HR = 0.0085, HM = 0.0026;
@@ -334,13 +342,14 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
     const nm = mx_fractal_noise_float(dir.mul(34).add(vec3(3.1, 1.7, 5.2)), 3, 2, 0.5, 1).toVar();
     const near = sstep(2.2, 0.35, dist).toVar(); // fine detail only when close
     // ---- wound (bite map + the patch's fine trail): eaten land sinks; strata walls over a glowing mantle
-    const rem = sampleFace(bite, B, dir).r.toVar();
+    const rem = sampleFaceCubic(bite, B, dir).toVar();
     const trF = patch ? texture(trail, attribute('aUV', 'vec2')).r : float(0);
     const wRaw = max(trF, float(1).sub(rem).mul(patch ? u.uBiteWp : float(1))).toVar();
     // torn edges (§12.5): the wound's ~10 km texel stairs are thresholded with a fractal, so they read as torn rock
     If(wRaw.greaterThan(0.004).and(wRaw.lessThan(0.996)), () => {
-      const tornN = mx_fractal_noise_float(dir.mul(1100), 3, 2.1, 0.5, 1);
-      wRaw.assign(clamp(wRaw.add(tornN.mul(0.9).mul(wRaw).mul(float(1).sub(wRaw)).mul(4)), 0, 1));
+      // (the field is a cubic B-spline of the bite map, so its contour is already round; two noise scales crumble it: ~6 km lumps and ~1.4 km chips (gone when a pixel outgrows them))
+      const tornN = mx_fractal_noise_float(dir.mul(1100), 2, 2.1, 0.5, 1).add(mx_noise_float(dir.mul(4600)).mul(0.5).mul(fadeTo(1400, pxM)));
+      wRaw.assign(clamp(wRaw.add(tornN.mul(0.8).mul(wRaw).mul(float(1).sub(wRaw)).mul(4)), 0, 1));
     });
     const wound = wRaw.mul(landMask).toVar();
     // ---- clouds (drifting) and their shadow on the ground: only seen from a few hundred km up
@@ -577,20 +586,21 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
       land.assign(mix(land, white.mul(0.62), snowK));
       land.assign(mix(land, vec3(0.9, 0.82, 0.62), S.a.mul(u.uBorders).mul(0.7)));
       const diffL = clamp(dot(nrmD, L).add(0.12).div(1.12), 0, 1);
-      // the wound's albedo: scorched lip, banded strata walls, mantle floor (+ its glow, emissive: it blooms)
+      // the wound's albedo: a char line, a few strata on the cliff, dark basalt over the mantle; a molten band hugs the rim (that is the glowing lip: emissive, it blooms), sparse embers cool in the floor
       const wl = wound, glow = vec3(0).toVar();
       If(wl.greaterThan(0.002), () => {
         const stN = mx_noise_float(vec3(st.xy.mul(u.uGcellA.mul(0.7)), 3.1)).mul(0.5).add(0.5);
-        const bands = sin(wl.mul(34).add(stN.mul(5))).mul(0.5).add(0.5);
-        let strata = mix(srgb(0.2, 0.12, 0.08), srgb(0.5, 0.34, 0.2), bands);
-        strata = mix(strata, srgb(0.34, 0.2, 0.12), sstep(0.5, 0.2, stN));
-        strata = strata.mul(float(1).sub(wl.mul(0.5)));
-        land.assign(mix(land, srgb(0.1, 0.05, 0.04), sstep(0.0, 0.05, wl).mul(0.85))); // scorched lip
-        land.assign(mix(land, strata, sstep(0.04, 0.16, wl)));
-        land.assign(mix(land, srgb(0.07, 0.03, 0.09), sstep(0.8, 0.97, wl)));
+        const bands = sin(wl.mul(15).add(stN.mul(4))).mul(0.5).add(0.5);
+        let strata = mix(srgb(0.15, 0.095, 0.07), srgb(0.36, 0.25, 0.16), bands.mul(0.75));
+        strata = mix(strata, srgb(0.24, 0.15, 0.1), sstep(0.5, 0.2, stN));
+        land.assign(mix(land, srgb(0.07, 0.04, 0.033), sstep(0.0, 0.035, wl).mul(0.92))); // char
+        land.assign(mix(land, strata.mul(float(1).sub(wl.mul(0.55))), sstep(0.03, 0.1, wl)));
+        land.assign(mix(land, srgb(0.045, 0.03, 0.065), sstep(0.3, 0.75, wl))); // basalt floor
         const crk = pow(float(1).sub(abs(mx_noise_float(vec3(sr.mul(u.uGcellA.mul(4)), u.uTime.mul(0.05))))), 28);
-        const lip = sstep(0.015, 0.06, wl).mul(float(1).sub(sstep(0.1, 0.3, wl))), floorK = sstep(0.8, 0.97, wl);
-        glow.assign(vec3(1.0, 0.27, 0.04).mul(lip.mul(0.85).add(floorK.mul(crk).mul(1.2).mul(stN.mul(0.8).add(0.35)).add(floorK.mul(0.05)))).add(vec3(0.42, 0.2, 0.95).mul(floorK).mul(0.07)));
+        const fl = mx_noise_float(vec3(st.xy.mul(u.uGcellA.mul(9)), u.uTime.mul(0.9))).mul(0.5).add(0.5);
+        const rim = exp(pow(wl.sub(0.045).div(0.04), 2).negate()), floorK = sstep(0.7, 0.96, wl);
+        glow.assign(vec3(1.0, 0.3, 0.05).mul(rim.mul(float(0.7).add(fl.mul(0.55))).mul(1.7)).add(vec3(1.0, 0.8, 0.4).mul(pow(rim, 5)).mul(0.6)) // (the molten band)
+          .add(vec3(1.0, 0.3, 0.06).mul(floorK.mul(crk).mul(sstep(0.5, 0.85, stN)).mul(1.1)).add(vec3(0.42, 0.2, 0.95).mul(floorK).mul(0.05)))); // (embers in the floor)
       });
       // lit: the sun through the detail normal, the terrain's own shadow and occlusion (per vertex), a sky fill that sees less in the hollows
       const shV = mix(float(1), aS.y, 0.9), aoV = aS.x;
