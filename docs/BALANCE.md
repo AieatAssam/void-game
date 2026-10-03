@@ -286,3 +286,27 @@ Why the first Moon tuning failed (kept for the record): the hole crosses only ~0
 **Performance** (visible pane, 1085x714, WebGPU; fill-bound A/B at pinned `setPixelRatio` 4-5, interleaved pairs, the pane varies by +-10%): the shard top is the globe's own shader (21.4-22.3 fps vs 21.3-21.7 with the plain globe at pixel ratio 4: no difference); the cut, the core, 13.5k streaks and the disk glow add nothing measurable; the **lens + disk stage** costs about **6 ms at pixel ratio 5 (19.4 Mpix), ~0.3 ms per Mpix, ~1 ms at 1085x714 at 2x** (13 ms before the disk's noise became one periodic texture fetch and only the wanted half of the disk was evaluated per pixel), it is a uniform-gated `If` and costs nothing when the strength is 0; JS: `Finale.apply` writes 44 x 4 `vec4` uniforms and a few dozen scalars a frame (below the 1 ms budget; headless at 40x the 88 ticks of a whole finale take 0.2-1.3 s including the build). Building: `buildShards` runs in 3 ms slices behind the play from 80% of the land; the one-off compile of the shard-top shader (~150 ms in one frame) is moved under the Moon's break flash (`finaleCompile`), or to the finale's own freeze if the Moon never came. `?webgl` and `?q=low` (30 shards, level-5 icosphere, 45% streaks, one turbulence octave) render every beat with no error; `?q=low` frames match WebGPU's composition.
 
 **Not measured:** audio by ear (the API runs without errors, the graph is built once); a real-time 30 s play-through frame log of the finale on a slow GPU.
+
+## Phase 3 loop 2: stakes (docs/PHASE3-REVIEW-2.md P0-1), the no-dodge bot as the gate
+
+**What changed.** (a) A hit costs the land clock: `state.stun` = 3.5 s + 45 s x fraction at 0.35x speed (a 7% nuke = 6.6 s; compounds 50% on an open stun; capped 14 s). (b) A wound state: each hit adds 0.15 + 2 x fraction, heals in 60 s, and slows by up to 50%, so only a player who keeps getting hit stays hobbled. (c) The hit floors grow with the tier (x1 / 1.2 / 1.5 / 1.8), so a T4 nuke is no longer 1-3%. (d) The Void Lid follows the peak: `0.7 x max(tier floor, 0.75 x best r)`. Unchanged: telegraph >= 1.5 s, no hit > 25%, the 25% / 30 s mercy cap, the comeback. Knobs: `T3.stunBase/stunK/stunSlow`, `T3.wound*`, `T3.tierHit` (phase3.js). Bots: `__planetSweep(n, 3300, 'human' | 'naive')`; `naive` = the human bot with every ring / beam / wave / lid dropped from `dangers()`, errands only. Rows now carry `who`.
+
+**Gate.** A never-dodging bot is clearly slower, takes far more hits and damage, and can be Sealed; the dodging bot still wins in range. Minutes per run (cumulative tier clock in the raw rows); `hits` = damaging hits taken; `dmg` = % of gains lost.
+
+| seed | bot | runs (min) | mean | hits | dmg % | Sealed |
+|---|---|---|---|---|---|---|
+| 7 | human | 29.3 / 27.0 / 30.2 | 28.8 | 15-20 | 18-23 | 0 |
+| 7 | naive | 33.2 / 32.9 / 27.3 | 31.1 | 40-75 | 22-50 | 0 |
+| 3 | human | 19.1 / 24.0 / 18.7 | 20.6 | 6-16 | 13-21 | 0 |
+| 3 | naive | 22.8 / 31.6 (SEALED) / 27.9 | 27.4 | 34-89 | 18-66 | 1 of 3 |
+| 11 | human | 24.9 / 26.4 / 24.5 | 25.3 | 7-12 | 13-19 | 0 |
+| 11 | naive | 37.0 / 32.0 / 30.6 | 33.2 | 39-57 | 36-44 | 0 |
+| all | human / naive | | **24.9 / 30.6** | 8-20 / 34-89 | | 0 / 1 |
+
+- Naive is **+23% slower on average** (the gate was >= 20% or a Seal), takes **3-5x the hits**, 2-3x the damage, and sealed once in nine runs. Every run still won: nothing in this build ends a world by itself.
+- Earlier tuning passes, for the record (seed 7, n = 3 each): stun 3 / 40 only: human 22.4, naive 27.1 (+21%); stun 4 / 60: human 28 (too slow), naive 33.6 (+20%); stun 3.5 / 45 + wound (shipped, before the eater2 / silo / town commits): human 22.0 / 24.3, naive 39.1.
+- **Noise is large.** Same seed, same build, human: 22.2-24.1 vs 27.3-23.7 (silo scale reverted) vs 29.3-30.2 (HEAD). The human seed 7 mean of 28.8 is above the 19-26 target; seeds 3 and 11 sit inside it. Damage for the dodger (13-23%) is above the 8-15% aim, mostly rods at T4. A mild `tierHit` cut (1 / 1.15 / 1.35 / 1.55) is the first knob if a human playtest says it hurts.
+- Unfair (< 1.5 s telegraph) count: 0 in all 18 runs. Mercy saves: human 0-4, naive 1-19 per run (the cap is doing its job, and it is why naive does not die).
+- T1 on seed 11 is 6.4-9.7 min (target 4-5); T2-T4 stay inside 3-11 min. The T3 / T4 tails shrank: the long ones (T3 14.7-14.8 min on naive seed 7) are the naive bot's, a dodger's worst tier is 10.7 (T2, seed 7).
+- Sweep hygiene: three tabs in parallel stalled a run (a stale finale build attached itself after `reset()`); fixed with an epoch in `finalePrep` / `startFinale1`; sweeps run one tab at a time now.
+- Bots and debug worlds no longer bank (`devRun()` in progress.js): the sweeps leave the save alone.

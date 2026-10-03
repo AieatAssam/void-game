@@ -289,3 +289,19 @@ Each item is sized for one Sonnet session, with files, steps and a check.
 4. **P1-3, P1-4, P1-5.**
 
 **For the next stage (the black hole eats planets): don't build it yet.** Its hook is already in the finale card ("The void is hungry for more…"). Keep the finale's closed-form `t` architecture and the post-pass lens: both carry straight over.
+
+---
+
+## 7. Loop 2 ticks (commits fdf9e07 .. HEAD)
+
+- [x] **P0-1** stakes: stun + wound + tier-scaled floors + lid follows the peak, `naive` bot; naive +23% slower, 3-5x the hits, Sealed 1 of 9 (docs/BALANCE.md "loop 2"). Partly: the dodger's seed 7 mean (28.8) is over target and its damage 13-23% is over the 8-15% aim; no (b) land-restore, no (d) tighter mercy.
+- [x] **P0-2** exit: Menu on the card and on Results, `ctx.toMenu()` (leave + reload to the start menu), `leave()` runs `finaleReset`, hint says "Esc for the card". Checked: Results shows `wr-menu`, `leave()` removes `#wres`, `fin` is null. Also fixed `main.js` calling `leave()` without ctx.
+- [x] **P1-1** disk seam: images cross-fade over a wide band; README screen re-taken.
+- [x] **P1-2** `devRun()` guard: no dust / stars / records for bots or `?finale|land|r|defcon` (`?banksave` overrides); URL hooks `import.meta.env.DEV` only (`fakeLand` stays reachable through `__finale.fake`). Checked: Results says "practice", localStorage unchanged. **This browser's save still holds the old debug worlds (fastest 0:47, 52 worlds, +208 dust); reset `save.worldFastest` / `worlds` by hand if wanted.**
+- [x] **P1-3** 12 start towns (`findTowns`), labelled within 10 r; footprint tan. Seeds 7 / 3 / 11: 2-3 labels in the first second, nearest town 2.2-3.8 r0.
+- [~] **P1-4** tails: pull reach x1.5 from 90% only; the goal-arrow change was not done. Dodger tiers 1.9-10.7 min (worst a T2), T4 <= 8.3; naive tails to 14.8.
+- [~] **P1-5** visible-window fps recorded (PERFORMANCE.md): 52 / 48 / 44 / 40 fps at DPR 2. D2 not done, `?off=mid` not measured.
+- [x] **P1-6** docs drift fixed (Moon 88%, cracker after the Moon, 17 MB, Menu).
+- [x] **P2-1** silos 0.12 r. **P2-2** a second, 90 s World-Eater (1.25x) 30 s after the first and below 88% land. **P2-3** one `popStr` ("nobody"). **P2-4** four dead assets out of the pack and `build_all.py`. **P2-5** cities per-frame garbage. **P2-6** `npm run check` green. **P2-8** unused exports internal. **P2-9** height claim withdrawn (PHASE3.md section 3).
+- [~] **P2-7** only the debug split (`src/planetdebug.js`); `planetMaterial` split and long-line wrapping skipped.
+- Still open: a human 25-minute pass with sound; D2/D4/D5 perf; the Aegis / cracker / rival not re-seen.

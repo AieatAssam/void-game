@@ -189,3 +189,18 @@ machine; the pane inside the desktop app varies by ±10 fps between identical ru
 
 **Still open:** the swap frame compiles about 7 programs that exist only once the switch happens (probably the new
 systems: army units, rival holes, capsules), and shadow-pass shaders aren't covered by any precompile.
+
+## Phase 3 loop 2: real-time play, visible window (PHASE3-REVIEW-2 P1-5)
+
+Browser pane at 1085 x 714, devicePixelRatio 2, `document.visibilityState = visible`, rAF 58 Hz, WebGPU high, `?planet&seed=7&fps`, `__planet.setR(r)`, 2.5 s settle then `__perf()` over 8 s, nothing else on the GPU:
+
+| tier (r) | avg fps | 1% low | worst frame | JS ms | submit ms |
+|---|---|---|---|---|---|
+| T1 (40 km) | 52.3 | 38.2 | 30 ms | 0.66 | 1.26 |
+| T2 (150 km) | 47.5 | 41.2 | 54 ms | 0.88 | 1.15 |
+| T3 (450 km) | 43.7 | 31.6 | 290 ms (one hitch, a patch build) | 1.46 | 2.30 |
+| T4 (1200 km) | 39.8 | 34.0 | 31 ms | 1.88 | 1.53 |
+
+- The game is GPU-bound at this window and DPR 2 (JS 1-2 ms a frame): it holds 40-52 fps, not 60. Not reproducing the doc's 8.1 / 4.8 / 5.2 ms (pixel ratio 1).
+- `__bench` (tools/bench-snippet.js) in the same visible window, with the game's own rAF loop still running (so it is inflated, about 2x): pixel ratio 1 gives 20.2 / 26.5 / 32.1 / 27.6 ms and pixel ratio 2 gives 68 / 85 / 108 / 96 ms for T1 / T2 / T3 / T4. T1 at pr 1 is over the 12 ms line in the review, so **D2 (the no-close terrain variant) is still open**: not done in this loop; do it before a low-end target.
+- Not measured: `?off=mid` at T1, WebGL fps, a 25-minute continuous run. The sweeps' time stays headless.

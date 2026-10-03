@@ -1687,7 +1687,7 @@ function frame(dt) {
     camera.updateProjectionMatrix();
   }
   if (state.asc) { state.asc.advance(raw); if (!state.playing) state.time += dt; } // the Ascension owns the clock (its own real-time beats) and the camera
-  if (state.phase === 3) { planetGame.frame(dt, planetCtx()); return; } // Phase 3 has its own loop (src/planetgame.js)
+  if (state.phase === 3) { planetGame?.frame(dt, planetCtx()); return; } // (null while the world is still forming, and for the frame after toMenu) // Phase 3 has its own loop (src/planetgame.js)
 
   if (state.playing) {
     state.time += dt;
