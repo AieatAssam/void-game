@@ -65,7 +65,7 @@ export const extraMethods = {
           for (const o of this.bodies) { if (o.state || o.b < 0.6 * r || o.k === K.comet) continue; const d = Math.hypot(o.x - this.hx, o.z - this.hz) / r; if (d > 5 && d < 22 && o.b > bs) { bs = o.b; src = o; } }
           const a = rnd() * TAU, x = src ? src.x : this.hx + Math.cos(a) * 12 * r, z = src ? src.z : this.hz + Math.sin(a) * 12 * r;
           this.sflare = { x, z, t: 0, hit: false, w: 1.8 * r, Rmax: 12 * r, name: src?.name || '' };
-          ctx.hint(`${src?.name ? src.name + ' ' : ''}FLARE · stay out of the ring`); ctx.sfx.klaxon?.(4);
+          ctx.hint(`${src?.name ? src.name + ' ' : ''}FLARE · stay out of the ring`); ctx.sfx.space.flareWarn();
         }
       } else {
         F.t += dt;
@@ -78,7 +78,7 @@ export const extraMethods = {
             if (this.pw('shield')) { ctx.card('SHIELDED', 'THE FLARE BREAKS ON YOU'); this.sflare = null; this.flareT = 24 + rnd() * 14; this.stats.flaresDodged++; return; }
             const k = (3 * r) / (d || 1); this.hx += dx * k; this.hz += dz * k; this.stunT = 1.3; this.stats.flareHits++;
             this.eatenW = Math.max(0, this.eatenW - this.total * tier.goal * 0.015);
-            st.shake = Math.max(st.shake || 0, 0.8); ctx.hint('Flare hit · steering dazed');
+            st.shake = Math.max(st.shake || 0, 0.8); ctx.hint('Flare hit · steering dazed'); ctx.sfx.space.flareHit(); navigator.vibrate?.([80, 40, 120]);
           }
           if (u >= 1) { if (!F.hit) { this.stats.flaresDodged++; this.eatenW += this.total * tier.goal * 0.004; } this.sflare = null; this.flareT = 24 + rnd() * 14; }
         }
@@ -103,7 +103,7 @@ export const extraMethods = {
   takePower(kind, ctx) {
     const def = POW[kind], r = this.r;
     this.stats.powerups++;
-    ctx.card(def.name, def.blurb.toUpperCase()); ctx.sfx.levelUp?.(); ctx.state.shake = Math.max(ctx.state.shake || 0, 0.3);
+    ctx.card(def.name, def.blurb.toUpperCase()); ctx.sfx.space.power(kind); navigator.vibrate?.(50); ctx.state.shake = Math.max(ctx.state.shake || 0, 0.3);
     this.flare = Math.max(this.flare || 0, 1.5);
     if (kind === 'nova') {
       let n = 0;
@@ -138,6 +138,7 @@ export const extraMethods = {
 
   extrasHud() {
     const el = this.puEl; if (!el) return;
+    const hb = document.getElementById('hud')?.getBoundingClientRect().bottom; if (hb) el.style.top = `${Math.round(hb + 6)}px`; // (under the HUD, wherever it wrapped to)
     const on = KINDS.filter((k) => this.pu.active[k] > 0);
     el.innerHTML = [...(this.stunT > 0 ? [`<span style="background:#5a1a1acc;color:#ffb0a0;padding:3px 10px;border-radius:999px">DAZED</span>`] : []), ...on.map((k) => `<span style="background:#0d0820cc;color:${POW[k].css};border:1.5px solid ${POW[k].css};padding:3px 10px;border-radius:999px">${POW[k].name} ${this.pu.active[k].toFixed(0)}</span>`)].join('');
   },
