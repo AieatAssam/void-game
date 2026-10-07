@@ -40,7 +40,7 @@ def build_material(kind):
     x = math_('MULTIPLY', sep.outputs['X'], 2.0); y = math_('MULTIPLY', sep.outputs['Y'], 2.0)
     r = math_('SQRT', math_('ADD', math_('MULTIPLY', x, x), math_('MULTIPLY', y, y)))
     th = math_('ARCTAN2', y, x)
-    edge = ramp(math_('SUBTRACT', 1.0, r), [(0.0, 0.0), (0.18, 1.0)])           # fades to nothing at the rim of the tile
+    edge = ramp(math_('SUBTRACT', 1.0, r), [(0.0, 0.0), (0.18 if kind != 'irregular' else 0.5, 1.0)])           # fades to nothing at the rim of the tile
     lr = math_('LOGARITHM', math_('MAXIMUM', r, 0.02), math.e)
     stars = ramp(voronoi(60.0), [(0.0, 1.0), (0.12, 0.0)])
     turb = noise(7.0, 6, 0.6, w=SEED)

@@ -6,10 +6,10 @@ import { K } from './tiers.js';
 
 const TAU = Math.PI * 2;
 const POW = {
-  magnet: { name: 'MAGNET', color: [0.3, 0.85, 1.0], css: '#4fd8ff', dur: 7, blurb: 'pulls everything in, twice as far' },
-  surge: { name: 'SURGE', color: [1.0, 0.62, 0.2], css: '#ffa03a', dur: 6, blurb: 'faster, and every gulp pays more' },
-  shield: { name: 'SHIELD', color: [0.4, 1.0, 0.55], css: '#6dff9a', dur: 9, blurb: 'flares and the rival cannot touch you' },
-  nova: { name: 'NOVA', color: [1.0, 0.95, 0.85], css: '#fff1d8', dur: 0, blurb: 'a shockwave drags everything near into the hole' },
+  magnet: { name: 'MAGNET', color: [0.3, 0.85, 1.0], css: '#4fd8ff', dur: 7, blurb: 'pulls in everything, twice as far' },
+  surge: { name: 'SURGE', color: [1.0, 0.62, 0.2], css: '#ffa03a', dur: 6, blurb: 'faster · every gulp pays more' },
+  shield: { name: 'SHIELD', color: [0.4, 1.0, 0.55], css: '#6dff9a', dur: 9, blurb: 'flares and rivals cannot touch you' },
+  nova: { name: 'NOVA', color: [1.0, 0.95, 0.85], css: '#fff1d8', dur: 0, blurb: 'drags everything near into the hole' },
 };
 const KINDS = Object.keys(POW);
 
