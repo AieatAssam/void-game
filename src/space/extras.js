@@ -2,7 +2,7 @@
 // the hole: a flare shoves you clear and stuns you for a second, a tidal pull is slower than your speed, and every penalty is a few percent of the tier.
 import * as THREE from 'three/webgpu';
 import { Fn, vec3, vec4, float, uniform, length, smoothstep, positionGeometry, exp, abs } from 'three/tsl';
-import { K } from './tiers.js';
+import { K, looseProp } from './tiers.js';
 
 const TAU = Math.PI * 2;
 const POW = {
@@ -55,6 +55,28 @@ export const extraMethods = {
         const k = (1 - d / reach) ** 2 * 0.3 * r; px += dx / d * k; pz += dz / d * k;
       }
       this.hx += px * dt; this.hz += pz * dt;
+    }
+    // ---- supernova (tier 4+): a star nearby telegraphs for 3 s, then goes: a big flare ring, and a neutron star is left behind to eat
+    if (tier.hazards.includes('supernova')) {
+      const N = this.snova;
+      if (!N) {
+        if ((this.snT = (this.snT ?? 40) - dt) <= 0) {
+          let star = null, bd = 1e9;
+          for (const o of this.bodies) { if (o.state || o.k !== K.star || o.b < 0.5 * r || o.b > 8 * r) continue; const d = Math.hypot(o.x - this.hx, o.z - this.hz) / r; if (d > 4 && d < 18 && d < bd) { bd = d; star = o; } }
+          if (star) { this.snova = { o: star, t: 0 }; ctx.card('SUPERNOVA', 'A STAR IS ABOUT TO GO'); ctx.sfx.space.flareWarn(); } else this.snT = 8;
+        }
+      } else {
+        N.t += dt; const o = N.o; o.pulse = Math.min(1, N.t / 3) * (0.55 + 0.45 * Math.sin(N.t * (8 + N.t * 8)));
+        if (N.t >= 3 || o.state) {
+          this.snova = null; this.snT = 55 + rnd() * 35; o.pulse = 0;
+          if (!o.state) {
+            o.state = 2; this.live--;
+            this.sflare = { x: o.x, z: o.z, t: 1.6, hit: false, w: 2.6 * r, Rmax: 18 * r, name: '' };
+            this.bodies.push(looseProp(tier, 'neutron_star', Math.max(0.2 * r, o.b * 0.25), o.x, o.z)); this.live++; this.propUse.add('neutron_star');
+            ctx.card('SUPERNOVA', 'EAT WHAT IT LEFT'); ctx.sfx.space.flareHit(); st.shake = Math.max(st.shake || 0, 0.5); this.flare = 2;
+          }
+        }
+      }
     }
     // ---- flares
     if (tier.hazards.includes('flare')) {

@@ -65,7 +65,7 @@ function bodyMaterial(U) {
     const albedo = select(isRock, rock, select(isWorld, world, giant));
     const lighting = select(isRock, float(U.amb).add(clamp(ndl.mul(0.9).add(0.1), 0, 1).mul(1.3)), lit);
     // star: granulation and spots from the atlas, hotter in the middle, HDR so the bloom takes it
-    const star = mix(B.rgb, A.rgb, smoothstep(0.1, 0.9, R.mul(0.7).add(pow(ndv, 0.7).mul(0.4)))).mul(float(2.4).add(R.mul(1.8))).mul(float(1).sub(M.mul(0.45))).mul(float(0.38).add(pow(ndv, 0.6).mul(0.62))).add(vec3(1.0, 0.95, 0.85).mul(pow(ndv, 5).mul(1.8)));
+    const star = mix(B.rgb, A.rgb, smoothstep(0.1, 0.9, R.mul(0.7).add(pow(ndv, 0.7).mul(0.4)))).pow(1.25).mul(float(1.7).add(R.mul(1.3))).mul(float(1).sub(M.mul(0.45))).mul(float(0.22).add(pow(ndv, 0.5).mul(0.78))).add(vec3(1.0, 0.95, 0.85).mul(pow(ndv, 5).mul(1.8)));
     // a cluster: a fuzzy ball of light, brighter in the middle, speckled by the star tile
     const fuzz = mix(B.rgb, A.rgb, smoothstep(0.2, 0.9, R)).mul(pow(ndv, 2.6).mul(float(0.5).add(R.mul(1.1))).add(pow(ndv, 12).mul(1.4)));
     const col = select(isCluster, fuzz, select(isStar, star, albedo.mul(lighting).add(rim)));
@@ -121,8 +121,8 @@ function glowMaterial() {
 }
 
 /** The Blender-built hero props (art/space/build_props.py): vertex-coloured low-poly GLBs, lit by the sun, a vertex alpha for what glows. Each model is one small instanced mesh. */
-const PROPS = { sat_comm: [0.2, -0.3], station: [0.1, -0.2], capsule: [0.3, 0.2], rocket_stage: [0.2, 0.3], monolith: [0.5, 0.1], ringworld: [-Math.PI / 2 + 0.6, 0], neutron_star: [0.8, 0], dyson: [0.3, 0] }; // (a base tilt per model: rings face the camera, craft lie in the plane)
-const PROP_CAP = { sat_comm: 14, station: 4, capsule: 8, rocket_stage: 10, monolith: 2, ringworld: 8, neutron_star: 16, dyson: 10 };
+const PROPS = { telescope: [0.2, 0.1], probe: [0.3, -0.2], sat_comm: [0.2, -0.3], station: [0.1, -0.2], capsule: [0.3, 0.2], rocket_stage: [0.2, 0.3], monolith: [0.5, 0.1], ringworld: [-Math.PI / 2 + 0.6, 0], neutron_star: [0.8, 0], dyson: [0.3, 0] }; // (a base tilt per model: rings face the camera, craft lie in the plane)
+const PROP_CAP = { telescope: 3, probe: 6, sat_comm: 14, station: 4, capsule: 8, rocket_stage: 10, monolith: 2, ringworld: 8, neutron_star: 16, dyson: 10 };
 async function loadProps(U) {
   const loader = new GLTFLoader(), m = new THREE.MeshBasicNodeMaterial({ fog: false });
   m.colorNode = Fn(() => {
@@ -559,6 +559,7 @@ export class SpaceGame {
         _sp.center.set(px, 0, pz); _sp.radius = s * (o.ring ? 2.4 : o.k === K.prop ? 3.6 : 1.6) + (o.k === K.comet ? o.tail * 1.5 : 0); if (!_fr.intersectsSphere(_sp)) continue;
         sy = sz2 = s;
       }
+      if (o.pulse) heat = Math.max(heat, o.pulse);
       if (s < 0.008 && o.state === 0) continue;
       if (o.k === K.prop) { // a Blender prop: its own small instanced mesh, drawn at full capacity (spares collapsed)
         const pm = this.props[o.model]; if (!pm || (cnt[o.model] | 0) >= pm.instanceMatrix.count) continue;

@@ -170,7 +170,31 @@ def dyson():
     return m.finish('dyson')
 
 
-MODELS = [sat_comm, station, capsule, rocket_stage, monolith, ringworld, neutron_star, dyson]
+def telescope():
+    m = Model()
+    m.cyl(0.55, 0.55, 2.6, (0, 0, 0), hexc(0xc9ced8), rot=(0, math.pi / 2, 0), seg=20)           # the tube along X
+    m.cyl(0.6, 0.6, 0.5, (-1.2, 0, 0), GOLD, rot=(0, math.pi / 2, 0), seg=20)                    # foil shroud
+    m.cyl(0.5, 0.5, 0.08, (1.32, 0, 0), DARK, rot=(0, math.pi / 2, 0), seg=20)                   # the aperture
+    m.cyl(0.52, 0.62, 0.35, (1.12, 0, 0), WHITE, rot=(0, math.pi / 2, 0), seg=20)               # the sun shield lip
+    for s2 in (-1, 1):
+        m.box((0.08, 0.04, 0.9), (-0.2, 0.0, s2 * 0.95), FRAME); m.box((1.2, 0.03, 0.9), (-0.2, 0.0, s2 * 1.55), PANEL); m.box((1.22, 0.04, 0.04), (-0.2, 0.0, s2 * 1.55), FRAME)
+    m.cyl(0.28, 0.04, 0.2, (-0.3, 0.7, 0), GREY, rot=(0, 0, 0), seg=14); m.cyl(0.03, 0.03, 0.4, (-0.3, 0.6, 0), GREY, rot=(math.pi / 2, 0, 0), seg=8)
+    return m.finish('telescope')
+
+
+def probe():
+    m = Model()
+    m.cyl(0.55, 0.55, 0.45, (0, 0, 0), hexc(0xb8bcc6), seg=10)                                    # the decagonal bus
+    m.cyl(1.7, 0.1, 0.55, (0, 0, 0.5), hexc(0xe8e8e8), seg=32)                                    # the big dish
+    m.cyl(0.12, 0.12, 0.7, (0, 0, 0.9), GREY, seg=8)
+    m.box((0.06, 0.06, 3.2), (1.2, 0.0, -0.9), FRAME, rot=(0, 0, 0))                                 # the science boom
+    m.box((0.3, 0.3, 0.3), (1.2, 0, -2.5), GREY); m.sphere(0.12, (1.2, 0, -2.7), hexc(0xffd070, 0.5), seg=8)
+    m.cyl(0.14, 0.14, 0.7, (-0.9, 0, -0.5), DARK, rot=(0, math.pi / 2, 0), seg=10); m.cyl(0.14, 0.14, 0.7, (-0.9, 0.4, -0.5), DARK, rot=(0, math.pi / 2, 0), seg=10)
+    m.box((0.05, 0.05, 1.6), (-1.5, 0, -0.5), FRAME); m.sphere(0.08, (-1.5, 0, 0.35), hexc(0x66ffaa, 0.9), seg=8)
+    return m.finish('probe')
+
+
+MODELS = [telescope, probe, sat_comm, station, capsule, rocket_stage, monolith, ringworld, neutron_star, dyson]
 scn = bpy.data.scenes.new('space_props'); win = bpy.context.window; old = win.scene if win else None
 try:
     if win: win.scene = scn
