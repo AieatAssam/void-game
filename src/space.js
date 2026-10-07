@@ -61,7 +61,7 @@ function bodyMaterial(U) {
     const albedo = select(isRock, rock, select(isWorld, world, giant));
     const lighting = select(isRock, float(U.amb).add(clamp(ndl.mul(0.9).add(0.1), 0, 1).mul(1.3)), lit);
     // star: granulation and spots from the atlas, hotter in the middle, HDR so the bloom takes it
-    const star = mix(B.rgb, A.rgb, smoothstep(0.1, 0.9, R.mul(0.7).add(pow(ndv, 0.7).mul(0.4)))).mul(float(1.25).add(R.mul(1.3))).mul(float(1).sub(M.mul(0.5))).mul(float(0.22).add(pow(ndv, 0.7).mul(0.78))).add(vec3(1.0, 0.95, 0.85).mul(pow(ndv, 5).mul(1.8)));
+    const star = mix(B.rgb, A.rgb, smoothstep(0.1, 0.9, R.mul(0.7).add(pow(ndv, 0.7).mul(0.4)))).mul(float(2.4).add(R.mul(1.8))).mul(float(1).sub(M.mul(0.45))).mul(float(0.38).add(pow(ndv, 0.6).mul(0.62))).add(vec3(1.0, 0.95, 0.85).mul(pow(ndv, 5).mul(1.8)));
     // a cluster: a fuzzy ball of light, brighter in the middle, speckled by the star tile
     const fuzz = mix(B.rgb, A.rgb, smoothstep(0.2, 0.9, R)).mul(pow(ndv, 2.6).mul(float(0.5).add(R.mul(1.1))).add(pow(ndv, 12).mul(1.4)));
     const col = select(isCluster, fuzz, select(isStar, star, albedo.mul(lighting).add(rim)));
@@ -193,9 +193,10 @@ export class SpaceGame {
     this.S = { a: uniform(new THREE.Vector3(0.05, 0.07, 0.16)), b: uniform(new THREE.Vector3(0.14, 0.06, 0.2)), k: uniform(0.7), o: uniform(new THREE.Vector3()) };
     this.root = new THREE.Group(); this.root.name = 'space';
     this.sky = new Sky(this.S, renderer, Q.tier === 'low' ? 512 : 1024); this.root.add(this.sky.mesh);
-    this.bmHi = bodyMaterial(this.U); this.bmLo = bodyMaterial(this.U); // (two meshes, two attribute sets: a near body is drawn with a fine sphere, a speck with a coarse one)
-    this.hi = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, Q.tier === 'low' ? 2 : 3), this.bmHi.m, CAP); this.lo = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), this.bmLo.m, CAP);
-    for (const o of [this.hi, this.lo]) { o.frustumCulled = false; o.count = 0; o.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.root.add(o); }
+    this.bmHi = bodyMaterial(this.U); this.bmLo = bodyMaterial(this.U); this.bmBg = bodyMaterial(this.U); // (two meshes, two attribute sets: a near body is drawn with a fine sphere, a speck with a coarse one)
+    this.hi = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, Q.tier === 'low' ? 3 : 4), this.bmHi.m, CAP); this.lo = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), this.bmLo.m, CAP);
+    this.bg = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, Q.tier === 'low' ? 4 : 6), this.bmBg.m, 12); // (a few huge bodies, the Sun: a smooth silhouette)
+    for (const o of [this.hi, this.lo, this.bg]) { o.frustumCulled = false; o.count = 0; o.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.root.add(o); }
     const galAtlas = await new THREE.TextureLoader().loadAsync(`${import.meta.env.BASE_URL}textures/space/galaxies.png`); galAtlas.colorSpace = THREE.NoColorSpace; galAtlas.anisotropy = 4; galAtlas.wrapS = galAtlas.wrapT = THREE.ClampToEdgeWrapping;
     this.gal = galaxyMaterial(galAtlas); this.root.add(this.gal.mesh);
     this.glow = glowMaterial(); this.root.add(this.glow.mesh);
@@ -203,7 +204,10 @@ export class SpaceGame {
     this.dust = dustField(Q.tier === 'low' ? 220 : 420); this.root.add(this.dust);
     this.bh = holeSphere(); this.bh.visible = true; this.bh.material.userData.U.uK.value = 1; this.bh.material.depthTest = false; this.bh.material.depthWrite = false; this.bh.renderOrder = 50;
     this.halo = holeHalo(); this.halo.visible = true; this.halo.material.userData.U.uK.value = 0.8; this.halo.material.depthTest = false; this.halo.renderOrder = 51;
-    this.root.add(this.bh, this.halo);
+    this.rbh = holeSphere(); this.rbh.material = this.rbh.material.clone(); this.rbh.material.userData.U = this.bh.material.userData.U; // (the rival: the same void, a hot orange rim)
+    this.rbh.material.depthTest = false; this.rbh.material.depthWrite = false; this.rbh.renderOrder = 48; this.rbh.visible = false;
+    this.rhalo = holeHalo(); this.rhalo.material.userData.U.uK.value = 0.55; this.rhalo.material.userData.U.uHeat.value = 0.95; this.rhalo.material.depthTest = false; this.rhalo.renderOrder = 49; this.rhalo.visible = false;
+    this.root.add(this.bh, this.halo, this.rbh, this.rhalo);
     scene.add(this.root);
     camera.fov = ctx.baseFov; camera.near = 0.5; camera.far = 6000; camera.updateProjectionMatrix();
     post.suspendAO?.(true);
@@ -226,7 +230,7 @@ export class SpaceGame {
     this.hx = tier.start[0]; this.hz = tier.start[1];
     const S = this.S; S.a.value.set(...tier.sky.a); S.b.value.set(...tier.sky.b); S.k.value = tier.sky.k; S.o.value.set(seed * 1.3, tier.id * 7.1, 0); this.sky?.bake();
     this.sunAt = tier.sun === 'key' ? this.field.key : tier.sun;
-    this.phase = 'play'; this.sweepT = 0; this.tierGulps = 0; this.combo = 0; this.comboT = 0; this.boostT = 0; this.storm = null; this.stormT = 22 + this.t * 0; this.rnd = rng(seed * 31 + tier.id);
+    this.phase = 'play'; this.sweepT = 0; this.tierGulps = 0; this.combo = 0; this.comboT = 0; this.boostT = 0; this.storm = null; this.stormT = 22 + this.t * 0; this.rnd = rng(seed * 31 + tier.id); this.rival = null; this.rivalT = 18; this.rivalHit = 0;
     this.ctx.state.tier = tier.id;
   }
 
@@ -290,7 +294,7 @@ export class SpaceGame {
       o.spin += o.spinV * dt;
       if (o.eph && (o.eph -= dt) <= 0) { o.state = 2; this.live--; }
     }
-    if (this.phase === 'play') this.stormStep(dt, ctx);
+    if (this.phase === 'play') { this.stormStep(dt, ctx); this.rivalStep(dt, ctx); }
     // ---- the hole against the bodies
     let eatenNow = 0;
     this.chunkT -= dt;
@@ -391,6 +395,52 @@ export class SpaceGame {
     ctx.card('METEOR STORM', 'FEAST'); ctx.sfx.klaxon?.(5);
   }
 
+  /**
+   * A rival hole (from about a third of the way through a tier): it eats the bodies you want, grows, and when it is bigger than you it hunts you. A bite costs a little progress and shoves you
+   * clear (never more: no dead ends); when you are bigger you can eat it for a big payout. After it is eaten it is back, smaller, in about 40 s.
+   */
+  rivalStep(dt, ctx) {
+    const r = this.r, rnd = this.rnd, R = this.rival;
+    if (!R) {
+      if ((this.rivalT -= dt) > 0 || this.progress() < 0.3) return;
+      const a = rnd() * TAU, d = 15 * r;
+      this.rival = { x: this.hx + Math.cos(a) * d, z: this.hz + Math.sin(a) * d, b: r * (this.rivalN ? 0.55 : 0.8), vx: 0, vz: 0, hit: 0 };
+      this.rivalN = (this.rivalN || 0) + 1;
+      ctx.card('RIVAL HOLE', this.rival.b > r ? 'IT HUNTS YOU' : 'EAT IT BEFORE IT GROWS'); ctx.sfx.klaxon?.(3);
+      return;
+    }
+    // it grows slowly and feeds on what it touches
+    R.b *= 1 + dt * 0.012;
+    const rx = this.hx - R.x, rz = this.hz - R.z, dp = Math.hypot(rx, rz), bigger = R.b > r * 1.12, smaller = r > R.b * 1.15;
+    let tx = 0, tz = 0, best = 1e18;
+    if (R.flee > 0) { R.flee -= dt; tx = -rx; tz = -rz; best = 0; } // (after a bite it is fed and backs off)
+    else if (bigger && dp < 14 * r) { tx = rx; tz = rz; best = 0; }
+    else if (smaller && dp < 7 * r) { tx = -rx; tz = -rz; best = 0; } // (it runs from a bigger player)
+    else for (const o of this.bodies) {
+      if (o.state || o.b > 0.85 * R.b) continue;
+      const dx = o.x - R.x, dz = o.z - R.z, d2 = dx * dx + dz * dz;
+      if (d2 < best) { best = d2; tx = dx; tz = dz; }
+    }
+    const tl = Math.hypot(tx, tz) || 1, sp = 0.55 * R.b; // (slower than you: it can always be outrun)
+    R.vx += (tx / tl * sp - R.vx) * Math.min(1, dt * 2.5); R.vz += (tz / tl * sp - R.vz) * Math.min(1, dt * 2.5);
+    R.x += R.vx * dt; R.z += R.vz * dt;
+    for (const o of this.bodies) { // it eats
+      if (o.state || o.b > 0.85 * R.b || o.k >= K.galaxy && o.b > 0.5 * R.b) continue;
+      const dx = o.x - R.x, dz = o.z - R.z;
+      if (dx * dx + dz * dz < (R.b + 0.15 * o.b) ** 2) { o.state = 2; this.live--; R.b *= 1 + 0.5 * (o.b / R.b) ** 2 * 0.2; }
+    }
+    R.b = Math.min(Math.max(R.b, 0.5 * r), 1.35 * r); // (it keeps pace with you: never a runaway, never a speck)
+    R.hit -= dt;
+    if (bigger && dp < R.b + 0.3 * r && R.hit <= 0) { // it bites: a little progress lost, a shove
+      R.hit = 4; this.eatenW = Math.max(0, this.eatenW - this.total * this.tier.goal * 0.03);
+      const k = (3 * r) / (dp || 1); this.hx += rx * k; this.hz += rz * k; ctx.state.shake = Math.max(ctx.state.shake || 0, 0.7); ctx.hint('The rival bit you · grow bigger than it'); R.bites = (R.bites || 0) + 1; R.flee = 6; R.b *= 0.85; if (R.bites >= 2) { this.rival = null; this.rivalT = 45; ctx.card('THE RIVAL LEAVES', 'IT WILL BE BACK'); }
+    }
+    if (smaller && dp < r * 0.7) { // you eat it
+      this.rival = null; this.rivalT = 40; this.eatenW += this.total * this.tier.goal * 0.04; this.flare = 1.8; ctx.state.shake = Math.max(ctx.state.shake || 0, 0.6);
+      ctx.card('RIVAL EATEN', 'YOU ARE THE VOID'); ctx.sfx.levelUp?.(); this.chain(ctx, { b: r }); this.swallowed++;
+    }
+  }
+
   finishTier(ctx) {
     this.phase = 'sweep'; this.sweepT = 0;
     const last = this.tierIdx + 1 >= TIERS.length;
@@ -437,6 +487,7 @@ export class SpaceGame {
   /** A greedy bot for pacing runs (?bot): the best body that fits per unit of distance, else the biggest nibble. */
   autoSteer() {
     const r = this.r; let best = null, bs = 0;
+    { const R = this.rival; if (R) { const rx = this.hx - R.x, rz = this.hz - R.z, d = Math.hypot(rx, rz); if (R.b > r * 1.1 && d < 5 * r) return [rx / d, rz / d]; if (r > R.b * 1.2 && d < 25 * r) return [-rx / d, -rz / d]; } } // (flee a bigger rival, chase a smaller one)
     for (const o of this.bodies) {
       if (o.state) continue;
       const ex = o.x - this.hx, ez = o.z - this.hz, d = Math.hypot(ex, ez) + 0.5 * r;
@@ -450,7 +501,7 @@ export class SpaceGame {
   // ------------------------------------------------------------------------------------------------ drawing
   draw(ctx, dt) {
     const r = this.r, hi = this.hi, lo = this.lo, ir = 1 / r;
-    let nh = 0, nl = 0, nt = 0, nr = 0, ng = 0, ngl = 0;
+    let nh = 0, nl = 0, nt = 0, nr = 0, ng = 0, ngl = 0, nb = 0;
     const sun = this.sunAt; let sx = 0, sz = 0;
     if (Array.isArray(sun)) { sx = sun[0]; sz = sun[1]; } else if (sun) { sx = sun.x; sz = sun.z; }
     // the light: from the sun's side, in view space
@@ -490,18 +541,19 @@ export class SpaceGame {
         continue;
       }
       if ((o.k === K.star || o.k === K.cluster) && s > 0.012 && ngl < CAPG - 2) { // glare, behind the disc
-        const gi = ngl * 4, gs = s * (o.k === K.star ? 4.2 : 3.0), bright = (o.k === K.star ? 1.0 : 0.7) * (1 + 2 * heat) / (1 + 0.04 * s * s);
+        const gi = ngl * 4, gs = s * (o.k === K.star ? 4.2 : 3.0), bright = (o.k === K.star ? 1.0 : 0.7) * (1 + 2 * heat) / (1 + 0.004 * s * s);
         _p.set(px, -0.01, pz); _q.identity(); _s.set(gs, 1, gs); _m.compose(_p, _q, _s); this.glow.mesh.setMatrixAt(ngl, _m);
         const ga = this.glow.aC.array; ga[gi] = o.A[0]; ga[gi + 1] = o.A[1]; ga[gi + 2] = o.A[2]; ga[gi + 3] = bright; ngl++;
       }
-      const small = s < 0.05;
+      const small = s < 0.05, huge = s > 5 && nb < 12;
       if (o.k === K.comet && o.state === 0 && nt < CAPT) { // the tail, away from the sun
         let tx = o.x - sx, tz = o.z - sz; const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl;
         const len = o.tail * 1.0 * (o.b * ir + 0.15) * 10 * Math.min(1, 2.5 * ir ** 0.3), wid = Math.max(0.25, o.b * ir * 6);
         _p.set(px, 0, pz); _q.setFromAxisAngle(_y, -Math.atan2(tz, tx)); _s.set(len, 1, wid); _m.compose(_p, _q, _s); this.tails.setMatrixAt(nt++, _m);
       }
       if (o.ring && o.state === 0 && nr < CAPR) { _p.set(px, 0, pz); _e.set(0.38, o.spin * 0.02, 0.1); _q.setFromEuler(_e); const rs = s * 2.25; _s.set(rs, rs, rs); _m.compose(_p, _q, _s); this.rings.setMatrixAt(nr++, _m); }
-      if (small && nl < CAP - CHUNKS - 4) put(lo, this.bmLo, nl++, o.k, o, px, pz, s, sy, sz2, yaw, heat, tilt);
+      if (huge) put(this.bg, this.bmBg, nb++, o.k, o, px, pz, s, sy, sz2, yaw, heat, tilt);
+      else if (small && nl < CAP - CHUNKS - 4) put(lo, this.bmLo, nl++, o.k, o, px, pz, s, sy, sz2, yaw, heat, tilt);
       else if (nh < CAP - CHUNKS - 4) put(hi, this.bmHi, nh++, o.k, o, px, pz, s, sy, sz2, yaw, heat, tilt);
     }
     // the nibbled bits
@@ -511,9 +563,9 @@ export class SpaceGame {
       const at = this.bmHi.aT.array, aa = this.bmHi.aA.array, ab = this.bmHi.aB.array, i = nh * 4; at[i] = 0; at[i + 1] = c.spin; at[i + 2] = 2; at[i + 3] = 0; aa[i] = c.A[0]; aa[i + 1] = c.A[1]; aa[i + 2] = c.A[2]; aa[i + 3] = 1; ab[i] = c.B[0]; ab[i + 1] = c.B[1]; ab[i + 2] = c.B[2]; ab[i + 3] = e;
       nh++;
     }
-    hi.count = nh; lo.count = nl; this.tails.count = nt; this.rings.count = nr; this.gal.mesh.count = ng; this.glow.mesh.count = ngl; this.glow.mesh.instanceMatrix.needsUpdate = true; this.glow.aC.needsUpdate = true; this.gal.mesh.instanceMatrix.needsUpdate = true; this.gal.aT.needsUpdate = this.gal.aC.needsUpdate = true;
+    hi.count = nh; lo.count = nl; this.bg.count = nb; this.bg.instanceMatrix.needsUpdate = true; this.hideRest(this.tails, nt, CAPT); this.hideRest(this.rings, nr, CAPR); // (the WebGPU backend sizes an instance buffer from the first non-zero count it sees: these draw their full capacity, the unused ones collapsed to nothing) this.gal.mesh.count = ng; this.glow.mesh.count = ngl; this.glow.mesh.instanceMatrix.needsUpdate = true; this.glow.aC.needsUpdate = true; this.gal.mesh.instanceMatrix.needsUpdate = true; this.gal.aT.needsUpdate = this.gal.aC.needsUpdate = true;
     for (const o of [hi, lo, this.tails, this.rings]) o.instanceMatrix.needsUpdate = true;
-    for (const bm of [this.bmHi, this.bmLo]) bm.aT.needsUpdate = bm.aA.needsUpdate = bm.aB.needsUpdate = true;
+    for (const bm of [this.bmHi, this.bmLo, this.bmBg]) bm.aT.needsUpdate = bm.aA.needsUpdate = bm.aB.needsUpdate = true;
     // dust: stream past the hole
     const P = this.dust.geometry.attributes.position, a = P.array, mx = this.moved || 0;
     if (mx) {
@@ -523,11 +575,26 @@ export class SpaceGame {
     }
     this.lastHx = this.hx; this.lastHz = this.hz; this.moved = 0;
     { const k = 0.0004 / Math.max(1, Math.log2(r + 1)); _e.set(this.hz * k, this.hx * k, 0); _m.makeRotationFromEuler(_e); this.sky.rot.value.setFromMatrix4(_m); } // (parallax: the stars turn a little as the hole travels)
+    { // the rival hole
+      const R = this.rival, on = !!R && this.phase === 'play';
+      this.rbh.visible = this.rhalo.visible = on;
+      if (on) {
+        const rs = R.b * ir; this.rbh.position.set((R.x - this.hx) * ir, 0, (R.z - this.hz) * ir); this.rbh.scale.setScalar(rs);
+        this.rhalo.position.copy(this.rbh.position); this.rhalo.scale.setScalar(rs * 2.2); this.rhalo.quaternion.copy(ctx.camera.quaternion); this.rhalo.material.userData.U.uA.value = 0.35; this.rhalo.material.userData.U.uT.value = this.t;
+      }
+    }
     // the hole itself
     this.bh.scale.setScalar(1); const hU = this.bh.material.userData.U, ha = this.halo.material.userData.U;
     this.flare = Math.max(0, (this.flare || 0) - dt * 2.4);
     hU.uHeat.value = this.flare; hU.uT.value = this.t; ha.uHeat.value = this.flare; ha.uT.value = this.t;
     this.halo.scale.setScalar(2.4); this.halo.quaternion.copy(ctx.camera.quaternion); this.halo.material.userData.U.uA.value = 0.5;
+  }
+
+  /** Collapse instances n..cap-1 to a zero-size matrix (they are drawn but cover nothing). */
+  hideRest(mesh, n, cap) {
+    const a = mesh.instanceMatrix.array;
+    for (let i = n; i < cap; i++) a.fill(0, i * 16, i * 16 + 16);
+    mesh.count = cap;
   }
 
   /** Lens, shadow and accretion disk: the finale's black hole, as the player's avatar (src/blackhole.js, post.js). */

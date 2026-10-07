@@ -46,8 +46,8 @@ function field(rnd, B, n, lo, hi, spec) {
 }
 /** A star of size s (units of the tier's unit): cool and small, or hot and huge; colour from a temperature drawn by size. */
 function starBody(rnd, s, redBias) {
-  const t = Math.min(1, Math.max(0, rnd() * 0.7 + (s < 1 ? -0.25 : 0.1))), cool = rnd() < redBias * (s > 30 ? 0.6 : 0.3);
-  const pal = cool ? [[0xff9a6a, 0xc8401e], [0xffb070, 0xe0742a]] : t < 0.4 ? [[0xffe8a0, 0xff9a38]] : t < 0.7 ? [[0xfff6e0, 0xffd080], [0xf2f6ff, 0xb8c8ff]] : [[0xc8dcff, 0x6a90ff]];
+  const u = rnd(), cool = u < 0.28 * redBias + (s > 30 ? 0.2 : 0);
+  const pal = cool ? [[0xff9a6a, 0xc8401e], [0xffb070, 0xe0742a]] : u < 0.55 ? [[0xffe8a0, 0xff9a38]] : u < 0.8 ? [[0xfff6e0, 0xffd080], [0xf2f6ff, 0xb8c8ff]] : [[0xb8d4ff, 0x5a80ff], [0xd0e0ff, 0x7aa0ff]];
   const c = pal[(rnd() * pal.length) | 0];
   return { k: K.star, A: c[0], B: c[1], p1: 3, p2: rnd() };
 }
@@ -102,7 +102,7 @@ export const TIERS = [
     start: [-34, 40],
     make(rnd, B) {
       // the Sun at the middle: a body 17 radii across that is nibbled, not swallowed
-      B({ k: K.star, x: 0, z: 0, b: 17.4, A: 0xfff0b8, B: 0xff9a38, p1: 3, p2: 0.3, name: 'The Sun', key: true });
+      B({ k: K.star, x: 0, z: 0, b: 17.4, A: 0xffd070, B: 0xff7a1a, p1: 3, p2: 0.3, name: 'The Sun', key: true });
       swarm(rnd, B, 120, 0.04, 0.5, 26, 66); swarm(rnd, B, 300, 0.01, 0.04, 26, 66);
       const W = [
         ['Jupiter', K.giant, 1.75, 0xe8c9a0, 0xb87c4a, 11, false], ['Saturn', K.giant, 1.45, 0xf0d9a4, 0xc9a566, 9, true], ['Uranus', K.giant, 0.63, 0x9ee6e0, 0x6fb8c4, 6, false], ['Neptune', K.giant, 0.62, 0x4f76e8, 0x2c3fa8, 6, false],
