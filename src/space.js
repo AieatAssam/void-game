@@ -247,6 +247,7 @@ export class SpaceGame {
     state.playing = true;
     document.getElementById('load')?.setAttribute('hidden', '');
     ctx.card(`TIER ${this.tier.id}`, this.tier.name.toUpperCase());
+    setTimeout(() => ctx.hint(this.tierIdx === 0 ? 'Swallow what fits · bigger things are eaten from the rim' : this.tier.blurb), 1800);
   }
 
   /** A fresh field for tier i: the hole starts at r = 1 (its radius at the start of the tier, `unit` km). */
@@ -564,6 +565,10 @@ export class SpaceGame {
         const base = PROPS[o.model] || [0, 0];
         if (o.state === 1) { _q.setFromAxisAngle(_y, yaw); _s.set(sx2, sy, sz2); } else { _e.set(base[0] + 0.25 * Math.sin(o.id), o.spin * 0.6 + base[1], 0.3 * Math.cos(o.id * 1.3)); _q.setFromEuler(_e); _s.set(s, s, s); }
         _p.set(px, 0, pz); _m.compose(_p, _q, _s); pm.setMatrixAt(cnt[o.model] = (cnt[o.model] | 0), _m); cnt[o.model]++;
+        if ((o.model === 'dyson' || o.model === 'neutron_star') && ngl < CAPG - 2) { // the light inside: a glare behind the model
+          const gi = ngl * 4, gs = s * (o.model === 'dyson' ? 2.6 : 3.4), ga = this.glow.aC.array; _p.set(px, -0.01, pz); _q.identity(); _s.set(gs, 1, gs); _m.compose(_p, _q, _s); this.glow.mesh.setMatrixAt(ngl, _m);
+          const c = o.model === 'dyson' ? [1.0, 0.82, 0.5] : [0.55, 0.75, 1.0]; ga[gi] = c[0]; ga[gi + 1] = c[1]; ga[gi + 2] = c[2]; ga[gi + 3] = (o.model === 'dyson' ? 0.9 : 1.4) * (1 + 2 * heat) / (1 + 0.004 * s * s); ngl++;
+        }
         continue;
       }
       if (o.k >= K.galaxy) { // a galaxy or a nebula: a tilted sprite, additive
