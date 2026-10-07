@@ -11,7 +11,36 @@ import {
 
 /** Lens / disk uniforms (post.js owns them): A = centre uv (y down), shadow radius (screen heights), lens strength 0..1; B = sin(elevation of the camera over the disk plane), roll, disk clock (s), disk 0..1; C = disk inner, outer (shadow radii), Doppler, temperature. */
 export function lensUniforms() {
-  return { A: uniform(new THREE.Vector4(0.5, 0.5, 0.12, 0)), B: uniform(new THREE.Vector4(0.22, 0, 0, 0)), C: uniform(new THREE.Vector4(1.55, 7.2, 0.7, 1)), T: diskNoise() };
+  return { A: uniform(new THREE.Vector4(0.5, 0.5, 0.12, 0)), B: uniform(new THREE.Vector4(0.22, 0, 0, 0)), C: uniform(new THREE.Vector4(1.55, 7.2, 0.7, 1)), T: diskNoise(),
+    P: uniform(new THREE.Vector4(0.6, 0, 0, 0)), // x: the shadow's angular radius (rad: how close the observer is), y: 1 = exact Schwarzschild deflection for the sky (else the weak-field point lens)
+    L: deflectionLUT() };
+}
+
+const LUT_N = 512, LUT_LO = 1.0002, LUT_HI = 40, LUT_LOG = Math.log(LUT_HI / LUT_LO);
+/**
+ * The exact deflection of light by a Schwarzschild black hole, as a table over the impact parameter b = rh * b_crit (rh in shadow radii, 1.0002 .. 40; log spaced):
+ * alpha(b) = 2 * int_0^u0 du / sqrt(1/b^2 - u^2 + 2 u^3) - pi, with u = 1/r in units of M, u0 the turning point. It diverges (logarithmically) at the photon ring, so rays that
+ * skim it loop round the hole: the thin bright rings of the picture. The sky is looked up through it in lensNodes (the lens equation: source = image - alpha / thetaS).
+ */
+export function deflectionLUT() {
+  const data = new Uint16Array(LUT_N), bc = 3 * Math.sqrt(3);
+  for (let i = 0; i < LUT_N; i++) {
+    const rh = LUT_LO * Math.exp(LUT_LOG * i / (LUT_N - 1)), b = rh * bc, ib2 = 1 / (b * b);
+    const f = (u) => ib2 - u * u + 2 * u * u * u;
+    let lo = 0, hi = 1 / 3; for (let k = 0; k < 60; k++) { const m = 0.5 * (lo + hi); if (f(m) > 0) lo = m; else hi = m; } // the smallest positive root: the turning point
+    const u0 = 0.5 * (lo + hi), n = 400; let sum = 0;
+    for (let k = 0; k <= n; k++) { // u = u0 (1 - t^2) removes the square-root singularity at the turning point
+      const t = k / n, u = u0 * (1 - t * t);
+      const g = t < 1e-6 ? 2 * u0 - 6 * u0 * u0 : f(u) / (u0 - u); // (limit at the turning point: -f'(u0) = 2 u0 - 6 u0^2)
+      const v = 2 * Math.sqrt(u0) / Math.sqrt(Math.max(g, 1e-12));
+      sum += v * (k === 0 || k === n ? 1 : k % 2 ? 4 : 2);
+    }
+    const phi = 2 * (sum / (3 * n)), alpha = Math.max(0, phi - Math.PI);
+    data[i] = THREE.DataUtils.toHalfFloat(Math.min(alpha, 60000));
+  }
+  const t = new THREE.DataTexture(data, LUT_N, 1, THREE.RedFormat, THREE.HalfFloatType);
+  t.minFilter = t.magFilter = THREE.LinearFilter; t.generateMipmaps = false; t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; t.needsUpdate = true;
+  return t;
 }
 
 /** A small periodic noise tile (R: three octaves, G: finer) for the disk's turbulence: one fetch instead of procedural noise per pixel. */
@@ -45,7 +74,10 @@ export function lensNodes(uv0, asp, U, tm, low = false) {
   const uv = Fn(() => {
     const r = uv0.toVar();
     If(A.w.greaterThan(0.001), () => {
-      const p = uv0.sub(A.xy).mul(sc).div(A.z), rh = max(length(p), 1e-3), beta = rh.sub(A.w.mul(E2).div(rh));
+      const p = uv0.sub(A.xy).mul(sc).div(A.z), rh = max(length(p), 1e-3), weak = rh.sub(A.w.mul(E2).div(rh));
+      // the exact path: the sky behind the hole is sampled where the lens equation says (rh - alpha / thetaS); the table is read at the impact parameter of this pixel
+      const al = texture(U.L, vec2(clamp(log(max(rh, LUT_LO)).sub(Math.log(LUT_LO)).div(LUT_LOG), 0, 1), 0.5)).level(0).x, exact = rh.sub(A.w.mul(al).div(U.P.x));
+      const beta = mix(weak, exact, U.P.y);
       r.assign(A.xy.add(p.div(rh).mul(beta).mul(A.z).div(sc)));
     });
     return r;

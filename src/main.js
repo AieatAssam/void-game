@@ -174,6 +174,9 @@ const START_REGION = /[?&]region\b/.test(location.search);
 const PHASE2 = !/[?&]nophase2\b/.test(location.search) && (!BOT || START_REGION);
 // Phase 3 (docs/PHASE3.md): the planet. ?planet starts straight in at 1.4 km (?r=metres, ?view=pole); the module set is src/planet*.js
 const START_PLANET = /[?&]planet(&|$)/.test(location.search) && !/[?&]nophase3\b/.test(location.search);
+// Phase 4 (docs/PHASE4.md): the cosmos. ?space[&tier=n] starts straight in (the finale's "Devour the sky" button too); src/space.js owns the world
+const START_SPACE = /[?&]space(&|$|=)/.test(location.search);
+let spaceGame = null;
 // The Ascension (src/ascend.js): when the capital falls, Phase 2 ends in the cinematic and the planet; bot balance runs keep the old ending unless they ask (?planet)
 const PHASE3 = !/[?&]nophase3\b/.test(location.search) && (!BOT || START_PLANET);
 let planetGame = null, planetReady = false;
@@ -931,6 +934,7 @@ async function start(seed, daily, mutator = null, mode = 'city') {
       }
     } else newRun(s, daily, card, mood, mutator, heat, mode);
   }
+  if (START_SPACE && state.phase === 1) return enterSpace();
   if (START_PLANET && state.phase === 1) return enterPlanet();
   $('screen').hidden = true;
   $('hud').hidden = false;
@@ -1130,7 +1134,9 @@ const planetCtx = () => planetCtxObj ??= ({
     return { total, parts };
   },
   /** The way back from the world: the planet goes (listeners, DOM, meshes, lens) and the page restarts at the start menu. */
-  toMenu() { planetGame?.leave(planetCtx()); planetGame = null; location.href = location.pathname; },
+  toMenu() { planetGame?.leave(planetCtx()); planetGame = null; spaceGame?.leave(planetCtx()); spaceGame = null; location.href = location.pathname; },
+  /** Phase 4: the planet (and its finale) goes, the cosmos begins (slice 1: the solar system). */
+  async enterSpace() { await enterSpace(); },
   takePerk: (id) => takePerk(id), // (the legacy perk of a New World: taken for the player at the start)
   save,
   draft() { state.draftsDue++; if (BOT || window.__headless) { openDraft(); if (state.draft) takePerk(state.draft[0]); } else setTimeout(openDraft, 1100); }, // (bots take the first offer at once, as the town's drafts do)
@@ -1148,6 +1154,21 @@ const planetCtx = () => planetCtxObj ??= ({
     scene.add(grass.group);
   },
 });
+async function enterSpace() {
+  starting = true;
+  $('menu').hidden = true; $('load').hidden = false;
+  setLoad('Opening the sky…', 0.4);
+  try {
+    if (planetGame) { planetGame.leave(planetCtx()); planetGame = null; }
+    spaceGame = new (await import('./space.js')).SpaceGame();
+    await spaceGame.begin(planetCtx());
+  } finally {
+    starting = false;
+    $('load').hidden = true;
+    $('screen').hidden = true;
+    $('hud').hidden = false;
+  }
+}
 async function enterPlanet() {
   starting = true;
   $('menu').hidden = true; $('load').hidden = false;
@@ -1750,6 +1771,7 @@ function frame(dt, wallDt = dt) {
     camera.updateProjectionMatrix();
   }
   if (state.asc) { state.asc.advance(visibleWallDt); if (!state.playing) state.time += visibleWallDt; } // the Ascension owns the clock (its own real-time beats) and the camera
+  if (state.phase === 4) { spaceGame?.frame(dt, planetCtx(), controlDt, moveDt, controlDt); return; } // Phase 4 (src/space.js)
   if (state.phase === 3) { planetGame?.frame(dt, planetCtx(), controlDt, moveDt, controlDt); return; } // (null while the world is still forming, and for the frame after toMenu) // Phase 3 has its own loop (src/planetgame.js)
 
   if (state.playing && !state.draft) {
@@ -2095,4 +2117,4 @@ function frame(dt, wallDt = dt) {
   }
 }
 
-if (START_PLANET) start(undefined, false, null, 'city'); // ?planet: straight in, no menu
+if (START_PLANET || START_SPACE) start(undefined, false, null, 'city'); // ?planet / ?space: straight in, no menu

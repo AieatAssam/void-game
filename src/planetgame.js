@@ -484,7 +484,8 @@ export class PlanetGame {
     mk('Results', '', () => this.resultsUi(ctx));
     mk('Continue', '', () => { this.fin.toggleControls(false); ctx.hint?.('Drag to look · tap SHOW CONTROLS for actions'); });
     mk('Menu', '', () => ctx.toMenu());
-    mk('New World', 'pri', () => { const u = new URL(location.href); u.search = `?planet&ng=1&seed=${Math.floor(Math.random() * 9e5) + 1000}`; location.href = u.href; });
+    mk('Devour the sky', 'pri', () => ctx.enterSpace?.()); // Phase 4 (src/space.js, docs/PHASE4.md): the black hole eats the solar system, the stars, the galaxies, the universe
+    mk('New World', '', () => { const u = new URL(location.href); u.search = `?planet&ng=1&seed=${Math.floor(Math.random() * 9e5) + 1000}`; location.href = u.href; });
   }
   /** Back to the start: the finale's meshes and state go (a sweep runs again in the same page). */
   finaleReset(ctx) {
