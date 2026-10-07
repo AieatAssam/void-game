@@ -10,6 +10,8 @@ import { steerAxis } from './phase2.js';
 import { portraitK } from './phase3.js';
 import { holeSphere, holeHalo } from './blackhole.js';
 import { Q } from './quality.js';
+import { extraMethods } from './space/extras.js';
+import { showSpaceResults } from './space/results.js';
 
 const qs = new URLSearchParams(location.search);
 const num = (k, d) => (qs.has(k) && qs.get(k) !== '' && Number.isFinite(+qs.get(k)) ? +qs.get(k) : d);
@@ -209,6 +211,7 @@ export class SpaceGame {
     this.rhalo = holeHalo(); this.rhalo.material.userData.U.uK.value = 0.55; this.rhalo.material.userData.U.uHeat.value = 0.95; this.rhalo.material.depthTest = false; this.rhalo.renderOrder = 49; this.rhalo.visible = false;
     this.root.add(this.bh, this.halo, this.rbh, this.rhalo);
     scene.add(this.root);
+    this.initExtras(ctx);
     camera.fov = ctx.baseFov; camera.near = 0.5; camera.far = 6000; camera.updateProjectionMatrix();
     post.suspendAO?.(true);
     state.phase = 4; state.playing = false; state.belly = 1; state.sealed = false; state.over = false; state.won = false; state.time = 0; state.pop = 0; state.slowmo = 1; state.shake = 0; state.hitstop = 0; state.slowT = state.slowDuration = 0; state.stun = 0; state.wound = 0;
@@ -281,7 +284,7 @@ export class SpaceGame {
     hole.sx = steerAxis(hole.sx || 0, sx, controlDt); hole.sz = steerAxis(hole.sz || 0, sz, controlDt);
     this.comboT -= dt; if (this.comboT <= 0) this.combo = 0;
     this.boostT = Math.max(0, this.boostT - dt);
-    const sp = SPEED * r * (state.mods?.speed ?? 1) * (this.boostT > 0 ? 1.6 : 1);
+    const sp = SPEED * r * (state.mods?.speed ?? 1) * (this.boostT > 0 ? 1.6 : 1) * (this.pw('surge') ? 1.7 : 1) * (this.stunT > 0 ? 0.45 : 1);
     const dx = hole.sx * sp * moveDt, dz = hole.sz * sp * moveDt;
     this.hx += dx; this.hz += dz; hole.vx = moveDt > 0 ? dx / moveDt : 0; hole.vz = moveDt > 0 ? dz / moveDt : 0; hole.x = hole.z = 0;
     this.moved = (this.moved || 0) + Math.hypot(dx, dz) / r;
@@ -294,7 +297,7 @@ export class SpaceGame {
       o.spin += o.spinV * dt;
       if (o.eph && (o.eph -= dt) <= 0) { o.state = 2; this.live--; }
     }
-    if (this.phase === 'play') { this.stormStep(dt, ctx); this.rivalStep(dt, ctx); }
+    if (this.phase === 'play') { this.stormStep(dt, ctx); this.rivalStep(dt, ctx); } this.extrasStep(dt, ctx);
     // ---- the hole against the bodies
     let eatenNow = 0;
     this.chunkT -= dt;
@@ -308,8 +311,8 @@ export class SpaceGame {
       const ex = o.x - this.hx, ez = o.z - this.hz, d = Math.hypot(ex, ez), b = o.b;
       if (d > 8 * r + b && this.phase === 'play') continue;
       if (b <= 0.85 * r) {
-        const reach = 2.6 * r + b;
-        if (d < reach && this.phase === 'play') { const k = 1 - Math.max(0, d - b) / reach, pull = 2.2 * r * k * k * dt; if (d > 1e-6) { o.x -= ex / d * pull; o.z -= ez / d * pull; o.orbit = false; o.vx = o.vz = 0; } }
+        const reach = (this.pw('magnet') ? 5.6 : 2.6) * r + b;
+        if (d < reach && this.phase === 'play') { const k = 1 - Math.max(0, d - b) / reach, pull = (this.pw('magnet') ? 3.6 : 2.2) * r * k * k * dt; if (d > 1e-6) { o.x -= ex / d * pull; o.z -= ez / d * pull; o.orbit = false; o.vx = o.vz = 0; } }
         if (d < r + 0.15 * b) this.capture(o, ex, ez, d, r);
       } else if (d < b + 0.5 * r) { // too big to swallow: eaten from the rim, a chunk at a time
         const s = clamp01((b + 0.5 * r - d) / r), dh = Math.min(o.hp, NIB * (r / b) ** 2 * s * dt);
@@ -328,7 +331,7 @@ export class SpaceGame {
     { const lr = Math.log(this.r), lt = Math.log(tgt), step = (lt - lr) * (1 - Math.exp(-dt * 2.2)); this.r = Math.exp(lr + Math.min(step, 0.45 * dt)); } // (log growth is capped: a flood of credit swells the hole over a few seconds, it does not snap)
     this.rT = tgt;
     state.pop = this.swallowed;
-    if (this.phase === 'play' && (f >= 1 || this.keyDone)) this.finishTier(ctx);
+    if (this.phase === 'play' && (f >= 0.95 || this.keyDone)) this.finishTier(ctx); // (the last crumbs are swept in: a few percent of scattered food is not a chore)
     if (this.phase === 'sweep') this.sweep(dt, ctx);
     if (eatenNow > 3) state.shake = Math.max(state.shake || 0, 0.12);
     state.shake = Math.max(0, (state.shake || 0) - dt * 0.8);
@@ -346,7 +349,7 @@ export class SpaceGame {
 
   /** Credit w (weight) toward the tier; `part`: a nibble (no gulp). */
   pay(o, w, ctx, part = false) {
-    this.eatenW += w * (o.eph || o.storm ? 1 : Math.max(0.1, Math.min(1, (o.b0 / this.r) / 0.1) ** 0.8)); // (dust is worth less the bigger the hole is: no farming specks, and no runaway)
+    this.eatenW += (this.pw('surge') ? 1.25 : 1) * w * (o.eph || o.storm ? 1 : Math.max(0.1, Math.min(1, (o.b0 / this.r) / 0.1) ** 0.8)); // (dust is worth less the bigger the hole is: no farming specks, and no runaway)
     if (part) return;
     this.swallowed++; this.tierGulps++;
     const { sfx, sparks } = ctx, big = Math.min(1, o.b / this.r);
@@ -380,7 +383,7 @@ export class SpaceGame {
       st.t -= dt;
       if (st.t <= 0) {
         this.storm = null; this.stormT = 35 + rnd() * 25;
-        if (st.eaten >= st.n * 0.55) { this.eatenW += this.total * this.tier.goal * 0.015; this.flare = 1.6; ctx.card('STORM DEVOURED', `${st.eaten} rocks · bonus`); ctx.sfx.levelUp?.(); }
+        if (st.eaten >= st.n * 0.55) { this.stats.storms++; this.eatenW += this.total * this.tier.goal * 0.015; this.flare = 1.6; ctx.card('STORM DEVOURED', `${st.eaten} rocks · bonus`); ctx.sfx.levelUp?.(); }
       }
       return;
     }
@@ -431,17 +434,18 @@ export class SpaceGame {
     }
     R.b = Math.min(Math.max(R.b, 0.5 * r), 1.35 * r); // (it keeps pace with you: never a runaway, never a speck)
     R.hit -= dt;
-    if (bigger && dp < R.b + 0.3 * r && R.hit <= 0) { // it bites: a little progress lost, a shove
-      R.hit = 4; this.eatenW = Math.max(0, this.eatenW - this.total * this.tier.goal * 0.03);
+    if (bigger && dp < R.b + 0.3 * r && R.hit <= 0 && !this.pw('shield')) { // it bites: a little progress lost, a shove
+      R.hit = 4; this.stats.bites++; this.eatenW = Math.max(0, this.eatenW - this.total * this.tier.goal * 0.03);
       const k = (3 * r) / (dp || 1); this.hx += rx * k; this.hz += rz * k; ctx.state.shake = Math.max(ctx.state.shake || 0, 0.7); ctx.hint('The rival bit you · grow bigger than it'); R.bites = (R.bites || 0) + 1; R.flee = 6; R.b *= 0.85; if (R.bites >= 2) { this.rival = null; this.rivalT = 45; ctx.card('THE RIVAL LEAVES', 'IT WILL BE BACK'); }
     }
     if (smaller && dp < r * 0.7) { // you eat it
       this.rival = null; this.rivalT = 40; this.eatenW += this.total * this.tier.goal * 0.04; this.flare = 1.8; ctx.state.shake = Math.max(ctx.state.shake || 0, 0.6);
-      ctx.card('RIVAL EATEN', 'YOU ARE THE VOID'); ctx.sfx.levelUp?.(); this.chain(ctx, { b: r }); this.swallowed++;
+      ctx.card('RIVAL EATEN', 'YOU ARE THE VOID'); ctx.sfx.levelUp?.(); this.chain(ctx, { b: r }); this.swallowed++; this.stats.rivalsEaten++;
     }
   }
 
   finishTier(ctx) {
+    this.stats.tierTimes.push(this.t); this.stats.tierGulps.push(this.tierGulps);
     this.phase = 'sweep'; this.sweepT = 0;
     const last = this.tierIdx + 1 >= TIERS.length;
     ctx.card('TIER COMPLETE', this.tier.name.toUpperCase());
@@ -472,21 +476,15 @@ export class SpaceGame {
 
   /** The end of the content that exists so far (slice 1: the solar system). */
   end(ctx) {
-    this.phase = 'end'; ctx.state.playing = false; ctx.state.won = true;
-    const el = document.createElement('div'); el.id = 'spaceend';
-    el.innerHTML = `<h1>THE UNIVERSE IS CONSUMED</h1><p>${this.swallowed.toLocaleString('en')} bodies swallowed · ${Math.floor(ctx.state.time / 60)}:${String(Math.floor(ctx.state.time % 60)).padStart(2, '0')}</p><p class="tz">There is nothing left to be hungry for. Almost.</p><div style="display:flex;gap:12px"><button id="spagain">Begin again</button><button id="spmenu">Menu</button></div>`;
-    el.style.cssText = 'position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:radial-gradient(#0000,#000b);color:#eef0ff;font-family:system-ui,sans-serif;text-align:center';
-    el.querySelector('h1').style.cssText = 'margin:0;font:300 clamp(24px,4.6vw,56px)/1.1 system-ui;letter-spacing:.3em;text-shadow:0 0 40px #8a5cff77';
-    for (const p of el.querySelectorAll('p')) p.style.cssText = 'margin:0;letter-spacing:.25em;text-transform:uppercase;font-size:14px;color:#c9cbe8';
-    for (const b of el.querySelectorAll('button')) b.style.cssText = 'min-height:44px;font:700 14px system-ui;letter-spacing:.12em;padding:11px 22px;border-radius:999px;border:1.5px solid #8a7cff99;background:#120a2acc;color:#e8dcff;cursor:pointer;text-transform:uppercase;margin-top:12px';
-    el.querySelector('#spmenu').onclick = () => ctx.toMenu();
-    el.querySelector('#spagain').onclick = () => { const u = new URL(location.href); u.search = `?space&seed=${Math.floor(Math.random() * 9e5) + 1000}`; location.href = u.href; }; // (a new universe: the big bang)
-    document.body.appendChild(el); this.endEl = el;
+    this.phase = 'end'; ctx.state.playing = false; ctx.state.won = true; this.puEl?.replaceChildren();
+    const again = () => { const u = new URL(location.href); u.search = `?space&seed=${Math.floor(Math.random() * 9e5) + 1000}`; location.href = u.href; }; // (a new universe: the big bang)
+    this.endEl = showSpaceResults(this, ctx, { onAgain: again, onMenu: () => ctx.toMenu() });
   }
 
   /** A greedy bot for pacing runs (?bot): the best body that fits per unit of distance, else the biggest nibble. */
   autoSteer() {
     const r = this.r; let best = null, bs = 0;
+    { const it = this.pu?.item; if (it) { const ex = it.x - this.hx, ez = it.z - this.hz, d = Math.hypot(ex, ez); if (d < 22 * r) return [ex / d, ez / d]; } } // (the bot grabs power-ups)
     { const R = this.rival; if (R) { const rx = this.hx - R.x, rz = this.hz - R.z, d = Math.hypot(rx, rz); if (R.b > r * 1.1 && d < 5 * r) return [rx / d, rz / d]; if (r > R.b * 1.2 && d < 25 * r) return [-rx / d, -rz / d]; } } // (flee a bigger rival, chase a smaller one)
     for (const o of this.bodies) {
       if (o.state) continue;
@@ -541,7 +539,7 @@ export class SpaceGame {
         continue;
       }
       if ((o.k === K.star || o.k === K.cluster) && s > 0.012 && ngl < CAPG - 2) { // glare, behind the disc
-        const gi = ngl * 4, gs = s * (o.k === K.star ? 4.2 : 3.0), bright = (o.k === K.star ? 1.0 : 0.7) * (1 + 2 * heat) / (1 + 0.004 * s * s);
+        const gi = ngl * 4, gs = s * (o.k === K.star ? 1.3 + 3 / (1 + s) : 3.0 / (1 + 0.1 * s)), bright = (o.k === K.star ? 1.0 : 0.7) * (1 + 2 * heat) / (1 + 0.004 * s * s);
         _p.set(px, -0.01, pz); _q.identity(); _s.set(gs, 1, gs); _m.compose(_p, _q, _s); this.glow.mesh.setMatrixAt(ngl, _m);
         const ga = this.glow.aC.array; ga[gi] = o.A[0]; ga[gi + 1] = o.A[1]; ga[gi + 2] = o.A[2]; ga[gi + 3] = bright; ngl++;
       }
@@ -563,7 +561,7 @@ export class SpaceGame {
       const at = this.bmHi.aT.array, aa = this.bmHi.aA.array, ab = this.bmHi.aB.array, i = nh * 4; at[i] = 0; at[i + 1] = c.spin; at[i + 2] = 2; at[i + 3] = 0; aa[i] = c.A[0]; aa[i + 1] = c.A[1]; aa[i + 2] = c.A[2]; aa[i + 3] = 1; ab[i] = c.B[0]; ab[i + 1] = c.B[1]; ab[i + 2] = c.B[2]; ab[i + 3] = e;
       nh++;
     }
-    hi.count = nh; lo.count = nl; this.bg.count = nb; this.bg.instanceMatrix.needsUpdate = true; this.hideRest(this.tails, nt, CAPT); this.hideRest(this.rings, nr, CAPR); // (the WebGPU backend sizes an instance buffer from the first non-zero count it sees: these draw their full capacity, the unused ones collapsed to nothing) this.gal.mesh.count = ng; this.glow.mesh.count = ngl; this.glow.mesh.instanceMatrix.needsUpdate = true; this.glow.aC.needsUpdate = true; this.gal.mesh.instanceMatrix.needsUpdate = true; this.gal.aT.needsUpdate = this.gal.aC.needsUpdate = true;
+    hi.count = nh; lo.count = nl; this.bg.count = nb; this.bg.instanceMatrix.needsUpdate = true; this.hideRest(this.tails, nt, CAPT); this.hideRest(this.rings, nr, CAPR); this.gal.mesh.count = ng; ngl = this.extrasDraw(ctx, ir, ngl); this.glow.mesh.count = ngl; this.glow.mesh.instanceMatrix.needsUpdate = true; this.glow.aC.needsUpdate = true; this.gal.mesh.instanceMatrix.needsUpdate = true; this.gal.aT.needsUpdate = this.gal.aC.needsUpdate = true;  // (tails and rings draw their full capacity, the spare instances collapsed: the WebGPU backend sizes an instance buffer from the first non-zero count it sees)
     for (const o of [hi, lo, this.tails, this.rings]) o.instanceMatrix.needsUpdate = true;
     for (const bm of [this.bmHi, this.bmLo, this.bmBg]) bm.aT.needsUpdate = bm.aA.needsUpdate = bm.aB.needsUpdate = true;
     // dust: stream past the hole
@@ -618,6 +616,7 @@ export class SpaceGame {
     el('eaten').hidden = false; el('eaten').innerHTML = `<b>${this.swallowed.toLocaleString('en')}</b> swallowed`;
     const key = this.field.key;
     el('left').hidden = false; el('left').innerHTML = key && !key.state ? `${key.name} <b>${Math.round(key.hp * 100)}%</b> left · tier <b>${Math.round(f * 100)}%</b>` : `Tier <b>${Math.round(f * 100)}%</b> devoured`;
+    this.extrasHud();
     el('hunger').style.width = `${f * 100}%`; el('hunger').parentElement.classList.remove('low');
     // the arrow: the nearest worthwhile body
     let b = null, bs = 0;
@@ -629,13 +628,13 @@ export class SpaceGame {
     const self = this;
     window.__space = {
       get r() { return self.r; }, get tier() { return self.tier.id; }, get progress() { return self.progress(); }, bodies: () => self.bodies, game: self,
-      tierTo: (n) => self.enterTier(n - 1), setProgress: (p) => { self.eatenW = p * self.total * self.tier.goal; }, tp: (x, z) => { self.hx = x; self.hz = z; },
+      tierTo: (n) => { self.devUsed = true; self.enterTier(n - 1); }, power: (k) => { self.devUsed = true; self.takePower(k, self.ctx); }, flareNow: () => { self.flareT = 0; }, rivalNow: () => { self.devUsed = true; self.rivalT = 0; self.eatenW = Math.max(self.eatenW, self.total * self.tier.goal * 0.31); }, results: () => { self.devUsed = true; self.end(self.ctx); }, setProgress: (p) => { self.devUsed = true; self.eatenW = p * self.total * self.tier.goal; }, tp: (x, z) => { self.devUsed = true; self.hx = x; self.hz = z; },
       stats: () => ({ t: self.ctx.state.time, tier: self.tier.id, r: self.r, p: self.progress(), swallowed: self.swallowed, live: self.live, chunks: self.chunks.length, hi: self.hi.count, lo: self.lo.count }),
     };
   }
 
   leave(ctx) {
-    this.endEl?.remove();
+    this.endEl?.remove(); this.disposeExtras();
     const { scene, camera, look, post } = ctx, s = this.saved;
     scene.remove(this.root);
     for (const o of this.root.children) { o.geometry?.dispose(); o.material?.dispose(); }
@@ -645,3 +644,5 @@ export class SpaceGame {
     this.root = null;
   }
 }
+
+Object.assign(SpaceGame.prototype, extraMethods); // (hazards, power-ups: src/space/extras.js)

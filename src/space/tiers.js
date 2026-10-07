@@ -75,7 +75,7 @@ export const TIERS = [
     },
   },
   {
-    id: 2, name: 'Worlds', unit: 10000, growth: 4, goal: 0.4, field: 80, sun: [0, 0], hazards: [],
+    id: 2, name: 'Worlds', unit: 10000, growth: 4, goal: 0.4, field: 80, sun: [0, 0], hazards: ['flare'],
     blurb: 'Moons, the inner worlds, the ice giants', sky: { a: [0.04, 0.08, 0.15], b: [0.1, 0.09, 0.22], k: 0.8 },
     start: [-40, 14],
     make(rnd, B) {
@@ -97,7 +97,7 @@ export const TIERS = [
     },
   },
   {
-    id: 3, name: 'Giants', unit: 40000, growth: 8, goal: 0.6, field: 90, sun: 'key', hazards: [],
+    id: 3, name: 'Giants', unit: 40000, growth: 8, goal: 0.6, field: 90, sun: 'key', hazards: ['flare', 'tidal'],
     blurb: 'Saturn, Jupiter and the Sun', sky: { a: [0.07, 0.06, 0.13], b: [0.2, 0.1, 0.12], k: 0.9 },
     start: [-34, 40],
     make(rnd, B) {
@@ -123,21 +123,21 @@ export const TIERS = [
 
   // ---- beyond the solar system: the field is laid out per size class (a body of size s lives in a disc of radius ~ 40 s), so there is always a neighbour of about the hole's size
   {
-    id: 4, wexp: 0.3, name: 'Stars', unit: 320000, growth: 40, goal: 0.55, field: 0, sun: null, hazards: [], blurb: 'Dwarfs, giants, the neighbours', sky: { a: [0.04, 0.05, 0.14], b: [0.2, 0.08, 0.16], k: 1.0 }, start: [0, 0],
+    id: 4, wexp: 0.3, name: 'Stars', unit: 320000, growth: 40, goal: 0.55, field: 0, sun: null, hazards: ['flare', 'tidal'], blurb: 'Dwarfs, giants, the neighbours', sky: { a: [0.04, 0.05, 0.14], b: [0.2, 0.08, 0.16], k: 1.0 }, start: [0, 0],
     make(rnd, B) {
       field(rnd, B, 190, 0.12, 60, (s) => starBody(rnd, s, 0.9));
       for (let i = 0; i < 120; i++) { const s = logU(rnd, 0.03, 0.12), [x, z] = spot(rnd, 14); const c = ROCK[(rnd() * ROCK.length) | 0]; B({ k: K.rock, x, z, b: s, A: c[0], B: c[1], p1: 1 + rnd() * 3, p2: rnd(), vx: (rnd() - 0.5) * 0.3, vz: (rnd() - 0.5) * 0.3 }); } // rogue planets and dust
     },
   },
   {
-    id: 5, wexp: 0.25, name: 'Systems', unit: 12800000, growth: 60, goal: 0.55, field: 0, sun: null, hazards: [], blurb: 'Whole planetary systems, one gulp each', sky: { a: [0.05, 0.04, 0.16], b: [0.12, 0.14, 0.26], k: 1.1 }, start: [0, 0],
+    id: 5, wexp: 0.25, name: 'Systems', unit: 12800000, growth: 60, goal: 0.55, field: 0, sun: null, hazards: ['flare', 'tidal'], blurb: 'Whole planetary systems, one gulp each', sky: { a: [0.05, 0.04, 0.16], b: [0.12, 0.14, 0.26], k: 1.1 }, start: [0, 0],
     make(rnd, B) {
       field(rnd, B, 170, 0.15, 80, (s) => ({ ...starBody(rnd, s, 0.7), ring: rnd() < 0.55, ringS: 2.2 + rnd() * 2 })); // a star and its disc: a system
       field(rnd, B, 40, 0.25, 40, (s) => ({ k: K.cluster, A: 0xb8d0ff, B: 0x6a8cff, p1: 2, p2: rnd(), name: '' })); // knots of young stars
     },
   },
   {
-    id: 6, wexp: 0.1, name: 'Clusters', unit: 768000000, growth: 300, goal: 0.55, field: 0, sun: null, hazards: [], blurb: 'Star clusters and the nebulae that made them', sky: { a: [0.06, 0.04, 0.12], b: [0.22, 0.1, 0.2], k: 1.3 }, start: [0, 0],
+    id: 6, wexp: 0.1, name: 'Clusters', unit: 768000000, growth: 300, goal: 0.55, field: 0, sun: null, hazards: ['flare', 'tidal'], blurb: 'Star clusters and the nebulae that made them', sky: { a: [0.06, 0.04, 0.12], b: [0.22, 0.1, 0.2], k: 1.3 }, start: [0, 0],
     make(rnd, B) {
       field(rnd, B, 110, 0.2, 400, (s) => ({ k: K.cluster, A: pick(rnd, [0xffe2b0, 0xb8d0ff, 0xffc8a0]), B: 0xff8a50, p1: 2 + rnd() * 2, p2: rnd() }));
       field(rnd, B, 90, 0.4, 600, (s) => ({ k: K.cloud, tile: 3, tint: pick(rnd, [0xff6a9a, 0x6aa8ff, 0x7affc8, 0xffb060]), tilt: rnd() * 0.5, p1: rnd(), A: 0xff7ab0, B: 0x6aa8ff }));
@@ -145,7 +145,7 @@ export const TIERS = [
     },
   },
   {
-    id: 7, wexp: 0, name: 'The Arm', unit: 230400000000, growth: 4000, goal: 0.55, field: 0, sun: null, hazards: [], blurb: 'Clouds, clusters and a spiral arm', sky: { a: [0.06, 0.05, 0.14], b: [0.18, 0.12, 0.28], k: 1.5 }, start: [0, 0],
+    id: 7, wexp: 0, name: 'The Arm', unit: 230400000000, growth: 4000, goal: 0.55, field: 0, sun: null, hazards: ['flare', 'tidal'], blurb: 'Clouds, clusters and a spiral arm', sky: { a: [0.06, 0.05, 0.14], b: [0.18, 0.12, 0.28], k: 1.5 }, start: [0, 0],
     make(rnd, B) {
       field(rnd, B, 130, 0.12, 2400, (s) => ({ k: K.cluster, A: pick(rnd, [0xffe2b0, 0xb8d0ff, 0xffd8a0]), B: 0xff9a60, p1: 2 + rnd() * 2, p2: rnd() }));
       field(rnd, B, 110, 0.3, 3000, (s) => ({ k: K.cloud, tile: 3, tint: pick(rnd, [0xff6a9a, 0x6aa8ff, 0x7affc8, 0xffb060, 0xb88aff]), tilt: rnd() * 0.5, p1: rnd(), A: 0xff7ab0, B: 0x6aa8ff }));
@@ -153,7 +153,7 @@ export const TIERS = [
     },
   },
   {
-    id: 8, wexp: 0, name: 'The Galaxy', unit: 921600000000000, growth: 1500, goal: 0.6, field: 0, sun: null, hazards: [], blurb: 'The Milky Way, in one piece', sky: { a: [0.04, 0.04, 0.12], b: [0.12, 0.1, 0.24], k: 1.2 }, start: [0, 0],
+    id: 8, wexp: 0, name: 'The Galaxy', unit: 921600000000000, growth: 1500, goal: 0.6, field: 0, sun: null, hazards: ['flare', 'tidal'], blurb: 'The Milky Way, in one piece', sky: { a: [0.04, 0.04, 0.12], b: [0.12, 0.1, 0.24], k: 1.2 }, start: [0, 0],
     make(rnd, B) {
       B({ k: K.galaxy, tile: 0, tint: 0xffffff, x: 900, z: -700, b: 520, name: 'The Milky Way', key: true, tilt: 0.5, A: 0xffffff, B: 0xffffff });
       field(rnd, B, 150, 0.1, 2200, (s) => ({ k: K.cluster, A: pick(rnd, [0xffe2b0, 0xb8d0ff]), B: 0xff9a60, p1: 2 + rnd() * 2, p2: rnd() })); // globular clusters, the halo
@@ -161,19 +161,19 @@ export const TIERS = [
     },
   },
   {
-    id: 9, wexp: 0, name: 'Local Group', unit: 1382400000000000000, growth: 300, goal: 0.55, field: 0, sun: null, hazards: [], blurb: 'Galaxies, a hundred thousand light-years each', sky: { a: [0.03, 0.04, 0.1], b: [0.1, 0.08, 0.2], k: 0.8 }, start: [0, 0],
+    id: 9, wexp: 0, name: 'Local Group', unit: 1382400000000000000, growth: 300, goal: 0.55, field: 0, sun: null, hazards: ['flare', 'tidal'], blurb: 'Galaxies, a hundred thousand light-years each', sky: { a: [0.03, 0.04, 0.1], b: [0.1, 0.08, 0.2], k: 0.8 }, start: [0, 0],
     make(rnd, B) {
       field(rnd, B, 200, 0.04, 90, (s) => ({ k: K.galaxy, tile: (rnd() * 4) | 0, tint: pick(rnd, [0xffe8d0, 0xd0e0ff, 0xffffff, 0xffd0c0]), tilt: rnd() * 1.2, A: 0xffffff, B: 0xffffff }));
     },
   },
   {
-    id: 10, wexp: 0, name: 'Superclusters', unit: 414720000000000000000, growth: 100, goal: 0.55, field: 0, sun: null, hazards: [], blurb: 'Clusters of galaxies, walls of clusters', sky: { a: [0.03, 0.03, 0.09], b: [0.1, 0.06, 0.18], k: 0.6 }, start: [0, 0],
+    id: 10, wexp: 0, name: 'Superclusters', unit: 414720000000000000000, growth: 100, goal: 0.55, field: 0, sun: null, hazards: ['flare', 'tidal'], blurb: 'Clusters of galaxies, walls of clusters', sky: { a: [0.03, 0.03, 0.09], b: [0.1, 0.06, 0.18], k: 0.6 }, start: [0, 0],
     make(rnd, B) {
       field(rnd, B, 190, 0.05, 80, (s) => ({ k: K.galaxy, tile: (rnd() * 4) | 0, tint: pick(rnd, [0xffe8d0, 0xd0e0ff, 0xffffff, 0xffb8a0, 0xb8c8ff]), tilt: rnd() * 1.2, A: 0xffffff, B: 0xffffff }));
     },
   },
   {
-    id: 11, wexp: 0, name: 'The Universe', unit: 41472000000000000000000, growth: 10, goal: 0.6, field: 0, sun: null, hazards: [], blurb: 'The cosmic web. The last meal.', sky: { a: [0.02, 0.02, 0.06], b: [0.08, 0.04, 0.14], k: 0.5 }, start: [0, 0],
+    id: 11, wexp: 0, name: 'The Universe', unit: 41472000000000000000000, growth: 10, goal: 0.6, field: 0, sun: null, hazards: ['flare', 'tidal'], blurb: 'The cosmic web. The last meal.', sky: { a: [0.02, 0.02, 0.06], b: [0.08, 0.04, 0.14], k: 0.5 }, start: [0, 0],
     make(rnd, B) {
       field(rnd, B, 170, 0.05, 15, (s) => ({ k: K.galaxy, tile: (rnd() * 4) | 0, tint: pick(rnd, [0xffe8d0, 0xd0e0ff, 0xffffff, 0xb8a0ff]), tilt: rnd() * 1.2, A: 0xffffff, B: 0xffffff }));
     },

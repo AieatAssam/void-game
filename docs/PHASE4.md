@@ -53,4 +53,8 @@ Files: `src/space.js` (loop, eat rules, camera, lens, HUD), `src/space/tiers.js`
 
 **Budget** (dev Mac, 7× pixel ratio = 32 MP): 59 fps WebGPU and 60 fps `?webgl&q=low`, 17–32 draws, 18–27k triangles in tier 9. Bot pacing (`?space&bot&simx=14`): about 3–4 minutes a tier, about 35 minutes for the whole ladder.
 
-**Not done yet:** adversity (the `hazards` hook is empty), power-ups, results screen / stars for Phase 4, sound beyond the shared gulp, touch-specific HUD, per-tier hand-art for tiers 4–11.
+**Adversity and power-ups** (`src/space/extras.js`). *Flares* (tier 2+, every 24–38 s): a 1.6 s telegraph, then a ring expanding from a nearby body; touching it shoves you 3 r clear, dazes steering for 1.3 s and costs 1.5% of the tier. *Tidal pull* (tier 3+): a body 2.5× your size leans on you at up to 0.3 r/s (you move at 0.95). The *rival hole* bites at most twice, then leaves. Power-ups (one at a time, every 26–42 s, 20 s to grab): Magnet (reach ×2.2), Surge (speed ×1.7, credit ×1.25), Shield (flares and the rival cannot touch you), Nova (a shockwave drags everything within 7 r in). Nothing can end the run.
+
+**Results** (`src/space/results.js`): time, swallowed, best chain, rivals, flares, power-ups, time per tier, six stars (under 30 min, 60-chain, six rivals, never bitten, 20 flares dodged with at most 3 hits, 25 power-ups), void dust (250 + 20 per tier + extras + 40 per star), best time. Bots, `?tier`, `?simx` and debug hooks bank nothing. A full greedy-bot run takes about 32 minutes.
+
+**Not done yet:** dedicated sound, a touch-specific HUD, per-tier hand-art for tiers 4–11, a human playtest of the numbers.
