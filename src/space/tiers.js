@@ -2,7 +2,7 @@
 // Positions are doubles in tier units; src/space.js draws them relative to the hole in units of the hole's radius, so nothing here ever meets a float32.
 // A body: { k kind, x z, b radius, w weight, a ang om orbit (round cx, cz), vx vz drift, A B colours, p1 p2 shader params, name, key, ring, state }.
 
-export const K = { rock: 0, world: 1, giant: 2, star: 3, comet: 4, cluster: 5, galaxy: 6, cloud: 7 };
+export const K = { rock: 0, world: 1, giant: 2, star: 3, comet: 4, cluster: 5, galaxy: 6, cloud: 7, prop: 8 };
 
 /** Seeded generator (mulberry32). */
 export const rng = (a) => () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
@@ -44,6 +44,13 @@ function field(rnd, B, n, lo, hi, spec) {
     B({ ...o, b: s, x, z, vx: v, vz: v2 });
   }
 }
+/** n hero props (a Blender model, art/space/build_props.py), sizes log-uniform in [lo, hi], placed like field() does. */
+function props(rnd, B, model, name, n, lo, hi) {
+  for (let i = 0; i < n; i++) {
+    const s = lo * Math.pow(hi / lo, rnd()), [x, z] = spot(rnd, Math.max(18, 28 * s));
+    B({ k: K.prop, model, name, b: s, x, z, vx: 0.05 * s * (rnd() - 0.5) * 2, vz: 0.05 * s * (rnd() - 0.5) * 2, A: 0xffffff, B: 0xffffff });
+  }
+}
 /** A star of size s (units of the tier's unit): cool and small, or hot and huge; colour from a temperature drawn by size. */
 function starBody(rnd, s, redBias) {
   const u = rnd(), cool = u < 0.28 * redBias + (s > 30 ? 0.2 : 0);
@@ -58,7 +65,9 @@ export const TIERS = [
     blurb: 'The outer dark: dwarf worlds, comets, rubble', sky: { a: [0.05, 0.07, 0.16], b: [0.14, 0.06, 0.2], k: 0.7 },
     start: [46, 0],
     make(rnd, B) {
-      swarm(rnd, B, 120, 0.05, 0.6, 30, 52); swarm(rnd, B, 420, 0.012, 0.05, 30, 52); // the belt: a torus of rocks round the sun, a fat tail of tiny ones
+      swarm(rnd, B, 120, 0.05, 0.6, 30, 52); swarm(rnd, B, 420, 0.012, 0.05, 30, 52);
+      // what was left of Earth's orbit
+      props(rnd, B, 'sat_comm', 'a satellite', 12, 0.18, 0.55); props(rnd, B, 'station', 'the station', 3, 0.5, 0.95); props(rnd, B, 'capsule', 'a capsule', 7, 0.14, 0.4); props(rnd, B, 'rocket_stage', 'a rocket stage', 9, 0.16, 0.5); // the belt: a torus of rocks round the sun, a fat tail of tiny ones
       // dwarf worlds and moonlets (the ladder up to Mars-size)
       const names = ['Ceres', 'Vesta', 'Pluto', 'Eris', 'Haumea', 'Makemake', 'Triton', 'Titan', 'Ganymede', 'Callisto', 'Io', 'Europa', 'Mercury', 'Mars'];
       const sizes = [0.19, 0.1, 0.47, 0.46, 0.3, 0.28, 0.54, 1.03, 1.05, 0.96, 0.73, 0.62, 0.98, 1.36];
@@ -80,6 +89,7 @@ export const TIERS = [
     start: [-40, 14],
     make(rnd, B) {
       swarm(rnd, B, 120, 0.04, 0.3, 24, 58); swarm(rnd, B, 300, 0.012, 0.04, 24, 58);
+      props(rnd, B, 'monolith', 'The Monolith', 1, 0.45, 0.45); props(rnd, B, 'sat_comm', 'a satellite', 5, 0.08, 0.25);
       const W = [
         ['Mercury', K.rock, 0.24, 0x9d9588, 0x655d54], ['Mars', K.world, 0.34, 0xc4673a, 0x7d3a22], ['Venus', K.world, 0.6, 0xe6c88a, 0xb8884a], ['Luna II', K.rock, 0.17, 0xb4b0aa, 0x7b7771],
         ['Ganymede', K.rock, 0.26, 0x9c8f7d, 0x5e564e], ['Titan', K.world, 0.26, 0xd9a55a, 0x8f5f26], ['Callisto', K.rock, 0.24, 0x6f6a73, 0x45414a], ['Io', K.rock, 0.18, 0xe4cc5a, 0xb4682a],
@@ -133,6 +143,7 @@ export const TIERS = [
     id: 5, wexp: 0.25, name: 'Systems', unit: 12800000, growth: 60, goal: 0.55, field: 0, sun: null, hazards: ['flare', 'tidal'], blurb: 'Whole planetary systems, one gulp each', sky: { a: [0.05, 0.04, 0.16], b: [0.12, 0.14, 0.26], k: 1.1 }, start: [0, 0],
     make(rnd, B) {
       field(rnd, B, 170, 0.15, 80, (s) => ({ ...starBody(rnd, s, 0.7), ring: rnd() < 0.55, ringS: 2.2 + rnd() * 2 })); // a star and its disc: a system
+      props(rnd, B, 'ringworld', 'a ringworld', 7, 0.8, 18);
       field(rnd, B, 40, 0.25, 40, (s) => ({ k: K.cluster, A: 0xb8d0ff, B: 0x6a8cff, p1: 2, p2: rnd(), name: '' })); // knots of young stars
     },
   },
@@ -142,6 +153,7 @@ export const TIERS = [
       field(rnd, B, 110, 0.2, 400, (s) => ({ k: K.cluster, A: pick(rnd, [0xffe2b0, 0xb8d0ff, 0xffc8a0]), B: 0xff8a50, p1: 2 + rnd() * 2, p2: rnd() }));
       field(rnd, B, 90, 0.4, 600, (s) => ({ k: K.cloud, tile: 3, tint: pick(rnd, [0xff6a9a, 0x6aa8ff, 0x7affc8, 0xffb060]), tilt: rnd() * 0.5, p1: rnd(), A: 0xff7ab0, B: 0x6aa8ff }));
       field(rnd, B, 60, 0.1, 40, (s) => starBody(rnd, s, 0.8));
+      props(rnd, B, 'neutron_star', 'a neutron star', 14, 0.3, 60);
     },
   },
   {
@@ -150,6 +162,7 @@ export const TIERS = [
       field(rnd, B, 130, 0.12, 2400, (s) => ({ k: K.cluster, A: pick(rnd, [0xffe2b0, 0xb8d0ff, 0xffd8a0]), B: 0xff9a60, p1: 2 + rnd() * 2, p2: rnd() }));
       field(rnd, B, 110, 0.3, 3000, (s) => ({ k: K.cloud, tile: 3, tint: pick(rnd, [0xff6a9a, 0x6aa8ff, 0x7affc8, 0xffb060, 0xb88aff]), tilt: rnd() * 0.5, p1: rnd(), A: 0xff7ab0, B: 0x6aa8ff }));
       field(rnd, B, 40, 0.08, 40, (s) => starBody(rnd, s, 0.8));
+      props(rnd, B, 'dyson', 'a Dyson shell', 12, 0.4, 600); props(rnd, B, 'neutron_star', 'a neutron star', 8, 0.3, 200);
     },
   },
   {
@@ -187,7 +200,7 @@ export function buildTier(tier, seed) {
   tier.make(rnd, (s) => {
     const o = {
       id: id++, k: s.k, b: s.b, b0: s.b, hp: 1, A: hex(s.tint ?? s.A), B: hex(s.B ?? s.A), p1: s.p1 || 1, p2: s.p2 || 0, name: s.name || '', key: !!s.key, ring: !!s.ring, tail: s.tail || 0,
-      a: s.a || 0, ang: s.ang || 0, om: s.om || 0, x: s.x || 0, z: s.z || 0, vx: s.vx || 0, vz: s.vz || 0, state: 0, t: 0, orbit: s.a != null, tile: s.tile || 0, tilt: s.tilt || 0, ringS: s.ringS || 2.25,
+      a: s.a || 0, ang: s.ang || 0, om: s.om || 0, x: s.x || 0, z: s.z || 0, vx: s.vx || 0, vz: s.vz || 0, state: 0, t: 0, orbit: s.a != null, tile: s.tile || 0, model: s.model || '', tilt: s.tilt || 0, ringS: s.ringS || 2.25,
       w: weight(s.b, s.k, tier.wexp ?? 0.65), sx: 0, sz: 0, spin: rnd() * TAU, spinV: (rnd() - 0.5) * 0.6,
     };
     if (o.orbit) { o.x = Math.cos(o.ang) * o.a; o.z = Math.sin(o.ang) * o.a; }

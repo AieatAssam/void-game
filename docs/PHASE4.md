@@ -57,4 +57,10 @@ Files: `src/space.js` (loop, eat rules, camera, lens, HUD), `src/space/tiers.js`
 
 **Results** (`src/space/results.js`): time, swallowed, best chain, rivals, flares, power-ups, time per tier, six stars (under 30 min, 60-chain, six rivals, never bitten, 20 flares dodged with at most 3 hits, 25 power-ups), void dust (250 + 20 per tier + extras + 40 per star), best time. Bots, `?tier`, `?simx` and debug hooks bank nothing. A full greedy-bot run takes about 32 minutes.
 
-**Not done yet:** dedicated sound, a touch-specific HUD, per-tier hand-art for tiers 4–11, a human playtest of the numbers.
+**Sound** (`sfx.space`, `sfx.wake`): a bed (sub drone whose root climbs a step per tier, an open fifth with a slow tremolo, a band of solar wind that follows your speed), the existing grind for nibbling huge bodies, pentatonic chain notes, per-power-up cues, flare warning/hit, meteor storm, ion rush, a tier-up chord, rival growl/bite/eaten, a victory chord. ?space starts without a click, so the first touch or key wakes the audio.
+
+**Touch HUD** (`src/space/touch.js`): the steering is still main.js's drag joystick; this draws the stick under the finger, compacts the HUD and the cards on small/coarse screens (safe-area insets, chips under the HUD wherever it wraps), tells a first-time touch player how to steer, and adds haptics (flare hit, rival bite, power-up, tier-up).
+
+**Blender props** (`art/space/build_props.py` → `public/models/space/*.glb`, vertex colours with alpha = emissive): Earth's leftovers in tier 1 (comm satellites, the station, capsules, rocket stages), **The Monolith** in tier 2 (eat it for a bonus), ringworlds in tier 5, neutron stars with jets in tiers 6–7, Dyson shells in tier 7. Each model is one small instanced mesh, drawn only in tiers that use it; capacity is fixed and spares collapse (the WebGPU buffer quirk).
+
+**Not done yet:** per-tier hand-art for the remaining stars/clusters, a human playtest of the numbers.

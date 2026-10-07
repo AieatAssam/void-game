@@ -38,6 +38,7 @@ island-scale second phase are this project's own spin on it.
 | ![Finale: the black hole, lensed disk and photon ring](docs/screens/phase3-finale-blackhole.jpg) | |
 | ![Phase 4: the black hole in the outer dark, a comet's tail bent round it by exact Schwarzschild lensing](docs/screens/phase4-rubble.jpg) | ![Phase 4: tier 9, galaxies in the Local Group](docs/screens/phase4-galaxies.jpg) |
 | ![Phase 4: tier 5, whole star systems with their discs, and a rival hole announcing itself](docs/screens/phase4-systems.jpg) | |
+| ![Phase 4: what was left of Earth's orbit: satellites, a station, a capsule, a rocket stage (Blender-built props)](docs/screens/phase4-debris.jpg) | ![Phase 4: a ringworld, a Blender-built megastructure](docs/screens/phase4-ringworld.jpg) |
 
 ## The game
 - **Grow:** everything has a size. Swallow what fits; each bite widens the hole by a share of the object's footprint —

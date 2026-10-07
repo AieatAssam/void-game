@@ -3,13 +3,14 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, vec2, vec3, vec4, float, uniform, instancedBufferAttribute, varying, normalize, dot, cross, length, max, min, mix, smoothstep, clamp, pow, sin, abs, floor, fract, positionLocal, positionGeometry, positionView,
-  normalView, mx_noise_float, mx_fractal_noise_float, mx_cell_noise_vec3, select, uv, dFdx, dFdy, atan, exp, cubeTexture, mat3, texture,
+  normalView, vertexColor, mx_noise_float, mx_fractal_noise_float, mx_cell_noise_vec3, select, uv, dFdx, dFdy, atan, exp, cubeTexture, mat3, texture,
 } from 'three/tsl';
 import { TIERS, K, buildTier, looseRock, rng } from './space/tiers.js';
 import { steerAxis } from './phase2.js';
 import { portraitK } from './phase3.js';
 import { holeSphere, holeHalo } from './blackhole.js';
 import { Q } from './quality.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { extraMethods } from './space/extras.js';
 import { showSpaceResults } from './space/results.js';
 import { installTouch } from './space/touch.js';
@@ -119,6 +120,26 @@ function glowMaterial() {
   return { mesh, aC };
 }
 
+/** The Blender-built hero props (art/space/build_props.py): vertex-coloured low-poly GLBs, lit by the sun, a vertex alpha for what glows. Each model is one small instanced mesh. */
+const PROPS = { sat_comm: [0.2, -0.3], station: [0.1, -0.2], capsule: [0.3, 0.2], rocket_stage: [0.2, 0.3], monolith: [0.5, 0.1], ringworld: [-Math.PI / 2 + 0.6, 0], neutron_star: [0.8, 0], dyson: [0.3, 0] }; // (a base tilt per model: rings face the camera, craft lie in the plane)
+const PROP_CAP = { sat_comm: 14, station: 4, capsule: 8, rocket_stage: 10, monolith: 2, ringworld: 8, neutron_star: 16, dyson: 10 };
+async function loadProps(U) {
+  const loader = new GLTFLoader(), m = new THREE.MeshBasicNodeMaterial({ fog: false });
+  m.colorNode = Fn(() => {
+    const vc = vertexColor(), n = normalize(normalView), ndl = dot(n, U.sun), wrap = smoothstep(-0.2, 0.9, ndl), lit = float(U.amb).add(0.16).add(wrap.mul(1.1));
+    return vec4(mix(vc.rgb.mul(lit), vc.rgb.mul(2.4), vc.a), 1);
+  })();
+  const out = {};
+  await Promise.all(Object.keys(PROPS).map(async (name) => {
+    try {
+      const g = await loader.loadAsync(`${import.meta.env.BASE_URL}models/space/${name}.glb`); let geo = null;
+      g.scene.traverse((o) => { if (o.isMesh && !geo) geo = o.geometry; });
+      const mesh = new THREE.InstancedMesh(geo, m, PROP_CAP[name] || 40); mesh.frustumCulled = false; mesh.count = 0; out[name] = mesh;
+    } catch (e) { console.warn('space prop', name, e); }
+  }));
+  return out;
+}
+
 /** Planetary rings: a flat annulus per ringed planet, banded and see-through. */
 function ringMaterial(U) {
   const m = new THREE.MeshBasicNodeMaterial({ fog: false, transparent: true, depthWrite: false, side: THREE.DoubleSide });
@@ -202,6 +223,7 @@ export class SpaceGame {
     for (const o of [this.hi, this.lo, this.bg]) { o.frustumCulled = false; o.count = 0; o.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.root.add(o); }
     const galAtlas = await new THREE.TextureLoader().loadAsync(`${import.meta.env.BASE_URL}textures/space/galaxies.png`); galAtlas.colorSpace = THREE.NoColorSpace; galAtlas.anisotropy = 4; galAtlas.wrapS = galAtlas.wrapT = THREE.ClampToEdgeWrapping;
     this.gal = galaxyMaterial(galAtlas); this.root.add(this.gal.mesh);
+    this.props = await loadProps(this.U); for (const m of Object.values(this.props)) this.root.add(m);
     this.glow = glowMaterial(); this.root.add(this.glow.mesh);
     this.tails = tailMaterial(); this.rings = ringMaterial(this.U); this.root.add(this.tails, this.rings);
     this.dust = dustField(Q.tier === 'low' ? 220 : 420); this.root.add(this.dust);
@@ -237,6 +259,7 @@ export class SpaceGame {
     this.sunAt = tier.sun === 'key' ? this.field.key : tier.sun;
     this.phase = 'play'; this.sweepT = 0; this.tierGulps = 0; this.combo = 0; this.comboT = 0; this.boostT = 0; this.storm = null; this.stormT = 22 + this.t * 0; this.rnd = rng(seed * 31 + tier.id); this.rival = null; this.rivalT = 18; this.rivalHit = 0;
     this.ctx.state.tier = tier.id;
+    this.propUse = new Set(this.bodies.filter((b) => b.k === K.prop).map((b) => b.model)); // (a model this tier never uses is not drawn at all)
   }
 
   placeCamera(dt) {
@@ -365,6 +388,7 @@ export class SpaceGame {
     if (big > 0.06) sparks.burst(0, 0, 1, 0.3 + big);
     this.flare = Math.max(this.flare || 0, 0.35 + big);
     if (o.name && o.b >= 0.4 * this.r) ctx.news.say?.(`${o.name} is gone.`);
+    if (o.model === 'monolith') { this.eatenW += this.total * this.tier.goal * 0.03; ctx.card('THE MONOLITH', 'IT WAS ALWAYS GOING TO BE EATEN'); ctx.sfx.space.victory?.(); }
     if (o.b > 0.4 * this.r) ctx.state.shake = Math.max(ctx.state.shake || 0, 0.25 + 0.3 * big);
   }
 
@@ -504,7 +528,7 @@ export class SpaceGame {
   // ------------------------------------------------------------------------------------------------ drawing
   draw(ctx, dt) {
     const r = this.r, hi = this.hi, lo = this.lo, ir = 1 / r;
-    let nh = 0, nl = 0, nt = 0, nr = 0, ng = 0, ngl = 0, nb = 0;
+    let nh = 0, nl = 0, nt = 0, nr = 0, ng = 0, ngl = 0, nb = 0; const cnt = {};
     const sun = this.sunAt; let sx = 0, sz = 0;
     if (Array.isArray(sun)) { sx = sun[0]; sz = sun[1]; } else if (sun) { sx = sun.x; sz = sun.z; }
     // the light: from the sun's side, in view space
@@ -531,10 +555,17 @@ export class SpaceGame {
         s = sx2;
       } else {
         px = (o.x - this.hx) * ir; pz = (o.z - this.hz) * ir;
-        _sp.center.set(px, 0, pz); _sp.radius = s * (o.ring ? 2.4 : 1.6) + (o.k === K.comet ? o.tail * 1.5 : 0); if (!_fr.intersectsSphere(_sp)) continue;
+        _sp.center.set(px, 0, pz); _sp.radius = s * (o.ring ? 2.4 : o.k === K.prop ? 3.6 : 1.6) + (o.k === K.comet ? o.tail * 1.5 : 0); if (!_fr.intersectsSphere(_sp)) continue;
         sy = sz2 = s;
       }
       if (s < 0.008 && o.state === 0) continue;
+      if (o.k === K.prop) { // a Blender prop: its own small instanced mesh, drawn at full capacity (spares collapsed)
+        const pm = this.props[o.model]; if (!pm || (cnt[o.model] | 0) >= pm.instanceMatrix.count) continue;
+        const base = PROPS[o.model] || [0, 0];
+        if (o.state === 1) { _q.setFromAxisAngle(_y, yaw); _s.set(sx2, sy, sz2); } else { _e.set(base[0] + 0.25 * Math.sin(o.id), o.spin * 0.6 + base[1], 0.3 * Math.cos(o.id * 1.3)); _q.setFromEuler(_e); _s.set(s, s, s); }
+        _p.set(px, 0, pz); _m.compose(_p, _q, _s); pm.setMatrixAt(cnt[o.model] = (cnt[o.model] | 0), _m); cnt[o.model]++;
+        continue;
+      }
       if (o.k >= K.galaxy) { // a galaxy or a nebula: a tilted sprite, additive
         if (ng >= CAPG - 2) continue;
         const gA = this.gal.aT.array, gC = this.gal.aC.array, gi = ng * 4;
@@ -566,7 +597,7 @@ export class SpaceGame {
       const at = this.bmHi.aT.array, aa = this.bmHi.aA.array, ab = this.bmHi.aB.array, i = nh * 4; at[i] = 0; at[i + 1] = c.spin; at[i + 2] = 2; at[i + 3] = 0; aa[i] = c.A[0]; aa[i + 1] = c.A[1]; aa[i + 2] = c.A[2]; aa[i + 3] = 1; ab[i] = c.B[0]; ab[i + 1] = c.B[1]; ab[i + 2] = c.B[2]; ab[i + 3] = e;
       nh++;
     }
-    hi.count = nh; lo.count = nl; this.bg.count = nb; this.bg.instanceMatrix.needsUpdate = true; this.hideRest(this.tails, nt, CAPT); this.hideRest(this.rings, nr, CAPR); this.gal.mesh.count = ng; ngl = this.extrasDraw(ctx, ir, ngl); this.glow.mesh.count = ngl; this.glow.mesh.instanceMatrix.needsUpdate = true; this.glow.aC.needsUpdate = true; this.gal.mesh.instanceMatrix.needsUpdate = true; this.gal.aT.needsUpdate = this.gal.aC.needsUpdate = true;  // (tails and rings draw their full capacity, the spare instances collapsed: the WebGPU backend sizes an instance buffer from the first non-zero count it sees)
+    hi.count = nh; lo.count = nl; this.bg.count = nb; this.bg.instanceMatrix.needsUpdate = true; this.hideRest(this.tails, nt, CAPT); this.hideRest(this.rings, nr, CAPR); for (const k in this.props) { const pm = this.props[k]; pm.visible = this.propUse.has(k); if (pm.visible) this.hideRest(pm, cnt[k] | 0, pm.instanceMatrix.count); this.props[k].instanceMatrix.needsUpdate = true; } this.gal.mesh.count = ng; ngl = this.extrasDraw(ctx, ir, ngl); this.glow.mesh.count = ngl; this.glow.mesh.instanceMatrix.needsUpdate = true; this.glow.aC.needsUpdate = true; this.gal.mesh.instanceMatrix.needsUpdate = true; this.gal.aT.needsUpdate = this.gal.aC.needsUpdate = true;  // (tails and rings draw their full capacity, the spare instances collapsed: the WebGPU backend sizes an instance buffer from the first non-zero count it sees)
     for (const o of [hi, lo, this.tails, this.rings]) o.instanceMatrix.needsUpdate = true;
     for (const bm of [this.bmHi, this.bmLo, this.bmBg]) bm.aT.needsUpdate = bm.aA.needsUpdate = bm.aB.needsUpdate = true;
     // dust: stream past the hole
