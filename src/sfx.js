@@ -70,6 +70,14 @@ export function gulp(tier) {
   tone('sine', f, f * 0.45, 0.12 + Math.min(tier, 8) * 0.03, 0.4);
 }
 
+let lastCapture = 0;
+/** A light onset tick for ordinary captures; one voice at most every 120 ms. */
+export function captureOnset() {
+  if (!ctx || ctx.currentTime - lastCapture < 0.12) return;
+  lastCapture = ctx.currentTime;
+  tone('triangle', 520, 340, 0.07, 0.045);
+}
+
 export function hurt() {
   tone('square', 160, 50, 0.3, 0.3);
   tone('sine', 90, 40, 0.4, 0.6);
@@ -194,6 +202,10 @@ function noise(dur, lp, vol, delay = 0, hp = 0) {
   live++; src.onended = () => { live--; g.disconnect(); };
 }
 let lastTear = 0;
+/** A restrained rising cue while a large tear wave is being prepared. */
+export function tearAnticipate() {
+  tone('sine', 180, 260, 0.16, 0.07);
+}
 /** A district / island: a crack of rock and a gulp (k 0..1 size). */
 export function tear(k = 0.3, semi = 0) { // (semi: a semitone per combo level)
   if (!ctx || ctx.currentTime - lastTear < 0.12) return;

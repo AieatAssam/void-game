@@ -5,18 +5,21 @@
 // windmills, cows) is placed on the surface by the city from `scatter()`.
 import * as THREE from 'three/webgpu';
 import {
-  Fn, vec3, vec4, float, int, attribute, positionWorld, normalWorldGeometry, normalViewGeometry, mix, smoothstep, max, pow,
-  normalize, clamp, texture, sin, abs, length, uv, positionView, time, select, viewportDepthTexture, cameraNear, cameraFar,
-  perspectiveDepthToViewZ, screenUV, If, Discard, uniformArray,
+  Fn, vec2, vec3, vec4, float, int, attribute, positionWorld, normalWorldGeometry, normalViewGeometry, mix, smoothstep, min, max, pow, dot,
+  normalize, clamp, texture, sin, cos, abs, length, uv, positionView, cameraViewMatrix, time, select, viewportDepthTexture, cameraNear, cameraFar,
+  perspectiveDepthToViewZ, screenUV, If, Discard, uniform, uniformArray,
 } from 'three/tsl';
-import { pbrCol, pbrNrm, pbrRha, L, triplanar, waterGrad, macro } from './pbr.js';
+import { pbrCol, pbrNrm, pbrRha, waterDetail, WATER_UV_SCALE, causticDetail, CAUSTICS_ENABLED, L, triplanar, waterSlope, macro } from './pbr.js';
 import { positionGeometry, normalGeometry } from 'three/tsl';
 import { surfaceOn, viewScale, rimCracks, crackCol } from './surface.js';
+import { sunDir, causticDaylight } from './look.js';
 import { Q } from './quality.js';
 import { MAX_HOLES } from './hole.js';
 
 import { makeNoise, smooth } from './noise.js';
 const _wv = new THREE.Vector3();
+const WATER_DEPTH_RANGE = 8;
+const RIVER_FLOW_ENABLED = typeof location !== 'undefined' && new URLSearchParams(location.search).has('riverFlow');
 
 export class Terrain {
   /**
@@ -29,6 +32,7 @@ export class Terrain {
     this.holes = holes;
     this.beach = beach;
     this.farm = farm; // County Fair: a denser patchwork of fields hugging the town
+    this.waterSdfEnabled = !!region && typeof location !== 'undefined' && new URLSearchParams(location.search).has('waterSdf');
     this.nz = makeNoise(seed ^ 0x7e55a1);
     this.water = beach ? -0.02 : -0.9;
     const r = this.nz.rnd;
@@ -92,6 +96,66 @@ export class Terrain {
       }
     }
     this.waterMesh.visible = wet;
+    this.updateWaterSdf(camera.position);
+  }
+
+  updateWaterSdf(camera) {
+    if (!this.waterSdfEnabled || !camera || !this.waterSdfSegments) return;
+    const stats = this.waterSdfStats;
+    const player = this.holes?.value?.[0], x = player?.z > 0 ? player.x : camera.x, z = player?.z > 0 ? player.y : camera.z;
+    const cx = Math.round(x / 64) * 64, cz = Math.round(z / 64) * 64;
+    if (!this.waterSdfBuild && (!this.waterSdfActive.value || Math.abs(cx - this.waterSdfCenter.x) >= 64 || Math.abs(cz - this.waterSdfCenter.z) >= 64)) {
+      this.waterSdfBuild = { x: cx - 256, z: cz - 256, row: 0, collect: 0, candidates: [], index: 0, pixels: new Uint8Array(256 * 256 * 2), signs: new Uint8Array(256 * 256), phase: 'sign' };
+      stats.rebuilds++;
+    }
+    const b = this.waterSdfBuild;
+    if (!b) return;
+    const t0 = performance.now(), limit = t0 + 0.8, cs = this.cs, H = this.H, n = cs.length;
+    const cell = (v) => { let lo = 0, hi = n - 2; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (cs[m] <= v) lo = m; else hi = m - 1; } return lo; };
+    const height = (x, z) => {
+      const i = cell(x), j = cell(z), u = Math.max(0, Math.min(1, (x - cs[i]) / (cs[i + 1] - cs[i]))), v = Math.max(0, Math.min(1, (z - cs[j]) / (cs[j + 1] - cs[j])));
+      const a = j * n + i, q = a + 1, c = (j + 1) * n + i, d = c + 1;
+      return u + v <= 1 ? H[a] * (1 - u - v) + H[q] * u + H[c] * v : H[q] * (1 - v) + H[c] * (1 - u) + H[d] * (u + v - 1);
+    };
+    while (performance.now() < limit) {
+      if (b.phase === 'sign') {
+        if (b.row === 256) { b.phase = 'collect'; continue; }
+        const j = b.row++, z = b.z + (j + 0.5) * 2;
+        for (let i = 0; i < 256; i++) {
+          const x = b.x + (i + 0.5) * 2, k = j * 256 + i, wet = this.water > height(x, z);
+          b.signs[k] = wet ? 1 : 0; b.pixels[k * 2] = wet ? 255 : 0;
+          const gx = Math.floor(x / 10), gz = Math.floor(z / 10), h = (Math.imul(gx, 374761393) + Math.imul(gz, 668265263)) | 0;
+          b.pixels[k * 2 + 1] = (h ^ (h >>> 13)) & 255;
+        }
+      } else if (b.phase === 'collect') {
+        if (b.collect === this.waterSdfSegments.length) { b.phase = 'raster'; continue; }
+        const k = b.collect; b.collect += 4; const s = this.waterSdfSegments;
+        if (Math.max(s[k], s[k + 2]) >= b.x - 16 && Math.min(s[k], s[k + 2]) <= b.x + 528 && Math.max(s[k + 1], s[k + 3]) >= b.z - 16 && Math.min(s[k + 1], s[k + 3]) <= b.z + 528) b.candidates.push(k);
+      } else if (b.phase === 'raster') {
+        if (b.index === b.candidates.length) { b.phase = 'upload'; continue; }
+        const k = b.candidates[b.index++], s = this.waterSdfSegments, ax = s[k], az = s[k + 1], dx = s[k + 2] - ax, dz = s[k + 3] - az, len2 = dx * dx + dz * dz;
+        const i0 = Math.max(0, Math.floor((Math.min(ax, ax + dx) - 16 - b.x) / 2)), i1 = Math.min(255, Math.ceil((Math.max(ax, ax + dx) + 16 - b.x) / 2));
+        const j0 = Math.max(0, Math.floor((Math.min(az, az + dz) - 16 - b.z) / 2)), j1 = Math.min(255, Math.ceil((Math.max(az, az + dz) + 16 - b.z) / 2));
+        for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+          const x = b.x + (i + 0.5) * 2, z = b.z + (j + 0.5) * 2, u = len2 ? Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / len2)) : 0;
+          const dist = Math.hypot(x - ax - u * dx, z - az - u * dz);
+          if (dist > 16) continue;
+          const p = j * 256 + i, old = Math.abs(b.pixels[p * 2] / 255 * 32 - 16);
+          if (dist < old) b.pixels[p * 2] = Math.round(((b.signs[p] ? dist : -dist) + 16) / 32 * 255);
+        }
+      } else {
+        this.waterSdfTexture.image.data.set(b.pixels);
+        this.waterSdfTexture.needsUpdate = true;
+        this.waterSdfOrigin.value.set(b.x, b.z);
+        this.waterSdfActive.value = 1;
+        this.waterSdfCenter = { x: b.x + 256, z: b.z + 256 };
+        stats.uploadBytes = b.pixels.byteLength; stats.uploads = (stats.uploads || 0) + 1;
+        this.waterSdfBuild = null;
+        break;
+      }
+    }
+    const ms = performance.now() - t0;
+    stats.slices++; stats.lastSliceMs = ms; stats.maxSliceMs = Math.max(stats.maxSliceMs, ms);
   }
 
   /** Region: pad heights (the land they sit on, above water) and road segments for the corridor test. */
@@ -346,6 +410,80 @@ export class Terrain {
     if (this.region) yield* this.limitSlopes(H, cs, 0.4);
     this.cs = cs;
     this.H = H;
+    if (this.waterSdfEnabled) {
+      const seg = [], pt = new Float64Array(6), ids = new Int32Array(3), xs = new Float64Array(3), zs = new Float64Array(3), n = cs.length;
+      const addTriangle = (ia, ja, ib, jb, ic, jc) => {
+        ids[0] = ja * n + ia; ids[1] = jb * n + ib; ids[2] = jc * n + ic;
+        xs[0] = cs[ia]; xs[1] = cs[ib]; xs[2] = cs[ic]; zs[0] = cs[ja]; zs[1] = cs[jb]; zs[2] = cs[jc];
+        let count = 0;
+        for (let e = 0; e < 3; e++) {
+          const q = (e + 1) % 3, h0 = H[ids[e]] - this.water, h1 = H[ids[q]] - this.water;
+          let x, z;
+          if (h0 === 0) { x = xs[e]; z = zs[e]; }
+          else if (h0 * h1 < 0) { const t = h0 / (h0 - h1); x = xs[e] + (xs[q] - xs[e]) * t; z = zs[e] + (zs[q] - zs[e]) * t; }
+          else continue;
+          if (count && x === pt[0] && z === pt[1]) continue;
+          if (count < 2) { pt[count * 2] = x; pt[count * 2 + 1] = z; count++; }
+        }
+        if (count === 2 && (pt[0] !== pt[2] || pt[1] !== pt[3])) seg.push(pt[0], pt[1], pt[2], pt[3]);
+      };
+      for (let j = 0; j < n - 1; j++) {
+        for (let i = 0; i < n - 1; i++) {
+          addTriangle(i, j, i, j + 1, i + 1, j); // [a,c,b], matching the rendered split
+          addTriangle(i + 1, j, i, j + 1, i + 1, j + 1); // [b,c,d]
+        }
+        if (j % 2 === 1) yield;
+      }
+      this.waterSdfSegments = new Float32Array(seg);
+      this.waterSdfStats = { enabled: true, segments: seg.length / 4, rebuilds: 0, slices: 0, lastSliceMs: 0, maxSliceMs: 0, uploadBytes: 0 };
+      this.waterSdfOrigin = uniform(new THREE.Vector2());
+      this.waterSdfActive = uniform(0);
+      this.waterSdfTexture = new THREE.DataTexture(new Uint8Array(256 * 256 * 2), 256, 256, THREE.RGFormat, THREE.UnsignedByteType);
+      this.waterSdfTexture.minFilter = this.waterSdfTexture.magFilter = THREE.LinearFilter;
+      this.waterSdfTexture.wrapS = this.waterSdfTexture.wrapT = THREE.ClampToEdgeWrapping;
+      this.waterSdfTexture.generateMipmaps = false;
+      this.waterSdfTexture.colorSpace = THREE.NoColorSpace;
+      this.waterSdfTexture.needsUpdate = true;
+    }
+    // Low-resolution baked seabed depth lets lite/mobile shade shorelines without a screen-depth copy.
+    const waterHalf = this.region ? 5400 : 1800, depthSize = 256;
+    const coordBrackets = (extent) => {
+      const loAt = new Uint32Array(depthSize), hiAt = new Uint32Array(depthSize), tAt = new Float32Array(depthSize);
+      for (let p = 0; p < depthSize; p++) {
+        // The shader maps world edges to UV 0..1; bake each value at the matching texture texel centre.
+        const x = ((p + 0.5) / depthSize * 2 - 1) * extent;
+        let lo = 0, hi = n - 1;
+        while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (cs[mid] <= x) lo = mid; else hi = mid; }
+        loAt[p] = lo; hiAt[p] = hi;
+        tAt[p] = Math.max(0, Math.min(1, (x - cs[lo]) / (cs[hi] - cs[lo] || 1)));
+      }
+      return [loAt, hiAt, tAt];
+    };
+    const [xLo, xHi, xT] = coordBrackets(waterHalf), [zLo, zHi, zT] = coordBrackets(waterHalf);
+    const depthPixels = new Uint8Array(depthSize * depthSize * 4);
+    for (let j = 0; j < depthSize; j++) {
+      for (let i = 0; i < depthSize; i++) {
+        const x0 = xLo[i], x1 = xHi[i], z0 = zLo[j], z1 = zHi[j], tx = xT[i], tz = zT[j];
+        const a = H[z0 * n + x0] * (1 - tx) + H[z0 * n + x1] * tx;
+        const b = H[z1 * n + x0] * (1 - tx) + H[z1 * n + x1] * tx;
+        const ground = this.region
+          ? tx + tz <= 1
+            ? H[z0 * n + x0] * (1 - tx - tz) + H[z0 * n + x1] * tx + H[z1 * n + x0] * tz
+            : H[z0 * n + x1] * (1 - tz) + H[z1 * n + x0] * (1 - tx) + H[z1 * n + x1] * (tx + tz - 1)
+          : a * (1 - tz) + b * tz;
+        const depth = Math.max(0, Math.min(WATER_DEPTH_RANGE, this.water - ground));
+        const k = (j * depthSize + i) * 4;
+        depthPixels[k] = Math.round(depth / WATER_DEPTH_RANGE * 255);
+        depthPixels[k + 3] = 255;
+      }
+      if (j % 16 === 15) yield;
+    }
+    this.waterDepthTexture = new THREE.DataTexture(depthPixels, depthSize, depthSize, THREE.RGBAFormat, THREE.UnsignedByteType);
+    this.waterDepthTexture.minFilter = this.waterDepthTexture.magFilter = THREE.LinearFilter;
+    this.waterDepthTexture.wrapS = this.waterDepthTexture.wrapT = THREE.ClampToEdgeWrapping;
+    this.waterDepthTexture.colorSpace = THREE.NoColorSpace;
+    this.waterDepthTexture.needsUpdate = true;
+    this.waterHalf = waterHalf;
     // pass 2: normals and moisture straight from the grid (no extra noise evaluations)
     const at = (i, j) => H[Math.min(n - 1, Math.max(0, j)) * n + Math.min(n - 1, Math.max(0, i))];
     const cx = (i) => cs[Math.min(n - 1, Math.max(0, i))];
@@ -435,7 +573,7 @@ export class Terrain {
     // water: one plane at the global level; the terrain decides where it shows
     const wg = new THREE.PlaneGeometry(3600, 3600, 1, 1).rotateX(-Math.PI / 2);
     if (this.region) wg.scale(3, 1, 3);
-    this.waterMesh = new THREE.Mesh(wg, waterMaterial({ clipHalf: this.half, holes: this.holes && uniformArray(this.holes.value, 'vec3') }));
+    this.waterMesh = new THREE.Mesh(wg, waterMaterial({ clipHalf: this.half, holes: this.holes && uniformArray(this.holes.value, 'vec3'), depthField: this.waterDepthTexture, shoreHalf: this.waterHalf, sdfField: this.waterSdfTexture, sdfOrigin: this.waterSdfOrigin, sdfActive: this.waterSdfActive, riverFlow: RIVER_FLOW_ENABLED && this.region ? this.river : null }));
     this.waterMesh.position.y = this.water;
     this.waterMesh.renderOrder = 2;
     this.group.add(this.waterMesh);
@@ -564,6 +702,8 @@ export class Terrain {
     this.mesh.material.dispose();
     this.waterMesh.geometry.dispose();
     this.waterMesh.material.dispose();
+    this.waterDepthTexture.dispose();
+    this.waterSdfTexture?.dispose();
   }
 }
 
@@ -586,7 +726,7 @@ function terrainMaterial(waterLevel, holeField = null) {
   const nW = normalWorldGeometry;
   const slope = clamp(float(1).sub(nW.y).mul(3.2), 0, 1);
   const dist = length(positionView);
-  const fade = smoothstep(viewScale.mul(260), viewScale.mul(40), dist).mul(surfaceOn);
+  const fade = float(1).sub(smoothstep(viewScale.mul(40), viewScale.mul(260), dist)).mul(surfaceOn);
   const lite = Q.surface === 'lite';
   const G = planar(pw, L.grass, 0.28), Gf = lite ? G : planar(pw, L.grass, 0.045); // near + far scale kills tiling
   // mobile: one scan, tinted per layer (the same texture reads serve every layer)
@@ -613,7 +753,8 @@ function terrainMaterial(waterLevel, holeField = null) {
     if (holes) {
       for (let i = 0; i < MAX_HOLES; i++) {
         const hh = holes.element(i);
-        If(hh.z.greaterThan(0).and(length(positionWorld.xz.sub(hh.xy)).lessThan(hh.z)), () => { Discard(); });
+        const d = positionWorld.xz.sub(hh.xy);
+        If(hh.z.greaterThan(0).and(dot(d, d).lessThan(hh.z.mul(hh.z))), () => { Discard(); });
       }
     }
     // grass: scanned lawn pushed toward a lush meadow green, far sample mixed in with distance
@@ -624,7 +765,7 @@ function terrainMaterial(waterLevel, holeField = null) {
     const meadow = mix(mix(vec3(0.05, 0.12, 0.022), vec3(0.075, 0.14, 0.03), hue), vec3(0.15, 0.15, 0.055), dry.mul(0.7));
     const ex = attribute('aExtra', 'vec2');
     const wet = ex.x; // + hollow, - crest
-    const meadow2 = mix(meadow, vec3(0.035, 0.1, 0.02), smoothstep(0.0, 0.8, wet).mul(0.7)).mul(mix(1, 1.25, smoothstep(0, -0.8, wet)));
+    const meadow2 = mix(meadow, vec3(0.035, 0.1, 0.02), smoothstep(0.0, 0.8, wet).mul(0.7)).mul(mix(1, 1.25, float(1).sub(smoothstep(-0.8, 0, wet))));
     let gcol = mix(meadow2.mul(gl), gscan.mul(0.8), 0.2).toVar();
     // wildflower drifts: specks of white, yellow and violet in the meadow texture
     const fl = smoothstep(0.2, 1.0, ex.y).mul(smoothstep(0.62, 0.8, G.r.y));
@@ -639,17 +780,26 @@ function terrainMaterial(waterLevel, holeField = null) {
     const crop = select(cropId.equal(0), col, select(cropId.equal(1), col.mul(rows.mul(0.35).add(0.75)), select(cropId.equal(2), wheat, select(cropId.equal(3), young, fallow))));
     col.assign(select(field, mix(col, crop, 0.85), col));
     // wet dark band at the waterline, macro brightness breakup
-    col.mulAssign(mix(1, 0.55, smoothstep(0.6, 0.0, h)));
+    col.mulAssign(mix(1, 0.55, float(1).sub(smoothstep(0.0, 0.6, h))));
     col.mulAssign(mix(0.85, 1.12, macro(pw, 0.03)));
     // snow on the high peaks past the region's edge (drifts, thinner on steep faces)
     const snow = smoothstep(60, 80, pw.y.add(macro(pw, 0.02).mul(16))).mul(float(1).sub(smoothstep(0.5, 0.85, slope)));
     col.assign(mix(col, vec3(0.82, 0.85, 0.9).mul(mix(0.92, 1.05, macro(pw, 0.3))), snow));
     col.assign(mix(col, crackCol, rimCracks(pw).mul(0.85)));
+    if (CAUSTICS_ENABLED) {
+      const submerged = float(waterLevel).sub(pw.y);
+      const depthGate = smoothstep(0.02, 0.35, submerged).mul(float(1).sub(smoothstep(2.4, 3.0, submerged)));
+      const facing = smoothstep(0.25, 0.85, nW.y);
+      const drift = sunDir.xz.mul(time.mul(0.012));
+      const light = float(0).toVar();
+      If(depthGate.mul(facing).greaterThan(0.001), () => { light.assign(texture(causticDetail, pw.xz.mul(1 / 16).add(drift)).r); }); // stretch the baked 8 m tile to soften repeats
+      col.mulAssign(float(1).add(light.mul(depthGate).mul(facing).mul(causticDaylight).mul(0.6)));
+    }
     return vec4(col, 1);
   })();
   // vegetation and soil are near-perfectly rough; only wet banks and bare rock get any sheen
   const rough = blend(G.r.x.mul(0.1).add(0.9), F.r.x.mul(0.1).add(0.88), D.r.x.mul(0.2).add(0.8), S.r.x.mul(0.4).add(0.55), R.rough.mul(0.35).add(0.6));
-  m.roughnessNode = clamp(mix(rough, 0.3, smoothstep(0.5, 0.0, h)), 0.25, 1);
+  m.roughnessNode = clamp(mix(rough, 0.3, float(1).sub(smoothstep(0.0, 0.5, h))), 0.25, 1);
   m.metalnessNode = float(0);
   const ao = blend(G.r.z, F.r.z, D.r.z, S.r.z, R.ao);
   m.aoNode = mix(float(1), ao, fade);
@@ -675,7 +825,7 @@ function terrainMaskMaterial(waterLevel) {
   const grassy = float(1).sub(smoothstep(0.25, 0.5, slope)).mul(float(1).sub(sp.x.mul(0.7))).mul(float(1).sub(sp.z))
     .mul(float(1).sub(sp.w)).mul(sp.y.greaterThan(0.1).select(0, 1)).mul(smoothstep(0.3, 0.8, positionWorld.y.sub(waterLevel)));
   const ex = attribute('aExtra', 'vec2');
-  const dry = clamp(smoothstep(0.5, 0.85, macro(positionWorld, 0.011)).mul(0.6).add(smoothstep(0, -0.8, ex.x).mul(0.5)).sub(smoothstep(0, 0.8, ex.x).mul(0.4)), 0, 1);
+  const dry = clamp(smoothstep(0.5, 0.85, macro(positionWorld, 0.011)).mul(0.6).add(float(1).sub(smoothstep(-0.8, 0, ex.x)).mul(0.5)).sub(smoothstep(0, 0.8, ex.x).mul(0.4)), 0, 1);
   m.colorNode = vec4(grassy.mul(0.85), positionWorld.y, 1, dry);
   return m;
 }
@@ -685,47 +835,89 @@ function terrainMaskMaterial(waterLevel) {
  * Lakes, river, sea and the beach tide: wave normals, sky reflections, depth tint, soft where it meets the shore.
  * clipHalf: hide under the town square; holes: uniformArray of open holes to cut; fade: opacity uniform (tide).
  */
-export function waterMaterial({ clipHalf = null, holes = null, fade = null, front = false } = {}) {
-  const m = new THREE.MeshPhysicalNodeMaterial({ transparent: true, depthWrite: false, roughness: 0.05, metalness: 0 });
+export function waterMaterial({ clipHalf = null, holes = null, fade = null, front = false, depthField = null, shoreHalf = 1800, sdfField = null, sdfOrigin = null, sdfActive = null, riverFlow = null } = {}) {
+  const lite = Q.surface === 'lite';
+  const m = lite
+    ? new THREE.MeshStandardNodeMaterial({ transparent: true, depthWrite: false, roughness: 0.58, metalness: 0 })
+    : new THREE.MeshPhysicalNodeMaterial({ transparent: true, depthWrite: false, roughness: 0.32, metalness: 0 });
   const pw = positionWorld;
   let keep = clipHalf === null ? null : max(abs(pw.x), abs(pw.z)).greaterThan(clipHalf - 0.3); // the town is dry land
   if (holes) {
     for (let i = 0; i < MAX_HOLES; i++) {
       const h = holes.element(i);
-      const out = h.z.lessThanEqual(0).or(length(pw.xz.sub(h.xy)).greaterThan(h.z));
+      const d = pw.xz.sub(h.xy);
+      const out = h.z.lessThanEqual(0).or(dot(d, d).greaterThan(h.z.mul(h.z)));
       keep = keep ? keep.and(out) : out;
     }
   }
   if (keep) m.maskNode = keep;
   // how much water is between the surface and the ground behind it
-  const lite = Q.surface === 'lite';
-  const depthM = lite ? float(3) // mobile: skip the depth copy
+  const depthSample = lite && depthField ? texture(depthField, pw.xz.div(shoreHalf * 2).add(0.5)) : null;
+  const depthM = depthSample ? depthSample.r.mul(WATER_DEPTH_RANGE)
+    : lite ? float(3) // mobile without a terrain height field: skip the depth copy
     : positionView.z.sub(perspectiveDepthToViewZ(viewportDepthTexture(screenUV).r, cameraNear, cameraFar)).max(0);
-  const shallow = smoothstep(0.0, 2.5, depthM);
-  const deep = vec3(0.02, 0.06, 0.07), mid = vec3(0.06, 0.2, 0.19);
+  const shallow = smoothstep(0.0, 5.5, depthM);
+  const deep = vec3(0.006, 0.035, 0.075), mid = vec3(0.045, 0.22, 0.24);
   const f = fade ?? float(1);
-  // foam: where it laps the shore; on mobile (no depth) a drifting broken pattern instead
-  const lap = sin(time.mul(1.6).add(pw.x.mul(0.9)).add(pw.z.mul(0.7))).mul(0.3).add(0.7);
-  // fine drifting foam filaments (thin, sparse) rather than blobs
-  const fil = abs(macro(pw.add(vec3(time.mul(0.35), 0, time.mul(0.2))), 2.6).sub(0.5));
-  const streaks = smoothstep(0.035, 0.0, fil).mul(0.35);
-  let foam = lite ? streaks : smoothstep(0.3, 0.0, depthM).mul(lap).add(streaks.mul(smoothstep(1.2, 0.2, depthM)));
-  let alpha = lite ? float(0.72) : mix(0.2, 0.94, smoothstep(0.0, 0.9, depthM));
-  let body = mix(mid, deep, shallow);
+  // Reuse the normal lookup; sparse asset crests show only inside this narrow depth-tested shore band.
+  let waterBase, flowFineOffset = null;
+  if (riverFlow) {
+    const side = int(riverFlow.side);
+    const u = select(side.equal(0), pw.x, select(side.equal(1), pw.z, select(side.equal(2), pw.x.negate(), pw.z.negate())));
+    const v = select(side.equal(0), pw.z, select(side.equal(1), pw.x.negate(), select(side.equal(2), pw.z.negate(), pw.x)));
+    const phase = u.mul(riverFlow.freq).add(riverFlow.ph);
+    const phase2 = u.mul(riverFlow.freq * 2.7).add(1.3);
+    const centre = float(riverFlow.off).add(sin(phase).mul(riverFlow.amp)).add(sin(phase2).mul(riverFlow.amp * 0.25));
+    const lateral = v.sub(centre);
+    const curve = cos(phase).mul(riverFlow.amp * riverFlow.freq).add(cos(phase2).mul(riverFlow.amp * riverFlow.freq * 0.675));
+    const uAxis = vec2(select(side.equal(0), 1, select(side.equal(1), 0, select(side.equal(2), -1, 0))), select(side.equal(0), 0, select(side.equal(1), 1, select(side.equal(2), 0, -1))));
+    const vAxis = vec2(select(side.equal(0), 0, select(side.equal(1), -1, select(side.equal(2), 0, 1))), select(side.equal(0), 1, select(side.equal(1), 0, select(side.equal(2), -1, 0))));
+    const tangent = normalize(uAxis.add(vAxis.mul(curve)));
+    const active = float(1).sub(smoothstep(14, 28, abs(lateral)));
+    const worldOffset = vec2(time.mul(0.009), time.mul(-0.006));
+    const flowOffset = tangent.mul(time.mul(0.015));
+    waterBase = texture(waterDetail, pw.xz.mul(WATER_UV_SCALE).add(mix(worldOffset, flowOffset, active)));
+    flowFineOffset = mix(vec2(time.mul(-0.02), time.mul(0.015)), tangent.mul(time.mul(0.036)), active);
+  } else {
+    waterBase = texture(waterDetail, pw.xz.mul(WATER_UV_SCALE).add(vec2(time.mul(0.009), time.mul(-0.006))));
+  }
+  const crest = smoothstep(0.08, 0.45, waterBase.a).mul(0.55);
+  let shore = lite && !depthField ? float(0) : float(1).sub(smoothstep(0.15, lite ? 1.8 : 2.8, depthM));
+  if (sdfField && sdfOrigin && sdfActive) {
+    const sdfUv = pw.xz.sub(sdfOrigin).div(512);
+    const sdf = texture(sdfField, sdfUv).rg;
+    const signed = sdf.r.mul(32).sub(16);
+    const patches = smoothstep(0.4, 0.75, sdf.g);
+    const sdfShore = float(1).sub(smoothstep(0.2, 4.0, signed)).mul(patches).mul(0.55);
+    const edge = min(min(sdfUv.x, float(1).sub(sdfUv.x)), min(sdfUv.y, float(1).sub(sdfUv.y))).mul(512);
+    const fieldWeight = sdfActive.mul(smoothstep(0, 16, edge));
+    shore = mix(shore, sdfShore, fieldWeight);
+  }
+  let foam = crest.mul(shore);
+  let alpha = lite
+    ? (depthField ? mix(0.48, 1.0, smoothstep(0.1, 3.0, depthM)) : float(1))
+    : mix(0.34, 0.9, smoothstep(0.0, 2.8, depthM));
+  const depthBody = mix(mid, deep, shallow);
+  let body = depthBody;
+  let waterSlopeXZ = waterSlope(pw, waterBase, flowFineOffset).mul(lite ? 0.42 : 0.62);
+  const waterNrm = normalize(cameraViewMatrix.mul(vec4(vec3(waterSlopeXZ.x.negate(), 1, waterSlopeXZ.y.negate()), 0)).xyz);
+  const fresnel = float(0.02).add(pow(float(1).sub(max(dot(waterNrm, normalize(positionView.negate())), 0)), 5).mul(0.42));
+  body = mix(body, vec3(0.19, 0.42, 0.55), fresnel);
   if (front) {
     // the tide: a clear turquoise sheet whose inland edge (plane uv.y -> 1) laps in and out behind a foam line
     const wob = macro(pw, 0.35).sub(0.5).mul(0.12).add(sin(time.mul(1.3).add(pw.x.mul(0.45))).mul(0.03));
     const e = uv().y.add(wob);
-    const edge = smoothstep(0.93, 0.86, e);
+    const edge = float(1).sub(smoothstep(0.86, 0.93, e));
     const broken = smoothstep(0.3, 0.62, macro(pw.add(vec3(0, 0, time.mul(0.3))), 1.9)).mul(0.6).add(0.4);
-    foam = foam.mul(0.6).add(smoothstep(0.845, 0.875, e).mul(smoothstep(0.915, 0.885, e)).mul(broken));
-    alpha = mix(0.6, 0.88, smoothstep(0.85, 0.2, e)).mul(edge);
-    body = mix(vec3(0.03, 0.26, 0.27), vec3(0.015, 0.1, 0.12), smoothstep(0.75, 0.0, e));
+    foam = foam.mul(0.6).add(smoothstep(0.845, 0.875, e).mul(float(1).sub(smoothstep(0.885, 0.915, e))).mul(broken));
+    alpha = mix(0.6, 0.88, float(1).sub(smoothstep(0.2, 0.85, e))).mul(edge);
+    body = mix(vec3(0.03, 0.26, 0.27), vec3(0.015, 0.1, 0.12), float(1).sub(smoothstep(0.0, 0.75, e)));
   }
-  m.colorNode = vec4(mix(body, vec3(0.8, 0.83, 0.8), foam.min(1).mul(0.7)), alpha.add(foam.mul(0.35)).min(1).mul(f));
-  m.normalNode = normalize(normalViewGeometry.sub(waterGrad(pw).mul(1.1)));
+  m.colorNode = vec4(mix(body, vec3(0.82, 0.91, 0.9), foam.min(1).mul(0.55)), alpha.add(foam.mul(0.12)).min(1).mul(f));
+  // Keep the lite surface broad and calm; high tier gets the stronger rippled normal field.
+  m.normalNode = waterNrm;
   m.emissiveNode = vec3(0.1, 0.11, 0.1).mul(foam).mul(f);
-  m.specularIntensityNode = f;
+  if (!lite) m.specularIntensityNode = f;
   return m;
 }
 

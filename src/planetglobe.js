@@ -5,11 +5,12 @@
 // Lighting, haze and glint are computed in planet space from `uSun` (planet space) and `uCam` (the camera in planet units),
 // both refreshed by globe.update(camera), so a rotated group is automatically right.
 import * as THREE from 'three/webgpu';
+import { waterDetail } from './pbr.js';
 import {
   Fn, vec2, vec3, vec4, float, int, uniform, texture, attribute, positionGeometry, positionLocal, normalize, dot, cross, length, sqrt, exp,
   pow, max, min, abs, atan, acos, cos, mix, smoothstep, clamp, select, step, sin, mx_noise_float, mx_noise_vec3,
   mx_fractal_noise_float, mx_worley_noise_float, mx_cell_noise_vec3, instancedBufferAttribute, uv, cameraPosition,
-  floor, fract, If, Discard, positionWorld, dFdx, dFdy, fwidth, sign, uniformArray,
+  floor, fract, If, Discard, positionWorld, dFdx, dFdy, fwidth, sign, log2, uniformArray,
 } from 'three/tsl';
 import { makePlanet, bakeRows, faceDir, dirFace, R, SQ_MIN, SQ_STEP, decodeHeight } from './planetgen.js';
 import { MAX_HOLES } from './hole.js';
@@ -19,6 +20,7 @@ export { R, faceST, sampleFace, sstep, srgb, heightOf }; // (planetmap.js reuses
 const PI = Math.PI;
 const DBG = typeof location !== 'undefined' ? +(new URLSearchParams(location.search).get('dbg') || 0) : 0; // dev: ?dbg=1 albedo, 2 normal, 3 terrain occlusion / shadow, 4 sun term, 5 pxM
 const OFF = new Set((typeof location !== 'undefined' && new URLSearchParams(location.search).get('off')?.split(',')) || []); // dev: ?off=ground,atmo,cloud,wound,wave,fine to price each part
+const WATER_SKY_REFLECTION = typeof location !== 'undefined' && new URLSearchParams(location.search).has('waterSkyReflection');
 
 // ---------------------------------------------------------------- bake
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -129,6 +131,7 @@ const faceST = Fn(([d]) => {
 });
 const uvOf = (st, N) => st.xy.mul(0.5).add(0.5).mul((N - 1) / N).add(0.5 / N);
 const sampleFace = (tex, N, d) => { const f = faceST(d).toVar(); return texture(tex, uvOf(f, N)).depth(int(f.z)); };
+const sampleFaceLevel0 = (tex, N, d) => { const f = faceST(d).toVar(); return texture(tex, uvOf(f, N)).level(0).depth(int(f.z)); };
 /** One channel (r) of a face texture reconstructed with a cubic B-spline (four bilinear taps): C2-smooth, so a threshold on it is a round contour, not the texel stairs of a bilinear field. */
 const sampleFaceCubic = (tex, N, d) => {
   const f = faceST(d).toVar(), t = uvOf(f, N).mul(N).sub(0.5), i = floor(t), fr = t.sub(i), fr2 = fr.mul(fr), fr3 = fr2.mul(fr), fz = int(f.z);
@@ -280,6 +283,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
     const nRaw = sampleFace(night, N, dir).toVar(); // (R lights = habitability x population; G clouds)
     const pxM = dist.mul(R).mul(u.uPx).toVar(); // metres per pixel here
     const wp = st.xy.mul(5.0e6).add(vec2(st.z.mul(113.7e3), st.z.mul(57.1e3))).toVar(); // surface metres on the cube face (continuous within a face, so detail never swims)
+    const wpDx = dFdx(wp), wpDy = dFdy(wp); // hoist across land/sea branches; implicit derivatives inside them are undefined
     const GR = patch && !!gt && !OFF.has('ground'), PB = !cheap && !OFF.has('pbr');
     // ---- ground textures. Each group sits in a uniform branch (uGroundK / uGroundM), so a pixel does not fetch a pattern the tier has faded out.
     //      Derivatives stay defined: the branch is the same for every pixel. (?off=fields,canopy,urban,relief,noise,pbr prices one pattern)
@@ -399,9 +403,14 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
     const shadeWater = (oc, on, iceO, nrmL) => {
       const Hh = normalize(L.add(V)), nh = max(dot(on, Hh), 0), nv = max(dot(on, V), 0);
       const fres = float(0.02).add(pow(max(float(1).sub(nv), 0), 5).mul(0.98));
-      const glint = pow(nh, 2200).mul(10).add(pow(nh, 260).mul(0.3)).mul(fres.mul(8).add(0.4)).mul(step(0, nlGeo)).mul(sstep(0, 0.05, dot(on, L)));
+      const glint = pow(nh, 2200).mul(10).add(pow(nh, 260).mul(0.3)).mul(fres).mul(step(0, nlGeo)).mul(sstep(0, 0.05, dot(on, L)));
       const diffO = max(dot(on, L), 0).mul(0.9).add(0.05);
-      const skyRef = vec3(0.16, 0.3, 0.6).mul(sstep(-0.3, 0.5, nlGeo).mul(0.9).add(0.04));
+      let skyRef = vec3(0.16, 0.3, 0.6).mul(sstep(-0.3, 0.5, nlGeo).mul(0.9).add(0.04));
+      if (WATER_SKY_REFLECTION) {
+        const R = on.mul(dot(on, V).mul(2)).sub(V), elev = clamp(dot(R, dir), 0, 1);
+        const sunward = pow(max(dot(R, L), 0), 5);
+        skyRef = mix(vec3(0.72, 0.78, 0.86), vec3(0.14, 0.36, 0.72), elev).add(vec3(1, 0.58, 0.32).mul(sunward).mul(0.12)).mul(skyDay).mul(float(1).sub(iceO));
+      }
       return oc.mul(sunLit.mul(diffO).mul(day).mul(nrmL).add(amb)).add(skyRef.mul(fres).mul(1.1)).add(sunLit.mul(glint).mul(float(1).sub(iceO).mul(0.55)).mul(nrmL));
     };
     // ---- the sea
@@ -418,25 +427,31 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
       const seen = exp(depth.negate().div(4.5)).mul(0.7); // how much of the seabed shows through
       let oc = mix(wcol, seabed.mul(wcol.mul(1.6).add(0.12)), seen);
       oc = mix(oc, srgb(0.84, 0.92, 0.98).mul(float(0.92).add(nm.mul(0.14))), iceO); // sea ice
-      // waves: broad swell from the globe's noise, two fine octaves in metres (they fade as the pixel outgrows them)
-      let wv = low || OFF.has('wave') ? vec3(0) : mx_noise_vec3(dir.mul(1500).add(vec3(u.uTime.mul(0.04), 0, 0))).mul(0.014).mul(u.uDetail);
-      if (!low && !OFF.has('wave') && patch) {
-        const tq = u.uTime;
-        wv = wv.add(mx_noise_vec3(vec3(wp.div(95), tq.mul(0.18))).mul(0.09).mul(fadeTo(95, pxM)).mul(vec3(1, 0.3, 1)));
-        wv = wv.add(mx_noise_vec3(vec3(wp.div(31).add(vec2(tq.mul(0.3), 0)), tq.mul(0.35))).mul(0.07).mul(fadeTo(31, pxM)).mul(vec3(1, 0.3, 1)));
+      // Tiled, mip-filtered directional wave normals stay coherent in the low tier without procedural noise stacks.
+      const waterUV = wp.div(72).add(vec2(u.uTime.mul(0.012), u.uTime.mul(-0.008)));
+      const waterN = texture(waterDetail, waterUV).grad(wpDx.div(72), wpDy.div(72));
+      const waterAxis = select(abs(dir.y).lessThan(0.98), vec3(0, 1, 0), vec3(1, 0, 0));
+      const waterT = normalize(cross(dir, waterAxis)), waterB = cross(dir, waterT);
+      const waterNz = max(waterN.b.mul(2).sub(1), 0.4);
+      let waterSlopeX = waterN.r.mul(2).sub(1).div(waterNz), waterSlopeY = waterN.g.mul(2).sub(1).div(waterNz);
+      if (!low) {
+        const waterNFUV = wp.div(24).add(vec2(u.uTime.mul(-0.026), u.uTime.mul(0.019)));
+        const waterNF = texture(waterDetail, waterNFUV).grad(wpDx.div(24), wpDy.div(24));
+        const waterNzF = max(waterNF.b.mul(2).sub(1), 0.4);
+        waterSlopeX = waterSlopeX.add(waterNF.r.mul(2).sub(1).div(waterNzF).mul(0.35));
+        waterSlopeY = waterSlopeY.add(waterNF.g.mul(2).sub(1).div(waterNzF).mul(0.35));
       }
-      const on = normalize(dir.add(wv));
+      const on = OFF.has('wave') ? dir : normalize(dir.sub(waterT.mul(waterSlopeX)).sub(waterB.mul(waterSlopeY)));
       oc = mix(oc, srgb(0.36, 0.74, 0.66), sstep(26, 0, depth).mul(0.3).mul(float(1).sub(iceO))); // shallows near a coast: lighter
-      // surf: bands of foam lapping in toward the shore, broken up; plus a bright rim at the waterline
-      const lap = sin(depth.mul(0.55).sub(u.uTime.mul(1.3)).add(mx_noise_float(vec3(wp.div(70), 1.3)).mul(3))).mul(0.5).add(0.5);
-      const brk = sstep(0.32, 0.7, mx_noise_float(vec3(wp.div(17), u.uTime.mul(0.25))).mul(0.5).add(0.5));
-      const foam = max(sstep(4, 0.8, depth).mul(sstep(0.62, 1.0, lap)).mul(brk).mul(0.6), sstep(1.0, 0.05, depth).mul(0.5)).mul(fadeTo(34, pxM).mul(0.7).add(0.3)).mul(float(1).sub(iceO));
+      // Sparse asset-baked crests become foam only in the shallow coastal band.
+      const foamMask = waterN.a;
+      const foam = sstep(12, 0.8, depth).mul(foamMask).mul(fadeTo(34, pxM).mul(0.7).add(0.3)).mul(float(1).sub(iceO));
       oc = mix(oc, vec3(0.88, 0.95, 0.98), foam.mul(0.8));
       // a torn coast (§12.5): where eaten land borders the sea (the sea texel's land neighbours are gone), a white surf band laps the new cliff, brightest as it is torn
       const nb = float(1).toVar();
       If(depth.lessThan(80), () => {
         const ax = select(abs(dir.y).lessThan(0.99), vec3(0, 1, 0), vec3(1, 0, 0)), t1 = normalize(cross(dir, ax)), t2 = cross(dir, t1), del = 0.0032;
-        const rr = (d2) => sampleFace(bite, B, normalize(d2)).r;
+        const rr = (d2) => sampleFaceLevel0(bite, B, normalize(d2)).r;
         const dg = del * 0.7071;
         nb.assign(min(min(min(rr(dir.add(t1.mul(del))), rr(dir.sub(t1.mul(del)))), min(rr(dir.add(t2.mul(del))), rr(dir.sub(t2.mul(del))))),
           min(min(rr(dir.add(t1.add(t2).mul(dg))), rr(dir.sub(t1.add(t2).mul(dg)))), min(rr(dir.add(t1.sub(t2).mul(dg))), rr(dir.sub(t1.sub(t2).mul(dg)))))));
@@ -787,6 +802,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
           });
         }
         const ddW = dd.mul(kW);
+        const inside = sstep(1.0, 0.985, ddW);
         // depth: a real tube. The ray from this pixel goes down along -V; it meets the shaft's wall (a lit, banded crescent on the far side) or the floor (the swirling void)
         const hq = vec2(dot(dir, h1), dot(dir, h2)).div(max(sin(th0), 1e-5)).mul(kW), vz = max(dot(V, hu.xyz), 0.25);
         const dv = vec2(dot(V, h1), dot(V, h2)).div(vz).negate(), Dd = float(2.0);
@@ -797,12 +813,11 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
         const floorCol = mix(vec3(0.1, 0.045, 0.26), vec3(0.008, 0.004, 0.035), sstep(0.95, 0.25, ddP)).add(vec3(0.3, 0.16, 0.7).mul(arms).mul(sstep(0.9, 0.2, ddP)).mul(0.36));
         const wallCol = mix(vec3(0.17, 0.085, 0.065), vec3(0.04, 0.015, 0.1), sstep(0.0, 0.35, tN)).mul(float(1).sub(sstep(0.2, 1.0, tN).mul(0.9))).add(vec3(0.9, 0.38, 0.12).mul(exp(tN.mul(-30))).mul(0.3)).add(vec3(0.3, 0.15, 0.7).mul(exp(tN.sub(0.45).mul(6).pow(2).negate())).mul(0.12));
         const voidCol = select(hitWall, wallCol, floorCol);
-        const inside = sstep(1.0, 0.985, ddW);
         const rim = exp(pow(ddW.sub(1).mul(26).div(float(1).add(u.uRim.mul(0.7)).add(hotP.mul(0.7))), 2).negate());
-        col.assign(mix(col, voidCol, inside));
         capMask.assign(max(capMask, sstep(1.05, 0.98, ddW)));
         const lil = vec3(0.62, 0.42, 1.0);
         const rimC = hi === 0 ? mix(mix(lil, vec3(1.0, 0.3, 0.1), u.uPainP.y.mul(1.8).min(0.9)), vec3(1.0, 0.95, 0.86), hotP.mul(1.2).min(1)) : mix(lil, vec3(1.0, 0.2, 0.14), u.uRivalK[Math.min(hi, 4) - 1]);
+        col.assign(mix(col, voidCol, inside));
         col.addAssign(rimC.mul(rim).mul(hi === 0 ? float(1.9).add(hotP.mul(3.4)).add(embP.mul(1.1)) : float(2.6)));
         if (hi === 0 && !OFF.has('pain')) { // the cracks glow (hot, then ember) and char the ground beside them
           const crkC = mix(vec3(1.0, 0.16, 0.04), vec3(1.0, 0.6, 0.26), hotP);
@@ -837,6 +852,11 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
         const A = (shard ? atmosphere(ro, toCam.div(dist).negate(), dist, u.uSun, cheap ? 2 : 3, u.uAtmo) : atmosphere(ro, V.negate(), dist, L, cheap ? 2 : 3, u.uAtmo)).toVar();
         col.assign(mix(col, col.mul(A.w).add(A.rgb), hk.mul(hzK)));
       });
+    }
+    if (DBG === 14) { // Estimated gradient LOD: log2(max screen derivative length in texture texels), using 256px dimensions and repeat = 1.
+      const rho = max(length(wpDx.mul(256 / 72)), length(wpDy.mul(256 / 72))), lod = log2(max(rho, 1e-6)), k = clamp(lod.div(8), 0, 1);
+      const lodColor = mix(mix(vec3(0.04, 0.12, 0.55), vec3(0.0, 0.85, 0.8), smoothstep(0, 0.33, k)), mix(vec3(1.0, 0.82, 0.05), vec3(0.95, 0.04, 0.02), smoothstep(0.66, 1, k)), smoothstep(0.33, 0.66, k));
+      return vec4(select(landMask.greaterThan(0.5), vec3(1.0, 0.0, 1.0), lodColor), 1);
     }
     if (DBG) return vec4(dbgV, 1);
     return vec4(col, 1);
@@ -1002,7 +1022,7 @@ export class PlanetGlobe {
     mat.positionNode = instancedBufferAttribute(new THREE.InstancedBufferAttribute(sp.pos, 3)).mul(this.uStarR).add(cameraPosition);
     mat.sizeNode = instancedBufferAttribute(new THREE.InstancedBufferAttribute(sp.size, 1));
     const dd = uv().sub(0.5).length();
-    mat.colorNode = vec4(instancedBufferAttribute(new THREE.InstancedBufferAttribute(sp.col, 3)).mul(pow(smoothstep(0.5, 0.0, dd), 1.6)).mul(1.5).mul(this.u.uSkyK), 1);
+    mat.colorNode = vec4(instancedBufferAttribute(new THREE.InstancedBufferAttribute(sp.col, 3)).mul(pow(float(1).sub(smoothstep(0.0, 0.5, dd)), 1.6)).mul(1.5).mul(this.u.uSkyK), 1);
     this.stars = new THREE.Sprite(mat);
     this.stars.count = sp.size.length;
     this.stars.frustumCulled = false;

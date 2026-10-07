@@ -63,8 +63,8 @@ export class Post {
     this.longFrames = 0; // confirmed consecutive severe frames; one-off tab/download hitches are ignored
     this.good = 0; this.bad = 0; // (bad: one slow second is a hitch, not a verdict)
     this.grade = uniform(new THREE.Vector3(1, 1, 1));
-    this.opts = { ao: Q.ao && !q.has('noao'), aoRes: Q.aoRes, aoSamples: Q.aoSamples, bloom: Q.bloom, aa: Q.aa, grain: Q.grain,
-      shafts: Q.tier === 'high' && !q.has('noshafts'), lut: !q.has('nolut'), shadowEvery: Q.shadowEvery, lensLow: Q.tier !== 'high' || q.has('webgl') };
+    this.opts = { ao: Q.ao && !q.has('noao'), aoRes: Q.aoRes, aoSamples: Q.aoSamples, bloom: Q.bloom, aa: Q.software ? 'fxaa' : Q.aa, grain: Q.grain,
+      shafts: !Q.software && Q.tier === 'high' && !q.has('noshafts'), lut: !q.has('nolut'), shadowEvery: Q.shadowEvery, lensLow: Q.software || Q.tier !== 'high' || q.has('webgl') };
     this.lutTex = new THREE.Data3DTexture(new Uint8Array(LUT ** 3 * 4), LUT, LUT, LUT);
     this.lutTex.minFilter = this.lutTex.magFilter = THREE.LinearFilter;
     this.lutTex.wrapS = this.lutTex.wrapT = this.lutTex.wrapR = THREE.ClampToEdgeWrapping;
@@ -75,10 +75,13 @@ export class Post {
     this.pk0 = uniform(new THREE.Vector4(0.5, 0.5, 9, 0)); // hit feedback (src/pain.js): hole on screen (uv), seconds since the hit, impact 0..1
     this.pk1 = uniform(new THREE.Vector4(0, 0, 1, 0)); // wound 0..1, heartbeat pulse, aspect
     this.fxu = uniform(new THREE.Vector4(0, 0, 0, 0)); // a blast (threat.js): white-out (added in HDR, so bloom bursts), warm grade, bloom boost
+    this.grainK = uniform(1); // runtime quality trim; the shader graph stays fixed during play
+    this.bloomScale = uniform(1);
+    this.shaftScale = 1;
     this.lens = lensUniforms(); // the finale's black hole (src/blackhole.js): the lens bends the picture, a thin accretion disk is drawn over it; A.w = 0 costs nothing
     this.aoShare = uniform(1); // AO's share of the picture (suspendAO: 0 on a planet, with no rebuild of the pipeline)
     this.aoOff = false;
-    this.lowSpec = false; // set by the watchdog: thins grass, never draws LOD0
+    this.lowSpec = Q.software; // software renderers start without LOD0, even with ?nowatch
     if (!this.enabled) return;
     this.pipeline = new THREE.RenderPipeline(renderer);
     this.pipeline.outputColorTransform = false; // we tonemap ourselves so grading/vignette/grain happen in display space
@@ -130,7 +133,9 @@ export class Post {
     if (opts.bloom) {
       // measured on exposed values so only genuinely hot pixels bloom at any time of day
       const bloomPass = (this.bloomPass = bloom(vec4(lit.mul(toneMappingExposure), 1), 0.24, 0.45, 2.2)); // (threshold well above sunlit white: else the whole frame blooms milky)
-      hdr = lit.add(bloomPass.rgb.div(max(toneMappingExposure, 0.05)));
+      // Keep the contribution scale outside BloomNode: when its update is paused, its cached texture still has the last
+      // nonzero strength baked in. This consumer uniform lets the watchdog remove it without rebuilding the graph.
+      hdr = lit.add(bloomPass.rgb.mul(this.bloomScale).div(max(toneMappingExposure, 0.05)));
     }
     if (opts.shafts) {
       // light shafts (golden hour, dusk): the sky and the hottest pixels, radially blurred toward the sun's
@@ -167,7 +172,7 @@ export class Post {
       const c0 = uv.sub(0.5);
       const r2 = dot(c0, c0);
       let c;
-      const caP = hv.mul(imp.mul(0.008)).add(c0.mul(r2).mul(grain ? 0.012 : 0));
+      const caP = hv.mul(imp.mul(0.008)).add(c0.mul(r2).mul(grain ? this.grainK.mul(0.012) : 0));
       if (grain) c = vec3(aa.sample(uv.sub(caP)).r, aa.sample(uv).g, aa.sample(uv.add(caP)).b); // faint chromatic fringe toward the corners, and the hit's split
       else c = aa.sample(uv).rgb;
       c = c.mul(float(1).sub(lens.over.w)).add(lens.over.xyz);
@@ -177,7 +182,7 @@ export class Post {
       c = c.mul(clamp(float(1).sub(r2.mul(0.95)), 0, 1).pow(0.9)); // vignette
       if (grain) {
         const seed = fract(sin(dot(uv.mul(vec2(1920, 1080)).add(fract(time.mul(13.7)).mul(97)), vec2(12.9898, 78.233))).mul(43758.5453));
-        c = c.add(seed.sub(0.5).mul(0.018).mul(float(1).sub(luminance(c)).mul(0.7).add(0.3)));
+        c = c.add(seed.sub(0.5).mul(this.grainK.mul(0.018)).mul(float(1).sub(luminance(c)).mul(0.7).add(0.3)));
       }
       return vec4(max(c, vec3(0)), 1);
     });
@@ -188,7 +193,10 @@ export class Post {
 
   /** Switch AO off / on without rebuilding the pipeline (a rebuild is a ~1 s freeze while its shaders compile): its share goes to 0 and its buffers shrink to nothing. The planet (Phase 3) has no use for it. */
   suspendAO(off) {
-    this.aoOff = off; this.aoShare.value = off ? 0 : 1;
+    const disabled = off || !this.opts.ao;
+    this.aoOff = disabled; this.aoShare.value = disabled ? 0 : 1;
+    if (this.aoPass) this.aoPass.updateBeforeType = disabled ? 'none' : 'frame';
+    if (this.aoRtt) this.aoRtt.autoUpdate = !disabled;
   }
 
   /**
@@ -283,7 +291,8 @@ export class Post {
 
   /**
    * Watch the frame rate while playing and shed the least visible cost first, one notch per slow stretch:
-   * resolution -> AO resolution -> grass density / LOD0 -> AO -> bloom. Stops once it holds 45+ fps.
+   * resolution -> shadow cadence / shafts -> AO resolution -> grass density / LOD0 -> AO / bloom / grain contribution.
+   * Runtime steps adjust uniforms and resolution only; rebuilding the graph recompiles shaders and freezes play.
    */
   watch() {
     if (!this.enabled || NOWATCH || this.paused) return; // (paused: the GPU bisect is measuring)
@@ -309,7 +318,8 @@ export class Post {
     const r = this.renderer, o = this.opts, pr = r.getPixelRatio();
     // Dynamic resolution first: trim the render scale in small steps until frames hold ~60, and give it back when
     // there is headroom. Only below the resolution floor do whole features go, least visible first.
-    const maxPR = Math.min(devicePixelRatio, Q.dpr), minPR = Math.min(maxPR, Math.max(0.75, maxPR * 0.5));
+    const maxPR = Math.min(devicePixelRatio, Q.dpr, Q.software ? Math.sqrt(Q.pixelBudget / (innerWidth * innerHeight)) : Q.dpr);
+    const minPR = Math.min(maxPR, Math.max(Q.software ? 0.4 : 0.75, maxPR * 0.5));
     // Below 56: trim the render scale. Whole features go only once the scale is on the floor and frames are under 52.
     if (fps < 56 && (fps < 52 || pr > minPR + 0.01)) {
       this.good = 0;
@@ -327,16 +337,23 @@ export class Post {
       this.cool = 3;
       let step;
       if (o.shadowEvery < 3) { o.shadowEvery++; step = `shadows every ${o.shadowEvery} frames`; } // (first: no rebuild, no freeze)
-      else if (o.shafts) { o.shafts = false; step = 'shafts off'; }
-      else if (o.ao && o.aoRes > 0.3) { o.aoRes = 0.3; o.aoSamples = 6; step = 'AO 0.3x'; }
+      else if (o.shafts) {
+        o.shafts = false; this.shaftScale = 0; this.shafts = 0; this.shaftK.value = 0;
+        if (this.rayRtts) for (const t of this.rayRtts) t.autoUpdate = false;
+        step = 'shafts off';
+      }
+      else if (o.ao && o.aoRes > 0.3) { o.aoRes = 0.3; step = 'AO 0.3x'; }
       else if (!this.lowSpec) { this.lowSpec = true; step = 'half grass, no LOD0'; }
-      else if (o.ao) { o.ao = false; step = 'AO off'; }
-      else if (o.bloom) { o.bloom = false; step = 'bloom off'; }
-      else if (o.grain || !o.lensLow) { o.grain = false; o.aa = 'fxaa'; o.lensLow = true; step = 'grain off, FXAA, cheap lens'; }
+      else if (o.ao) { o.ao = false; this.suspendAO(false); step = 'AO off'; }
+      else if (o.bloom) {
+        o.bloom = false; this.bloomScale.value = 0;
+        if (this.bloomPass) this.bloomPass.updateBeforeType = 'none';
+        step = 'bloom off';
+      }
+      else if (o.grain) { o.grain = false; this.grainK.value = 0; step = 'grain off'; }
       else return;
       this.steps = [...(this.steps || []), step];
       console.info(`low fps (${fps.toFixed(0)}): ${step}`);
-      if (step !== 'half grass, no LOD0' && !step.startsWith('shadows every')) this.build();
       return;
     }
     this.bad = 0;
@@ -351,13 +368,13 @@ export class Post {
   /** New time of day: bake its LUT and set its shaft strength. */
   setPreset(t) {
     bakeLut(this.lutTex, t.lut);
-    this.shafts = t.shafts || 0;
+    this.shafts = (t.shafts || 0) * this.shaftScale;
   }
 
   render(grade) {
     if (!this.enabled) { this.renderer.render(this.scene, this.camera); return; }
     this.grade.value.fromArray(grade);
-    if (this.bloomPass) this.bloomPass.strength.value = 0.24 + this.fxu.value.z;
+    if (this.bloomPass) this.bloomPass.strength.value = (0.24 + this.fxu.value.z) * this.bloomScale.value;
     // AO resolution is held at opts.aoRes of a CSS pixel: above 1x the extra device pixels add no AO detail (it is soft and
     // denoised) but its cost grows with them, and retina screens are where the GPU is slowest
     if (this.aoPass) {

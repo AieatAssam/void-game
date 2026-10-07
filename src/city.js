@@ -2,7 +2,7 @@
 // Static things are instanced per (asset, chunk) so off-screen chunks are culled;
 // movers are instanced per asset; animated landmarks are cloned with a mixer.
 import * as THREE from 'three/webgpu';
-import { Fn, uniformArray, uv, vec4, length, smoothstep, pow, If, Discard, positionWorld } from 'three/tsl';
+import { Fn, uniformArray, uv, vec4, length, smoothstep, pow, float, dot, If, Discard, positionWorld } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { groundMaterial, groundMaskMaterial, crumbleMaterial } from './surface.js';
 import { Terrain } from './terrain.js';
@@ -113,10 +113,11 @@ function aoMaterial(holeField) {
   mat.colorNode = Fn(() => {
     for (let i = 0; i < MAX_HOLES; i++) { // never darken the inside of a hole
       const h = holes.element(i);
-      If(h.z.greaterThan(0).and(length(positionWorld.xz.sub(h.xy)).lessThan(h.z)), () => { Discard(); });
+      const d = positionWorld.xz.sub(h.xy);
+      If(h.z.greaterThan(0).and(dot(d, d).lessThan(h.z.mul(h.z))), () => { Discard(); });
     }
     const d = length(uv().sub(0.5)).mul(2);
-    return vec4(0.1, 0.08, 0.12, pow(smoothstep(1, 0, d), 1.6).mul(0.42));
+    return vec4(0.1, 0.08, 0.12, pow(float(1).sub(smoothstep(0, 1, d)), 1.6).mul(0.42));
   })();
   return mat;
 }
@@ -1017,7 +1018,7 @@ export class City {
         const n = g.list.length;
         const seed = new THREE.InstancedBufferAttribute(new Float32Array(n), 1).setUsage(THREE.DynamicDrawUsage);
         if (!src.seeded || g.crumb) { // Phase 2 crumbs (vegetation, rocks, cows): keep their own material, just cull
-          cull = { src: new Float32Array(n * 16), seed, reach: Math.max(a.meta.height || 1, a.meta.tier * 2) * 1.6 + 2 };
+          cull = { src: new Float32Array(n * 16), seed, reach: Math.max(a.meta.height || 1, a.meta.tier * 2) * 1.6 + 2, revision: 0, packedRevision: -1, packedCells: -1 };
         } else {
         const wrap = (geo) => {
           const c = new THREE.BufferGeometry();
@@ -1081,6 +1082,7 @@ export class City {
     const aoList = this.entities.filter((e) => e.meta.tier < 6 && !e.mover?.crumb); // (Phase 2 crumbs: too many, too small)
     this.ao = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), aoMaterial(this.holeField), aoList.length + 64);
     this.ao.frustumCulled = false;
+    this.ao.visible = !Q.software; // Software GPUs spend milliseconds shading these subtle contact blobs.
     this.ao.renderOrder = 1;
     this.aoFree = [];
     aoList.forEach((e, i) => { e.ao = i; });
@@ -1158,7 +1160,7 @@ export class City {
     const near = lowSpec ? -1 : LOD_DIST[0] * K; // low-spec devices never draw LOD0
     // batched landmarks: LOD and shadows by distance like the chunks; bounds refit now and then (they spin, trains move)
     const refit = (this.batchT = (this.batchT || 0) + 1) % 15 === 1;
-    const lodOf = (d) => (d > LOD_DIST[1] * K ? 2 : d > near ? 1 : 0);
+    const lodOf = (d) => Q.software ? 2 : (d > LOD_DIST[1] * K ? 2 : d > near ? 1 : 0);
     const castD = 35 * K;
     for (const b of this.batches || []) {
       const m = b.mesh;
@@ -1186,7 +1188,7 @@ export class City {
         this.caster(m, u.geos, lodOf(d), d < castD);
         continue;
       }
-      m.visible = u.tier >= holeR * (this.tinyK ?? 0.03) && (!u.list || u.list.some((e) => e.alive)); // idle pools and eaten groups cost nothing
+      m.visible = u.tier >= holeR * (this.tinyK ?? (Q.software ? 0.08 : 0.03)) && (!u.list || u.list.some((e) => e.alive)); // idle pools and eaten groups cost nothing
       // roaming traffic spans the whole city, so it can't be distance-LOD'd per instance: mid detail, low when zoomed out
       const d = u.crumb ? (holeR > 16 ? 999 : 30 * K) : u.roams ? (holeR > 4 ? 999 : 30) : camera.position.distanceTo(m.boundingSphere.center) - m.boundingSphere.radius;
       m.geometry = u.geos[lodOf(d)];
@@ -1205,7 +1207,7 @@ export class City {
     camera.updateMatrixWorld();
     _cm.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     _fv.setFromProjectionMatrix(_cm, camera.coordinateSystem);
-    const sc = this.shadowCam;
+    const sc = Q.software ? null : this.shadowCam;
     if (sc) {
       sc.updateMatrixWorld();
       _cm.multiplyMatrices(sc.projectionMatrix, sc.matrixWorldInverse);
@@ -1259,9 +1261,16 @@ export class City {
       this.crumbCells = [...cells.values()];
     }
     const vis = this.crumbCells.filter((cell) => _fv.intersectsBox(cell.box) || (sc && _fs.intersectsBox(cell.box)));
+    const previous = this.crumbVisibleCells;
+    if (!previous || vis.length !== previous.length || vis.some((cell, i) => cell !== previous[i])) {
+      this.crumbVisibleCells = vis;
+      this.crumbVisibleRevision = (this.crumbVisibleRevision || 0) + 1;
+    }
     for (const m of groups) {
-      if (!m.visible) { m.count = 0; continue; }
-      const u = m.userData, c = u.cull, out = m.instanceMatrix.array, seeds = c.seed.array, list = u.list;
+      const u = m.userData, c = u.cull;
+      if (!m.visible) { m.count = 0; if (u.proxy) u.proxy.count = 0; c.packedRevision = c.packedCells = -1; continue; }
+      if (c.packedRevision === c.revision && c.packedCells === this.crumbVisibleRevision) continue;
+      const out = m.instanceMatrix.array, seeds = c.seed.array, list = u.list;
       let k = 0;
       for (const cell of vis) {
         const idx = cell.lists.get(m);
@@ -1277,6 +1286,8 @@ export class City {
       if (u.proxy) u.proxy.count = k;
       upload(m.instanceMatrix, k * 16);
       upload(c.seed, k);
+      c.packedRevision = c.revision;
+      c.packedCells = this.crumbVisibleRevision;
     }
   }
 
@@ -1285,6 +1296,7 @@ export class City {
    * silhouette at shadow-map resolution, a quarter of the triangles in the shadow pass. Farther LODs cast as drawn.
    */
   caster(m, geos, lod, cast) {
+    if (Q.software) { m.castShadow = false; if (m.userData.proxy) m.userData.proxy.visible = false; return; }
     if (m.userData.tier < Q.minCasterTier) cast = false; // (Safari: small props don't cast; AO grounds them. Its shadow pass is dear)
     const p = m.userData.proxy;
     if (!p) { m.castShadow = cast; return; }
@@ -1353,7 +1365,18 @@ export class City {
       return;
     }
     const cull = e.mesh.userData.cull;
-    if (cull) _m.compose(_p, _q, _s).toArray(cull.src, e.index * 16); // packed into the mesh by cullTraffic
+    if (cull) {
+      const matrix = _m.compose(_p, _q, _s);
+      if (e.mesh.userData.crumb) {
+        const offset = e.index * 16, values = matrix.elements;
+        for (let i = 0; i < 16; i++) {
+          if (Math.fround(values[i]) === cull.src[offset + i]) continue;
+          matrix.toArray(cull.src, offset);
+          cull.revision++;
+          break;
+        }
+      } else matrix.toArray(cull.src, e.index * 16); // packed into the mesh by cullTraffic
+    }
     else {
       e.mesh.setMatrixAt(e.index, _m.compose(_p, _q, _s));
       this.dirty.add(e.mesh);

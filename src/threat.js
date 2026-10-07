@@ -8,7 +8,7 @@
 import * as THREE from 'three/webgpu';
 import { attribute, vec3, vec4, float, positionLocal, normalView, normalWorld, mx_noise_float, mix, smoothstep, pow, abs, exp, uniform } from 'three/tsl';
 import { R } from './planetgen.js';
-import { P3, TIERS, T3, slowBeat } from './phase3.js';
+import { P3, TIERS, T3, slowBeat, growthK } from './phase3.js';
 import { sunDir } from './look.js';
 import { Rivals } from './planetrival.js';
 import { makeLaser } from './threat/laser.js';
@@ -30,7 +30,7 @@ export const sealedCss = `#sealed{position:fixed;inset:0;z-index:50;display:flex
 #sealed button{font:800 17px system-ui;padding:12px 26px;border-radius:999px;border:0;cursor:pointer;background:#c9a8ff;color:#1b0b3a;box-shadow:0 3px 0 #0006}#sealed button.alt{background:#fff3dd}
 @keyframes sealin{to{opacity:1}}
 #sealed.won h1{color:#c9a8ff;text-shadow:0 0 30px #8a5cffaa;font-size:clamp(32px,7vw,72px)}#sealed table{border-collapse:collapse;font-size:15px;opacity:.92}#sealed td{padding:3px 14px;text-align:left}#sealed td+td{text-align:right;font-weight:800;color:#e8dcff}
-#threat{position:fixed;left:50%;transform:translateX(-50%);z-index:6;pointer-events:none;display:flex;gap:10px;align-items:center;padding:6px 16px;border-radius:999px;font:800 13px system-ui,sans-serif;letter-spacing:.07em;color:#fff3dd;background:#2a0a14e6;box-shadow:0 0 0 1.5px #ff5a4799,0 0 22px #ff2a1a55;transition:opacity .2s;white-space:nowrap}
+#threat{position:fixed;left:50%;transform:translateX(-50%);z-index:6;pointer-events:none;display:flex;flex-wrap:wrap;justify-content:center;gap:4px 10px;box-sizing:border-box;width:max-content;max-width:calc(100vw - 24px);padding:6px 16px;border-radius:18px;font:800 clamp(11px,3.3vw,13px) system-ui,sans-serif;letter-spacing:.07em;text-align:center;color:#fff3dd;background:#2a0a14e6;box-shadow:0 0 0 1.5px #ff5a4799,0 0 22px #ff2a1a55;transition:opacity .2s;white-space:normal;overflow-wrap:anywhere}
 #threat[hidden]{display:none}#threat b{color:#ffb27a}#threat.lock{background:#6a0612f0;box-shadow:0 0 0 2px #ff6a58,0 0 30px #ff2a1a99;animation:thr .5s infinite alternate}#threat.good{background:#2a1260ee;box-shadow:0 0 0 2px #c9a8ff,0 0 26px #8a5cff88}
 @keyframes thr{to{transform:translateX(-50%) scale(1.04)}}
 #fxflash{position:fixed;inset:0;z-index:5;pointer-events:none;opacity:0;background:#fff}`;
@@ -45,7 +45,7 @@ export class Threat {
   constructor(game, ctx) {
     this.game = game; this.ctx = ctx; this.W = game.world; this.hole = ctx.hole; this.state = ctx.state; this.sfx = ctx.sfx;
     this.uid = 0; this.t = 0; this.budget = 3; this.noto = 0; this.quiet = 0; this.defcon = 5; this.base = 5; this.cool = {}; this.last = '';
-    this.hT = new Float32Array(24).fill(-99); this.hF = new Float32Array(24); this.hN = 0; this.cont = {}; // (the mercy window: a preallocated ring of [time, fraction])
+    this.mercyEvents = []; this.mercyHead = 0; this.mercyTotal = 0; this.cont = {};
     this.tAdd = 0; this.slots = { z: 0, s: 0 }; this.eventsHold = false; this.disabled = qs.has('noarmy') || qs.has('nothreat'); this.sealOn = !this.disabled;
     this.stats = { ...STATS0 };
     this.K = []; this.byName = {}; this.cand = []; this.sites = []; this.nukes = []; this.lances = []; this.strafes = []; this.fall = []; this.seal = null; this.siteT = 4;
@@ -63,7 +63,7 @@ export class Threat {
     this.root = new THREE.Group(); this.root.name = 'threats'; W.globe.group.add(this.root);
     this.glow = new Pool(260, true); this.smoke = new Pool(1200, false);
     ctx.scene.add(this.glow.sprite, this.smoke.sprite);
-    this.glow.sprite.visible = this.smoke.sprite.visible = !!this.game.entered; // (prepared under Phase 2: the pools stay hidden until the swap, show())
+    this.glow.sprite.visible = this.smoke.sprite.visible = false; // show() reveals live effects after the Phase 2 handoff; flush hides empty pools
     const model = this.model = (name) => { const o = assets[name].scene.clone(true); o.traverse((m) => { if (m.isMesh) { m.castShadow = m.receiveShadow = false; m.frustumCulled = false; } }); o.visible = false; this.root.add(o); return o; };
     for (let i = 0; i < 6; i++) { // (3 with a mushroom cloud; 3 "light" ones for the MIRV warheads: fireball and smoke only, no extra pipeline)
       let mush = null;
@@ -149,9 +149,15 @@ export class Threat {
   /** A tracked hitstop / slow-mo beat. The slow tail eases out on a raw-time clock. */
   beat(hitstop, slow = 1, secs = 0) { const st = this.state; st.hitstop = Math.max(st.hitstop || 0, hitstop); if (slow < 1) slowBeat(st, slow, secs + 0.3 / slow); }
 
-  // the mercy window (§5.1): <= 25% of the area in any 30 s, kept in a preallocated ring of [time, fraction]
-  mercySum() { let s = 0; for (let i = 0; i < 24; i++) if (this.t - this.hT[i] < 30) s += this.hF[i]; return s; }
-  mercyPush(f) { const i = this.hN = (this.hN + 1) % 24; this.hT[i] = this.t; this.hF[i] = f; }
+  // Mercy window (§5.1): keep every accepted damage event for its full 30 s.
+  mercySum() {
+    const events = this.mercyEvents;
+    while (this.mercyHead < events.length && this.t - events[this.mercyHead][0] >= 30) this.mercyTotal -= events[this.mercyHead++][1];
+    if (this.mercyHead === events.length) { events.length = 0; this.mercyHead = 0; this.mercyTotal = 0; }
+    else if (this.mercyHead > 128 && this.mercyHead * 2 >= events.length) { events.splice(0, this.mercyHead); this.mercyHead = 0; }
+    return this.mercyTotal;
+  }
+  mercyPush(f) { this.mercyEvents.push([this.t, f]); this.mercyTotal += f; }
   /** The audit: every damaging event says how long its telegraph was visible and fixed; under 1.5 s (or not drawn at all) counts as unfair (stats.unfair, a column in the sweep). */
   fair(age, what = '') { if (!(age >= 1.45)) { this.stats.unfair++; (this.unfairLog ??= []).length < 12 && this.unfairLog.push(`${what}@${this.t.toFixed(0)}s ${Number.isFinite(age) ? age.toFixed(2) : 'undrawn'}`); } }
   /** A bonus (area x (1 + frac)): one place, so the sweep's "bonus" column sees every kind. */
@@ -179,20 +185,22 @@ export class Threat {
     this.mercyPush(frac); this.fair(fairAge, key);
     const a0 = hole.area; hole.area *= 1 - frac;
     const L = state.ledger; L[key] = (L[key] || 0) + (hole.area - a0); L.dmg = (L.dmg || 0) + (hole.area - a0); this.stats.loss += frac; this.stats.hits++; (this.stats.by ??= {})[key] = (this.stats.by[key] || 0) + 1; { const hb = state.hitsByTier ??= {}, tt = P3.tier(hole.r); hb[tt] = (hb[tt] || 0) + 1; }
+    this.game.combo = 0; this.game.comboAt = -9;
     this.trauma(0.2 + 2 * frac);
-    state.stun = Math.min(14, Math.max(state.stun || 0, T3.stunBase + T3.stunK * frac) + 0.5 * (state.stun || 0)); // (P0-1: a hit costs the land clock: seconds at 0.35x speed, compounding on a wound that is still open)
-    if ((state.wound = Math.min(T3.woundMax, (state.wound || 0) + T3.woundAdd + T3.woundK * frac)) > 0.4 && !this.woundHint) { this.woundHint = 1; this.ctx.hint('Wounded — slower until it heals: dodge the next one'); } // (P0-1: the wounds stack, so a player who never dodges is permanently hobbled)
+    state.stun = Math.min(14, Math.max(state.stun || 0, T3.stunBase + T3.stunK * frac) + 0.5 * (state.stun || 0)); // the lower G credit compounds while a wound remains open
+    if ((state.wound = Math.min(T3.woundMax, (state.wound || 0) + T3.woundAdd + T3.woundK * frac)) > 0.4 && !this.woundHint) { this.woundHint = 1; this.ctx.hint('Wounded — hits cost size: dodge the next one'); }
     this.ctx.flash(why);
     this.painHit(frac, why, from);
     return frac;
   }
-  /** Damage over time (a beam): `rate` is the fraction per second at least, `k` seconds of income per second; applied every frame, booked into the mercy window every 0.4 s. */
+  /** Damage over time (a beam): `rate` is the fraction per second at least, `k` seconds of income per second; audited for fairness every 0.4 s. */
   hurtCont(rate, dt, why, key, k = 0, fairAge = 9, from = null) {
-    const { hole, state } = this, c = this.cont[key] ??= { acc: 0, t: -9, hint: -9, fxAcc: 0 };
+    const { hole, state } = this, c = this.cont[key] ??= { t: -9, hint: -9, fxAcc: 0 };
     let f = Math.max(rate, k ? k * (state.gRate || 0) / hole.area : 0) * dt * (state.mods?.hurt ?? 1);
-    if (this.mercySum() + c.acc + f > 0.25 + 1e-9) { if (this.t - c.hint > 2) { c.hint = this.t; this.stats.mercy++; this.stats.near++; this.ctx.pain?.nearMiss(); this.ctx.hint('Near miss — the world blinks'); } return 0; }
-    const a0 = hole.area; hole.area *= 1 - f; c.acc += f; c.fxAcc += f; const L = state.ledger; L[key] = (L[key] || 0) + (hole.area - a0); L.dmg = (L.dmg || 0) + (hole.area - a0); this.stats.loss += f; state.stun = Math.max(state.stun || 0, T3.stunBase * 0.4);
-    if (this.t - c.t > 0.4) { this.mercyPush(c.acc); c.acc = 0; c.t = this.t; this.fair(fairAge, key); }
+    if (this.mercySum() + f > 0.25 + 1e-9) { if (this.t - c.hint > 2) { c.hint = this.t; this.stats.mercy++; this.stats.near++; this.ctx.pain?.nearMiss(); this.ctx.hint('Near miss — the world blinks'); } return 0; }
+    this.mercyPush(f); const a0 = hole.area; hole.area *= 1 - f; c.fxAcc += f; const L = state.ledger; L[key] = (L[key] || 0) + (hole.area - a0); L.dmg = (L.dmg || 0) + (hole.area - a0); this.stats.loss += f; state.stun = Math.max(state.stun || 0, T3.stunBase * 0.4);
+    if (f > 0) { this.game.combo = 0; this.game.comboAt = -9; }
+    if (this.t - c.t > 0.4) { c.t = this.t; this.fair(fairAge, key); }
     if (this.t - (c.fx ?? -9) > 0.9) { c.fx = this.t; this.trauma(0.12); this.ctx.flash(why); this.stats.hits++; (this.stats.by ??= {})[key] = (this.stats.by[key] || 0) + 1; { const hb = state.hitsByTier ??= {}, tt = P3.tier(hole.r); hb[tt] = (hb[tt] || 0) + 1; } this.painHit(c.fxAcc, why, from, true); c.fxAcc = 0; }
     return f;
   }
@@ -795,7 +803,7 @@ export class Threat {
     for (const s of this.sites) this.dropSite(s);
     this.sites.length = 0;
     if (this.seal) this.zoneFree(this.seal.zone); this.seal = null; this.lid.visible = false; document.getElementById('sealed')?.remove();
-    this.hT.fill(-99); this.hF.fill(0); this.cont = {}; this.budget = 3; this.noto = 0; for (const k of this.K) this.cool[k.name] = k.cool0 ?? 8; this.siteT = 4; this.t = 0; this.tAdd = 0; this.unfairLog = null;
+    this.mercyEvents.length = 0; this.mercyHead = 0; this.mercyTotal = 0; this.cont = {}; this.budget = 3; this.noto = 0; for (const k of this.K) this.cool[k.name] = k.cool0 ?? 8; this.siteT = 4; this.t = 0; this.tAdd = 0; this.unfairLog = null;
     this.state.frenzy = 0; this.state.fallout = false; this.state.surge = false; this.state.magma = 0; this.state.rubble = false; this.state.ash = false;
     const u = this.W.globe.u; for (let i = 0; i < 20; i++) u.uZoneP[i].value.y = 0; for (let i = 0; i < NS; i++) u.uScarP[i].value.y = 0; for (let i = 0; i < NZ; i++) this.zoneUsed[i] = false; u.uStrafeP.value.x = 0;
     this.glow.age.fill(9); this.smoke.age.fill(9); for (const q of this.domes) { q.t = q.life; q.mesh.visible = false; } for (const q of this.lights) q.t = 99; Object.assign(this.fx, { w: 0, warm: 0, bloom: 0 });
@@ -813,6 +821,8 @@ export class Threat {
     else if (!txt && state.magma > 0) { txt = `MAGMA SURGE · land counts ×${T3.kinds.volcano.surge} · <b>${state.magma.toFixed(0)} s</b>`; cls = 'good'; }
     else if (!txt && state.fallout) { txt = 'FALLOUT · hunger ×1.8 · land ×0.5'; }
     else if (!txt && state.surge) { txt = 'HUNGER SURGE · land counts ×1.5'; cls = 'good'; }
+    const landGrowth = growthK(state) * (state.fallout ? T3.falloutLand : 1);
+    if (landGrowth < 1) txt = `${txt}${txt ? ' · ' : ''}GROWTH ×${Math.round(landGrowth * 100)}%`;
     const el = this.lineEl; el.hidden = !txt || !state.playing && !this.seal;
     if (!el.hidden) { if (el.dataset.t !== txt) { el.innerHTML = txt; el.dataset.t = txt; } if (el.className !== cls) el.className = cls; const hud = document.getElementById('hud'); el.style.top = `${(hud ? hud.getBoundingClientRect().bottom : 44) + 8}px`; }
   }

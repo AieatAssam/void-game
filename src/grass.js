@@ -53,16 +53,16 @@ export class Grass {
     this.lawns = lawns; // tile centres that are mostly lawn (parks): used to tell which way up the readback came
     this.extent = extent;
     this.group = new THREE.Group();
-    if (density > 0) { // no blades: no mask target, no mask pass
-      this.mask = new THREE.RenderTarget(MASK_RES, MASK_RES, { type: THREE.HalfFloatType, depthBuffer: true });
-      this.mask.texture.minFilter = this.mask.texture.magFilter = THREE.LinearFilter;
-      this.renderMask(renderer, groundMeshes, this.mask);
-      // Blades used to be spawned on every patch round the camera and scaled to nothing over roads, roofs and plazas
-      // (in town most of them). A small readback tells which 12 m patches hold any grass, so only those get blades.
-      const cover = new THREE.RenderTarget(COVER_RES, COVER_RES, { type: THREE.UnsignedByteType, depthBuffer: true });
-      this.renderMask(renderer, groundMeshes, cover);
-      renderer.readRenderTargetPixelsAsync(cover, 0, 0, COVER_RES, COVER_RES).then((px) => this.buildCoverage(px)).catch(() => {}).finally(() => cover.dispose());
-    }
+    if (density <= 0) { this.layers = []; this.disabled = true; return; } // software profile: no mask, readback, uniforms or blades
+    this.maskRes = Q.tier === 'low' ? 1024 : MASK_RES;
+    this.coverRes = Q.tier === 'low' ? 256 : COVER_RES;
+    this.mask = new THREE.RenderTarget(this.maskRes, this.maskRes, { type: THREE.HalfFloatType, depthBuffer: true });
+    this.mask.texture.minFilter = this.mask.texture.magFilter = THREE.LinearFilter;
+    this.renderMask(renderer, groundMeshes, this.mask);
+    // A small readback tells which 12 m patches hold any grass, so only those get blades.
+    const cover = new THREE.RenderTarget(this.coverRes, this.coverRes, { type: THREE.UnsignedByteType, depthBuffer: true });
+    this.renderMask(renderer, groundMeshes, cover);
+    renderer.readRenderTargetPixelsAsync(cover, 0, 0, this.coverRes, this.coverRes).then((px) => this.buildCoverage(px)).catch(() => {}).finally(() => cover.dispose());
     this.origin = uniform(new THREE.Vector2());
     this.fadeCentre = uniform(new THREE.Vector2());
     this.fadeFar = uniform(40);
@@ -84,7 +84,7 @@ export class Grass {
    * in opposite orders (GL bottom-up, WebGPU top-down); the known lawn tiles decide which way up it is.
    */
   buildCoverage(px) {
-    const N = COVER_RES, grid = new Uint8Array(N * N);
+    const N = this.coverRes, grid = new Uint8Array(N * N);
     for (let i = 0; i < N * N; i++) grid[i] = px[i * 4] > 8 ? 1 : 0;
     const per = N / (2 * this.extent);
     const at = (x, z, flip) => {
@@ -179,7 +179,7 @@ export class Grass {
     // clumps: blades bunch up and share height, so lawns don't look like carpet
     const clump = hash(wxz.mul(0.9).floor().add(4096).dot(vec2(1, 8192)));
     const wild = m.b;
-    const fade = smoothstep(fadeFar, fadeFar.mul(0.72), length(wxz.sub(fadeCentre))).mul(zoomFade);
+    const fade = float(1).sub(smoothstep(fadeFar.mul(0.72), fadeFar, length(wxz.sub(fadeCentre)))).mul(zoomFade);
     const keep = h3.lessThan(m.r.mul(0.98));
     // (half the old height: long blades read as a shag carpet)
     const bladeH = mix(mix(0.1, 0.16, clump), mix(0.2, 0.4, h4), wild).mul(h4.mul(0.5).add(0.75)).mul(fade).mul(keep.select(1, 0));
@@ -235,6 +235,7 @@ export class Grass {
 
   /** Follow the camera target; patches snap to the patch grid so blades never swim. Zoomed-out = fewer blades. */
   update(target, camDist, lowSpec, camera) {
+    if (this.disabled) return;
     this.origin.value.set(Math.floor(target.x / PATCH) * PATCH, Math.floor(target.z / PATCH) * PATCH);
     this.fadeCentre.value.set(target.x, target.z);
     this.fadeFar.value = Math.min(66, 26 + camDist * 0.55);
@@ -292,4 +293,3 @@ export class Grass {
     for (const l of this.layers) { l.geometry.dispose(); l.material.dispose(); }
   }
 }
-

@@ -150,7 +150,11 @@ export class Region extends City {
     g.crumbs = g.entities.filter((e) => e.mover?.crumb);
     g.entities = g.entities.filter((e) => !e.mover?.crumb);
     g.crumbGrid = new Map();
+    g.crumbBounds = { minX: Infinity, minZ: Infinity, maxX: -Infinity, maxZ: -Infinity };
     for (const e of g.crumbs) {
+      const cx = Math.floor(e.x / 64), cz = Math.floor(e.z / 64), b = g.crumbBounds;
+      b.minX = Math.min(b.minX, cx); b.maxX = Math.max(b.maxX, cx);
+      b.minZ = Math.min(b.minZ, cz); b.maxZ = Math.max(b.maxZ, cz);
       const k = g.cellKey(e.x, e.z);
       if (!g.crumbGrid.has(k)) g.crumbGrid.set(k, []);
       g.crumbGrid.get(k).push(e);
@@ -532,7 +536,7 @@ export class Region extends City {
         pos.push(x + nx * off0, y, z + nz * off0, x + nx * off1, y, z + nz * off1);
         uvs.push(...UV[sw], ...UV[sw]);
         const on = !dash || Math.floor(run / dash) % 2 === 0;
-        if (prev >= 0 && on) idx.push(prev, b, prev + 1, prev + 1, b, b + 1);
+        if (prev >= 0 && on) idx.push(prev, prev + 1, b, prev + 1, b + 1, b);
         prev = b;
       }
     };
@@ -632,25 +636,25 @@ export class Region extends City {
   }
 
   /**
-   * What the ground under the hole does to it (docs/PHASE2.md §6): roads are fast lanes, soft farmland a little quicker,
-   * woods and marsh slower, open water much slower (the hole drains it). Returns a speed factor; .surface names it.
+   * What the ground under the hole does to it (docs/PHASE2.md §6): roads and soft farmland are fast lanes. Other ground
+   * remains full speed; travel penalties come from hunger and damage, not the surface. .surface names it.
    */
   surfaceSpeed(x, z) {
     const t = this.terrain;
     let k = 1, name = null;
     if (Math.max(Math.abs(x), Math.abs(z)) < this.half) return 1; // the hometown
     if (t.roadDist(x, z) < 7) { k = 1.35; name = 'Road: full speed'; }
-    else if (this.groundY(x, z) < t.water + 0.2) { k = 0.72; name = 'Draining the water: slow'; }
-    else if (t.river && t.riverDist(x, z) < 14) { k = 0.82; name = 'Marsh: slow'; }
-    else if (t.forest(x, z) > 0.5) { k = 0.88; name = 'Woodland'; }
+    else if (this.groundY(x, z) < t.water + 0.2) name = 'Water';
+    else if (t.river && t.riverDist(x, z) < 14) name = 'Marsh';
+    else if (t.forest(x, z) > 0.5) name = 'Woodland';
     else if (t.fieldAt(x, z)) { k = 1.1; name = 'Soft farmland'; }
     this.surface = name;
     return k;
   }
 
-  /** The ground plane under a hole's disc (for its rim on the hills): mean height and slope, capped at ~25 degrees. */
+  /** Slope for the rendered hole rim; terrain affects its shape, not travel speed. */
   groundTilt(x, z, r) {
-    if (Math.abs(x) < this.half + r && Math.abs(z) < this.half + r) return null; // the town's flat tiles
+    if (Math.abs(x) < this.half + r && Math.abs(z) < this.half + r) return null;
     const t = this.terrain, e = Math.max(4, r * 0.8);
     const hx0 = t.sampleH(x - e, z), hx1 = t.sampleH(x + e, z), hz0 = t.sampleH(x, z - e), hz1 = t.sampleH(x, z + e);
     const k = Math.min(1, 0.47 / (Math.hypot(hx1 - hx0, hz1 - hz0) / (2 * e) || 1));
@@ -735,8 +739,9 @@ export class Region extends City {
       const q = holes[h];
       if (q.hidden || (h === 0 && jammed) || !(q.r > 0)) continue;
       const R = q.r * (q.pull || 1);
-      for (let cx = Math.floor((q.x - R) / 64); cx <= Math.floor((q.x + R) / 64); cx++) {
-        for (let cz = Math.floor((q.z - R) / 64); cz <= Math.floor((q.z + R) / 64); cz++) {
+      const b = this.crumbBounds;
+      for (let cx = Math.max(Math.floor((q.x - R) / 64), b.minX); cx <= Math.min(Math.floor((q.x + R) / 64), b.maxX); cx++) {
+        for (let cz = Math.max(Math.floor((q.z - R) / 64), b.minZ); cz <= Math.min(Math.floor((q.z + R) / 64), b.maxZ); cz++) {
           const list = this.crumbGrid.get(cx * 4096 + cz);
           if (!list) continue;
           for (const e of list) {

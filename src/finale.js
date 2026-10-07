@@ -29,14 +29,14 @@ const CSS = `
 #finbars i{position:fixed;left:0;right:0;height:0;background:#000;z-index:30;pointer-events:none}#finbars i:first-child{top:0}#finbars i:last-child{bottom:0}
 #finflash{position:fixed;inset:0;z-index:31;pointer-events:none;opacity:0;background:#fff}
 #fincard::before{content:'';position:fixed;left:0;right:0;bottom:0;height:46vh;background:linear-gradient(transparent,#000b 60%);z-index:-1}
-#fincard{position:fixed;left:0;right:0;bottom:9vh;z-index:32;display:flex;flex-direction:column;align-items:center;gap:10px;pointer-events:none;text-align:center;font-family:system-ui,sans-serif;color:#eef0ff;opacity:0;transition:opacity 2.4s ease}
+#fincard{position:fixed;left:0;right:0;bottom:calc(9vh + env(safe-area-inset-bottom));z-index:32;display:flex;flex-direction:column;align-items:center;gap:10px;pointer-events:none;text-align:center;font-family:system-ui,sans-serif;color:#eef0ff;opacity:0;transition:opacity 2.4s ease}
 #fincard.on{opacity:1}#fincard h1{margin:0;font:300 clamp(26px,5.4vw,64px)/1 system-ui,sans-serif;letter-spacing:.34em;padding-left:.34em;text-shadow:0 0 40px #8a5cff77,0 2px 0 #0008}
 #fincard .st{font:600 clamp(11px,1.5vw,16px)/1.4 system-ui,sans-serif;letter-spacing:.3em;color:#c9cbe8;text-transform:uppercase}#fincard .st b{color:#fff;font-weight:800}
 #fincard .tz{font:italic 300 clamp(13px,1.8vw,19px)/1.4 Georgia,serif;letter-spacing:.06em;color:#a9a6d6;margin-top:6px;opacity:0;transition:opacity 3s ease 1.6s}#fincard.on .tz{opacity:1}
-#finbtn{display:flex;gap:12px;margin-top:14px;pointer-events:auto;opacity:0;transition:opacity 1.6s ease}#finbtn.on{opacity:1}
-#finbtn button{font:700 14px system-ui,sans-serif;letter-spacing:.12em;padding:11px 22px;border-radius:999px;border:1.5px solid #8a7cff99;background:#120a2acc;color:#e8dcff;cursor:pointer;text-transform:uppercase}
+#finbtn{display:flex;flex-wrap:wrap;justify-content:center;gap:12px;margin-top:14px;max-width:calc(100vw - 32px - env(safe-area-inset-left) - env(safe-area-inset-right));pointer-events:auto;opacity:0;transition:opacity 1.6s ease}#finbtn.on{opacity:1}
+#finbtn button{min-height:44px;font:700 14px system-ui,sans-serif;letter-spacing:.12em;padding:11px 22px;border-radius:999px;border:1.5px solid #8a7cff99;background:#120a2acc;color:#e8dcff;cursor:pointer;text-transform:uppercase}
 #finbtn button:hover{background:#2a1670dd;border-color:#c9a8ff}#finbtn button.pri{background:linear-gradient(#6a48e8,#4a2cc0);border-color:#c9a8ff;color:#fff}
-#finskip{position:fixed;right:18px;bottom:16px;z-index:33;font:600 12px system-ui,sans-serif;letter-spacing:.14em;color:#9a98c4;background:#0a0618aa;padding:6px 12px;border-radius:999px;cursor:pointer;opacity:0;transition:opacity .6s;pointer-events:none}#finskip.on{opacity:.8;pointer-events:auto}`;
+#finskip{position:fixed;right:max(18px,env(safe-area-inset-right));bottom:max(16px,env(safe-area-inset-bottom));z-index:33;display:flex;align-items:center;justify-content:center;min-height:44px;box-sizing:border-box;font:600 12px system-ui,sans-serif;letter-spacing:.14em;color:#9a98c4;background:#0a0618aa;padding:10px 14px;border-radius:999px;cursor:pointer;opacity:0;transition:opacity .6s;pointer-events:none}#finskip.on{opacity:.8;pointer-events:auto}`;
 
 const tmStr = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 
@@ -92,7 +92,7 @@ export class Finale {
 
   constructor(game, ctx, p) {
     Object.assign(this, p);
-    this.game = game; this.ctx = ctx; this.W = game.world; this.g = this.W.globe; this.post = ctx.post;
+    this.game = game; this.ctx = ctx; this.W = game.world; this.g = this.W.globe; this.post = ctx.post; this.canvas = ctx.renderer.domElement;
     this.t = 0; this.over = false; this.started = false; this.did = new Set(); this.news = false; this.shake = 0; this.pulse = 0;
     this.cam = { free: true, pos: new THREE.Vector3(), look: new THREE.Vector3(), fov: ctx.baseFov, roll: 0, dist: 1e7, aimK: 0, aimF: 0 };
     this.raw = 0; this.swallowed = 0; this.mass = 0; this.silent = false;
@@ -142,20 +142,36 @@ export class Finale {
     const el = (tag, id, parent = doc.body) => parent.appendChild(Object.assign(doc.createElement(tag), { id }));
     this.bars = el('div', 'finbars'); this.bars.append(doc.createElement('i'), doc.createElement('i'));
     this.flashEl = el('div', 'finflash'); this.cardEl = el('div', 'fincard'); this.btnEl = el('div', 'finbtn', this.cardEl); this.skipEl = el('div', 'finskip'); this.skipEl.textContent = 'SKIP ›';
-    this.skipEl.onclick = () => this.skip();
+    this.skipEl.onclick = () => this.t >= FT.title ? this.toggleControls() : this.skip();
     this.started = true; this.t = 0; this.did.clear(); this.shake = 0.25; this.w = 0; this.warm = 0; this.bloom = 0;
     this.skippable = !!save.finaleSeen || /[?&]finale\b/.test(location.search);
     this.keyH = (e) => {
       if ((e.key === 'Escape' || e.key === ' ' || e.key === 'Enter') && this.skippable && this.t < FT.title) { e.preventDefault(); this.skip(); }
-      else if (e.key === 'Escape' && this.t >= FT.title) { const on = !this.cardEl.classList.contains('on'); this.cardEl.classList.toggle('on', on); this.btnEl.classList.toggle('on', on); } // (the hold's free look: Esc brings the card back)
+      else if (e.key === 'Escape' && this.t >= FT.title) this.toggleControls(); // (the hold's free look: Esc brings the card back)
     };
     addEventListener('keydown', this.keyH);
-    // the free-look of the hold: drag to orbit
-    this.drag = { on: false, x: 0, y: 0, yaw: 0, el: 0 };
-    this.mdown = (e) => { if (this.t >= FT.title && !e.target.closest('button')) { this.drag.on = true; this.drag.x = e.clientX; this.drag.y = e.clientY; } };
-    this.mmove = (e) => { if (this.drag.on) { this.drag.yaw -= (e.clientX - this.drag.x) * 0.004; this.drag.el = clamp(this.drag.el + (e.clientY - this.drag.y) * 0.003, -0.3, 0.55); this.drag.x = e.clientX; this.drag.y = e.clientY; } };
-    this.mup = () => { this.drag.on = false; };
-    addEventListener('mousedown', this.mdown); addEventListener('mousemove', this.mmove); addEventListener('mouseup', this.mup);
+    // The free-look of the hold works with a captured mouse or touch pointer.
+    this.drag = { on: false, id: null, x: 0, y: 0, yaw: 0, el: 0 };
+    this.pdown = (e) => {
+      if (this.t < FT.title || this.drag.on || (e.pointerType === 'mouse' && e.button !== 0) || e.target.closest('button, #finskip')) return;
+      this.drag.on = true; this.drag.id = e.pointerId; this.drag.x = e.clientX; this.drag.y = e.clientY;
+      this.canvas.setPointerCapture(e.pointerId);
+    };
+    this.pmove = (e) => {
+      if (this.drag.on && e.pointerId === this.drag.id) {
+        this.drag.yaw -= (e.clientX - this.drag.x) * 0.004;
+        this.drag.el = clamp(this.drag.el + (e.clientY - this.drag.y) * 0.003, -0.3, 0.55);
+        this.drag.x = e.clientX; this.drag.y = e.clientY;
+      }
+    };
+    this.pup = (e) => { if (e.pointerId === this.drag.id) { this.drag.on = false; this.drag.id = null; } };
+    this.blur = () => { this.drag.on = false; this.drag.id = null; };
+    this.canvas.addEventListener('pointerdown', this.pdown);
+    this.canvas.addEventListener('pointermove', this.pmove);
+    this.canvas.addEventListener('pointerup', this.pup);
+    this.canvas.addEventListener('pointercancel', this.pup);
+    this.canvas.addEventListener('lostpointercapture', this.pup);
+    addEventListener('blur', this.blur);
     const { top, cut, core, streaks, bh } = this;
     g.globe.visible = false; top.visible = cut.visible = core.visible = streaks.mesh.visible = true; this.diskGlow.visible = false;
     state.playing = false; state.asc = this;
@@ -323,6 +339,12 @@ export class Finale {
     save.finaleSeen = true; persist();
   }
 
+  toggleControls(on = !this.cardEl.classList.contains('on')) {
+    this.cardEl.classList.toggle('on', on); this.btnEl.classList.toggle('on', on);
+    this.skipEl.textContent = on ? 'HIDE CONTROLS' : 'SHOW CONTROLS';
+    this.skipEl.classList.add('on');
+  }
+
   /** Skip (after the first completion): straight to the hold, silently. */
   skip() {
     if (this.over || this.t >= FT.title) return;
@@ -345,7 +367,10 @@ export class Finale {
 
   /** Put the world back as it was before the finale (a sweep resets and runs again in the same page; also the end of the debug view). */
   dispose() {
-    removeEventListener('keydown', this.keyH); removeEventListener('mousedown', this.mdown); removeEventListener('mousemove', this.mmove); removeEventListener('mouseup', this.mup);
+    removeEventListener('keydown', this.keyH); removeEventListener('blur', this.blur);
+    this.canvas?.removeEventListener('pointerdown', this.pdown); this.canvas?.removeEventListener('pointermove', this.pmove);
+    this.canvas?.removeEventListener('pointerup', this.pup); this.canvas?.removeEventListener('pointercancel', this.pup); this.canvas?.removeEventListener('lostpointercapture', this.pup);
+    if (this.drag?.id != null && this.canvas?.hasPointerCapture(this.drag.id)) this.canvas.releasePointerCapture(this.drag.id);
     for (const e of [this.bars, this.flashEl, this.cardEl, this.skipEl]) e?.remove();
     const { state } = this.ctx, g = this.g, W = this.W;
     if (state.asc === this) state.asc = null;

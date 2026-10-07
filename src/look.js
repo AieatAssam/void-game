@@ -37,13 +37,14 @@ export async function createRenderer(canvas) {
     trackTimestamp: /[?&]fps\b/.test(location.search) });
   // start at 1x: post.js's dynamic resolution climbs toward the tier's ceiling while frames hold 60 (a laptop GPU measured
   // 28 fps at 1.5x and 41 at 1x behind the menu: starting high meant a stuttery first impression while it stepped down)
-  renderer.setPixelRatio(+(new URLSearchParams(location.search).get('pr')) || Math.min(devicePixelRatio, Q.dpr, 1)); // (?pr=2 forces a ratio: pricing runs with ?nowatch)
+  const requestedPR = +(new URLSearchParams(location.search).get('pr')) || Math.min(devicePixelRatio, Q.dpr, 1); // (?pr=2 forces a ratio: pricing runs with ?nowatch)
+  renderer.setPixelRatio(Q.software ? Math.min(requestedPR, Math.sqrt(Q.pixelBudget / (innerWidth * innerHeight))) : requestedPR);
   // Unreal-style filmic curve: rich toe, soft highlight shoulder. AgX was evaluated per time of day (?tone=agx):
   // it greys out the saturated toy paint in the brights, so ACES stays for every preset (the LUTs do the rest).
   const agx = typeof location !== 'undefined' && location.search.includes('tone=agx');
   renderer.toneMapping = agx ? THREE.AgXToneMapping : THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
-  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.enabled = !Q.software;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   await renderer.init();
   // Instanced meshes read their matrices as vertex attributes, not a uniform array. On the uniform path three names
@@ -59,6 +60,7 @@ export async function createRenderer(canvas) {
 // Shared lighting uniforms (fog, windows and water read them too).
 export const sunDir = uniform(new THREE.Vector3(-0.5, 0.8, 0.3).normalize());
 export const sunCol = uniform(new THREE.Color(0xffffff));
+export const causticDaylight = uniform(1);
 const fogCol = uniform(new THREE.Color(0xc6d8ea));
 const fogDensity = uniform(0.003);
 const fogNear = uniform(20);
@@ -87,7 +89,7 @@ export function createScene() {
   scene.fogNode = aerialFog();
   const hemi = new THREE.HemisphereLight(0xfff4e0, 0xc98b5b, 0.6);
   const sun = new THREE.DirectionalLight(0xffe2b8, 3.5);
-  sun.castShadow = true;
+  sun.castShadow = !Q.software;
   sun.shadow.mapSize.set(Q.shadow, Q.shadow);
   sun.shadow.bias = -0.0002;
   sun.shadow.normalBias = 0.04;
@@ -129,6 +131,7 @@ export function applyTime(look, renderer, name, toyMaterial) {
   sun.color.set(t.sun);
   sunCol.value.set(t.sun);
   sun.intensity = t.sunI;
+  causticDaylight.value = t.night ? 0 : Math.min(1, t.sunI / 5);
   hemi.color.set(t.hemiSky);
   hemi.groundColor.set(t.hemiGround);
   hemi.intensity = t.hemiI;

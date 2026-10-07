@@ -9,7 +9,7 @@ import {
   positionLocal, attribute, instanceIndex, sin, cos, abs, sign, step, length, Discard, If, luminance, select, fract,
   time, oneMinus, hash, atan, cameraPosition, dFdx, dFdy, min, screenCoordinate,
 } from 'three/tsl';
-import { triplanar, layerMean, waterGrad, macro, L, brushedGrad, pomOffset } from './pbr.js';
+import { triplanar, layerMean, pbrCol, waterGrad, macro, L, brushedGrad, pomOffset } from './pbr.js';
 import { sunDir, sunCol } from './look.js';
 import { Q } from './quality.js';
 import { MAX_HOLES } from './hole.js';
@@ -84,8 +84,8 @@ const objectFlags = uniform(new THREE.Vector4()).onObjectUpdate(({ object }) => 
 });
 
 /** Material subclass whose `preInstanceNode` deforms vertices in object space before instancing is applied. */
-// low tier: the standard BRDF (no clearcoat layer to evaluate on every prop)
-const ToyBase = Q.surface === 'lite' ? THREE.MeshStandardNodeMaterial : THREE.MeshPhysicalNodeMaterial;
+// Software rendering skips environment/PBR lobes; palette and a single scan sample keep the toy surfaces recognizable.
+const ToyBase = Q.software ? THREE.MeshLambertNodeMaterial : Q.surface === 'lite' ? THREE.MeshStandardNodeMaterial : THREE.MeshPhysicalNodeMaterial;
 export class ToyNodeMaterial extends ToyBase {
   setupPosition(builder) {
     if (this.preInstanceNode) positionLocal.assign(this.preInstanceNode);
@@ -112,6 +112,49 @@ const swatchIndex = () => {
  * ground: world-space ground table + wear; holes: uniformArray of vec3(x, z, r) cut out of the ground.
  */
 function buildToy(mat, { ground = false, holes = null, seed = float(instanceIndex), topOnly = false } = {}) {
+  if (Q.software) {
+    const info = (ground ? GND_TABLE : OBJ_TABLE).element(swatchIndex());
+    const palette = texture(palTex, uv());
+    const layer = int(clamp(info.x, 0, 15));
+    const mean = layerMean.element(layer);
+    const p = ground ? positionWorld : positionGeometry;
+    const n = ground ? normalWorldGeometry : normalize(normalGeometry);
+    const a = abs(n), useY = a.y.greaterThanEqual(a.x).and(a.y.greaterThanEqual(a.z)), useX = a.x.greaterThan(a.z);
+    const q = p.mul(info.y), scanUV = select(useY, q.xz, select(useX, q.zy, q.xy));
+    const scan = texture(pbrCol, scanUV).depth(layer).xyz;
+    const hasScan = info.x.greaterThanEqual(0).and(info.x.lessThan(15.5));
+    const fade = oneMinus(smoothstep(viewScale.mul(30), viewScale.mul(160), length(positionView))).mul(surfaceOn).mul(hasScan);
+    const water = info.x.greaterThan(15.5);
+    mat.toyColorNode = Fn(() => {
+      if (holes) for (let i = 0; i < MAX_HOLES; i++) {
+        const h = holes.element(i);
+        const d = positionWorld.xz.sub(h.xy);
+        If(h.z.greaterThan(0).and(dot(d, d).lessThan(h.z.mul(h.z))), () => { Discard(); });
+      }
+      const tinted = palette.rgb.mul(scan.div(max(mean, vec3(0.02))));
+      const natural = scan.mul(luminance(palette.rgb).div(max(luminance(mean), 0.02)));
+      let c = mix(palette.rgb, mix(tinted, natural, info.z), fade).toVar();
+      if (ground) {
+        If(water, () => {
+          // A cheap travelling brightness wave keeps software-rendered lakes visibly in motion.
+          const wave = sin(positionWorld.x.mul(0.07).add(time)).mul(cos(positionWorld.z.mul(0.05).sub(time.mul(0.8)))).mul(0.12);
+          c.assign(mix(vec3(0.015, 0.05, 0.055), palette.rgb, 0.12).mul(float(1).add(wave)));
+        });
+      }
+      return vec4(c, 1);
+    })();
+    if (!ground) mat.emissiveNode = Fn(() => {
+      const hole = world.hole, tier = objectFlags.z;
+      const e = vec3(0).toVar();
+      If(tier.greaterThan(0).and(hole.z.greaterThan(0)).and(tier.lessThan(hole.z.mul(0.95))), () => {
+        const near = oneMinus(smoothstep(hole.z.add(0.5), hole.z.mul(1.6).add(5), length(positionWorld.xz.sub(hole.xy))));
+        // Fill the edible target in software mode: a view-facing rim vanishes on tiny, top-down props.
+        e.assign(world.edCol.mul(near.mul(1.4)));
+      });
+      return e;
+    })();
+    return mat;
+  }
   const sw = swatchIndex();
   const info = (ground ? GND_TABLE : OBJ_TABLE).element(sw);
   const pal = texture(palTex, uv());
@@ -131,7 +174,7 @@ function buildToy(mat, { ground = false, holes = null, seed = float(instanceInde
   const layer = int(layerF);
   const water = info.x.greaterThan(15.5);
   const dist = length(positionView);
-  const fade = smoothstep(viewScale.mul(160), viewScale.mul(30), dist).mul(surfaceOn);
+  const fade = oneMinus(smoothstep(viewScale.mul(30), viewScale.mul(160), dist)).mul(surfaceOn);
   const n = ground ? normalWorldGeometry : normalize(normalGeometry);
   // steel keeps the tread-plate scan only where it is a floor or a cart bed (faces pointing up); elsewhere it's brushed
   const plateOK = ground ? float(1).greaterThan(0) : sw.notEqual(SW.steel).or(n.y.greaterThan(0.7));
@@ -154,7 +197,8 @@ function buildToy(mat, { ground = false, holes = null, seed = float(instanceInde
     if (holes) {
       for (let i = 0; i < MAX_HOLES; i++) {
         const h = holes.element(i);
-        If(h.z.greaterThan(0).and(length(positionWorld.xz.sub(h.xy)).lessThan(h.z)), () => { Discard(); });
+        const d = positionWorld.xz.sub(h.xy);
+        If(h.z.greaterThan(0).and(dot(d, d).lessThan(h.z.mul(h.z))), () => { Discard(); });
       }
     }
     const tinted = pal.rgb.mul(tri.col.div(max(mean, vec3(0.02))));
@@ -205,7 +249,7 @@ function buildToy(mat, { ground = false, holes = null, seed = float(instanceInde
           const rnd = hash(cell.x.mul(7.1).add(cell.y.mul(31.7)).add(cell.z.mul(3.3)));
           const wall = mix(vec3(0.55, 0.47, 0.38), vec3(0.42, 0.46, 0.52), rnd);
           const hitY = select(d.y.greaterThan(0), vec3(0.7, 0.68, 0.62), vec3(0.32, 0.22, 0.15));
-          const shade = select(onY, hitY, wall).mul(smoothstep(9, 1.5, tm).mul(0.7).add(0.3));
+          const shade = select(onY, hitY, wall).mul(oneMinus(smoothstep(1.5, 9, tm)).mul(0.7).add(0.3));
           inside = select(isBuilding, mix(shade.mul(0.32), pal.rgb.mul(0.12), 0.35), inside);
         }
         c.assign(select(glass, inside, c));
@@ -255,9 +299,10 @@ function buildToy(mat, { ground = false, holes = null, seed = float(instanceInde
       e.addAssign(select(win, vec3(1.0, 0.7, 0.36).mul(step(0.42, hsh)).mul(world.night).mul(hsh.mul(0.6).add(0.7)).mul(1.6), vec3(0)));
       const tier = objectFlags.z;
       const edible = tier.greaterThan(0).and(hole.z.greaterThan(0)).and(tier.lessThan(hole.z.mul(0.95)));
-      const near = smoothstep(hole.z.mul(1.6).add(5), hole.z.add(0.5), length(positionWorld.xz.sub(hole.xy)));
+      const near = oneMinus(smoothstep(hole.z.add(0.5), hole.z.mul(1.6).add(5), length(positionWorld.xz.sub(hole.xy))));
       const rim = pow(oneMinus(clamp(dot(normalize(normalViewGeometry), normalize(positionView.negate())), 0, 1)), 4);
-      const small = smoothstep(hole.z.mul(0.95), hole.z.mul(0.4), tier);
+      const foodScale = max(hole.z, 1e-4);
+      const small = oneMinus(smoothstep(foodScale.mul(0.4), foodScale.mul(0.95), tier));
       const pulse = sin(time.mul(5)).mul(0.2).add(0.8);
       e.addAssign(select(edible, world.edCol.mul(rim.mul(0.55).add(0.07)).mul(near).mul(small).mul(pulse), vec3(0)));
       // thin cloth glows where the sun shines through it (inflatables, awnings): soft transmission, cheap
@@ -282,11 +327,11 @@ const seedOf = (seeded) => (seeded ? attribute('iseed', 'float') : float(instanc
  */
 export function rimCracks(pw) {
   const h = world.hole, r = h.z, dx = pw.x.sub(h.x), dz = pw.z.sub(h.y), d = length(vec3(dx, 0, dz));
-  const band = smoothstep(r.mul(1.4).add(3), r.add(0.3), d).mul(smoothstep(3, 6, r));
+  const band = oneMinus(smoothstep(r.add(0.3), r.mul(1.4).add(3), d)).mul(smoothstep(3, 6, r));
   const u = d.sub(r), a = atan(dz, dx);
   const t = a.div(6.2832).mul(26).add(sin(u.mul(0.35).add(a.mul(3))).mul(0.2));
-  const radial = smoothstep(0.05, 0.012, abs(fract(t).sub(0.5))).mul(smoothstep(r.mul(0.4).add(2), 0, u).mul(0.6).add(0.4));
-  const ring = smoothstep(0.08, 0.025, abs(fract(u.mul(0.22).add(sin(a.mul(9)).mul(0.25))).sub(0.5)));
+  const radial = oneMinus(smoothstep(0.012, 0.05, abs(fract(t).sub(0.5)))).mul(oneMinus(smoothstep(0, r.mul(0.4).add(2), u)).mul(0.6).add(0.4));
+  const ring = oneMinus(smoothstep(0.025, 0.08, abs(fract(u.mul(0.22).add(sin(a.mul(9)).mul(0.25))).sub(0.5))));
   return max(radial, ring.mul(0.7)).mul(band);
 }
 export const crackCol = vec3(0.045, 0.02, 0.08);
@@ -300,8 +345,9 @@ function seeThrough(m) {
   const ax = H.sub(C), t = dot(P.sub(C), ax).div(max(dot(ax, ax), 1e-3));
   const d = length(P.sub(C.add(ax.mul(t))));
   const R = t.mul(h.z.mul(1.25).add(2.5)), edge = hash(floor(screenCoordinate.x).add(floor(screenCoordinate.y).mul(1731.0)));
+  const radialDelta = P.xz.sub(H.xz), radialRadius = h.z.mul(1.05);
   const cut = h.z.greaterThan(0).and(t.greaterThan(0.05)).and(t.lessThan(0.97)).and(P.y.greaterThan(world.holeY.add(1.2)))
-    .and(length(P.xz.sub(H.xz)).greaterThan(h.z.mul(1.05))) // (what's going in stays in view)
+    .and(dot(radialDelta, radialDelta).greaterThan(radialRadius.mul(radialRadius))) // (what's going in stays in view)
     .and(d.lessThan(R.mul(edge.mul(0.16).add(0.84))));
   m.maskNode = cut.not();
   return m;

@@ -4,7 +4,7 @@
 // whatever is still standing away. Nothing here can hurt the player or wall off a road (PLAN.md rule 1).
 import { makeEntity } from './entity.js';
 import * as THREE from 'three/webgpu';
-import { Fn, uv, vec3, vec4, sin, smoothstep, time, mx_noise_float, uniform } from 'three/tsl';
+import { Fn, uv, vec3, vec4, sin, smoothstep, time, mx_noise_float, uniform, float } from 'three/tsl';
 
 const TILE = 40;
 export const EVENT_NAMES = { parade: 'Parade', marathon: 'City Marathon', carshow: 'Car Show', ufo: 'UFO Landing' };
@@ -138,7 +138,7 @@ function beamMaterial(fade) {
     const v = uv();
     const n = mx_noise_float(vec3(v.x.mul(14), v.y.mul(3).sub(time.mul(1.6)), time.mul(0.3))).mul(0.5).add(0.5);
     const rings = sin(v.y.mul(40).add(time.mul(9))).mul(0.25).add(0.75);
-    const a = smoothstep(0, 0.25, v.y).mul(smoothstep(1, 0.7, v.y)).mul(n.mul(0.6).add(0.4)).mul(rings).mul(fade);
+    const a = smoothstep(0, 0.25, v.y).mul(float(1).sub(smoothstep(0.7, 1, v.y))).mul(n.mul(0.6).add(0.4)).mul(rings).mul(fade);
     return vec4(vec3(0.45, 1.0, 0.7).mul(a).mul(1.6), 1);
   })();
   return m;

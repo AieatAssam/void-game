@@ -35,10 +35,10 @@ function ramp(tab, r, col) {
 }
 
 export const P3 = {
-  // movement: retain responsive screen-relative travel across the scale jump (46 km/s at 40 km, ~1.7 Mm/s at 2.4k km).
-  speedExp: -0.12, // a mild mass cue; the previous -0.30 made planetary motion nearly stop on screen at T4
+  // movement: retain responsive screen-relative travel across the scale jump (46 km/s at 40 km, 2.76 Mm/s at 2.4k km).
+  speedExp: 0, // keep normalized travel speed constant across the size ladder
   speed: (r) => 1.15 * r * (r / (40 * KM)) ** P3.speedExp,
-  turn: (r) => 0.18 * (r / (40 * KM)) ** 0.07, // steering smoothing time constant (s): responsive at T1 and still deliberate at T4
+  turn: () => 0.06, // steering response is the same at every hole size
   pitch: (r) => ramp(VIEW, r, 1) * Math.PI / 180,
   relief: (r) => ramp(VIEW, r, 2),
   aim: (r) => ramp(VIEW, r, 3), // degrees
@@ -57,7 +57,6 @@ export const P3 = {
   patchMax: 150 * KM,
   // belly / decay: land credit tops the belly up 1:1 in area terms
   bellyDrain: 1 / 30, meal: 0.06, decayFed: 0.0010, decayStarving: 0.005, huntSoft: 0.3, // decay fades out between 67% and 97% of the land eaten (then none: the hunt)
-  oceanSpeed: (tier) => (tier < 3 ? 0.94 : tier === 3 ? 0.97 : 1), // sea crossings keep a small cost without stopping the early-scale flow
   oceanDrain: (tier) => (tier < 3 ? 1.1 : tier === 3 ? 1.05 : 1),
   feast: 1, // land-credit multiplier (?feast=N overrides: balance knob)
   floorK: 0.7, // the hole never shrinks below floorK x the floor of the highest tier reached (stand-in for the Sealed loss)
@@ -72,9 +71,9 @@ export const T3 = {
   nukeK: 25, rodK: 18, bomberK: 12, // seconds of income lost to a hit
   nukeHit: 0.07, rodHit: 0.06, bomberHit: 0.06, firstHit: 0.07, // floors (the scripted first ICBM is capped at firstHit)
   nukeGulp: 0.03, rodGulp: 0.02, satGulp: 0.01,
-  woundAdd: 0.15, woundK: 2, woundMax: 1.2, woundHeal: 60, woundSlow: 0.5, // the wound state: each hit adds (woundAdd + woundK x fraction), it heals in woundHeal s; speed and tear credit x (1 - woundSlow x wound), so only a player who keeps getting hit stays hobbled
+  woundAdd: 0.15, woundK: 2, woundMax: 1.2, woundHeal: 60, // hit feedback: each hit adds (woundAdd + woundK x fraction), it heals in woundHeal s
   tierHit: [1, 1.15, 1.35, 1.55], // the hit floors x by tier 1..4
-  stunBase: 3.5, stunK: 45, stunSlow: 0.35, // P0-1: a hit = (stunBase + stunK x fraction) s at stunSlow x speed (a 7% nuke = 5.8 s), compounding 50% on an open wound
+  stunBase: 3.5, stunK: 45, // hit feedback duration (a 7% nuke = 5.8 s), compounding 50% on an open wound
   falloutLife: 45, falloutLand: 0.5, grace: 14,
   satEat: 0.7, // a satellite is swallowed when its subpoint passes within this x r of the hole
   // WP-B (docs/PHASE3-REVIEW.md B0): the director's numbers per kind. cost = budget points, cool = [min, max] s between spawns of the kind.
@@ -95,5 +94,11 @@ export const T3 = {
     rival: { ttl: { maw: 140, eater: 170, eater2: 90 }, maw: 1.3, eater: 1.4, eater2: 1.25, speed: 0.74, hit: 0.18, eat: 0.6, cap: 0.25, starve: 0.0015, grow: 0.35 },
   },
 };
+/** Keep hazard penalties in growth and feeding, with a floor so stacked effects never become a death spiral. */
+export function growthK(state) {
+  const wound = Math.min(1, Math.max(0, state.wound || 0));
+  return Math.max(0.6,
+    (state.stun > 0 ? 0.7 : 1) * (1 - 0.15 * wound) * (state.ash ? 0.9 : 1) * (state.slow > 0 ? 0.9 : 1));
+}
 /** The camera backs off in a tall frame (phones see as much width as desktops), but less than the town does (^0.7): the planet's horizon has to stay in a tall frame, and a big hole reads best. */
 export const portraitK = (aspect) => Math.max(1, 1.2 / aspect) ** 0.45;

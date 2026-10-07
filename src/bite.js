@@ -17,6 +17,7 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 const SLICE = 3; // ms: the init generator's slice (§12.7 R2: no slice > 4 ms)
 const POP = 8.1e9; // the world's people (the counter ends at exactly this)
 const MAXT = 16384; // parcels touched in one chew
+const TEAR_SETUP = 32768; // parcels / merge writes per frame while preparing tear waves
 
 export class BiteMap {
   /** bake = { surf, N } from bakePlanet; tex = the globe's biteTex (DataArrayTexture R8, B x B x 6): its data array is rem8. */
@@ -40,7 +41,7 @@ export class BiteMap {
     this.pop = 0; this.popK = 0; this.initMs = 0; this.initSlice = 0; // people swallowed (counter), people per (km2 x night light), init timing
     this.touched = new Int32Array(MAXT); this.nTouched = 0; this.tflag = new Uint8Array(6 * 256 * 256); // parcels the last chew() ate from
     this.ptear = new Uint8Array(6 * 256 * 256); // parcels already inside a tear job (1)
-    this.jobs = []; this.events = []; this.tearOn = true; this.texBudget = 15000; this.tearMs = 0; this.cTear = 0; this.cPull = 0; // tear jobs, events for the game, per-frame credit (m2)
+    this.jobs = []; this.events = []; this.setupAt = 0; this.tearOn = true; this.texBudget = 15000; this.tearMs = 0; this.cTear = 0; this.cPull = 0; // tear jobs, events for the game, per-frame credit (m2)
     this.pullAt = 0; this.stat = { tears: 0, pulls: 0, parcelTears: 0 };
     const N = bake.N; this.nIdx = new Int32Array(B); this.nRow = new Int32Array(B); const sc = (N - 1) / (B - 1);
     for (let i = 0; i < B; i++) { this.nIdx[i] = Math.round(i * sc); this.nRow[i] = Math.round(i * sc) * N; } // bake texel of a bite texel (rows pre-multiplied)
@@ -266,50 +267,118 @@ export class BiteMap {
 
   /** Start a tear job for a unit: its standing parcels sorted nearest-first to c, sunk as a wave of 0.8-2.5 s (log of the area). Returns the job. */
   startTear(L, u, c, kind) {
-    const lf = this.lf, v = lf.lv[L], left = v.left[u], ps = lf.parcels(L, u), pd = lf.pDir, l0 = lf.lv[0].left;
+    const lf = this.lf, v = lf.lv[L], left = v.left[u], ps = lf.parcels(L, u), l0 = lf.lv[0].left;
+    if (!ps.length) { v.torn[u] = 1; return null; }
+    // Units are nested or disjoint. Refuse a second in-flight job for the same
+    // nested region while the first job is still gathering its parcel list.
+    for (const J of this.jobs) {
+      const jp = J.ps?.[0], p = ps[0];
+      if (jp === undefined) continue;
+      if (L > J.L ? lf.pu[L][jp] === u : L < J.L ? lf.pu[J.L][p] === J.u : J.u === u) return null;
+    }
     v.torn[u] = 1;
-    const cand = [];
-    for (let k = 0; k < ps.length; k++) { const pk = ps[k]; if (!this.ptear[pk] && l0[pk] > 1e-6) { this.ptear[pk] = 1; cand.push(pk); } }
-    if (!cand.length) return null;
-    const dist = new Float32Array(cand.length), idx = cand.map((_, k) => k);
-    cand.forEach((pk, k) => { dist[k] = Math.acos(Math.min(1, Math.max(-1, pd[pk * 3] * c.x + pd[pk * 3 + 1] * c.y + pd[pk * 3 + 2] * c.z))); });
-    idx.sort((a, b) => dist[a] - dist[b]);
-    const list = Int32Array.from(idx, (k) => cand[k]), ds = Float32Array.from(idx, (k) => dist[k]);
     const T = 0.8 + 1.7 * Math.min(1, Math.max(0, Math.log(Math.max(left, 1) / 1500) / Math.log(8e6 / 1500)));
-    const d = lf.dirOf(L, u, {});
-    const job = { L, u, kind, list, dist: ds, n: list.length, next: 0, t: 0, T, d0: ds[0], dmax: ds[ds.length - 1], act: [], credit: 0, area: left, name: lf.name(L, u) };
+    // Allocate once, then gather and stable-sort in bounded frame slices. Dot products
+    // sort in reverse order of acos, so only the two wave endpoints need acos().
+    const job = { L, u, kind, ps, c: { x: c.x, y: c.y, z: c.z }, scan: 0, n: 0,
+      keys: new Float32Array(ps.length), list: new Int32Array(ps.length), tmpKeys: new Float32Array(ps.length), tmpList: new Int32Array(ps.length),
+      width: 1, run: 0, merge: null, setup: true, next: 0, t: 0, T, d0: 0, dmax: 0,
+      act: [], credit: 0, area: left, name: lf.name(L, u) };
     this.jobs.push(job);
-    const popLeft = (L === 0 ? lf.sN[u] : v.nsum[u]) * this.popK * (left / (v.area0[u] || 1));
-    this.stat[L === 0 ? 'parcelTears' : kind === 'pull' ? 'pulls' : 'tears']++;
-    this.events.push({ type: 'start', kind, L, u, name: job.name, area0: v.area0[u], left, T, dir: d, rEq: lf.rEq(L, u), parcels: job.n, pop: popLeft });
+    this.events.push({ type: 'accepted', kind, L, u, name: job.name, area0: v.area0[u], left, T,
+      dir: lf.dirOf(L, u, {}), rEq: lf.rEq(L, u) });
     return job;
   }
 
-  /** Advance the tear jobs: <= texBudget texel visits across all jobs per frame. Credit lands in cTear / cPull (m2). */
+  /** Spend at most `budget` parcel checks / merge writes preparing a nearest-first tear wave. */
+  setupTear(J, budget) {
+    const { ps, c } = J, pd = this.lf.pDir, l0 = this.lf.lv[0].left;
+    let used = 0;
+    while (J.scan < ps.length && used < budget) {
+      const pk = ps[J.scan++]; used++;
+      if (this.ptear[pk] || l0[pk] <= 1e-6) continue;
+      this.ptear[pk] = 1;
+      J.list[J.n] = pk;
+      J.keys[J.n++] = pd[pk * 3] * c.x + pd[pk * 3 + 1] * c.y + pd[pk * 3 + 2] * c.z;
+    }
+    if (J.scan < ps.length) return used;
+    if (!J.n) { J.setup = false; J.empty = true; return used; }
+    while (used < budget && J.width < J.n) {
+      if (!J.merge) {
+        if (J.run >= J.n) {
+          J.width *= 2; J.run = 0;
+          if (J.width >= J.n) break;
+        }
+        const mid = Math.min(J.run + J.width, J.n), end = Math.min(J.run + 2 * J.width, J.n);
+        J.merge = { a: J.run, b: mid, mid, end, out: J.run };
+      }
+      const m = J.merge;
+      if (m.out < m.end) {
+        const { keys, list, tmpKeys, tmpList } = J;
+        const takeA = m.b >= m.end || (m.a < m.mid && keys[m.a] >= keys[m.b]);
+        const from = takeA ? m.a++ : m.b++;
+        tmpKeys[m.out] = keys[from]; tmpList[m.out++] = list[from]; used++;
+      } else {
+        J.run += 2 * J.width; J.merge = null;
+        if (J.run >= J.n) {
+          [J.keys, J.tmpKeys] = [J.tmpKeys, J.keys]; [J.list, J.tmpList] = [J.tmpList, J.list];
+          J.width *= 2; J.run = 0;
+        }
+      }
+    }
+    if (J.width >= J.n) {
+      J.d0 = Math.acos(Math.min(1, Math.max(-1, J.keys[0])));
+      J.dmax = Math.acos(Math.min(1, Math.max(-1, J.keys[J.n - 1])));
+      J.setup = false;
+      const { L, u, kind, area, T, name } = J, v = this.lf.lv[L];
+      const popLeft = (L === 0 ? this.lf.sN[u] : v.nsum[u]) * this.popK * (area / (v.area0[u] || 1));
+      this.stat[L === 0 ? 'parcelTears' : kind === 'pull' ? 'pulls' : 'tears']++;
+      this.events.push({ type: 'start', kind, L, u, name, area0: v.area0[u], left: area, T, dir: this.lf.dirOf(L, u, {}), rEq: this.lf.rEq(L, u), parcels: J.n, pop: popLeft });
+    }
+    return used;
+  }
+
+  /** Advance tears with separate setup and texel budgets, scaled to dt up to the main loop's 50 ms cap. Credit lands in cTear / cPull (m2). */
   stepTears(dt) {
     this.cTear = this.cPull = 0;
     if (!this.jobs.length) { this.tearMs = 0; return; }
     const t0 = performance.now(), STAGE = [0.55, 0.36, 0], GAP = 0.11;
-    let budget = this.texBudget;
-    for (let ji = this.jobs.length - 1; ji >= 0; ji--) {
-      const J = this.jobs[ji];
+    const scale = Math.max(1, Math.min(3, dt * 60));
+    let budget = this.texBudget * scale;
+    // Setup is shared round-robin, so one very large unit or a pull burst cannot monopolize a frame.
+    let setupBudget = TEAR_SETUP * scale, setupMisses = 0;
+    while (setupBudget > 0 && setupMisses < this.jobs.length) {
+      if (this.setupAt >= this.jobs.length) this.setupAt = 0;
+      const J = this.jobs[this.setupAt++];
+      if (!J.setup) { setupMisses++; continue; }
+      setupMisses = 0;
+      const used = this.setupTear(J, Math.min(512, setupBudget));
+      setupBudget -= used;
+      if (J.empty) this.jobs.splice(this.jobs.indexOf(J), 1);
+    }
+    const running = this.jobs.slice(), count = running.length, first = count ? this.setupAt % count : 0;
+    for (let offset = 0; offset < count; offset++) {
+      const J = running[(first + offset) % count];
+      if (J.setup) continue;
       J.t += dt;
       const reach = J.d0 + Math.min(1, J.t / J.T) * (J.dmax - J.d0) * 1.0001 + 1e-9; // (the wave starts at the parcel nearest the hole and runs out to the farthest)
-      while (J.next < J.n && budget > 0 && J.dist[J.next] <= reach) {
+      const cosReach = Math.cos(reach);
+      while (J.next < J.n && budget >= 128 && J.keys[J.next] >= cosReach) {
         const pk = J.list[J.next++], tx = this.parcelTexels(pk);
         budget -= 64;
         if (tx.length) { const a = { tx, pk, t0: J.t, stage: 1 }; J.act.push(a); budget -= this.shrinkAll(a, STAGE[0], J); }
       }
       for (let k = J.act.length - 1; k >= 0; k--) {
         const a = J.act[k], st = Math.min(3, 1 + Math.floor((J.t - a.t0) / GAP));
-        if (st > a.stage) { budget -= this.shrinkAll(a, STAGE[st - 1], J); a.stage = st; }
+        if (st > a.stage && a.tx.length <= budget) { budget -= this.shrinkAll(a, STAGE[st - 1], J); a.stage = st; }
         if (a.stage >= 3) { J.act[k] = J.act[J.act.length - 1]; J.act.pop(); }
       }
       if (J.next >= J.n && !J.act.length) {
-        this.jobs.splice(ji, 1);
+        this.jobs.splice(this.jobs.indexOf(J), 1);
         this.events.push({ type: 'done', kind: J.kind, L: J.L, u: J.u, name: J.name, area: J.area, credit: J.credit });
       }
     }
+    this.setupAt = (first + 1) % Math.max(1, this.jobs.length);
     this.tearMs = performance.now() - t0;
   }
 
@@ -360,8 +429,14 @@ export class BiteMap {
     const { rem, ov, rem8, hm } = this;
     rem.set(sv.rem);
     for (let k = 0; k < rem.length; k++) { const q = rem[k]; ov[k] = q < 65535 ? 65535 : 0; rem8[k] = hm[k] === OCEAN ? 255 : Math.round(q * (255 / 65535)); } // (an eaten or partly eaten texel was overlapped: ov is the conservative value; untouched ones start over)
-    this.sum = sv.sum; this.pop = sv.pop; this.ptear.set(sv.ptear); this.jobs.length = 0; this.events.length = 0;
+    this.sum = sv.sum; this.pop = sv.pop; this.ptear.set(sv.ptear); this.jobs.length = 0; this.setupAt = 0; this.events.length = 0;
     sv.lv?.forEach((s, L) => { this.lf.lv[L].left.set(s.left); if (s.torn) this.lf.lv[L].torn.set(s.torn); });
+    // Snapshots omit in-flight waves: release their standing reservations and make
+    // partially standing units eligible again instead of leaving canceled work stuck.
+    if (this.lf) {
+      for (let pk = 0; pk < this.ptear.length; pk++) if (this.ptear[pk] && this.lf.lv[0].left[pk] > 1e-6) this.ptear[pk] = 0;
+      for (const v of this.lf.lv) if (v.torn) for (let u = 0; u < v.n; u++) if (v.left[u] > 1e-6) v.torn[u] = 0;
+    }
     this.tex.needsUpdate = true;
   }
 

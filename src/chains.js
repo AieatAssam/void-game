@@ -9,8 +9,9 @@ import {
 } from 'three/tsl';
 import { waterMaterial } from './terrain.js';
 import { BUILDINGS } from './city.js';
+import { Q } from './quality.js';
 
-const ROCKETS = 16, PER = 240; // 3840 particles, one buffer, reused volley after volley
+const ROCKETS = 16, PER = Q.software ? 128 : 240; // software keeps fewer sparks per rocket to reduce vertex work
 const RISE = 1.15, BURST = 2.4;
 const COLORS = [0xff4f6d, 0xffd166, 0x5ec8ff, 0x9dff7a, 0xc38bff, 0xff9f43, 0xffffff, 0x7ee0c3];
 
@@ -47,10 +48,12 @@ class Fireworks {
     mat.sizeNode = select(alive, float(0.45).mul(fade.mul(0.6).add(0.4)), float(0)).mul(cameraProjectionMatrix.element(1).element(1));
     const d = length(uv().sub(0.5));
     const col = select(rising, vec3(1, 0.8, 0.5), mix(vec3(1), T.element(r), smoothstep(0, 0.25, tb)));
-    mat.colorNode = vec4(col.mul(pow(smoothstep(0.5, 0, d), 1.5)).mul(fade).mul(twinkle).mul(3.2), 1);
+    mat.colorNode = vec4(col.mul(pow(float(1).sub(smoothstep(0, 0.5, d)), 1.5)).mul(fade).mul(twinkle).mul(3.2), 1);
     this.points = new THREE.Sprite(mat);
     this.points.count = ROCKETS * PER;
     this.points.frustumCulled = false;
+    this.points.visible = false;
+    this.hideAt = -Infinity;
     this.next = 0;
   }
 
@@ -60,12 +63,18 @@ class Fireworks {
       const j = this.next;
       this.next = (this.next + 1) % ROCKETS;
       const a = Math.random() * Math.PI * 2, d = Math.random() * 7;
-      this.rockets[j].set(x + Math.cos(a) * d, z + Math.sin(a) * d, this.now.value + i * 0.13 + Math.random() * 0.1, 20 + Math.random() * 10);
+      const launchedAt = this.now.value + i * 0.13 + Math.random() * 0.1;
+      this.rockets[j].set(x + Math.cos(a) * d, z + Math.sin(a) * d, launchedAt, 20 + Math.random() * 10);
+      this.hideAt = Math.max(this.hideAt, launchedAt + RISE + BURST);
       this.tints[j].setHex(COLORS[Math.floor(Math.random() * COLORS.length)]).multiplyScalar(1.3);
     }
+    this.points.visible = true;
   }
 
-  update(dt) { this.now.value += dt; }
+  update(dt) {
+    this.now.value += dt;
+    if (this.points.visible && this.now.value >= this.hideAt) this.points.visible = false;
+  }
   dispose() { this.points.material.dispose(); }
 }
 
@@ -107,7 +116,7 @@ export class Chains {
     this.flashK = uniform(0);
     this.flashMat.colorNode = Fn(() => {
       const r = length(positionGeometry);
-      return vec4(vec3(1.0, 0.55, 0.18).mul(smoothstep(1, 0.2, r)).mul(this.flashK).mul(4), 1);
+      return vec4(vec3(1.0, 0.55, 0.18).mul(float(1).sub(smoothstep(0.2, 1, r))).mul(this.flashK).mul(4), 1);
     })();
     this.fireball = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), this.flashMat);
     this.fireball.visible = false;
