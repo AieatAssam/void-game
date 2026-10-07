@@ -111,9 +111,10 @@ function glowMaterial() {
   const m = new THREE.MeshBasicNodeMaterial({ fog: false, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
   const C = varying(instancedBufferAttribute(aC), 'vGlowC');
   m.colorNode = Fn(() => {
-    const p = uv().sub(0.5).mul(2), r = length(p), core = exp(r.mul(-6.5)), halo = exp(r.mul(-2.4)).mul(0.22);
+    const p = uv().sub(0.5).mul(2), r = length(p), core = exp(r.mul(-6.5)), halo = exp(r.mul(-2.4)).mul(0.22), hollow = C.a.lessThan(0);
+    const atm = exp(r.sub(0.8).div(0.1).pow(2).negate()).mul(0.9).add(exp(r.sub(0.8).mul(-7)).mul(smoothstep(0.78, 0.84, r)).mul(0.25)); // (a planet's air: a thin bright rim just outside its disc)
     const spike = exp(abs(p.x).mul(-55)).mul(exp(abs(p.y).mul(-3.2))).add(exp(abs(p.y).mul(-55)).mul(exp(abs(p.x).mul(-3.2)))).mul(0.35);
-    return vec4(C.rgb.mul(core.mul(1.1).add(halo).add(spike)).mul(C.a).mul(float(1).sub(smoothstep(0.85, 1.0, r))), 1);
+    return vec4(C.rgb.mul(select(hollow, atm, core.mul(1.1).add(halo).add(spike))).mul(C.a.abs()).mul(float(1).sub(smoothstep(0.85, 1.0, r))), 1);
   })();
   const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), m, CAPG);
   mesh.frustumCulled = false; mesh.count = 0; mesh.renderOrder = 3;
@@ -147,7 +148,7 @@ function ringMaterial(U) {
   const bands = sin(t.mul(31)).mul(sin(t.mul(7.3).add(1.2))).mul(0.5).add(0.5), gap = smoothstep(0.5, 0.53, t).mul(float(1).sub(smoothstep(0.57, 0.6, t))), fade = smoothstep(0.0, 0.08, t).mul(float(1).sub(smoothstep(0.93, 1.0, t)));
   m.colorNode = mix(vec3(0.62, 0.55, 0.44), vec3(0.93, 0.85, 0.7), bands).mul(float(U.amb).add(0.95));
   m.opacityNode = fade.mul(float(0.2).add(bands.mul(0.5))).mul(float(1).sub(gap.mul(0.9)));
-  const g = new THREE.RingGeometry(0.57, 1, 72, 1).rotateX(-Math.PI / 2);
+  const g = new THREE.RingGeometry(0.57, 1, 48, 1).rotateX(-Math.PI / 2);
   const mesh = new THREE.InstancedMesh(g, m, CAPR);
   mesh.frustumCulled = false; mesh.count = 0; mesh.renderOrder = 4;
   return mesh;
@@ -260,6 +261,7 @@ export class SpaceGame {
     this.sunAt = tier.sun === 'key' ? this.field.key : tier.sun;
     this.phase = 'play'; this.sweepT = 0; this.tierGulps = 0; this.combo = 0; this.comboT = 0; this.boostT = 0; this.storm = null; this.stormT = 22 + this.t * 0; this.rnd = rng(seed * 31 + tier.id); this.rival = null; this.rivalT = 18; this.rivalHit = 0;
     this.ctx.state.tier = tier.id;
+    this.rings.visible = this.bodies.some((b) => b.ring); // (no ring bodies in this tier: the ring mesh is not drawn at all)
     this.propUse = new Set(this.bodies.filter((b) => b.k === K.prop).map((b) => b.model)); // (a model this tier never uses is not drawn at all)
   }
 
@@ -584,6 +586,10 @@ export class SpaceGame {
         const gi = ngl * 4, gs = s * (o.k === K.star ? 1.3 + 3 / (1 + s) : 3.0 / (1 + 0.1 * s)), bright = (o.k === K.star ? 1.0 : 0.7) * (1 + 2 * heat) / (1 + 0.004 * s * s);
         _p.set(px, -0.01, pz); _q.identity(); _s.set(gs, 1, gs); _m.compose(_p, _q, _s); this.glow.mesh.setMatrixAt(ngl, _m);
         const ga = this.glow.aC.array; ga[gi] = o.A[0]; ga[gi + 1] = o.A[1]; ga[gi + 2] = o.A[2]; ga[gi + 3] = bright; ngl++;
+      }
+      if ((o.k === K.world || o.k === K.giant) && s > 0.04 && ngl < CAPG - 2) { // atmosphere
+        const gi = ngl * 4, gs = s * 2.5, ga = this.glow.aC.array; _p.set(px, -0.01, pz); _q.identity(); _s.set(gs, 1, gs); _m.compose(_p, _q, _s); this.glow.mesh.setMatrixAt(ngl, _m);
+        const c = o.k === K.world ? [0.45, 0.65, 1.0] : o.A; ga[gi] = c[0]; ga[gi + 1] = c[1]; ga[gi + 2] = c[2]; ga[gi + 3] = -(o.k === K.world ? 0.9 : 0.5) / (1 + 0.01 * s * s); ngl++;
       }
       const small = s < 0.05, huge = s > 5 && nb < 12;
       if (o.k === K.comet && o.state === 0 && nt < CAPT) { // the tail, away from the sun
