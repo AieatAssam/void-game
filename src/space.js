@@ -308,7 +308,7 @@ export class SpaceGame {
     this.placeCamera(cameraDt);
     this.draw(ctx, dt);
     this.lens(ctx);
-    { const rk = this.r * this.tier.unit, mult = rk / 2500; this.ladder?.update(Math.log10(rk), `hole radius <b>${ladderFmt(rk)}</b> · ${mult < 1e3 ? '×' + mult.toFixed(mult < 10 ? 1 : 0) : '×10<sup>' + Math.floor(Math.log10(mult)) + '</sup>'} since the start`); }
+    { const rk = this.r * this.tier.unit, mult = rk / 2500; const said = this.ladder?.update(Math.log10(rk), `hole radius <b>${ladderFmt(rk)}</b> · ${mult < 1e3 ? '×' + mult.toFixed(mult < 10 ? 1 : 0) : '×10<sup>' + Math.floor(Math.log10(mult)) + '</sup>'} since the start`); if (said && this.phase === 'play' && performance.now() > (this.cardFree || 0)) { ctx.card('A NEW SIZE', said); ctx.sfx.space.chain(12); this.flare = Math.max(this.flare || 0, 1.2); } }
     this.drawHud(ctx);
     ctx.sparks.update(dt); ctx.debris.update(dt);
     ctx.news.update(dt, state.pop || 0, !!state.playing);
@@ -413,7 +413,7 @@ export class SpaceGame {
     if (big > 0.06 && this.t - (this.gulpT || -9) > 0.07) { this.gulpT = this.t; sfx.gulp(Math.min(8, 1 + Math.round(big * 6))); } // (dust is silent, and a swarm is not a machine gun)
     if (big > 0.06) sparks.burst(0, 0, 1, 0.3 + big);
     this.flare = Math.max(this.flare || 0, 0.35 + big);
-    if (o.gold) { ctx.card('GOLDEN', 'A FAT MEAL'); this.flare = Math.max(this.flare || 0, 1.4); ctx.sfx.space.power('shield'); navigator.vibrate?.(40); this.stats.golds = (this.stats.golds | 0) + 1; }
+    if (o.gold) { ctx.hint('Golden · a fat meal'); /* (a hint, not a card: cards are for events) */ this.flare = Math.max(this.flare || 0, 1.4); ctx.sfx.space.power('shield'); navigator.vibrate?.(40); this.stats.golds = (this.stats.golds | 0) + 1; }
     if (o.name && o.b >= 0.4 * this.r) ctx.news.say?.(`${o.name} is gone.`);
     if (o.model === 'warp_gate' && play) this.warp(ctx);
     if (o.model === 'cosmic_egg' && play) { ctx.card('THE EGG HATCHES', 'EVERYTHING SPILLS OUT'); this.spill(o, 12, ctx); this.eatenW += this.total * this.tier.goal * 0.025; this.takePower('nova', ctx); }
@@ -431,11 +431,11 @@ export class SpaceGame {
     const n = this.combo;
     if (n >= 2) ctx.sfx.space.chain(n);
     if (n >= 3) { const el = document.getElementById('combo'); if (el) { el.textContent = `×${n} chain`; el.style.fontSize = `${Math.min(46, 18 + n * 1.6)}px`; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); } }
-    if ((n === 10 || n === 25 || n === 50) && !(this.frenzyT > 0)) { this.frenzyT = 6; ctx.card('FRENZY', 'EVERYTHING PAYS DOUBLE'); ctx.sfx.space.ion(); }
+    if ((n === 10 || n === 25 || n === 50) && !(this.frenzyT > 0)) { this.frenzyT = 6; if (n >= 25) ctx.card('FRENZY', 'EVERYTHING PAYS DOUBLE'); else ctx.hint('Frenzy · everything pays double'); ctx.sfx.space.ion(); }
     if (n % 5 === 0) {
       this.eatenW += this.total * this.tier.goal * Math.min(0.004, 0.0015 + 0.0001 * Math.min(n, 30)); this.flare = Math.max(this.flare || 0, 1.1);
       ctx.state.shake = Math.max(ctx.state.shake || 0, 0.22); ctx.sfx.gulp(0);
-      if (n === 10 || n === 25) ctx.card(`${n} CHAIN`, n === 10 ? 'FEEDING FRENZY' : 'UNSTOPPABLE');
+      if (n === 25) ctx.card(`${n} CHAIN`, 'UNSTOPPABLE');
     }
   }
 
@@ -528,7 +528,7 @@ export class SpaceGame {
     this.stats.tierTimes.push(this.t); this.stats.tierGulps.push(this.tierGulps);
     this.phase = 'sweep'; this.sweepT = 0;
     const last = this.tierIdx + 1 >= TIERS.length;
-    ctx.card('TIER COMPLETE', this.tier.name.toUpperCase());
+    ctx.card('TIER COMPLETE', this.tier.name.toUpperCase()); this.cardFree = performance.now() + 6000; // (no milestone card over the tier-up)
     ctx.sfx.space.tierUp(this.tierIdx + 1); navigator.vibrate?.([40, 30, 40, 30, 140]);
     this.last = last;
   }
