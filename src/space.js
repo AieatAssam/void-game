@@ -14,6 +14,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { extraMethods } from './space/extras.js';
 import { showSpaceResults } from './space/results.js';
 import { installTouch } from './space/touch.js';
+import { makeK, mutatorFor, MUTATORS, LEGACY } from './space/modes.js';
+import { save } from './meta.js';
 
 const qs = new URLSearchParams(location.search);
 const num = (k, d) => (qs.has(k) && qs.get(k) !== '' && Number.isFinite(+qs.get(k)) ? +qs.get(k) : d);
@@ -235,6 +237,8 @@ export class SpaceGame {
     this.rhalo = holeHalo(); this.rhalo.material.userData.U.uK.value = 0.55; this.rhalo.material.userData.U.uHeat.value = 0.95; this.rhalo.material.depthTest = false; this.rhalo.renderOrder = 49; this.rhalo.visible = false;
     this.root.add(this.bh, this.halo, this.rbh, this.rhalo);
     scene.add(this.root);
+    { const seed = num('seed', 7), runs = save.cosmos?.runs | 0, mut = qs.get('mut') in MUTATORS ? qs.get('mut') : mutatorFor(seed, runs), legacy = qs.get('legacy') in LEGACY ? qs.get('legacy') : save.cosmos?.legacy;
+      this.seed = num('seed', 7); this.mut = mut; this.legacy = legacy in LEGACY ? legacy : null; this.k = makeK(mut, this.legacy); }
     this.initExtras(ctx); this.untouch = installTouch(this, ctx);
     camera.fov = ctx.baseFov; camera.near = 0.5; camera.far = 6000; camera.updateProjectionMatrix();
     post.suspendAO?.(true);
@@ -248,6 +252,7 @@ export class SpaceGame {
     state.playing = true;
     document.getElementById('load')?.setAttribute('hidden', '');
     ctx.card(`TIER ${this.tier.id}`, this.tier.name.toUpperCase());
+    if (this.tierIdx === num('tier', 1) - 1 && (this.mut !== 'none' || this.legacy)) setTimeout(() => ctx.hint(`${this.mut !== 'none' ? MUTATORS[this.mut].name + ' · ' + MUTATORS[this.mut].blurb : ''}${this.mut !== 'none' && this.legacy ? ' · ' : ''}${this.legacy ? LEGACY[this.legacy].name : ''}`), 3600);
     setTimeout(() => ctx.hint(this.tierIdx === 0 ? 'Swallow what fits · bigger things are eaten from the rim' : this.tier.blurb), 1800);
   }
 
@@ -259,7 +264,7 @@ export class SpaceGame {
     this.hx = tier.start[0]; this.hz = tier.start[1];
     const S = this.S; S.a.value.set(...tier.sky.a); S.b.value.set(...tier.sky.b); S.k.value = tier.sky.k; S.o.value.set(seed * 1.3, tier.id * 7.1, 0); this.sky?.bake();
     this.sunAt = tier.sun === 'key' ? this.field.key : tier.sun;
-    this.phase = 'play'; this.sweepT = 0; this.tierGulps = 0; this.combo = 0; this.comboT = 0; this.boostT = 0; this.storm = null; this.stormT = 22 + this.t * 0; this.rnd = rng(seed * 31 + tier.id); this.rival = null; this.rivalT = 18; this.rivalHit = 0;
+    this.phase = 'play'; this.sweepT = 0; this.tierGulps = 0; this.combo = 0; this.comboT = 0; this.boostT = 0; this.storm = null; this.stormT = 22 + this.t * 0; this.rnd = rng(seed * 31 + tier.id); this.rival = null; this.rivalT = 18 * this.k.rivalT; this.rivalHit = 0;
     this.ctx.state.tier = tier.id;
     this.rings.visible = this.bodies.some((b) => b.ring); // (no ring bodies in this tier: the ring mesh is not drawn at all)
     this.propUse = new Set(this.bodies.filter((b) => b.k === K.prop).map((b) => b.model)); // (a model this tier never uses is not drawn at all)
@@ -313,7 +318,7 @@ export class SpaceGame {
     hole.sx = steerAxis(hole.sx || 0, sx, controlDt); hole.sz = steerAxis(hole.sz || 0, sz, controlDt);
     this.comboT -= dt; if (this.comboT <= 0) this.combo = 0;
     this.boostT = Math.max(0, this.boostT - dt);
-    const sp = SPEED * r * (state.mods?.speed ?? 1) * (this.boostT > 0 ? 1.6 : 1) * (this.pw('surge') ? 1.7 : 1) * (this.stunT > 0 ? 0.45 : 1);
+    const sp = SPEED * r * this.k.speed * (state.mods?.speed ?? 1) * (this.boostT > 0 ? 1.6 : 1) * (this.pw('surge') ? 1.7 : 1) * (this.stunT > 0 ? 0.45 : 1);
     const dx = hole.sx * sp * moveDt, dz = hole.sz * sp * moveDt;
     this.hx += dx; this.hz += dz; hole.vx = moveDt > 0 ? dx / moveDt : 0; hole.vz = moveDt > 0 ? dz / moveDt : 0; hole.x = hole.z = 0;
     this.moved = (this.moved || 0) + Math.hypot(dx, dz) / r;
@@ -340,7 +345,7 @@ export class SpaceGame {
       const ex = o.x - this.hx, ez = o.z - this.hz, d = Math.hypot(ex, ez), b = o.b;
       if (d > 8 * r + b && this.phase === 'play') continue;
       if (b <= 0.85 * r) {
-        const reach = (this.pw('magnet') ? 5.6 : 2.6) * r + b;
+        const reach = (this.pw('magnet') ? 5.6 : 2.6) * this.k.reach * r + b;
         if (d < reach && this.phase === 'play') { const k = 1 - Math.max(0, d - b) / reach, pull = (this.pw('magnet') ? 3.6 : 2.2) * r * k * k * dt; if (d > 1e-6) { o.x -= ex / d * pull; o.z -= ez / d * pull; o.orbit = false; o.vx = o.vz = 0; } }
         if (d < r + 0.15 * b) this.capture(o, ex, ez, d, r);
       } else if (d < b + 0.5 * r) { // too big to swallow: eaten from the rim, a chunk at a time
@@ -378,7 +383,7 @@ export class SpaceGame {
 
   /** Credit w (weight) toward the tier; `part`: a nibble (no gulp). */
   pay(o, w, ctx, part = false) {
-    this.eatenW += (this.pw('surge') ? 1.25 : 1) * w * (o.eph || o.storm ? 1 : Math.max(0.1, Math.min(1, (o.b0 / this.r) / 0.1) ** 0.8)); // (dust is worth less the bigger the hole is: no farming specks, and no runaway)
+    this.eatenW += this.k.pay * (this.pw('surge') ? 1.25 : 1) * w * (o.eph || o.storm ? 1 : Math.max(0.1, Math.min(1, (o.b0 / this.r) / 0.1) ** 0.8)); // (dust is worth less the bigger the hole is: no farming specks, and no runaway)
     if (part) return;
     this.swallowed++; this.tierGulps++;
     const { sfx, sparks } = ctx, big = Math.min(1, o.b / this.r);
@@ -397,7 +402,7 @@ export class SpaceGame {
 
   /** Gulps within 1.8 s of each other chain: a rising count, a bonus every fifth, a kick on the camera. */
   chain(ctx, o) {
-    this.comboT = 1.8; this.combo++;
+    this.comboT = 1.8 * this.k.chain; this.combo++;
     const n = this.combo;
     if (n >= 2) ctx.sfx.space.chain(n);
     if (n >= 3) { const el = document.getElementById('combo'); if (el) { el.textContent = `×${n} chain`; el.style.fontSize = `${Math.min(46, 18 + n * 1.6)}px`; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); } }
@@ -436,10 +441,11 @@ export class SpaceGame {
    */
   rivalStep(dt, ctx) {
     const r = this.r, rnd = this.rnd, R = this.rival;
+    if (this.k.noRival) return;
     if (!R) {
       if ((this.rivalT -= dt) > 0 || this.progress() < 0.3) return;
       const a = rnd() * TAU, d = 15 * r;
-      this.rival = { x: this.hx + Math.cos(a) * d, z: this.hz + Math.sin(a) * d, b: r * (this.rivalN ? 0.55 : 0.8), vx: 0, vz: 0, hit: 0 };
+      this.rival = { x: this.hx + Math.cos(a) * d, z: this.hz + Math.sin(a) * d, b: r * (this.rivalN ? 0.55 : 0.8) * this.k.rivalSize, vx: 0, vz: 0, hit: 0 };
       this.rivalN = (this.rivalN || 0) + 1;
       ctx.card('RIVAL HOLE', this.rival.b > r ? 'IT HUNTS YOU' : 'EAT IT BEFORE IT GROWS'); ctx.sfx.rivalGrowl?.();
       return;
@@ -456,7 +462,7 @@ export class SpaceGame {
       const dx = o.x - R.x, dz = o.z - R.z, d2 = dx * dx + dz * dz;
       if (d2 < best) { best = d2; tx = dx; tz = dz; }
     }
-    const tl = Math.hypot(tx, tz) || 1, sp = 0.55 * R.b; // (slower than you: it can always be outrun)
+    const tl = Math.hypot(tx, tz) || 1, sp = 0.55 * this.k.rivalSpeed * R.b; // (slower than you: it can always be outrun)
     R.vx += (tx / tl * sp - R.vx) * Math.min(1, dt * 2.5); R.vz += (tz / tl * sp - R.vz) * Math.min(1, dt * 2.5);
     R.x += R.vx * dt; R.z += R.vz * dt;
     for (const o of this.bodies) { // it eats
@@ -467,11 +473,11 @@ export class SpaceGame {
     R.b = Math.min(Math.max(R.b, 0.5 * r), 1.35 * r); // (it keeps pace with you: never a runaway, never a speck)
     R.hit -= dt;
     if (bigger && dp < R.b + 0.3 * r && R.hit <= 0 && !this.pw('shield')) { // it bites: a little progress lost, a shove
-      R.hit = 4; this.stats.bites++; ctx.sfx.rivalBite?.(); navigator.vibrate?.([60, 40, 90]); this.eatenW = Math.max(0, this.eatenW - this.total * this.tier.goal * 0.03);
+      R.hit = 4; this.stats.bites++; ctx.sfx.rivalBite?.(); navigator.vibrate?.([60, 40, 90]); this.eatenW = Math.max(0, this.eatenW - this.total * this.tier.goal * 0.03 * this.k.bite);
       const k = (3 * r) / (dp || 1); this.hx += rx * k; this.hz += rz * k; ctx.state.shake = Math.max(ctx.state.shake || 0, 0.7); ctx.hint('The rival bit you · grow bigger than it'); R.bites = (R.bites || 0) + 1; R.flee = 6; R.b *= 0.85; if (R.bites >= 2) { this.rival = null; this.rivalT = 45; ctx.card('THE RIVAL LEAVES', 'IT WILL BE BACK'); }
     }
     if (smaller && dp < r * 0.7) { // you eat it
-      this.rival = null; this.rivalT = 40; this.eatenW += this.total * this.tier.goal * 0.04; this.flare = 1.8; ctx.state.shake = Math.max(ctx.state.shake || 0, 0.6);
+      this.rival = null; this.rivalT = 40 * this.k.rivalT; this.eatenW += this.total * this.tier.goal * 0.04 * this.k.rivalPay; this.flare = 1.8; ctx.state.shake = Math.max(ctx.state.shake || 0, 0.6);
       ctx.card('RIVAL EATEN', 'YOU ARE THE VOID'); ctx.sfx.rivalEaten?.(); navigator.vibrate?.(120); this.chain(ctx, { b: r }); this.swallowed++; this.stats.rivalsEaten++;
     }
   }
@@ -509,7 +515,7 @@ export class SpaceGame {
   /** The end of the content that exists so far (slice 1: the solar system). */
   end(ctx) {
     ctx.sfx.space.victory(); this.phase = 'end'; ctx.state.playing = false; ctx.state.won = true; this.puEl?.replaceChildren();
-    const again = () => { const u = new URL(location.href); u.search = `?space&seed=${Math.floor(Math.random() * 9e5) + 1000}`; location.href = u.href; }; // (a new universe: the big bang)
+    const again = (pick) => { const u = new URL(location.href); u.search = `?space&seed=${Math.floor(Math.random() * 9e5) + 1000}${pick ? `&legacy=${pick}` : ''}${/[?&]bot\b/.test(location.search) ? '&bot' : ''}`; location.href = u.href; }; // (a new universe: the big bang)
     this.endEl = showSpaceResults(this, ctx, { onAgain: again, onMenu: () => ctx.toMenu() });
   }
 

@@ -2,6 +2,7 @@
 import { save, persist } from '../meta.js';
 import { devRun } from '../progress.js';
 import { TIERS } from './tiers.js';
+import { MUTATORS, LEGACY, offers } from './modes.js';
 
 const fmt = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 const STARS = [
@@ -26,6 +27,7 @@ const CSS = `#spres{position:fixed;inset:0;z-index:41;display:flex;align-items:c
 #spres .two{display:grid;grid-template-columns:1fr 1fr;gap:18px}@media(max-width:700px){#spres .two{grid-template-columns:1fr}}
 #spres .st{display:grid;gap:5px;font:500 13px system-ui}#spres .st i{font-style:normal;color:#7c78a8}#spres .st i.on{color:#ffe08a}#spres .st i.new{text-shadow:0 0 12px #ffcf5a}
 #spres .rows{display:grid;grid-template-columns:1fr auto;gap:4px 14px;font:500 13px system-ui}#spres .rows span:nth-child(even){text-align:right;font-weight:800;color:#fff}
+#spres .perks{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}#spres .perks button{font:inherit;text-align:left;padding:10px 12px;border-radius:12px;border:1.5px solid #ffffff22;background:#ffffff08;color:#e9e6ff;cursor:pointer}#spres .perks button b{display:block;font-size:13px}#spres .perks button small{font-size:11px;color:#a8a4d6}#spres .perks button.on{border-color:#c9a8ff;background:#4a2cc044}
 #spres .go{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
 #spres .go button{font:800 14px system-ui;letter-spacing:.12em;text-transform:uppercase;min-height:44px;padding:11px 24px;border-radius:999px;border:1.5px solid #8a7cff99;background:#120a2acc;color:#e8dcff;cursor:pointer}
 #spres .go button.pri{background:linear-gradient(#6a48e8,#4a2cc0);border-color:#c9a8ff;color:#fff}`;
@@ -33,7 +35,7 @@ const CSS = `#spres{position:fixed;inset:0;z-index:41;display:flex;align-items:c
 /** Score and bank a finished (or abandoned at the end) run; returns the numbers the panel shows. */
 export function scoreSpace(g, time) {
   const s = g.stats, mask = STARS.reduce((m, [, ok], i) => m | (ok(s, time) ? 1 << i : 0), 0), nStars = STARS.filter((_, i) => mask >> i & 1).length;
-  const parts = { universe: 250, tiers: 20 * s.tierTimes.length, rivals: 10 * s.rivalsEaten, powerups: 3 * s.powerups, stars: 40 * nStars };
+  const parts = { universe: 250, tiers: 20 * s.tierTimes.length, rivals: 10 * s.rivalsEaten, powerups: 3 * s.powerups, stars: Math.round(40 * nStars * (g.k?.starPay || 1)) };
   const dust = Object.values(parts).reduce((a, b) => a + b, 0), dev = devRun() || g.devUsed || /[?&](bot|tier|simx)\b/.test(location.search); // (a bot, a skipped tier or a debug hook: practice, nothing is banked)
   const before = save.cosmos?.stars | 0, c = save.cosmos ??= { runs: 0, fastest: 0, stars: 0 };
   let record = false;
@@ -47,14 +49,17 @@ export function showSpaceResults(g, ctx, { onAgain, onMenu }) {
   const st = document.createElement('style'); st.textContent = CSS;
   const el = document.createElement('div'); el.id = 'spres';
   const total = s.tierTimes.reduce((a, b) => a + b, 0) || 1, hue = (i) => `hsl(${250 + i * 9}deg 55% ${36 + (i % 2) * 6}%)`;
-  el.innerHTML = `<div class="pn"><h1>THE UNIVERSE IS CONSUMED</h1><div class="sub">${R.record ? 'new fastest · ' : ''}${R.dev ? 'practice run · nothing banked' : `+${R.dust} void dust`}</div>
+  el.innerHTML = `<div class="pn"><h1>THE UNIVERSE IS CONSUMED</h1><div class="sub">${g.mut && g.mut !== 'none' ? MUTATORS[g.mut].name + ' · ' : ''}${R.record ? 'new fastest · ' : ''}${R.dev ? 'practice run · nothing banked' : `+${R.dust} void dust`}</div>
   <div class="big"><div><b>${fmt(time)}</b><small>time</small></div><div><b>${g.swallowed.toLocaleString('en')}</b><small>swallowed</small></div><div><b>${s.peakChain}</b><small>best chain</small></div><div><b>${s.rivalsEaten}</b><small>rivals eaten</small></div><div><b>${s.flaresDodged}/${s.flaresDodged + s.flareHits}</b><small>flares dodged</small></div><div><b>${s.powerups}</b><small>power-ups</small></div></div>
   <div><h3>Time per tier</h3><div class="tiers">${s.tierTimes.map((t, i) => `<i style="flex:${t};background:${hue(i)}" title="${TIERS[i].name} ${fmt(t)}">${t / total > 0.07 ? TIERS[i].name : ''}</i>`).join('')}</div></div>
   <div class="two"><div><h3>Stars · ${R.nStars}/${STARS.length}</h3><div class="st">${STARS.map(([t], i) => `<i class="${R.mask >> i & 1 ? 'on' : ''}${(R.mask >> i & 1) && !(R.before >> i & 1) && !R.dev ? ' new' : ''}">${R.mask >> i & 1 ? '★' : '☆'} ${t}</i>`).join('')}</div></div>
   <div><h3>Pay</h3><div class="rows">${Object.entries(R.parts).map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join('')}<span>best time</span><span>${R.best ? fmt(R.best) : '-'}</span></div></div></div>
+  <div><h3>Carry one into the next universe</h3><div class="perks">${offers(g.seed || 7).map((id) => `<button data-id="${id}"><b>${LEGACY[id].name}</b><small>${LEGACY[id].blurb}</small></button>`).join('')}</div></div>
   <div class="go"><button class="pri" id="spagain">Begin again</button><button id="spmenu">Menu</button></div></div>`;
   el.prepend(st);
   document.body.appendChild(el);
-  el.querySelector('#spagain').onclick = onAgain; el.querySelector('#spmenu').onclick = onMenu;
+  let pick = null;
+  for (const b of el.querySelectorAll('.perks button')) b.onclick = () => { pick = b.dataset.id; for (const o of el.querySelectorAll('.perks button')) o.classList.toggle('on', o === b); };
+  el.querySelector('#spagain').onclick = () => { if (pick && !R.dev) { (save.cosmos ??= {}).legacy = pick; persist(); } onAgain(pick); }; el.querySelector('#spmenu').onclick = onMenu;
   return el;
 }

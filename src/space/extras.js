@@ -37,7 +37,7 @@ export const extraMethods = {
   disposeExtras() { this.puEl?.remove(); this.flareMesh?.geometry.dispose(); this.flareMesh?.material.dispose(); },
 
   /** Active power-up multipliers read by the step. */
-  pw(k) { return (this.pu?.active[k] || 0) > 0; },
+  pw(k) { if (k === 'shield' && this.k?.noShield) return false; return (this.pu?.active[k] || 0) > 0; },
 
   extrasStep(dt, ctx) {
     const st = ctx.state, r = this.r, tier = this.tier, rnd = this.rnd;
@@ -57,7 +57,7 @@ export const extraMethods = {
       this.hx += px * dt; this.hz += pz * dt;
     }
     // ---- supernova (tier 4+): a star nearby telegraphs for 3 s, then goes: a big flare ring, and a neutron star is left behind to eat
-    if (tier.hazards.includes('supernova')) {
+    if (tier.hazards.includes('supernova') && !this.k.noHaz) {
       const N = this.snova;
       if (!N) {
         if ((this.snT = (this.snT ?? 40) - dt) <= 0) {
@@ -79,7 +79,7 @@ export const extraMethods = {
       }
     }
     // ---- flares
-    if (tier.hazards.includes('flare')) {
+    if (tier.hazards.includes('flare') && !this.k.noHaz) {
       const F = this.sflare;
       if (!F) {
         if ((this.flareT -= dt) <= 0) {
@@ -97,27 +97,27 @@ export const extraMethods = {
           const dx = this.hx - F.x, dz = this.hz - F.z, d = Math.hypot(dx, dz);
           if (!F.hit && Math.abs(d - R) < F.w * 0.5 + 0.25 * r) {
             F.hit = true;
-            if (this.pw('shield')) { ctx.card('SHIELDED', 'THE FLARE BREAKS ON YOU'); this.sflare = null; this.flareT = 24 + rnd() * 14; this.stats.flaresDodged++; return; }
-            const k = (3 * r) / (d || 1); this.hx += dx * k; this.hz += dz * k; this.stunT = 1.3; this.stats.flareHits++;
-            this.eatenW = Math.max(0, this.eatenW - this.total * tier.goal * 0.015);
+            if (this.pw('shield') && !this.k.noShield) { ctx.card('SHIELDED', 'THE FLARE BREAKS ON YOU'); this.sflare = null; this.flareT = (24 + rnd() * 14) * this.k.flare; this.stats.flaresDodged++; return; }
+            const k = (3 * r) / (d || 1); this.hx += dx * k; this.hz += dz * k; this.stunT = 1.3 * this.k.stun; this.stats.flareHits++;
+            this.eatenW = Math.max(0, this.eatenW - this.total * tier.goal * 0.015 * this.k.flareCost);
             st.shake = Math.max(st.shake || 0, 0.8); ctx.hint('Flare hit · steering dazed'); ctx.sfx.space.flareHit(); navigator.vibrate?.([80, 40, 120]);
           }
-          if (u >= 1) { if (!F.hit) { this.stats.flaresDodged++; this.eatenW += this.total * tier.goal * 0.004; } this.sflare = null; this.flareT = 24 + rnd() * 14; }
+          if (u >= 1) { if (!F.hit) { this.stats.flaresDodged++; this.eatenW += this.total * tier.goal * 0.004; } this.sflare = null; this.flareT = (24 + rnd() * 14) * this.k.flare; }
         }
       }
     }
     // ---- power-ups
     const P = this.pu;
     if (!P.item) {
-      if ((P.t -= dt) <= 0) {
-        const kind = KINDS[(P.n++ * 7 + ((rnd() * 4) | 0)) % KINDS.length], a = rnd() * TAU, d = (6 + rnd() * 6) * r;
+      if (!this.k.noPu && (P.t -= dt) <= 0) {
+        const pool = this.k.noShield ? KINDS.filter((x) => x !== 'shield') : KINDS, kind = pool[(P.n++ * 7 + ((rnd() * 4) | 0)) % pool.length], a = rnd() * TAU, d = (6 + rnd() * 6) * r;
         P.item = { kind, x: this.hx + Math.cos(a) * d, z: this.hz + Math.sin(a) * d, ttl: 20 };
         ctx.hint(`${POW[kind].name} nearby`);
       }
     } else {
       const it = P.item; it.ttl -= dt;
       const d = Math.hypot(it.x - this.hx, it.z - this.hz) / r;
-      if (d < 1.5) this.takePower(it.kind, ctx), P.item = null, P.t = 26 + rnd() * 16;
+      if (d < 1.5) this.takePower(it.kind, ctx), P.item = null, P.t = (26 + rnd() * 16) * this.k.pu;
       else if (it.ttl <= 0) { P.item = null; P.t = 14 + rnd() * 10; }
     }
   },

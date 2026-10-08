@@ -948,6 +948,7 @@ async function start(seed, daily, mutator = null, mode = 'city') {
 $('play').onclick = () => start(undefined, false, null, pickedMode);
 $('blitz').onclick = () => start(undefined, false, null, 'blitz');
 $('daily').onclick = () => start(todaySeed(), true);
+$('cosmosgo').onclick = () => { const u = new URL(location.href); u.search = `?space&seed=${Math.floor(Math.random() * 9e5) + 1000}`; location.href = u.href; }; // (Phase 4: a new universe)
 $('planetgo').onclick = () => { const u = new URL(location.href); u.search = `?planet&ng=1&seed=${Math.floor(Math.random() * 9e5) + 1000}`; location.href = u.href; }; // (a world was eaten: start on a fresh planet)
 $('weekly').onclick = () => { const w = thisWeek(); start(w.seed, false, w.id); };
 function panel(id) {
@@ -986,6 +987,7 @@ const clock = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStar
 function renderShop() {
   $('dust').textContent = save.dust;
   $('planetgo').hidden = !((save.worlds || 0) >= 1);
+  $('cosmosgo').hidden = !((save.worlds || 0) >= 1 || save.cosmos?.runs);
   $('bookBtn').querySelector('b').textContent = `${bookEntries(assets).filter((a) => save.book?.[a.name]).length}/${bookEntries(assets).length}`;
   const dailyBest = save.daily[todaySeed()];
   const wk = thisWeek(), wb = save.weekly?.[wk.key];
