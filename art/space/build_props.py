@@ -15,6 +15,11 @@ def hexc(h, a=0.0):
     return ((h >> 16 & 255) / 255) ** 2.2, ((h >> 8 & 255) / 255) ** 2.2, ((h & 255) / 255) ** 2.2, a   # (glTF colours are linear)
 
 
+def two_sided(m, pts, color):
+    for order in (pts, list(reversed(pts))):
+        vs = [m.bm.verts.new(p) for p in order]; m.bm.faces.new(vs); m.paint(vs, color)
+
+
 class Model:
     def __init__(self):
         self.bm = bmesh.new(); self.col = self.bm.verts.layers.color.new('Col')
@@ -146,8 +151,8 @@ def neutron_star():
     for s in (-1, 1):
         m.cyl(0.02, 0.45, 5.0, (0, 0, s * 2.9), hexc(0x6aa8ff, 1.0), rot=(0 if s > 0 else math.pi, 0, 0), seg=18, cap=False)
         m.cyl(0.0, 0.2, 5.0, (0, 0, s * 2.9), hexc(0xe8f2ff, 1.0), rot=(0 if s > 0 else math.pi, 0, 0), seg=12, cap=False)
-    m.torus(1.5, 0.03, (0, 0, 0), hexc(0x9ac0ff, 1.0), seg=64, tseg=5, scale=(1, 1, 1))
-    m.torus(2.4, 0.02, (0, 0, 0), hexc(0x7aa0ff, 0.8), seg=64, tseg=5)
+    m.torus(1.5, 0.03, (0, 0, 0), hexc(0x9ac0ff, 1.0), seg=40, tseg=4, scale=(1, 1, 1))
+    m.torus(2.4, 0.02, (0, 0, 0), hexc(0x7aa0ff, 0.8), seg=40, tseg=4)
     return m.finish('neutron_star')
 
 
@@ -289,7 +294,153 @@ def siege_orb():
     return m.finish('siege_orb')
 
 
-MODELS = [freighter, miner, void_whale, relic, warp_gate, refinery, siege_orb, telescope, probe, sat_comm, station, capsule, rocket_stage, monolith, ringworld, neutron_star, dyson]
+def crystal_cluster():
+    m = Model()
+    rr = random.Random(3)
+    m.sphere(0.55, (0, 0, 0), hexc(0x3a3358), scale=(1.2, 1.2, 0.6), seg=12)
+    cols = [0x66e8ff, 0xb48cff, 0xff7ad8, 0x7affc8]
+    for i in range(14):
+        a = rr.random() * math.tau; tilt = 0.25 + rr.random() * 0.7; h = 1.0 + rr.random() * 1.6; w = 0.12 + rr.random() * 0.14
+        d = (math.sin(tilt) * math.cos(a), math.sin(tilt) * math.sin(a), math.cos(tilt))
+        c = hexc(cols[i % 4], 0.55 if i % 2 else 0.0)
+        verts = m.cyl(w, 0.01, h, (d[0] * h * 0.5, d[1] * h * 0.5, d[2] * h * 0.5), c, seg=6)
+        # tilt the prism along d: rotate its verts about the origin of the shard
+        up = Vector((0, 0, 1)); q = up.rotation_difference(Vector(d)); cen = Vector((d[0] * h * 0.5, d[1] * h * 0.5, d[2] * h * 0.5))
+        for v in verts: v.co = cen + q @ (v.co - cen)
+    return m.finish('crystal_cluster')
+
+
+def gas_manta():
+    m = Model()
+    m.sphere(1.0, (0, 0, 0), hexc(0xe8c9a0), scale=(1.6, 0.35, 0.8), seg=24)
+    for s2 in (-1, 1):                                                                   # the wings: flat swept triangles
+        two_sided(m, ((0.8, 0, s2 * 0.5), (-1.2, 0.0, s2 * 3.6), (-1.9, 0.0, s2 * 0.6)), hexc(0xc98a58))
+        two_sided(m, ((-1.2, 0.02, s2 * 3.6), (-1.5, 0.02, s2 * 2.6), (-0.9, 0.02, s2 * 2.8)), hexc(0xffe2a8, 0.7))
+        m.sphere(0.07, (1.4, 0.2, s2 * 0.4), hexc(0xfff0c0, 0.9), seg=6)
+    m.cyl(0.07, 0.01, 3.0, (-3.0, 0, 0), hexc(0xb87a50), rot=(0, -math.pi / 2, 0), seg=6)    # the tail
+    for i in range(6): m.sphere(0.06, (-0.4 - i * 0.2, 0.3, (i - 2.5) * 0.18), hexc(0xffd8a0, 1.0), seg=6)
+    return m.finish('gas_manta')
+
+
+def generation_ship():
+    m = Model()
+    m.cyl(1.0, 1.0, 5.0, (0, 0, 0), hexc(0x6a7280), rot=(0, math.pi / 2, 0), seg=28)             # the habitat drum along X
+    for x in (-2.0, 0.0, 2.0): m.torus(1.3, 0.12, (x, 0, 0), hexc(0xb8bcc6), seg=40, tseg=6, scale=(1, 1, 1))
+    for i in range(10):
+        a = i / 10 * math.tau
+        m.box((3.6, 0.04, 0.12), (0.0, math.cos(a) * 0.92, math.sin(a) * 0.92), hexc(0xfff0b8, 1.0))   # glowing windows
+    m.cyl(0.5, 0.8, 1.2, (2.9, 0, 0), hexc(0x3c434d), rot=(0, math.pi / 2, 0), seg=18); m.cyl(0.9, 1.4, 0.8, (-3.1, 0, 0), DARK, rot=(0, math.pi / 2, 0), seg=18)
+    m.cyl(0.6, 0.15, 0.7, (-3.7, 0, 0), hexc(0x66b8ff, 1.0), rot=(0, math.pi / 2, 0), seg=14)
+    for s2 in (-1, 1):
+        for z in (-1, 1): m.box((1.4, 0.04, 0.9), (-0.5, s2 * 1.9, z * 1.4), PANEL)
+    return m.finish('generation_ship')
+
+
+def jellyfish():
+    m = Model()
+    m.sphere(1.0, (0, 0, 0.4), hexc(0xb88aff, 0.35), scale=(1.0, 1.0, 0.75), seg=24)                  # the bell, open end -Z
+    m.sphere(0.55, (0, 0, 0.5), hexc(0xffe0ff, 0.9), scale=(1, 1, 0.8), seg=14)
+    for i in range(12):                                                                                 # tentacles: chains of glowing beads
+        a = i / 12 * math.tau; L = 6 + (i % 3) * 2
+        for k in range(L):
+            t = k / L; rad = 0.8 * (1 - 0.5 * t) + 0.12 * math.sin(k * 0.8 + i); z = -0.1 - t * 3.2
+            m.sphere(0.07 * (1 - 0.6 * t), (math.cos(a) * rad, math.sin(a) * rad, z), hexc(0x66ffd9 if k % 3 == 0 else 0xd89aff, 0.9 - 0.5 * t), seg=4)
+    return m.finish('jellyfish')
+
+
+def mothership():
+    m = Model()
+    m.sphere(1.0, (0, 0, 0), hexc(0x9aa3b4), scale=(3.0, 3.0, 0.5), seg=28)                           # the saucer in XY
+    m.sphere(0.9, (0, 0, 0.45), hexc(0xd8dce4), scale=(1.0, 1.0, 0.9), seg=24); m.sphere(0.55, (0, 0, 0.8), hexc(0x9fd8ff, 0.4), seg=16)
+    m.torus(2.7, 0.08, (0, 0, 0.0), hexc(0xffd070, 1.0), seg=64, tseg=5)
+    for i in range(16):
+        a = i / 16 * math.tau
+        m.sphere(0.1, (math.cos(a) * 2.2, math.sin(a) * 2.2, -0.34), hexc(0x66d8ff if i % 2 else 0xff6a4a, 1.0), seg=6)
+    m.cyl(0.9, 0.5, 0.4, (0, 0, -0.5), hexc(0x3c434d), seg=18)
+    for i in range(4):
+        a = i / 4 * math.tau + 0.4; m.box((0.7, 0.3, 0.2), (math.cos(a) * 1.6, math.sin(a) * 1.6, -0.45), DARK, rot=(0, 0, a))
+    return m.finish('mothership')
+
+
+def nebula_serpent():
+    m = Model()
+    N = 34
+    for i in range(N):
+        t = i / (N - 1); x = (0.5 - t) * 9.0; y = math.sin(t * 7.0) * 0.9; rad = 0.55 * (1 - 0.6 * t) * (1.0 + 0.3 * math.sin(t * 20))
+        if i == 0: rad = 0.7
+        c = hexc(0x2a6a8a if i % 2 else 0x4a3a9a, 0.0)
+        m.sphere(rad, (x, y, 0), c, seg=8)
+        if i % 3 == 0: m.sphere(rad * 0.45, (x, y, rad * 0.8), hexc(0x66ffd9, 1.0), seg=6)
+    m.sphere(0.12, (4.7, 0.2, 0.5), hexc(0xfff0b0, 1.0), seg=8); m.sphere(0.12, (4.7, 0.2, -0.5), hexc(0xfff0b0, 1.0), seg=8)
+    for s2 in (-1, 1): m.cyl(0.06, 0.01, 1.1, (4.9, 0.2, s2 * 0.35), hexc(0x8affea, 0.8), rot=(0, 0, s2 * 0.7), seg=6)
+    return m.finish('nebula_serpent')
+
+
+def star_hub():
+    m = Model()
+    m.sphere(0.9, (0, 0, 0), hexc(0xfff0c0, 1.0), seg=20)
+    for R, r in ((2.2, 0.1), (3.4, 0.14), (4.6, 0.1)): m.torus(R, r, (0, 0, 0), hexc(0x9aa3b4), seg=40, tseg=5)
+    for i in range(8):
+        a = i / 8 * math.tau
+        m.box((3.6, 0.07, 0.07), (math.cos(a) * 2.3, math.sin(a) * 2.3, 0), hexc(0xb8bcc6), rot=(0, 0, a))                 # spokes
+        m.box((0.6, 0.6, 0.6), (math.cos(a) * 4.6, math.sin(a) * 4.6, 0), hexc(0xd8dce4), rot=(0, 0, a)); m.sphere(0.12, (math.cos(a) * 4.9, math.sin(a) * 4.9, 0.35), hexc(0x66d8ff, 1.0), seg=6)
+    m.torus(3.4, 0.05, (0, 0, 0.3), hexc(0xffb050, 1.0), seg=64, tseg=4)
+    return m.finish('star_hub')
+
+
+def cosmic_egg():
+    m = Model()
+    r = m.sphere(1.0, (0, 0, 0), hexc(0xd8c8f0), scale=(0.9, 0.9, 1.25), seg=36)
+    rr = random.Random(9)
+    for v in r:                                                                                         # cracks glow along noise lines
+        c = hexc(0xe8d8ff); n = math.sin(v.co.x * 9 + v.co.z * 5) * math.sin(v.co.y * 8 - v.co.z * 7)
+        if abs(n) < 0.06: c = hexc(0xff9ad8, 1.0)
+        elif n > 0.5: c = hexc(0xb8a0e8)
+        v[m.col] = c
+    for i in range(10):
+        a = rr.random() * math.tau; z = rr.uniform(-1, 1) * 1.1; rad = math.sqrt(max(0.0, 1 - (z / 1.25) ** 2)) * 0.9
+        m.sphere(0.07, (math.cos(a) * rad * 1.02, math.sin(a) * rad * 1.02, z), hexc(0xffe0a0, 1.0), seg=6)
+    return m.finish('cosmic_egg')
+
+
+def void_eye():
+    m = Model()
+    m.sphere(1.0, (0, 0, 0), hexc(0xece4f0), seg=28)                                                    # the eyeball, looks along +X
+    m.sphere(0.5, (0.78, 0, 0), hexc(0x3a8aff), scale=(0.35, 1, 1), seg=24); m.sphere(0.5, (0.88, 0, 0), hexc(0x4aa8ff, 0.35), scale=(0.18, 1, 1), seg=24)
+    m.sphere(0.22, (0.97, 0, 0), hexc(0x04040a), scale=(0.2, 0.55, 1), seg=16)                          # the slit pupil
+    for i in range(18):
+        a = i / 18 * math.tau; m.box((0.02, 0.5, 0.03), (0.74 + 0.0, math.cos(a) * 0.55, math.sin(a) * 0.55), hexc(0x8ad0ff, 0.7), rot=(a, 0, 0))
+    for i in range(36):                                                                                # veins
+        a = i * 2.4; b = 0.6 + (i % 7) * 0.12
+        m.sphere(0.03, (-0.3 + math.cos(b) * 0.9, math.sin(a) * math.sin(b) * 0.9, math.cos(a) * math.sin(b) * 0.9), hexc(0xd85a6a), seg=4)
+    return m.finish('void_eye')
+
+
+def solar_sail():
+    m = Model()
+    for i in range(4):
+        a = i / 4 * math.tau + 0.4; c, sn = math.cos(a), math.sin(a)
+        two_sided(m, ((0, 0, 0), (c * 4.0 - sn * 1.1, sn * 4.0 + c * 1.1, 0), (c * 4.0 + sn * 1.1, sn * 4.0 - c * 1.1, 0)), hexc(0xffd890, 0.45))
+        m.box((4.1, 0.05, 0.05), (c * 2.0, sn * 2.0, 0), hexc(0xb8bcc6), rot=(0, 0, a))
+    m.box((0.5, 0.5, 0.4), (0, 0, 0), GOLD); m.sphere(0.12, (0, 0, 0.3), hexc(0xff5a3a, 1.0), seg=8)
+    return m.finish('solar_sail')
+
+
+def asteroid_base():
+    m = Model()
+    rr = random.Random(5)
+    r = m.sphere(1.0, (0, 0, 0), hexc(0x7a7168), scale=(1.5, 1.1, 1.0), seg=24)
+    for v in r:
+        n = math.sin(v.co.x * 7) * math.sin(v.co.y * 6 + v.co.z * 4); v.co *= 1 + 0.12 * n; v[m.col] = hexc(0x8a7f74) if n > 0 else hexc(0x5e564e)
+    m.cyl(0.4, 0.4, 0.9, (1.6, 0, 0.5), hexc(0xd8dce4), rot=(0, math.pi / 2, 0), seg=12); m.torus(0.5, 0.06, (1.0, 0, 0.5), hexc(0xb8bcc6), seg=24, tseg=4, scale=(1, 1, 1))
+    for s2 in (-1, 1): m.box((1.3, 0.03, 0.8), (0.0, s2 * 1.5, 0.7), PANEL); m.box((0.06, 0.06, 0.5), (0.0, s2 * 1.1, 0.6), FRAME)
+    for i in range(10):
+        a = rr.random() * math.tau; z = rr.uniform(-0.4, 0.8); m.sphere(0.06, (math.cos(a) * 1.2, math.sin(a) * 0.9, z + 0.5), hexc(0xffe9a0, 1.0), seg=4)
+    m.box((0.08, 0.08, 1.2), (-0.8, 0.0, 1.3), GREY); m.sphere(0.07, (-0.8, 0, 1.95), hexc(0xff4a3a, 1.0), seg=6)
+    return m.finish('asteroid_base')
+
+
+MODELS = [crystal_cluster, gas_manta, generation_ship, jellyfish, mothership, nebula_serpent, star_hub, cosmic_egg, void_eye, solar_sail, asteroid_base, freighter, miner, void_whale, relic, warp_gate, refinery, siege_orb, telescope, probe, sat_comm, station, capsule, rocket_stage, monolith, ringworld, neutron_star, dyson]
 scn = bpy.data.scenes.new('space_props'); win = bpy.context.window; old = win.scene if win else None
 try:
     if win: win.scene = scn

@@ -10,7 +10,7 @@ const CSS = `
   #hud.p3 .pill{font-size:12px;padding:3px 9px}
   #hud.p3 .meter{max-width:34vw}
   #sppow{font-size:11px !important}
-  #levelup{width:92vw;text-align:center}#levelup b{white-space:normal !important;font-size:clamp(17px,6vw,30px) !important;line-height:1.1 !important}
+  #levelup{width:92vw;text-align:center;top:25% !important}#levelup b{white-space:normal !important;font-size:clamp(17px,6vw,30px) !important;line-height:1.1 !important}
   #hint{bottom:calc(76px + env(safe-area-inset-bottom))}
   #spres{padding:10px 10px calc(10px + env(safe-area-inset-bottom))}
   #spres .go button{flex:1 1 140px}
