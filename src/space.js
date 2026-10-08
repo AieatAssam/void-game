@@ -221,8 +221,8 @@ export class SpaceGame {
     this.root = new THREE.Group(); this.root.name = 'space';
     this.sky = new Sky(this.S, renderer, Q.tier === 'low' ? 512 : 1024); this.root.add(this.sky.mesh);
     this.bmHi = bodyMaterial(this.U); this.bmLo = bodyMaterial(this.U); this.bmBg = bodyMaterial(this.U); // (two meshes, two attribute sets: a near body is drawn with a fine sphere, a speck with a coarse one)
-    this.hi = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, Q.tier === 'low' ? 3 : 4), this.bmHi.m, CAP); this.lo = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), this.bmLo.m, CAP);
-    this.bg = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, Q.tier === 'low' ? 4 : 6), this.bmBg.m, 12); // (a few huge bodies, the Sun: a smooth silhouette)
+    this.hi = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, Q.software ? 2 : Q.tier === 'low' ? 3 : 4), this.bmHi.m, CAP); this.lo = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), this.bmLo.m, CAP);
+    this.bg = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, Q.software ? 4 : Q.tier === 'low' ? 5 : 6), this.bmBg.m, 12); // (a few huge bodies, the Sun: a smooth silhouette)
     for (const o of [this.hi, this.lo, this.bg]) { o.frustumCulled = false; o.count = 0; o.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.root.add(o); }
     const galAtlas = await new THREE.TextureLoader().loadAsync(`${import.meta.env.BASE_URL}textures/space/galaxies.png`); galAtlas.colorSpace = THREE.NoColorSpace; galAtlas.anisotropy = 4; galAtlas.wrapS = galAtlas.wrapT = THREE.ClampToEdgeWrapping;
     this.gal = galaxyMaterial(galAtlas); this.root.add(this.gal.mesh);
