@@ -42,6 +42,7 @@ export const botMethods = {
       // the rival: run from a bigger one, chase a smaller one; flares: step away from the ring when it is close (late)
       const R = this.rival;
       if (R) { const rx = this.hx - R.x, rz = this.hz - R.z, d = Math.hypot(rx, rz); if (R.b > r * 1.1 && d < 5 * r) want = [rx / d, rz / d]; else if (r > R.b * 1.2 && d < 18 * r) want = [-rx / d, -rz / d]; }
+      const Bm = this.beam; if (Bm && Bm.t > P.hazardLate * 0.7 && Bm.t < 2.1 && Math.random() > P.hazardLate * 0.3) { const dx = this.hx - Bm.o.x, dz = this.hz - Bm.o.z, ex = Math.cos(Bm.ang), ez = Math.sin(Bm.ang), perp = -dx * ez + dz * ex; if (Math.abs(perp) < 2.5 * r) { const sg = perp >= 0 ? 1 : -1; want = [-ez * sg, ex * sg]; } } // (out of the beam's line)
       const F = this.sflare;
       if (F && !F.hit && F.t > P.hazardLate) { const dx = this.hx - F.x, dz = this.hz - F.z, d = Math.hypot(dx, dz); if (d < F.Rmax + 1.5 * r && F.t < 2.2 + 3.2 && Math.random() > P.hazardLate * 0.4) want = [dx / (d || 1), dz / (d || 1)]; } // (a flare: get outside its final ring)
       if (this.tier.field && Math.hypot(this.hx, this.hz) > this.tier.field * 0.9) { const d = Math.hypot(this.hx, this.hz); want = [-this.hx / d, -this.hz / d]; } // (a person turns back from the empty dark)

@@ -194,7 +194,102 @@ def probe():
     return m.finish('probe')
 
 
-MODELS = [telescope, probe, sat_comm, station, capsule, rocket_stage, monolith, ringworld, neutron_star, dyson]
+def freighter():
+    m = Model()
+    m.box((5.0, 1.0, 1.0), (0, 0, 0), hexc(0x5b6572))                                                   # the hull
+    m.box((1.2, 0.8, 0.8), (-2.1, 0.75, 0), hexc(0xd8dce4)); m.box((0.7, 0.4, 0.9), (-2.1, 1.3, 0), hexc(0x2a2d36)); m.sphere(0.07, (-2.1, 1.55, 0), hexc(0xff4a3a, 0.9), seg=8)  # bridge
+    cols = [0xc8402e, 0x2e6fc8, 0xe0a52e, 0x3fa05a, 0xd8dce4, 0x8a4fc8]
+    for i in range(5):
+        for j in range(3):
+            m.box((0.55, 0.45, 0.45), (-0.9 + i * 0.62, 0.72, -0.5 + j * 0.5), hexc(cols[(i * 3 + j) % len(cols)]))
+    m.box((1.0, 0.7, 0.9), (2.3, 0, 0), hexc(0x3c434d))
+    for z in (-0.35, 0.35): m.cyl(0.28, 0.2, 0.5, (2.95, 0, z), DARK, rot=(0, math.pi / 2, 0), seg=12); m.cyl(0.18, 0.05, 0.4, (3.3, 0, z), hexc(0x66b8ff, 1.0), rot=(0, math.pi / 2, 0), seg=12)
+    m.box((4.4, 0.05, 0.05), (0, -0.55, 0.52), GREY); m.box((4.4, 0.05, 0.05), (0, -0.55, -0.52), GREY)
+    return m.finish('freighter')
+
+
+def miner():
+    m = Model()
+    m.box((1.6, 0.9, 1.2), (0, 0, 0), hexc(0xe0a52e)); m.box((1.0, 0.5, 1.25), (-0.1, 0.6, 0), hexc(0x2a2d36)); m.box((0.7, 0.4, 0.7), (-0.5, 0.95, 0), hexc(0x9fd8ff, 0.2))
+    m.cyl(0.5, 0.05, 1.4, (1.5, 0, 0), hexc(0xb8bcc6), rot=(0, math.pi / 2, 0), seg=14)                    # the drill
+    for i in range(4): m.torus(0.5 - i * 0.09, 0.025, (0.9 + i * 0.3, 0, 0), hexc(0x6a7280), seg=16, tseg=4)
+    for z in (-1, 1):
+        m.box((0.9, 0.12, 0.12), (0.3, -0.25, z * 0.75), GREY, rot=(0, z * 0.4, 0)); m.box((0.3, 0.3, 0.3), (0.85, -0.25, z * 1.05), DARK)
+        m.sphere(0.12, (0.95, 0.15, z * 0.55), hexc(0xffe9a0, 1.0), seg=8)
+    m.cyl(0.4, 0.4, 0.7, (-1.1, 0, 0), hexc(0x6a7280), rot=(0, math.pi / 2, 0), seg=12); m.sphere(0.1, (-1.5, 0, 0), hexc(0xff9a3a, 1.0), seg=8)
+    return m.finish('miner')
+
+
+def void_whale():
+    m = Model()
+    m.sphere(1.0, (0, 0, 0), hexc(0x2c6a86), scale=(3.0, 0.95, 1.05), seg=32)                               # the body, nose along +X
+    m.sphere(0.8, (-2.2, 0, 0), hexc(0x3b8aa0), scale=(1.4, 0.7, 0.8), seg=20)
+    m.cyl(0.55, 0.04, 2.0, (-3.9, 0, 0), hexc(0x3b7aa0), rot=(0, -math.pi / 2, 0), seg=14)                    # the tail
+    for s2 in (-1, 1):
+        m.box((0.2, 0.05, 1.3), (-4.6, 0, s2 * 0.5), hexc(0x4fa0c0), rot=(0, 0, 0.0))                          # flukes
+        m.box((1.1, 0.06, 0.8), (0.6, -0.35, s2 * 1.15), hexc(0x4fa0c0), rot=(0.5 * s2, 0, 0.3))                  # flippers
+        m.sphere(0.1, (2.3, 0.2, s2 * 0.75), hexc(0xfff0b0, 0.6), seg=8)                                        # eyes
+    m.box((2.0, 0.25, 0.1), (0.2, 0.95, 0), hexc(0x5ab8d0))
+    for i in range(14):
+        a = i / 14 * math.tau; x = 1.8 - i * 0.38
+        for s2 in (-1, 1): m.sphere(0.07, (x, 0.35 - 0.1 * math.sin(a), s2 * 0.98), hexc(0x66ffd9, 1.0), seg=6)    # glowing spots
+    return m.finish('void_whale')
+
+
+def relic():
+    m = Model()
+    m.cyl(0.7, 0.35, 4.0, (0, 0, 0), hexc(0x2a2540), rot=(0, 0, 0), seg=8)                                   # an obelisk along Z
+    m.cyl(0.35, 0.02, 0.7, (0, 0, 2.3), hexc(0x4a3f78), seg=8)
+    for i in range(12):
+        a = i * 0.9; z = -1.6 + i * 0.28; r2 = 0.55 - (z + 2) * 0.07
+        m.box((0.16, 0.05, 0.12), (math.cos(a) * r2, math.sin(a) * r2, z), hexc(0x9fffe0, 1.0), rot=(0, 0, a))  # glowing runes in a spiral
+    m.torus(1.6, 0.06, (0, 0, 0.3), hexc(0x9a86ff, 0.8), seg=48, tseg=5); m.torus(2.0, 0.04, (0, 0, -0.5), hexc(0x9a86ff, 0.6), seg=48, tseg=5, scale=(1, 1, 1))
+    for i in range(6):
+        a = i / 6 * math.tau; m.box((0.2, 0.2, 0.7), (math.cos(a) * 1.9, math.sin(a) * 1.9, -1.9), hexc(0x3a3358))
+    return m.finish('relic')
+
+
+def warp_gate():
+    m = Model()
+    m.torus(3.0, 0.22, (0, 0, 0), hexc(0x8a93a6), seg=64, tseg=8)
+    m.torus(2.75, 0.07, (0, 0, 0), hexc(0x66d8ff, 1.0), seg=64, tseg=5)
+    for i in range(8):
+        a = i / 8 * math.tau + 0.2; m.box((0.35, 0.5, 0.9), (math.cos(a) * 3.0, math.sin(a) * 3.0, 0), hexc(0xd8dce4), rot=(0, 0, a))
+        m.sphere(0.1, (math.cos(a) * 3.0, math.sin(a) * 3.0, 0.5), hexc(0xff5a3a, 1.0), seg=6)
+    for s2 in (-1, 1): m.box((0.3, 1.6, 0.3), (s2 * 1.4, -3.3, 0), GREY, rot=(0, 0, s2 * 0.4))
+    m.cyl(1.9, 1.9, 0.02, (0, 0, 0), hexc(0x8fe8ff, 0.9), seg=48)                                            # the shimmering surface
+    return m.finish('warp_gate')
+
+
+def refinery():
+    m = Model()
+    m.sphere(1.3, (0, 0, 0), hexc(0xd8dce4), seg=24)
+    m.torus(1.45, 0.07, (0, 0, 0), hexc(0xe0742a), seg=40, tseg=5)
+    for i in range(4):
+        a = i / 4 * math.tau + 0.4; m.sphere(0.55, (math.cos(a) * 2.2, math.sin(a) * 2.2, -0.2), hexc(0xb8bcc6), seg=16); m.box((1.2, 0.1, 0.1), (math.cos(a) * 1.4, math.sin(a) * 1.4, -0.1), GREY, rot=(0, 0, a))
+    m.cyl(0.18, 0.12, 2.6, (0, 0, 2.0), hexc(0x6a7280), seg=10); m.cone = None
+    m.sphere(0.32, (0, 0, 3.5), hexc(0xff9a3a, 1.0), scale=(1, 1, 1.8), seg=10)                              # the flare stack's flame
+    for i in range(6):
+        a = i / 6 * math.tau; m.box((0.08, 0.08, 1.6), (math.cos(a) * 0.9, math.sin(a) * 0.9, 1.2), FRAME)
+    m.cyl(0.25, 0.25, 0.6, (0, 0, -1.6), GOLD, seg=10)
+    return m.finish('refinery')
+
+
+def siege_orb():
+    m = Model()
+    r = m.sphere(2.0, (0, 0, 0), hexc(0xa0a8b8), seg=40)
+    for v in r:                                                                                             # latitude bands: a dark trench round the middle, panel stripes
+        lat = abs(v.co.z) / 2.0
+        v[m.col] = hexc(0x14161c) if lat < 0.07 else hexc(0xc4ccdc) if int(lat * 14) % 2 else hexc(0x939bab)
+    m.cyl(0.9, 0.9, 0.25, (1.85, 0.0, 0.9), hexc(0x4a505e), rot=(0, math.pi / 2 - 0.45, 0), seg=24)          # the dish
+    m.sphere(0.34, (2.1, 0, 0.95), hexc(0xff3a2a, 1.0), seg=14)                                             # the lens
+    for i in range(5):
+        a = i / 5 * math.tau; m.cyl(0.12, 0.08, 0.5, (math.cos(a) * 1.5, math.sin(a) * 1.5, -1.1), DARK, rot=(0, 0.5, a), seg=8); m.sphere(0.05, (math.cos(a) * 1.75, math.sin(a) * 1.75, -1.3), hexc(0xffd070, 1.0), seg=6)
+    m.cyl(0.04, 0.04, 1.2, (0, 0, 2.5), GREY, seg=6)
+    return m.finish('siege_orb')
+
+
+MODELS = [freighter, miner, void_whale, relic, warp_gate, refinery, siege_orb, telescope, probe, sat_comm, station, capsule, rocket_stage, monolith, ringworld, neutron_star, dyson]
 scn = bpy.data.scenes.new('space_props'); win = bpy.context.window; old = win.scene if win else None
 try:
     if win: win.scene = scn

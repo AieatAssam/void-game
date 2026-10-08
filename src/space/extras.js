@@ -1,7 +1,7 @@
 // Phase 4 adversity and power-ups (docs/PHASE4.md), mixed into SpaceGame (src/space.js): flares, tidal pulls from huge bodies, and four power-ups. Nothing here can end a run or trap
 // the hole: a flare shoves you clear and stuns you for a second, a tidal pull is slower than your speed, and every penalty is a few percent of the tier.
 import * as THREE from 'three/webgpu';
-import { Fn, vec3, vec4, float, uniform, length, smoothstep, positionGeometry, exp, abs } from 'three/tsl';
+import { Fn, vec3, vec4, float, uniform, length, smoothstep, positionGeometry, exp, abs, mix } from 'three/tsl';
 import { K, looseProp } from './tiers.js';
 
 const TAU = Math.PI * 2;
@@ -28,13 +28,19 @@ export const extraMethods = {
     })();
     this.flareMesh = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 128, 1).rotateX(-Math.PI / 2), m);
     this.flareMesh.frustumCulled = false; this.flareMesh.renderOrder = 47; this.flareMesh.visible = false; this.root.add(this.flareMesh);
+    // the siege orb's beam: a long quad from the orb, aimed at you for 1.5 s, then fired for 0.6 s
+    this.beamU = { a: uniform(0), w: uniform(0.2) };
+    const bm = new THREE.MeshBasicNodeMaterial({ fog: false, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthTest: false });
+    bm.colorNode = Fn(() => { const p = positionGeometry, core = exp(abs(p.z).mul(-9)), edge = float(1).sub(smoothstep(0.35, 0.5, abs(p.z))); return vec4(mix(vec3(1.0, 0.18, 0.1), vec3(1.0, 0.9, 0.8), core).mul(edge.mul(0.7).add(core)).mul(this.beamU.a), 1); })();
+    this.beamMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0.5, 0, 0), bm);
+    this.beamMesh.frustumCulled = false; this.beamMesh.renderOrder = 46; this.beamMesh.visible = false; this.root.add(this.beamMesh); this.beam = null; this.beamT = 4;
     // the chips under the HUD
     const el = this.puEl = document.createElement('div'); el.id = 'sppow';
     el.style.cssText = 'position:fixed;top:64px;left:0;right:0;display:flex;justify-content:center;gap:8px;z-index:6;pointer-events:none;font:800 12px system-ui,sans-serif;letter-spacing:.1em';
     document.body.appendChild(el);
   },
 
-  disposeExtras() { this.puEl?.remove(); this.flareMesh?.geometry.dispose(); this.flareMesh?.material.dispose(); },
+  disposeExtras() { this.puEl?.remove(); this.beamMesh?.geometry.dispose(); this.beamMesh?.material.dispose(); this.flareMesh?.geometry.dispose(); this.flareMesh?.material.dispose(); },
 
   /** Active power-up multipliers read by the step. */
   pw(k) { if (k === 'shield' && this.k?.noShield) return false; return (this.pu?.active[k] || 0) > 0; },
@@ -56,6 +62,26 @@ export const extraMethods = {
       }
       this.hx += px * dt; this.hz += pz * dt;
     }
+    // ---- siege orbs: the nearest one aims at you, then fires. Standing out of the line is enough; eating the orb ends it.
+    if (!this.k.noHaz) {
+      let orb = null, bd = 1e18;
+      for (const o of this.bodies) { if (o.state || o.model !== 'siege_orb') continue; const d = Math.hypot(o.x - this.hx, o.z - this.hz); if (d < 18 * r && d < bd) { bd = d; orb = o; } }
+      const B = this.beam;
+      if (!orb || (B && B.o.state)) this.beam = null;
+      else if (!B) { if ((this.beamT -= dt) <= 0) { this.beam = { o: orb, t: 0, ang: 0, hit: false }; ctx.hint('SIEGE ORB · beam locking · step out of the line'); ctx.sfx.space.flareWarn(); } }
+      else {
+        B.t += dt; const dx = this.hx - B.o.x, dz = this.hz - B.o.z;
+        if (B.t < 1.5) B.ang = Math.atan2(dz, dx);
+        else if (B.t < 2.1) {
+          const ex = Math.cos(B.ang), ez = Math.sin(B.ang), along = dx * ex + dz * ez, perp = -dx * ez + dz * ex;
+          if (!B.hit && along > 0 && Math.abs(perp) < 1.1 * r) {
+            B.hit = true;
+            if (this.pw('shield')) ctx.card('SHIELDED', 'THE BEAM BREAKS ON YOU');
+            else { const sgn = perp >= 0 ? 1 : -1; this.hx += -ez * sgn * 3 * r; this.hz += ex * sgn * 3 * r; this.stunT = 0.9 * this.k.stun; this.stats.flareHits++; this.eatenW = Math.max(0, this.eatenW - this.total * tier.goal * 0.006 * this.k.flareCost); st.shake = Math.max(st.shake || 0, 0.8); ctx.hint('Beam hit · steering dazed'); this.beamT = 14; ctx.sfx.space.flareHit(); navigator.vibrate?.([80, 40, 120]); }
+          }
+        } else { this.beam = null; this.beamT = Math.max(this.beamT, (9 + rnd() * 5) * this.k.flare); }
+      }
+    } else this.beam = null;
     // ---- supernova (tier 4+): a star nearby telegraphs for 3 s, then goes: a big flare ring, and a neutron star is left behind to eat
     if (tier.hazards.includes('supernova') && !this.k.noHaz) {
       const N = this.snova;
@@ -146,6 +172,12 @@ export const extraMethods = {
       mesh.visible = true; mesh.position.set((F.x - this.hx) * ir, 0, (F.z - this.hz) * ir); mesh.scale.setScalar(Math.max(0.2, R * ir));
       U.a.value = warn ? 0.22 + 0.18 * Math.sin(F.t * 12) : 1.1 * (1 - 0.5 * u);
     } else mesh.visible = false;
+    { const B = this.beam, m = this.beamMesh;
+      if (B && !B.o.state) {
+        const firing = B.t >= 1.5 && B.t < 2.1; m.visible = true; m.position.set((B.o.x - this.hx) * ir, 0, (B.o.z - this.hz) * ir);
+        m.quaternion.setFromAxisAngle(this._y3 ??= new THREE.Vector3(0, 1, 0), -B.ang); m.scale.set(46, 1, firing ? 2.2 : 0.18);
+        this.beamU.a.value = firing ? 1.4 : 0.35 + 0.25 * Math.sin(B.t * 20);
+      } else m.visible = false; }
     // the pick-up: a pulsing glare
     const it = this.pu.item;
     if (it && ngl < 698) {
