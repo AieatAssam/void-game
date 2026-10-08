@@ -15,6 +15,7 @@ import { extraMethods } from './space/extras.js';
 import { showSpaceResults } from './space/results.js';
 import { installTouch } from './space/touch.js';
 import { botMethods } from './space/bot.js';
+import { installLadder, ladderFmt } from './space/ladder.js';
 import { makeK, mutatorFor, MUTATORS, LEGACY } from './space/modes.js';
 import { save } from './meta.js';
 
@@ -28,7 +29,7 @@ const CHUNKS = 48; // nibbled bits in flight
 const _fr = new THREE.Frustum(), _pm = new THREE.Matrix4(), _sp = new THREE.Sphere();
 const BASE_DIST = 19, PITCH = THREE.MathUtils.degToRad(56), SPEED = 0.95, NIB = 0.9;
 const LY = 9.4607e12;
-const km = (v) => (v >= 9.4607e19 ? `${(v / LY / 1e9).toFixed(1)} bn ly` : v >= 9.4607e16 ? `${(v / LY / 1e6).toFixed(v >= 9.4607e17 ? 0 : 1)} M ly` : v >= 9.4607e13 ? `${(v / LY / 1e3).toFixed(v >= 9.4607e14 ? 0 : 1)} k ly` : v >= 9.4607e11 ? `${(v / LY).toFixed(v >= 9.4607e12 ? 0 : 1)} ly` : v >= 1e9 ? `${(v / 1e9).toFixed(1)} bn km` : v >= 1e6 ? `${(v / 1e6).toFixed(v >= 1e7 ? 0 : 1)} M km` : v >= 1e3 ? `${Math.round(v).toLocaleString('en')} km` : `${v.toFixed(0)} km`);
+const km = (v) => ladderFmt(v);
 const _m = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _e = new THREE.Euler(), _y = new THREE.Vector3(0, 1, 0), _c = new THREE.Vector3();
 
 // ------------------------------------------------------------------------------------------------ materials
@@ -125,9 +126,12 @@ function glowMaterial() {
 }
 
 /** The Blender-built hero props (art/space/build_props.py): vertex-coloured low-poly GLBs, lit by the sun, a vertex alpha for what glows. Each model is one small instanced mesh. */
-const PROPS = { freighter: [0.2, -0.2], miner: [0.25, 0.1], void_whale: [0.15, 0], relic: [0.4, 0.1], warp_gate: [-Math.PI / 2 + 0.7, 0], refinery: [0.45, 0], siege_orb: [0.3, 0], telescope: [0.2, 0.1], probe: [0.3, -0.2], sat_comm: [0.2, -0.3], station: [0.1, -0.2], capsule: [0.3, 0.2], rocket_stage: [0.2, 0.3], monolith: [0.5, 0.1], ringworld: [-Math.PI / 2 + 0.6, 0], neutron_star: [0.8, 0], dyson: [0.3, 0] }; // (a base tilt per model: rings face the camera, craft lie in the plane)
-const PROP_CAP = { freighter: 4, miner: 8, void_whale: 10, relic: 2, warp_gate: 8, refinery: 6, siege_orb: 8, telescope: 3, probe: 6, sat_comm: 14, station: 4, capsule: 8, rocket_stage: 10, monolith: 2, ringworld: 8, neutron_star: 16, dyson: 10 };
-async function loadProps(U) {
+const PROPS = { crystal_cluster: [0.3, 0], gas_manta: [0.2, 0], generation_ship: [0.15, -0.1], jellyfish: [-1.2, 0], mothership: [-Math.PI / 2 + 0.5, 0], nebula_serpent: [0.1, 0], star_hub: [-Math.PI / 2 + 0.6, 0], cosmic_egg: [0.4, 0], void_eye: [0.2, 0], solar_sail: [-Math.PI / 2, 0], asteroid_base: [0.2, 0], freighter: [0.2, -0.2], miner: [0.25, 0.1], void_whale: [0.15, 0], relic: [0.4, 0.1], warp_gate: [-Math.PI / 2 + 0.7, 0], refinery: [0.45, 0], siege_orb: [0.3, 0], telescope: [0.2, 0.1], probe: [0.3, -0.2], sat_comm: [0.2, -0.3], station: [0.1, -0.2], capsule: [0.3, 0.2], rocket_stage: [0.2, 0.3], monolith: [0.5, 0.1], ringworld: [-Math.PI / 2 + 0.6, 0], neutron_star: [0.8, 0], dyson: [0.3, 0] }; // (a base tilt per model: rings face the camera, craft lie in the plane)
+const SPILLS = { freighter: 9, miner: 5, refinery: 5, siege_orb: 7, mothership: 10, generation_ship: 8, asteroid_base: 6, star_hub: 6 };
+const CRE = { void_whale: [0.8, 0.05], gas_manta: [0.7, 0.06], jellyfish: [0, 0.05], nebula_serpent: [0, 0.07], solar_sail: [0, 0.03], mothership: [0, 0.02] }; // (flee speed in r/s when you are near and it is small enough, cruise speed in its own sizes a second)
+const GLOW = { dyson: [[1, 0.82, 0.5], 2.6, 0.9], neutron_star: [[0.55, 0.75, 1], 3.4, 1.4], star_hub: [[1, 0.9, 0.6], 2.2, 0.8], void_eye: [[0.5, 0.8, 1], 2.4, 0.9], jellyfish: [[0.8, 0.6, 1], 2.6, 0.7], cosmic_egg: [[1, 0.6, 0.9], 2.4, 0.9], crystal_cluster: [[0.5, 0.9, 1], 2.2, 0.6], nebula_serpent: [[0.4, 1, 0.85], 2.2, 0.5], generation_ship: [[1, 0.9, 0.7], 1.6, 0.35] };
+const PROP_CAP = { crystal_cluster: 10, gas_manta: 8, generation_ship: 6, jellyfish: 8, mothership: 4, nebula_serpent: 8, star_hub: 6, cosmic_egg: 6, void_eye: 6, solar_sail: 4, asteroid_base: 4, freighter: 4, miner: 8, void_whale: 10, relic: 2, warp_gate: 8, refinery: 6, siege_orb: 8, telescope: 3, probe: 6, sat_comm: 14, station: 4, capsule: 8, rocket_stage: 10, monolith: 2, ringworld: 8, neutron_star: 16, dyson: 10 };
+async function loadProps(U, maxN = {}) {
   const loader = new GLTFLoader(), m = new THREE.MeshBasicNodeMaterial({ fog: false });
   m.colorNode = Fn(() => {
     const vc = vertexColor(), n = normalize(normalView), ndl = dot(n, U.sun), wrap = smoothstep(-0.2, 0.9, ndl), lit = float(U.amb).add(0.16).add(wrap.mul(1.1));
@@ -138,7 +142,7 @@ async function loadProps(U) {
     try {
       const g = await loader.loadAsync(`${import.meta.env.BASE_URL}models/space/${name}.glb`); let geo = null;
       g.scene.traverse((o) => { if (o.isMesh && !geo) geo = o.geometry; });
-      const mesh = new THREE.InstancedMesh(geo, m, PROP_CAP[name] || 40); mesh.frustumCulled = false; mesh.count = 0; out[name] = mesh;
+      const mesh = new THREE.InstancedMesh(geo, m, maxN[name] ? maxN[name] + (name === 'neutron_star' ? 4 : 1) : PROP_CAP[name] || 12); mesh.frustumCulled = false; mesh.count = 0; out[name] = mesh;  // (capacity = the most any tier lays out, plus a few: the mesh draws its whole capacity)
     } catch (e) { console.warn('space prop', name, e); }
   }));
   return out;
@@ -227,7 +231,8 @@ export class SpaceGame {
     for (const o of [this.hi, this.lo, this.bg]) { o.frustumCulled = false; o.count = 0; o.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.root.add(o); }
     const galAtlas = await new THREE.TextureLoader().loadAsync(`${import.meta.env.BASE_URL}textures/space/galaxies.png`); galAtlas.colorSpace = THREE.NoColorSpace; galAtlas.anisotropy = 4; galAtlas.wrapS = galAtlas.wrapT = THREE.ClampToEdgeWrapping;
     this.gal = galaxyMaterial(galAtlas); this.root.add(this.gal.mesh);
-    this.props = await loadProps(this.U); for (const m of Object.values(this.props)) this.root.add(m);
+    const maxN = {}; for (const t of TIERS) { const c = {}; for (const b of buildTier(t, num('seed', 7)).bodies) if (b.k === K.prop) c[b.model] = (c[b.model] | 0) + 1; for (const m in c) maxN[m] = Math.max(maxN[m] | 0, c[m]); }
+    this.props = await loadProps(this.U, maxN); for (const m of Object.values(this.props)) this.root.add(m);
     this.glow = glowMaterial(); this.root.add(this.glow.mesh);
     this.tails = tailMaterial(); this.rings = ringMaterial(this.U); this.root.add(this.tails, this.rings);
     this.dust = dustField(Q.tier === 'low' ? 220 : 420); this.root.add(this.dust);
@@ -240,7 +245,7 @@ export class SpaceGame {
     scene.add(this.root);
     { const seed = num('seed', 7), runs = save.cosmos?.runs | 0, daily = qs.has('daily'), mut = qs.get('mut') in MUTATORS ? qs.get('mut') : mutatorFor(seed, daily ? 1 : runs), legacy = daily ? null : qs.get('legacy') in LEGACY ? qs.get('legacy') : save.cosmos?.legacy; this.daily = daily;
       this.seed = num('seed', 7); this.mut = mut; this.legacy = legacy in LEGACY ? legacy : null; this.k = makeK(mut, this.legacy); }
-    this.initExtras(ctx); this.untouch = installTouch(this, ctx);
+    this.initExtras(ctx); this.untouch = installTouch(this, ctx); this.ladder = installLadder();
     camera.fov = ctx.baseFov; camera.near = 0.5; camera.far = 6000; camera.updateProjectionMatrix();
     post.suspendAO?.(true);
     state.phase = 4; state.playing = false; state.belly = 1; state.sealed = false; state.over = false; state.won = false; state.time = 0; state.pop = 0; state.slowmo = 1; state.shake = 0; state.hitstop = 0; state.slowT = state.slowDuration = 0; state.stun = 0; state.wound = 0;
@@ -273,14 +278,15 @@ export class SpaceGame {
 
   placeCamera(dt) {
     const { camera } = this.ctx, portrait = portraitK(camera.aspect);
-    let want = BASE_DIST * this.ctx.LENS * portrait;
+    const rp = Math.min(1, Math.max(0, Math.log(this.r) / Math.log(this.tier.growth))), tight = 1 - 0.36 * rp * rp * (3 - 2 * rp); // (the camera closes in as the tier goes on: the hole visibly swells, about 1.5x, then the tier-up steps back)
+    let want = BASE_DIST * this.ctx.LENS * portrait * tight;
     for (const o of this.bodies) { // a body much bigger than the hole that we are inside: the camera climbs out of it
       if (o.state || o.b / this.r < 7 || o.k >= K.galaxy) continue; // (flat sprites do not engulf the camera)
       const dx = o.x - this.hx, dz = o.z - this.hz, d = Math.hypot(dx, dz) / this.r, b = o.b / this.r;
       if (d < b + 8) want = Math.max(want, (b * 1.25 + 2) * Math.min(1, (b + 8 - d) / 8));
     }
     this.camDist = this.camDist ? this.camDist + (want - this.camDist) * Math.min(1, dt * (want > this.camDist ? 2.5 : 1)) : want;
-    const pitch = this.pitch = PITCH + (0.2 - PITCH) * this.pitchK, d = this.camDist * (1 + 0.35 * this.pitchK), hz = Math.cos(pitch) * d, st = this.ctx.state, tr = st.shake || 0, sh = tr * tr * d * 0.012;
+    const pitch = this.pitch = PITCH + (0.2 - PITCH) * this.pitchK, d = this.camDist * (1 + 0.6 * this.pitchK), hz = Math.cos(pitch) * d, st = this.ctx.state, tr = st.shake || 0, sh = tr * tr * d * 0.012;
     this.lead.x += ((this.ctx.hole.sx || 0) * 0.5 - this.lead.x) * Math.min(1, dt * 4); this.lead.y += ((this.ctx.hole.sz || 0) * 0.5 - this.lead.y) * Math.min(1, dt * 4);
     camera.position.set(this.lead.x + (sh ? Math.sin(this.t * 41) * sh : 0), Math.sin(pitch) * d, this.lead.y + hz);
     camera.up.set(0, 1, 0); camera.lookAt(this.lead.x, 0, this.lead.y - 0.16 * d); // (aimed ahead: the hole rides low in the frame)
@@ -302,6 +308,7 @@ export class SpaceGame {
     this.placeCamera(cameraDt);
     this.draw(ctx, dt);
     this.lens(ctx);
+    { const rk = this.r * this.tier.unit, mult = rk / 2500; this.ladder?.update(Math.log10(rk), `hole radius <b>${ladderFmt(rk)}</b> · ${mult < 1e3 ? '×' + mult.toFixed(mult < 10 ? 1 : 0) : '×10<sup>' + Math.floor(Math.log10(mult)) + '</sup>'} since the start`); }
     this.drawHud(ctx);
     ctx.sparks.update(dt); ctx.debris.update(dt);
     ctx.news.update(dt, state.pop || 0, !!state.playing);
@@ -329,10 +336,11 @@ export class SpaceGame {
     for (const o of this.bodies) {
       if (o.state) continue;
       if (o.orbit) { const a = o.ang + o.om * this.t; o.x = Math.cos(a) * o.a; o.z = Math.sin(a) * o.a; }
+      else if (o.model === 'void_eye') { o.heading = Math.atan2(this.hz - o.z, this.hx - o.x); } // (it watches you)
       else if (o.vx || o.vz) {
-        if (o.model === 'void_whale') { // a whale weaves, and bolts when you come near (slower than you: it can be caught)
-          const fx = o.x - this.hx, fz = o.z - this.hz, fd = Math.hypot(fx, fz) || 1, near = fd < 10 * r && o.b <= 0.9 * r;
-          const sp = near ? 0.8 * r : 0.05 * o.b, wob = Math.sin(this.t * 1.3 + o.id) * 0.35, ax = near ? fx / fd : Math.cos(o.spin), az = near ? fz / fd : Math.sin(o.spin);
+        if (CRE[o.model]) { // creatures weave, and the small ones bolt when you come near (slower than you: they can be caught)
+          const fx = o.x - this.hx, fz = o.z - this.hz, fd = Math.hypot(fx, fz) || 1, flee = CRE[o.model][0], near = flee > 0 && fd < 10 * r && o.b <= 0.9 * r;
+          const sp = near ? flee * r : CRE[o.model][1] * o.b, wob = Math.sin(this.t * 1.3 + o.id) * 0.35, ax = near ? fx / fd : Math.cos(o.spin), az = near ? fz / fd : Math.sin(o.spin);
           const tx = (ax - az * wob) * sp, tz = (az + ax * wob) * sp; o.vx += (tx - o.vx) * Math.min(1, dt * 2.5); o.vz += (tz - o.vz) * Math.min(1, dt * 2.5);
           o.heading = Math.atan2(o.vz, o.vx);
         }
@@ -408,8 +416,10 @@ export class SpaceGame {
     if (o.gold) { ctx.card('GOLDEN', 'A FAT MEAL'); this.flare = Math.max(this.flare || 0, 1.4); ctx.sfx.space.power('shield'); navigator.vibrate?.(40); this.stats.golds = (this.stats.golds | 0) + 1; }
     if (o.name && o.b >= 0.4 * this.r) ctx.news.say?.(`${o.name} is gone.`);
     if (o.model === 'warp_gate' && play) this.warp(ctx);
+    if (o.model === 'cosmic_egg' && play) { ctx.card('THE EGG HATCHES', 'EVERYTHING SPILLS OUT'); this.spill(o, 12, ctx); this.eatenW += this.total * this.tier.goal * 0.025; this.takePower('nova', ctx); }
+    if (o.model === 'void_eye' && play) { ctx.card('THE EYE CLOSES', 'IT SAW EVERYTHING'); this.eatenW += this.total * this.tier.goal * 0.02; this.spill(o, 6, ctx); }
     if (o.model === 'relic' && play) { const ks = ['magnet', 'surge', 'shield', 'nova'], k = ks[(this.rnd() * ks.length) | 0]; ctx.card('ALIEN RELIC', 'IT GAVE YOU SOMETHING'); this.takePower(k, ctx); }
-    if (o.model === 'freighter' || o.model === 'miner' || o.model === 'refinery' || o.model === 'siege_orb') this.spill(o, o.model === 'freighter' ? 9 : o.model === 'siege_orb' ? 7 : 5, ctx);
+    if (SPILLS[o.model]) this.spill(o, SPILLS[o.model], ctx);
     if (o.model === 'siege_orb' && play) { ctx.card('ORB DESTROYED', 'THE GALAXY NOTICES'); this.eatenW += this.total * this.tier.goal * 0.02; this.orb = null; }
     if (o.model === 'monolith') { this.eatenW += this.total * this.tier.goal * 0.03; ctx.card('THE MONOLITH', 'IT WAS ALWAYS GOING TO BE EATEN'); ctx.sfx.space.victory?.(); }
     if (o.b > 0.4 * this.r) ctx.state.shake = Math.max(ctx.state.shake || 0, 0.25 + 0.3 * big);
@@ -605,11 +615,12 @@ export class SpaceGame {
       if (o.k === K.prop) { // a Blender prop: its own small instanced mesh, drawn at full capacity (spares collapsed)
         const pm = this.props[o.model]; if (!pm || (cnt[o.model] | 0) >= pm.instanceMatrix.count) continue;
         const base = PROPS[o.model] || [0, 0];
-        if (o.state === 1) { _q.setFromAxisAngle(_y, yaw); _s.set(sx2, sy, sz2); } else { _e.set(base[0] + 0.25 * Math.sin(o.id), o.heading !== undefined ? -o.heading + base[1] : o.spin * 0.6 + base[1], 0.3 * Math.cos(o.id * 1.3)); _q.setFromEuler(_e); _s.set(s, s, s); }
+        if (o.state === 1) { _q.setFromAxisAngle(_y, yaw); _s.set(sx2, sy, sz2); } else { _e.set(base[0] + 0.25 * Math.sin(o.id), o.heading !== undefined ? -o.heading + base[1] : o.spin * 0.6 + base[1], 0.3 * Math.cos(o.id * 1.3)); _q.setFromEuler(_e); _s.set(s, s, s); if (o.model === 'void_eye') { const ex = this.hx - o.x, ez = this.hz - o.z, el = Math.hypot(ex, ez) || 1; _c.set(0.35 * ex / el, 1, 0.35 * ez / el).normalize(); _q.setFromUnitVectors(_y.set(1, 0, 0), _c); _y.set(0, 1, 0); } } // (the eye looks up at the camera, turned toward you)
         _p.set(px, 0, pz); _m.compose(_p, _q, _s); pm.setMatrixAt(cnt[o.model] = (cnt[o.model] | 0), _m); cnt[o.model]++;
-        if ((o.model === 'dyson' || o.model === 'neutron_star') && ngl < CAPG - 2) { // the light inside: a glare behind the model
-          const gi = ngl * 4, gs = s * (o.model === 'dyson' ? 2.6 : 3.4), ga = this.glow.aC.array; _p.set(px, -0.01, pz); _q.identity(); _s.set(gs, 1, gs); _m.compose(_p, _q, _s); this.glow.mesh.setMatrixAt(ngl, _m);
-          const c = o.model === 'dyson' ? [1.0, 0.82, 0.5] : [0.55, 0.75, 1.0]; ga[gi] = c[0]; ga[gi + 1] = c[1]; ga[gi + 2] = c[2]; ga[gi + 3] = (o.model === 'dyson' ? 0.9 : 1.4) * (1 + 2 * heat) / (1 + 0.004 * s * s); ngl++;
+        const gl = GLOW[o.model];
+        if (gl && ngl < CAPG - 2) { // the light inside: a glare behind the model
+          const gi = ngl * 4, gs = s * gl[1], ga = this.glow.aC.array; _p.set(px, -0.01, pz); _q.identity(); _s.set(gs, 1, gs); _m.compose(_p, _q, _s); this.glow.mesh.setMatrixAt(ngl, _m);
+          ga[gi] = gl[0][0]; ga[gi + 1] = gl[0][1]; ga[gi + 2] = gl[0][2]; ga[gi + 3] = gl[2] * (1 + 2 * heat) / (1 + 0.004 * s * s); ngl++;
         }
         continue;
       }
@@ -673,7 +684,7 @@ export class SpaceGame {
       }
     }
     // the hole itself
-    this.bh.scale.setScalar(1); const hU = this.bh.material.userData.U, ha = this.halo.material.userData.U;
+    this.bh.scale.setScalar(1 + 0.08 * Math.min(1, this.flare || 0)); /* a gulp makes the hole swell for a beat */ const hU = this.bh.material.userData.U, ha = this.halo.material.userData.U;
     this.flare = Math.max(0, (this.flare || 0) - dt * 2.4);
     hU.uHeat.value = this.flare; hU.uT.value = this.t; ha.uHeat.value = this.flare; ha.uT.value = this.t;
     this.halo.scale.setScalar(2.4); this.halo.quaternion.copy(ctx.camera.quaternion); this.halo.material.userData.U.uA.value = 0.5;
@@ -691,9 +702,9 @@ export class SpaceGame {
     const { camera, post } = ctx, L = post.lens, off = qs.has('nolens');
     _c.set(0, 0, 0).project(camera);
     const d = camera.position.length(), th = Math.asin(Math.min(0.99, 1 / d)), rs = 0.5 * Math.tan(th) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-    L.A.value.set(_c.x * 0.5 + 0.5, 0.5 - _c.y * 0.5, rs, off ? 0 : 1); L.P.value.set(num('ths', 0.7), 1, 0, 0); // (exact Schwarzschild deflection for the sky; ths = how close the camera is, in shadow radii of sky)
+    L.A.value.set(_c.x * 0.5 + 0.5, 0.5 - _c.y * 0.5, rs, off ? 0 : 1); const gr = Math.min(1, (this.tierIdx + Math.min(1, Math.log(this.r) / Math.log(this.tier.growth))) / TIERS.length); L.P.value.set(num('ths', 0.9 - 0.4 * gr), 1, 0, 0); // (exact Schwarzschild deflection for the sky; ths = how close the camera is, in shadow radii of sky)
     L.B.value.set(0.3 - 0.16 * this.pitchK, 0, this.t * 0.5, off ? 0 : 0.95 + 0.3 * this.pitchK); // (the tier-up swings the camera low: the disk bends over the top and under the shadow, the Interstellar picture)
-    L.C.value.set(1.3, 3.1, 0.62, 1.0);
+    L.C.value.set(1.3, 2.6 + 1.4 * gr, 0.62, 1.0);
     post.fxu.value.set(0, 0, 0, 0);
     if (this.flashK > 0) post.fxu.value.set(Math.min(1, this.flashK) * 0.9, 0, 0, 1);
   }
@@ -726,7 +737,7 @@ export class SpaceGame {
   }
 
   leave(ctx) {
-    this.endEl?.remove(); this.disposeExtras(); this.untouch?.(); ctx.sfx.space.stop();
+    this.endEl?.remove(); this.disposeExtras(); this.untouch?.(); this.ladder?.dispose(); ctx.sfx.space.stop();
     const { scene, camera, look, post } = ctx, s = this.saved;
     scene.remove(this.root);
     for (const o of this.root.children) { o.geometry?.dispose(); o.material?.dispose(); }

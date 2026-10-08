@@ -82,3 +82,12 @@ Results (all runs won, so there is no dead end): human-like bot, 14 runs on seed
 ## 6. Spectacle (branch `feature/cosmos-spectacle`)
 
 Seven more Blender props (`art/space/build_props.py`): **freighter** and **miner** (tier 1; eating one spills gold cargo rocks), **void whale** (tiers 2, 4, 7; weaves, and bolts when you are near but is slower than you), **alien relic** (tier 2; grants a random power-up), **gas refinery** (tier 3; spills cargo) and **warp gate** (tiers 3, 5, 6; eating it jumps you about 12 r along your heading with a speed boost), and the **siege orb** (tiers 5, 6): the nearest orb within 18 r aims a red beam for 1.5 s then fires for 0.6 s; stand out of the line to dodge, a hit shoves you, dazes you for 0.9 s and costs 0.6% of the tier; eating the orb ends it and pays 2%. The first balance pass with big, frequent orbs made tier 5 take 40+ minutes (80-160 hits); orbs are now 0.8-4 r (tier 5) and 2-15 r (tier 6), shoot every 9-14 s and wait 14 s after a hit. Human-bot suite afterwards: 2034, 2243, 2196 s, all won.
+
+## 7. Feeling the growth (branch `feature/cosmos-growth`)
+
+Problem: the world is drawn in units of the hole's radius, so the hole is the same size on screen at every scale and growth reads as "the background shrinks". Changes:
+- **Camera closes in** as a tier goes on (the distance in hole radii falls by up to 36%, eased on log progress): the hole visibly swells about 1.5x each tier and the tier-up steps back out (the tier-up camera pull is stronger, 1.6x).
+- **The lens and the disk grow with the whole run:** the sky bends more (thetaS 0.9 to 0.5) and the disk's outer edge widens (2.6 to 4.0 shadow radii); a gulp makes the hole swell for a beat.
+- **A size ladder** (`src/space/ladder.js`): a log scale from Earth to the universe with a pointer at the hole's real radius, the last thing you passed and the next one named, and a "x1000 since the start" read-out. The size pill uses the same formatter (the light-year thresholds were wrong before: tier 10 read "0.0 bn ly").
+
+More Blender props (11 more, `art/space/build_props.py`): solar sail and asteroid base (1), crystal clusters (2-3), gas mantas (3), generation ships (4), motherships and jellyfish (5-6), nebula serpents (6-7), cosmic eggs (7, 8, 11: hatch into cargo and a Nova), star hubs (8-10), void eyes (10-11: they watch you). Creatures weave and the small ones flee (`CRE` table). Prop meshes now have exactly the capacity the tiers need, and heavy models were decimated (tier 6: 174k to 103k triangles). Human-bot suite after: 1976-2222 s, all won.
