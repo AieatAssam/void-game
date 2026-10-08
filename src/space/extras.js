@@ -49,10 +49,10 @@ export const extraMethods = {
     if (tier.hazards.includes('tidal')) {
       let px = 0, pz = 0;
       for (const o of this.bodies) {
-        if (o.state || o.b < 2.5 * r || o.k >= K.galaxy) continue;
-        const dx = o.x - this.hx, dz = o.z - this.hz, d = Math.hypot(dx, dz), reach = 2.2 * o.b;
+        if (o.state || o.b < 3.5 * r || o.k >= K.galaxy) continue;
+        const dx = o.x - this.hx, dz = o.z - this.hz, d = Math.hypot(dx, dz), reach = 1.8 * o.b;
         if (d > reach || d < 1e-6) continue;
-        const k = (1 - d / reach) ** 2 * 0.3 * r; px += dx / d * k; pz += dz / d * k;
+        const k = (1 - d / reach) ** 2 * 0.2 * r; px += dx / d * k; pz += dz / d * k;
       }
       this.hx += px * dt; this.hz += pz * dt;
     }
@@ -68,10 +68,10 @@ export const extraMethods = {
       } else {
         N.t += dt; const o = N.o; o.pulse = Math.min(1, N.t / 3) * (0.55 + 0.45 * Math.sin(N.t * (8 + N.t * 8)));
         if (N.t >= 3 || o.state) {
-          this.snova = null; this.snT = 55 + rnd() * 35; o.pulse = 0;
+          this.snova = null; this.snT = 75 + rnd() * 40; o.pulse = 0;
           if (!o.state) {
             o.state = 2; this.live--;
-            this.sflare = { x: o.x, z: o.z, t: 1.6, hit: false, w: 2.6 * r, Rmax: 18 * r, name: '' };
+            this.sflare = { x: o.x, z: o.z, t: 2.2, hit: false, w: 2.2 * r, Rmax: 12 * r, name: '' };
             this.bodies.push(looseProp(tier, 'neutron_star', Math.max(0.2 * r, o.b * 0.25), o.x, o.z)); this.live++; this.propUse.add('neutron_star');
             ctx.card('SUPERNOVA', 'EAT WHAT IT LEFT'); ctx.sfx.space.flareHit(); st.shake = Math.max(st.shake || 0, 0.5); this.flare = 2;
           }
@@ -86,12 +86,12 @@ export const extraMethods = {
           let src = null, bs = 0;
           for (const o of this.bodies) { if (o.state || o.b < 0.6 * r || o.k === K.comet) continue; const d = Math.hypot(o.x - this.hx, o.z - this.hz) / r; if (d > 5 && d < 22 && o.b > bs) { bs = o.b; src = o; } }
           const a = rnd() * TAU, x = src ? src.x : this.hx + Math.cos(a) * 12 * r, z = src ? src.z : this.hz + Math.sin(a) * 12 * r;
-          this.sflare = { x, z, t: 0, hit: false, w: 1.8 * r, Rmax: 12 * r, name: src?.name || '' };
+          this.sflare = { x, z, t: 0, hit: false, w: 1.6 * r, Rmax: 8 * r, name: src?.name || '' };
           ctx.hint(`${src?.name ? src.name + ' ' : ''}FLARE · stay out of the ring`); ctx.sfx.space.flareWarn();
         }
       } else {
         F.t += dt;
-        const WARN = 1.6, SPAN = 2.8;
+        const WARN = 2.2, SPAN = 3.2;
         if (F.t > WARN) {
           const u = Math.min(1, (F.t - WARN) / SPAN), R = F.Rmax * (1 - (1 - u) ** 1.6);
           const dx = this.hx - F.x, dz = this.hz - F.z, d = Math.hypot(dx, dz);
@@ -142,9 +142,9 @@ export const extraMethods = {
   extrasDraw(ctx, ir, ngl) {
     const F = this.sflare, U = this.flareU, mesh = this.flareMesh;
     if (F && F.t > 0) {
-      const WARN = 1.6, SPAN = 2.8, warn = F.t <= WARN, u = Math.min(1, Math.max(0, (F.t - WARN) / SPAN)), R = warn ? F.Rmax * 0.04 * (1 + 0.2 * Math.sin(F.t * 18)) : F.Rmax * (1 - (1 - u) ** 1.6);
+      const WARN = 2.2, SPAN = 3.2, warn = F.t <= WARN, u = Math.min(1, Math.max(0, (F.t - WARN) / SPAN)), R = warn ? F.Rmax * (0.98 + 0.02 * Math.sin(F.t * 18)) : F.Rmax * (1 - (1 - u) ** 1.6);
       mesh.visible = true; mesh.position.set((F.x - this.hx) * ir, 0, (F.z - this.hz) * ir); mesh.scale.setScalar(Math.max(0.2, R * ir));
-      U.a.value = warn ? 0.5 + 0.5 * Math.sin(F.t * 14) : 1.1 * (1 - 0.5 * u);
+      U.a.value = warn ? 0.22 + 0.18 * Math.sin(F.t * 12) : 1.1 * (1 - 0.5 * u);
     } else mesh.visible = false;
     // the pick-up: a pulsing glare
     const it = this.pu.item;

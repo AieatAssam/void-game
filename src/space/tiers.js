@@ -38,7 +38,9 @@ const spot = (rnd, f) => { const a = rnd() * TAU, d = f * Math.sqrt(rnd()); retu
  * A scale-aware field: n bodies with log-uniform sizes in [lo, hi]; a body of size s lives in a disc of radius max(14, 17 s) round the start (about four of its own sizes between neighbours), so there is always a neighbour of about the
  * hole's size at any stage of the tier. spec(s) returns the body's kind and look. They drift slowly (a tenth of their own size a second).
  */
+let DENS = 1; // (set per tier by buildTier: how many times the listed body counts)
 function field(rnd, B, n, lo, hi, spec) {
+  n = Math.round(n * DENS);
   for (let i = 0; i < n; i++) {
     const s = lo * Math.pow(hi / lo, rnd()), [x, z] = spot(rnd, Math.max(18, 28 * s)), o = spec(s), v = 0.1 * s * (rnd() - 0.5) * 2, v2 = 0.1 * s * (rnd() - 0.5) * 2;
     B({ ...o, b: s, x, z, vx: v, vz: v2 });
@@ -195,6 +197,7 @@ export const TIERS = [
 
 /** Build a tier's bodies (deterministic from the seed). Returns { bodies, total (weight), key } */
 export function buildTier(tier, seed) {
+  DENS = tier.dens ?? 1;
   const rnd = rng((seed * 2654435761 + tier.id * 40503) >>> 0), bodies = [];
   let total = 0, id = 0;
   tier.make(rnd, (s) => {
@@ -229,3 +232,6 @@ export { rng as _rng };
 export function looseProp(tier, model, b, x, z, A = 0xcfe4ff) {
   return { id: uid++, k: K.prop, model, b, b0: b, hp: 1, A: hex(A), B: hex(A), p1: 1, p2: 0, name: 'a neutron star', key: false, ring: false, tail: 0, a: 0, ang: 0, om: 0, x, z, vx: 0, vz: 0, state: 0, t: 0, orbit: false, tile: 0, tilt: 0, ringS: 2, w: 2 * weight(b, K.prop, tier.wexp ?? 0.65), sx: 0, sz: 0, spin: 0, spinV: 0.4 };
 }
+
+// Balance (human-like bot suites, docs/PHASE4.md section 5): the scale-aware tiers got denser and longer so each takes minutes, not seconds.
+for (const t of TIERS) if (t.id >= 4) { t.dens = t.id === 7 || t.id === 9 || t.id === 10 ? 2.4 : t.id === 11 ? 1.9 : 1.6; t.goal = t.id === 8 ? 0.75 : t.id === 11 ? 0.85 : 0.88; t.minTime = 100; } // (the hole may not swell faster than ln(growth) / minTime a second: a tier lasts at least a hundred seconds)

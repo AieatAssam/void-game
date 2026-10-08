@@ -7,7 +7,7 @@ export const MUTATORS = {
   twitch: { name: 'Twitch', blurb: 'faster hole, shorter reach', k: { speed: 1.3, reach: 0.8 } },
   feast: { name: 'Feast', blurb: 'power-ups twice as often, but no shield', k: { pu: 0.5, noShield: true } },
   iron: { name: 'Iron run', blurb: 'no power-ups; stars pay double', k: { noPu: true, starPay: 2 } },
-  quiet: { name: 'Quiet cosmos', blurb: 'no flares, no supernovae, no rival: just the feast', k: { noHaz: true, noRival: true, pay: 0.8 } },
+  quiet: { name: 'Quiet cosmos', blurb: 'no flares, no supernovae, no rival: just the feast', k: { noHaz: true, noRival: true, pay: 1.2 } },
 };
 const ORDER = ['none', 'flares', 'predator', 'twitch', 'feast', 'iron', 'quiet'];
 export const LEGACY = {
