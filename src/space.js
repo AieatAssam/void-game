@@ -125,8 +125,8 @@ function glowMaterial() {
 }
 
 /** The Blender-built hero props (art/space/build_props.py): vertex-coloured low-poly GLBs, lit by the sun, a vertex alpha for what glows. Each model is one small instanced mesh. */
-const PROPS = { telescope: [0.2, 0.1], probe: [0.3, -0.2], sat_comm: [0.2, -0.3], station: [0.1, -0.2], capsule: [0.3, 0.2], rocket_stage: [0.2, 0.3], monolith: [0.5, 0.1], ringworld: [-Math.PI / 2 + 0.6, 0], neutron_star: [0.8, 0], dyson: [0.3, 0] }; // (a base tilt per model: rings face the camera, craft lie in the plane)
-const PROP_CAP = { telescope: 3, probe: 6, sat_comm: 14, station: 4, capsule: 8, rocket_stage: 10, monolith: 2, ringworld: 8, neutron_star: 16, dyson: 10 };
+const PROPS = { freighter: [0.2, -0.2], miner: [0.25, 0.1], void_whale: [0.15, 0], relic: [0.4, 0.1], warp_gate: [-Math.PI / 2 + 0.7, 0], refinery: [0.45, 0], siege_orb: [0.3, 0], telescope: [0.2, 0.1], probe: [0.3, -0.2], sat_comm: [0.2, -0.3], station: [0.1, -0.2], capsule: [0.3, 0.2], rocket_stage: [0.2, 0.3], monolith: [0.5, 0.1], ringworld: [-Math.PI / 2 + 0.6, 0], neutron_star: [0.8, 0], dyson: [0.3, 0] }; // (a base tilt per model: rings face the camera, craft lie in the plane)
+const PROP_CAP = { freighter: 4, miner: 8, void_whale: 10, relic: 2, warp_gate: 8, refinery: 6, siege_orb: 8, telescope: 3, probe: 6, sat_comm: 14, station: 4, capsule: 8, rocket_stage: 10, monolith: 2, ringworld: 8, neutron_star: 16, dyson: 10 };
 async function loadProps(U) {
   const loader = new GLTFLoader(), m = new THREE.MeshBasicNodeMaterial({ fog: false });
   m.colorNode = Fn(() => {
@@ -329,7 +329,14 @@ export class SpaceGame {
     for (const o of this.bodies) {
       if (o.state) continue;
       if (o.orbit) { const a = o.ang + o.om * this.t; o.x = Math.cos(a) * o.a; o.z = Math.sin(a) * o.a; }
-      else if (o.vx || o.vz) { o.x += o.vx * dt; o.z += o.vz * dt; if (F && o.x * o.x + o.z * o.z > (F * 1.5) ** 2) { o.x -= 2 * o.x * 0.9; o.z -= 2 * o.z * 0.9; } } // (comets wrap round the solar tiers' field; the scale-aware fields just drift)
+      else if (o.vx || o.vz) {
+        if (o.model === 'void_whale') { // a whale weaves, and bolts when you come near (slower than you: it can be caught)
+          const fx = o.x - this.hx, fz = o.z - this.hz, fd = Math.hypot(fx, fz) || 1, near = fd < 10 * r && o.b <= 0.9 * r;
+          const sp = near ? 0.8 * r : 0.05 * o.b, wob = Math.sin(this.t * 1.3 + o.id) * 0.35, ax = near ? fx / fd : Math.cos(o.spin), az = near ? fz / fd : Math.sin(o.spin);
+          const tx = (ax - az * wob) * sp, tz = (az + ax * wob) * sp; o.vx += (tx - o.vx) * Math.min(1, dt * 2.5); o.vz += (tz - o.vz) * Math.min(1, dt * 2.5);
+          o.heading = Math.atan2(o.vz, o.vx);
+        }
+        o.x += o.vx * dt; o.z += o.vz * dt; if (F && o.x * o.x + o.z * o.z > (F * 1.5) ** 2) { o.x -= 2 * o.x * 0.9; o.z -= 2 * o.z * 0.9; } } // (comets wrap round the solar tiers' field; the scale-aware fields just drift)
       o.spin += o.spinV * dt;
       if (o.eph && (o.eph -= dt) <= 0) { o.state = 2; this.live--; }
     }
@@ -400,6 +407,10 @@ export class SpaceGame {
     this.flare = Math.max(this.flare || 0, 0.35 + big);
     if (o.gold) { ctx.card('GOLDEN', 'A FAT MEAL'); this.flare = Math.max(this.flare || 0, 1.4); ctx.sfx.space.power('shield'); navigator.vibrate?.(40); this.stats.golds = (this.stats.golds | 0) + 1; }
     if (o.name && o.b >= 0.4 * this.r) ctx.news.say?.(`${o.name} is gone.`);
+    if (o.model === 'warp_gate' && play) this.warp(ctx);
+    if (o.model === 'relic' && play) { const ks = ['magnet', 'surge', 'shield', 'nova'], k = ks[(this.rnd() * ks.length) | 0]; ctx.card('ALIEN RELIC', 'IT GAVE YOU SOMETHING'); this.takePower(k, ctx); }
+    if (o.model === 'freighter' || o.model === 'miner' || o.model === 'refinery' || o.model === 'siege_orb') this.spill(o, o.model === 'freighter' ? 9 : o.model === 'siege_orb' ? 7 : 5, ctx);
+    if (o.model === 'siege_orb' && play) { ctx.card('ORB DESTROYED', 'THE GALAXY NOTICES'); this.eatenW += this.total * this.tier.goal * 0.02; this.orb = null; }
     if (o.model === 'monolith') { this.eatenW += this.total * this.tier.goal * 0.03; ctx.card('THE MONOLITH', 'IT WAS ALWAYS GOING TO BE EATEN'); ctx.sfx.space.victory?.(); }
     if (o.b > 0.4 * this.r) ctx.state.shake = Math.max(ctx.state.shake || 0, 0.25 + 0.3 * big);
   }
@@ -484,6 +495,22 @@ export class SpaceGame {
     if (smaller && dp < r * 0.7) { // you eat it
       this.rival = null; this.rivalT = 55 * this.k.rivalT; this.eatenW += this.total * this.tier.goal * 0.025 * this.k.rivalPay; this.flare = 1.8; ctx.state.shake = Math.max(ctx.state.shake || 0, 0.6);
       ctx.card('RIVAL EATEN', 'YOU ARE THE VOID'); ctx.sfx.rivalEaten?.(); navigator.vibrate?.(120); this.chain(ctx, { b: r }); this.swallowed++; this.stats.rivalsEaten++;
+    }
+  }
+
+  /** A warp gate: a jump ahead along your heading, a burst of speed, a chain link. */
+  warp(ctx) {
+    const h = ctx.hole, l = Math.hypot(h.sx || 0, h.sz || 0), dx = l > 0.1 ? h.sx / l : 0, dz = l > 0.1 ? h.sz / l : -1;
+    this.hx += dx * 12 * this.r; this.hz += dz * 12 * this.r; this.boostT = 3.5; this.flare = 2; this.flashK = Math.max(this.flashK, 0.5);
+    ctx.card('WARP JUMP', 'HOLD ON'); ctx.sfx.space.ion(); ctx.state.shake = Math.max(ctx.state.shake || 0, 0.4); navigator.vibrate?.([30, 20, 60]);
+  }
+
+  /** Cargo spills when a ship is eaten: gold rocks flung out round the hole, a few seconds of snacks. */
+  spill(o, n, ctx) {
+    const r = this.r, rnd = this.rnd;
+    for (let i = 0; i < n; i++) {
+      const a = rnd() * TAU, sp = (0.6 + rnd()) * r, b = r * (0.12 + 0.3 * rnd()), c = looseRock(rnd, b, this.hx + Math.cos(a) * 2 * r, this.hz + Math.sin(a) * 2 * r, Math.cos(a) * sp, Math.sin(a) * sp, 10);
+      c.A = [1, 0.82, 0.3]; c.B = [0.9, 0.55, 0.15]; c.storm = true; c.w = this.total * this.tier.goal * 0.0012; this.bodies.push(c); this.live++;
     }
   }
 
@@ -578,7 +605,7 @@ export class SpaceGame {
       if (o.k === K.prop) { // a Blender prop: its own small instanced mesh, drawn at full capacity (spares collapsed)
         const pm = this.props[o.model]; if (!pm || (cnt[o.model] | 0) >= pm.instanceMatrix.count) continue;
         const base = PROPS[o.model] || [0, 0];
-        if (o.state === 1) { _q.setFromAxisAngle(_y, yaw); _s.set(sx2, sy, sz2); } else { _e.set(base[0] + 0.25 * Math.sin(o.id), o.spin * 0.6 + base[1], 0.3 * Math.cos(o.id * 1.3)); _q.setFromEuler(_e); _s.set(s, s, s); }
+        if (o.state === 1) { _q.setFromAxisAngle(_y, yaw); _s.set(sx2, sy, sz2); } else { _e.set(base[0] + 0.25 * Math.sin(o.id), o.heading !== undefined ? -o.heading + base[1] : o.spin * 0.6 + base[1], 0.3 * Math.cos(o.id * 1.3)); _q.setFromEuler(_e); _s.set(s, s, s); }
         _p.set(px, 0, pz); _m.compose(_p, _q, _s); pm.setMatrixAt(cnt[o.model] = (cnt[o.model] | 0), _m); cnt[o.model]++;
         if ((o.model === 'dyson' || o.model === 'neutron_star') && ngl < CAPG - 2) { // the light inside: a glare behind the model
           const gi = ngl * 4, gs = s * (o.model === 'dyson' ? 2.6 : 3.4), ga = this.glow.aC.array; _p.set(px, -0.01, pz); _q.identity(); _s.set(gs, 1, gs); _m.compose(_p, _q, _s); this.glow.mesh.setMatrixAt(ngl, _m);

@@ -69,7 +69,7 @@ export const TIERS = [
     make(rnd, B) {
       swarm(rnd, B, 120, 0.05, 0.6, 30, 52); swarm(rnd, B, 420, 0.012, 0.05, 30, 52);
       // what was left of Earth's orbit
-      props(rnd, B, 'sat_comm', 'a satellite', 12, 0.18, 0.55); props(rnd, B, 'station', 'the station', 3, 0.5, 0.95); props(rnd, B, 'capsule', 'a capsule', 7, 0.14, 0.4); props(rnd, B, 'rocket_stage', 'a rocket stage', 9, 0.16, 0.5); props(rnd, B, 'telescope', 'the telescope', 2, 0.4, 0.7); props(rnd, B, 'probe', 'a probe', 4, 0.2, 0.5); // the belt: a torus of rocks round the sun, a fat tail of tiny ones
+      props(rnd, B, 'sat_comm', 'a satellite', 12, 0.18, 0.55); props(rnd, B, 'station', 'the station', 3, 0.5, 0.95); props(rnd, B, 'capsule', 'a capsule', 7, 0.14, 0.4); props(rnd, B, 'rocket_stage', 'a rocket stage', 9, 0.16, 0.5); props(rnd, B, 'freighter', 'a freighter', 2, 0.7, 1.1); props(rnd, B, 'miner', 'a mining ship', 5, 0.2, 0.5); props(rnd, B, 'telescope', 'the telescope', 2, 0.4, 0.7); props(rnd, B, 'probe', 'a probe', 4, 0.2, 0.5); // the belt: a torus of rocks round the sun, a fat tail of tiny ones
       // dwarf worlds and moonlets (the ladder up to Mars-size)
       const names = ['Ceres', 'Vesta', 'Pluto', 'Eris', 'Haumea', 'Makemake', 'Triton', 'Titan', 'Ganymede', 'Callisto', 'Io', 'Europa', 'Mercury', 'Mars'];
       const sizes = [0.19, 0.1, 0.47, 0.46, 0.3, 0.28, 0.54, 1.03, 1.05, 0.96, 0.73, 0.62, 0.98, 1.36];
@@ -91,7 +91,7 @@ export const TIERS = [
     start: [-40, 14],
     make(rnd, B) {
       swarm(rnd, B, 120, 0.04, 0.3, 24, 58); swarm(rnd, B, 300, 0.012, 0.04, 24, 58);
-      props(rnd, B, 'monolith', 'The Monolith', 1, 0.45, 0.45); props(rnd, B, 'sat_comm', 'a satellite', 5, 0.08, 0.25);
+      props(rnd, B, 'monolith', 'The Monolith', 1, 0.45, 0.45); props(rnd, B, 'void_whale', 'a void whale', 3, 0.5, 1.3); props(rnd, B, 'relic', 'an alien relic', 1, 0.4, 0.4); props(rnd, B, 'sat_comm', 'a satellite', 5, 0.08, 0.25);
       const W = [
         ['Mercury', K.rock, 0.24, 0x9d9588, 0x655d54], ['Mars', K.world, 0.34, 0xc4673a, 0x7d3a22], ['Venus', K.world, 0.6, 0xe6c88a, 0xb8884a], ['Luna II', K.rock, 0.17, 0xb4b0aa, 0x7b7771],
         ['Ganymede', K.rock, 0.26, 0x9c8f7d, 0x5e564e], ['Titan', K.world, 0.26, 0xd9a55a, 0x8f5f26], ['Callisto', K.rock, 0.24, 0x6f6a73, 0x45414a], ['Io', K.rock, 0.18, 0xe4cc5a, 0xb4682a],
@@ -116,6 +116,7 @@ export const TIERS = [
       // the Sun at the middle: a body 17 radii across that is nibbled, not swallowed
       B({ k: K.star, x: 0, z: 0, b: 17.4, A: 0xffd070, B: 0xff7a1a, p1: 3, p2: 0.3, name: 'The Sun', key: true });
       swarm(rnd, B, 120, 0.04, 0.5, 26, 66); swarm(rnd, B, 300, 0.01, 0.04, 26, 66);
+      props(rnd, B, 'refinery', 'a gas refinery', 3, 0.25, 0.8); props(rnd, B, 'warp_gate', 'a warp gate', 2, 0.4, 0.9);
       const W = [
         ['Jupiter', K.giant, 1.75, 0xe8c9a0, 0xb87c4a, 11, false], ['Saturn', K.giant, 1.45, 0xf0d9a4, 0xc9a566, 9, true], ['Uranus', K.giant, 0.63, 0x9ee6e0, 0x6fb8c4, 6, false], ['Neptune', K.giant, 0.62, 0x4f76e8, 0x2c3fa8, 6, false],
         ['Venus', K.world, 0.15, 0xe6c88a, 0xb8884a], ['Mars', K.world, 0.085, 0xc4673a, 0x7d3a22], ['Mercury', K.rock, 0.06, 0x9d9588, 0x655d54],
@@ -138,6 +139,7 @@ export const TIERS = [
     id: 4, wexp: 0.3, name: 'Stars', unit: 320000, growth: 40, goal: 0.55, field: 0, sun: null, hazards: ['flare', 'tidal', 'supernova'], blurb: 'Dwarfs, giants, the neighbours', sky: { a: [0.04, 0.05, 0.14], b: [0.2, 0.08, 0.16], k: 1.0 }, start: [0, 0],
     make(rnd, B) {
       field(rnd, B, 190, 0.12, 60, (s) => starBody(rnd, s, 0.9));
+      props(rnd, B, 'void_whale', 'a void whale', 4, 1, 10);
       for (let i = 0; i < 120; i++) { const s = logU(rnd, 0.03, 0.12), [x, z] = spot(rnd, 14); const c = ROCK[(rnd() * ROCK.length) | 0]; B({ k: K.rock, x, z, b: s, A: c[0], B: c[1], p1: 1 + rnd() * 3, p2: rnd(), vx: (rnd() - 0.5) * 0.3, vz: (rnd() - 0.5) * 0.3 }); } // rogue planets and dust
     },
   },
@@ -145,7 +147,7 @@ export const TIERS = [
     id: 5, wexp: 0.25, name: 'Systems', unit: 12800000, growth: 60, goal: 0.55, field: 0, sun: null, hazards: ['flare', 'tidal', 'supernova'], blurb: 'Whole planetary systems, one gulp each', sky: { a: [0.05, 0.04, 0.16], b: [0.12, 0.14, 0.26], k: 1.1 }, start: [0, 0],
     make(rnd, B) {
       field(rnd, B, 170, 0.15, 80, (s) => ({ ...starBody(rnd, s, 0.7), ring: rnd() < 0.55, ringS: 2.2 + rnd() * 2 })); // a star and its disc: a system
-      props(rnd, B, 'ringworld', 'a ringworld', 7, 0.8, 18);
+      props(rnd, B, 'ringworld', 'a ringworld', 7, 0.8, 18); props(rnd, B, 'siege_orb', 'a siege orb', 3, 0.8, 4); props(rnd, B, 'warp_gate', 'a warp gate', 3, 0.8, 8);
       field(rnd, B, 40, 0.25, 40, (s) => ({ k: K.cluster, A: 0xb8d0ff, B: 0x6a8cff, p1: 2, p2: rnd(), name: '' })); // knots of young stars
     },
   },
@@ -155,7 +157,7 @@ export const TIERS = [
       field(rnd, B, 110, 0.2, 400, (s) => ({ k: K.cluster, A: pick(rnd, [0xffe2b0, 0xb8d0ff, 0xffc8a0]), B: 0xff8a50, p1: 2 + rnd() * 2, p2: rnd() }));
       field(rnd, B, 90, 0.4, 600, (s) => ({ k: K.cloud, tile: 3, tint: pick(rnd, [0xff6a9a, 0x6aa8ff, 0x7affc8, 0xffb060]), tilt: rnd() * 0.5, p1: rnd(), A: 0xff7ab0, B: 0x6aa8ff }));
       field(rnd, B, 60, 0.1, 40, (s) => starBody(rnd, s, 0.8));
-      props(rnd, B, 'neutron_star', 'a neutron star', 14, 0.3, 60);
+      props(rnd, B, 'neutron_star', 'a neutron star', 14, 0.3, 60); props(rnd, B, 'warp_gate', 'a warp gate', 3, 2, 50); props(rnd, B, 'siege_orb', 'a siege orb', 2, 2, 15);
     },
   },
   {
@@ -164,7 +166,7 @@ export const TIERS = [
       field(rnd, B, 130, 0.12, 2400, (s) => ({ k: K.cluster, A: pick(rnd, [0xffe2b0, 0xb8d0ff, 0xffd8a0]), B: 0xff9a60, p1: 2 + rnd() * 2, p2: rnd() }));
       field(rnd, B, 110, 0.3, 3000, (s) => ({ k: K.cloud, tile: 3, tint: pick(rnd, [0xff6a9a, 0x6aa8ff, 0x7affc8, 0xffb060, 0xb88aff]), tilt: rnd() * 0.5, p1: rnd(), A: 0xff7ab0, B: 0x6aa8ff }));
       field(rnd, B, 40, 0.08, 40, (s) => starBody(rnd, s, 0.8));
-      props(rnd, B, 'dyson', 'a Dyson shell', 12, 0.4, 600); props(rnd, B, 'neutron_star', 'a neutron star', 8, 0.3, 200);
+      props(rnd, B, 'dyson', 'a Dyson shell', 12, 0.4, 600); props(rnd, B, 'void_whale', 'a void leviathan', 5, 5, 200); props(rnd, B, 'neutron_star', 'a neutron star', 8, 0.3, 200);
     },
   },
   {
