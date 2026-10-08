@@ -1,0 +1,41 @@
+import assert from 'node:assert/strict';
+import * as THREE from 'three/webgpu';
+import { Debris, Sparks } from '../src/fx.js';
+
+const sparks = new Sparks();
+assert.equal(sparks.points.visible, false);
+const sparkUploads = [sparks.cloud.pos.version, sparks.cloud.col.version];
+sparks.update(1 / 60);
+assert.deepEqual([sparks.cloud.pos.version, sparks.cloud.col.version], sparkUploads);
+sparks.burst(0, 0, 1, 1);
+assert.equal(sparks.points.visible, true);
+sparks.update(0.1);
+assert.equal(sparks.points.visible, true);
+sparks.update(2);
+assert.equal(sparks.points.visible, false);
+
+const debris = new Debris();
+assert.equal(debris.mesh.visible, false);
+assert.equal(debris.puffs.visible, false);
+const matrixVersion = debris.mesh.instanceMatrix.version;
+const puffVersions = [debris.cloud.pos.version, debris.cloud.size.version, debris.cloud.alpha.version, debris.cloud.col.version];
+debris.update(1 / 60);
+assert.equal(debris.mesh.instanceMatrix.version, matrixVersion);
+assert.deepEqual([debris.cloud.pos.version, debris.cloud.size.version, debris.cloud.alpha.version, debris.cloud.col.version], puffVersions);
+debris.chunk(0, 1, 0, 0, 1, 0, 0.5, new THREE.Color(0xffffff), { x: 10, z: 10, r: 2 }, 2.5);
+assert.equal(debris.mesh.visible, true);
+debris.update(0.1);
+assert.equal(debris.mesh.visible, true);
+debris.update(3);
+assert.equal(debris.mesh.visible, false);
+
+const dust = new THREE.Color(0xaaaaaa);
+debris.puff(0, 1, 0, 0, 0, 0, 1, 0, 0.2, dust, 0.8);
+assert.equal(debris.puffs.visible, true);
+debris.update(0.1);
+assert.equal(debris.puffs.visible, true);
+debris.update(0.2);
+assert.equal(debris.puffs.visible, false);
+const expiredPuffVersions = [debris.cloud.pos.version, debris.cloud.size.version, debris.cloud.alpha.version, debris.cloud.col.version];
+debris.update(1 / 60);
+assert.deepEqual([debris.cloud.pos.version, debris.cloud.size.version, debris.cloud.alpha.version, debris.cloud.col.version], expiredPuffVersions);

@@ -1,9 +1,10 @@
 // Quality tiers. Decided once at startup (materials are built from it), with a runtime fallback in post.js.
-//   low:    software renderers, phones, ?low. DPR 1, no AO / bloom / grain, FXAA, 1K shadows, single-projection scans, sparse grass that does not sample the shadow map
+//   low:    phones, ?low. DPR 1, no AO / bloom / grain, FXAA, 1K shadows, single-projection scans, sparse grass
+//   software: SwiftShader or ?q=software. Lower DPR/pixel budget, no realtime shadows or grass
 //   medium: integrated GPUs and the WebGL2 fallback. DPR 1, cheap AO, no bloom / grain, FXAA, 1K shadows, single-projection scans
 //   high:   a discrete GPU. DPR climbs toward 2 while frames hold, 2K shadows, full scans, grass receives shadows
-//   safari: its own measured 60 fps settings (a watchdog rebuild freezes it)
-// Override with ?q=low|medium|high.
+//   safari: its own measured 60 fps settings
+// Override with ?q=software|low|medium|high. `software` also applies automatically to SwiftShader-class renderers.
 const q = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('q') : null;
 const nav = typeof navigator !== 'undefined' ? navigator : {};
 const ua = nav.userAgent || '';
@@ -45,16 +46,21 @@ function autoTier() {
   if (INTEGRATED || NO_WEBGPU || forceGL || (mem && mem <= 4)) return 'medium';
   return 'high';
 }
-export const TIER = ['low', 'medium', 'high', 'safari'].includes(q) ? q : autoTier();
+export const TIER = q === 'software' || SOFTWARE ? 'low' : ['low', 'medium', 'high', 'safari'].includes(q) ? q : autoTier();
 
 // grassShadow: blades sample the shadow map. Off wherever the shadow pass is already the thing missing 60 fps.
 const TIERS = {
-  low: { dpr: 1, ao: false, aoRes: 0.25, aoSamples: 4, bloom: false, aa: 'fxaa', shadow: 1024, grass: 0.35, grassFar: false, grassShadow: false, surface: 'lite', terrainStep: 3, trees: 0.55, grain: false, shadowEvery: 2, minCasterTier: 1 },
+  low: { dpr: 1, ao: false, aoRes: 0.25, aoSamples: 4, bloom: false, aa: 'fxaa', shadow: 1024, grass: 0.18, grassFar: false, grassShadow: false, surface: 'lite', terrainStep: 3, trees: 0.55, grain: false, shadowEvery: 2, minCasterTier: 1 },
   medium: { dpr: 1, ao: true, aoRes: 0.25, aoSamples: 6, bloom: false, aa: 'fxaa', shadow: 1024, grass: 0.5, grassFar: false, grassShadow: false, surface: 'lite', terrainStep: 2, trees: 0.7, grain: false, shadowEvery: 2, minCasterTier: 1 },
   safari: { shadowEvery: 3, minCasterTier: 1.5, dpr: 1, ao: true, aoRes: 0.35, aoSamples: 6, bloom: true, aa: 'smaa', shadow: 2048, grass: 0.7, grassFar: false, surface: 'full', terrainStep: 2, trees: 0.8, grain: true },
   high: { dpr: 2, ao: true, aoRes: 0.35, aoSamples: 8, bloom: true, aa: 'smaa', shadow: 2048, grass: 1, grassFar: true, surface: 'full', terrainStep: 2, trees: 1, grain: true },
 };
 
-export const Q = { tier: TIER, shadowEvery: 1, minCasterTier: 0, grassShadow: true, ...TIERS[TIER] };
-const why = mobile ? 'mobile' : SOFTWARE ? 'software renderer' : INTEGRATED ? 'integrated GPU' : NO_WEBGPU ? 'no WebGPU' : forceGL && !q ? 'WebGL fallback' : SAFARI ? 'Safari' : '';
+export const Q = { tier: TIER, software: q === 'software' || SOFTWARE, shadowEvery: 1, minCasterTier: 0, grassShadow: true, ...TIERS[TIER] };
+if (Q.software) Object.assign(Q, {
+  pixelBudget: 300_000,
+  dpr: Math.min(0.65, Math.sqrt(300_000 / ((innerWidth || 1) * (innerHeight || 1)))),
+  shadow: 512, grass: 0, grassFar: false, grassShadow: false, ao: false, bloom: false, aa: 'fxaa', grain: false,
+});
+const why = q === 'software' ? 'software profile' : mobile ? 'mobile' : SOFTWARE ? 'software renderer' : INTEGRATED ? 'integrated GPU' : NO_WEBGPU ? 'no WebGPU' : forceGL && !q ? 'WebGL fallback' : SAFARI ? 'Safari' : '';
 console.info(`quality: ${TIER}${why ? ` (${why})` : ''}${GPU ? ` [${GPU.slice(0, 80)}]` : ''}`);

@@ -29,8 +29,25 @@ export const P2 = {
   capperHit: 0.1, // the Capper's slam (was 0.15 every 10 s: 11 hits ground a human-paced player down near the capital)
   capperCool: 14,
   speed: (r) => Math.min(80, 1.55 * (18 + r * 0.5)), // stays close to late-city pace as the hole grows; the region remains crossable
-  turn: (r) => 0.09 + Math.min(0.2, r / 400), // steering smoothing time constant (s): near-city response at breakout, with modest weight at scale
+  turn: 0.06, // steering response is the same at every hole size
 };
+
+/** Smooth a non-neutral steering request; releasing the controls must stop without a residual coast. */
+export function steerAxis(current, target, dt, turn = P2.turn) {
+  if (target === 0) return 0;
+  return current + (target - current) * (1 - Math.exp(-Math.max(0, dt) / turn));
+}
+
+/** Preserve requested direction and magnitude when an edible target bends the course. */
+export function steerAssist(x, z, ax, az, weight) {
+  const len = Math.hypot(x, z), targetLen = Math.hypot(ax, az);
+  if (!len || !targetLen) return [x, z];
+  const k = Math.min(0.35, Math.max(0, weight));
+  const nx = x * (1 - k) + (ax / targetLen) * len * k;
+  const nz = z * (1 - k) + (az / targetLen) * len * k;
+  const n = Math.hypot(nx, nz) || 1;
+  return [nx / n * len, nz / n * len];
+}
 
 export const quietDirector = () => ({
   stars: 0, noto: 0, bonusT: 0, cool: {}, units: [], drops: [], sizeK: 1, notorietyMult: 1,

@@ -25,12 +25,12 @@ function voidMaterial(skin) {
     const col = mix(u.uTop.mul(0.7), u.uDeep.mul(0.35), smoothstep(0.0, 0.3, d)).toVar();
     // spiral arms drifting down the well
     const arms = sin(ang.mul(3).add(d.mul(18)).sub(u.uTime.mul(1.2))).mul(0.5).add(0.5);
-    col.assign(mix(col, u.uTop.mul(0.9), u.uSwirl.mul(arms).mul(smoothstep(0.5, 0.05, d)).mul(0.6)));
+    col.assign(mix(col, u.uTop.mul(0.9), u.uSwirl.mul(arms).mul(float(1).sub(smoothstep(0.05, 0.5, d))).mul(0.6)));
     // lensing: a hot accretion ring just under the lip
     col.addAssign(u.uRim.mul(u.uLens).mul(2.2).mul(exp(pow(d.sub(0.06).mul(28), 2).negate())));
     const g = vec2(ang.mul(18), vP.y.add(u.uTime.mul(0.03)).mul(60));
     const h = hash(floor(g).add(vec2(2048, 4096)).dot(vec2(1, 8192)));
-    const star = step(0.93, h).mul(smoothstep(0.5, 0, length(fract(g).sub(0.5)))).mul(sin(u.uTime.mul(3).add(h.mul(40))).mul(0.4).add(0.6));
+    const star = step(0.93, h).mul(float(1).sub(smoothstep(0, 0.5, length(fract(g).sub(0.5))))).mul(sin(u.uTime.mul(3).add(h.mul(40))).mul(0.4).add(0.6));
     col.addAssign(u.uStar.mul(star).mul(0.8).mul(smoothstep(0.05, 0.25, d)).mul(float(1).sub(smoothstep(300, 1500, u.uDepth)))); // (a pit kilometres wide shows no lattice of stars: the ascension)
     // torn earth at the lip: road crust, then banded soil with pebbles, fading into the void
     const depthM = d.mul(u.uDepth);
@@ -87,7 +87,7 @@ export class Hole {
       const r = length(vP), a = atan(vP.y, vP.x);
       const arms = sin(a.mul(5).add(log(r).mul(9)).add(su.uTime.mul(14)));
       const band = smoothstep(0.35, 0.95, arms);
-      const fade = smoothstep(su.uReach, 1.15, r).mul(smoothstep(1.0, 1.08, r));
+      const fade = float(1).sub(smoothstep(1.15, su.uReach, r)).mul(smoothstep(1.0, 1.08, r));
       return vec4(su.uCol.mul(band).mul(fade).mul(su.uVac.min(1)).mul(0.9), 1);
     })();
     this.swirlMat.userData.u = su;

@@ -1,6 +1,7 @@
 // Swallow sparks: lilac/white motes that burst out of the rim, sized by the bite. One Points draw call.
 import * as THREE from 'three/webgpu';
 import { instancedBufferAttribute, vec4, uv, length, smoothstep, cameraProjectionMatrix, float, pow, abs, clamp, mix } from 'three/tsl';
+import { Q } from './quality.js';
 
 /** Camera-facing instanced sprites (WebGPU has no sized points): position/colour/size/alpha per instance. */
 export function spriteCloud(n, { additive, world, bird = false }) {
@@ -18,10 +19,10 @@ export function spriteCloud(n, { additive, world, bird = false }) {
   // bird: a soft wing "V" instead of a round puff
   const q = uv().sub(0.5), wing = abs(q.y.add(abs(q.x).mul(0.7)).sub(0.08));
   // puff: no flat opaque core (that reads as milk) and lit from above so it has volume
-  const shape = bird ? smoothstep(0.09, 0.03, wing).mul(smoothstep(0.48, 0.38, abs(q.x))) : pow(clamp(float(1).sub(d.mul(2)), 0, 1), float(1.7));
+  const shape = bird ? float(1).sub(smoothstep(0.03, 0.09, wing)).mul(float(1).sub(smoothstep(0.38, 0.48, abs(q.x)))) : pow(clamp(float(1).sub(d.mul(2)), 0, 1), float(1.7));
   const shade = bird ? float(1) : mix(float(0.68), float(1.08), uv().y);
   mat.colorNode = additive
-    ? vec4(instancedBufferAttribute(col).mul(pow(smoothstep(0.5, 0.0, d), float(1.5))).mul(2.2), 1)
+    ? vec4(instancedBufferAttribute(col).mul(pow(float(1).sub(smoothstep(0.0, 0.5, d)), float(1.5))).mul(2.2), 1)
     : vec4(instancedBufferAttribute(col).mul(shade), a.mul(shape));
   const sprite = new THREE.Sprite(mat);
   sprite.count = n;
@@ -30,26 +31,30 @@ export function spriteCloud(n, { additive, world, bird = false }) {
 }
 
 const MAX = 400;
+const SPARK_CAPACITY = Q.software ? 128 : MAX;
 
 export class Sparks {
   constructor() {
-    this.cloud = spriteCloud(MAX, { additive: true, world: false });
+    // Idle sprite vertices still reach the software renderer, so keep its unused ring smaller.
+    this.cloud = spriteCloud(SPARK_CAPACITY, { additive: true, world: false });
     this.pos = this.cloud.pos.array;
     this.col = this.cloud.col.array;
-    this.vel = new Float32Array(MAX * 3);
-    this.life = new Float32Array(MAX);
+    this.vel = new Float32Array(SPARK_CAPACITY * 3);
+    this.life = new Float32Array(SPARK_CAPACITY);
     this.pos.fill(-999);
     this.points = this.cloud.sprite;
+    this.points.visible = false;
     this.next = 0;
     this.lilac = new THREE.Color(0xb58cff);
     this.white = new THREE.Color(0xffffff);
   }
 
   burst(x, z, r, tier) {
+    this.points.visible = true;
     const n = Math.min(40, 6 + Math.round(tier * 10));
     for (let k = 0; k < n; k++) {
       const i = this.next;
-      this.next = (this.next + 1) % MAX;
+      this.next = (this.next + 1) % SPARK_CAPACITY;
       const a = Math.random() * Math.PI * 2, sp = (2 + Math.random() * 4) * (0.6 + r * 0.25);
       this.pos.set([x + Math.cos(a) * r, 0.3, z + Math.sin(a) * r], i * 3);
       this.vel.set([Math.cos(a) * sp * 0.4, sp, Math.sin(a) * sp * 0.4], i * 3);
@@ -57,24 +62,28 @@ export class Sparks {
       (Math.random() < 0.7 ? this.lilac : this.white).toArray(this.col, i * 3);
     }
     this.cloud.size.array.fill(0.45 + r * 0.1);
-    this.cloud.size.needsUpdate = true;
+    this.cloud.pos.needsUpdate = this.cloud.col.needsUpdate = this.cloud.size.needsUpdate = true;
   }
 
   update(dt) {
-    for (let i = 0; i < MAX; i++) {
-      if (this.life[i] <= 0) continue;
-      this.life[i] -= dt;
-      const j = i * 3;
-      this.vel[j + 1] -= 9 * dt;
-      this.pos[j] += this.vel[j] * dt;
-      this.pos[j + 1] += this.vel[j + 1] * dt;
-      this.pos[j + 2] += this.vel[j + 2] * dt;
-      if (this.life[i] <= 0) this.pos[j + 1] = -999;
-      const f = Math.max(0, this.life[i]);
-      this.col[j] *= 0.97 + f * 0.03; this.col[j + 1] *= 0.97 + f * 0.03; this.col[j + 2] *= 0.97 + f * 0.03;
+    if (this.points.visible) {
+      let active = 0;
+      for (let i = 0; i < SPARK_CAPACITY; i++) {
+        if (this.life[i] <= 0) continue;
+        this.life[i] -= dt;
+        const j = i * 3;
+        this.vel[j + 1] -= 9 * dt;
+        this.pos[j] += this.vel[j] * dt;
+        this.pos[j + 1] += this.vel[j + 1] * dt;
+        this.pos[j + 2] += this.vel[j + 2] * dt;
+        if (this.life[i] <= 0) this.pos[j + 1] = -999;
+        const f = Math.max(0, this.life[i]);
+        this.col[j] *= 0.97 + f * 0.03; this.col[j + 1] *= 0.97 + f * 0.03; this.col[j + 2] *= 0.97 + f * 0.03;
+        if (this.life[i] > 0) active++;
+      }
+      this.cloud.pos.needsUpdate = this.cloud.col.needsUpdate = true;
+      this.points.visible = active > 0;
     }
-    this.cloud.pos.needsUpdate = true;
-    this.cloud.col.needsUpdate = true;
   }
 }
 
@@ -90,6 +99,7 @@ export class Debris {
     this.mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ roughness: 0.7 }), CHUNKS);
     this.mesh.frustumCulled = false;
     this.mesh.castShadow = false;
+    this.mesh.visible = false;
     this.c = Array.from({ length: CHUNKS }, () => ({ life: 0 }));
     for (let i = 0; i < CHUNKS; i++) { this.mesh.setMatrixAt(i, _m4.makeScale(0, 0, 0)); this.mesh.setColorAt(i, CONFETTI[0]); }
     this.next = 0;
@@ -105,11 +115,13 @@ export class Debris {
     this.pmax = new Float32Array(PUFFS);
     this.grow = new Float32Array(PUFFS);
     this.puffs = this.cloud.sprite;
+    this.puffs.visible = false;
     this.pnext = 0;
     this.group = new THREE.Group().add(this.mesh, this.puffs);
   }
 
   chunk(x, y, z, vx, vy, vz, size, color, hole, life = 2.5) {
+    this.mesh.visible = true;
     const i = this.next;
     this.next = (i + 1) % CHUNKS;
     Object.assign(this.c[i], { x, y, z, vx, vy, vz, size, hole, life, rx: Math.random() * 6, ry: Math.random() * 6, spin: (Math.random() - 0.5) * 14 });
@@ -120,6 +132,7 @@ export class Debris {
   puff(x, y, z, vx, vy, vz, size, grow, life, color, alpha) {
     const i = this.pnext;
     this.pnext = (this.pnext + 1) % PUFFS;
+    this.puffs.visible = true;
     this.pos.set([x, y, z], i * 3);
     this.vel.set([vx, vy, vz], i * 3);
     this.size[i] = size;
@@ -176,38 +189,48 @@ export class Debris {
   }
 
   update(dt) {
-    for (let i = 0; i < CHUNKS; i++) {
-      const c = this.c[i];
-      if (c.life <= 0) continue;
-      c.life -= dt;
-      const h = c.hole, dx = h.x - c.x, dz = h.z - c.z, d = Math.hypot(dx, dz) || 1e-3;
-      const over = d < h.r * 0.95;
-      // swirl toward the hole; over the opening there is no floor
-      const pull = 6 + h.r * 2;
-      c.vx += ((dx * pull + dz * pull * 0.8) / d) * dt;
-      c.vz += ((dz * pull - dx * pull * 0.8) / d) * dt;
-      c.vx *= 1 - dt * 1.5; c.vz *= 1 - dt * 1.5;
-      c.vy -= 16 * dt;
-      c.x += c.vx * dt; c.y += c.vy * dt; c.z += c.vz * dt;
-      if (!over && c.y < 0.2) { c.y = 0.2; c.vy = Math.abs(c.vy) * 0.3; }
-      c.rx += c.spin * dt; c.ry += c.spin * 0.7 * dt;
-      const s = c.y < -3 || c.life <= 0 ? 0 : c.size * Math.min(1, c.life * 2);
-      if (!s) c.life = 0;
-      _q4.setFromEuler(_e4.set(c.rx, c.ry, 0));
-      this.mesh.setMatrixAt(i, _m4.compose(_p4.set(c.x, c.y, c.z), _q4, _s4.setScalar(s)));
+    if (this.mesh.visible) {
+      let activeChunks = 0;
+      for (let i = 0; i < CHUNKS; i++) {
+        const c = this.c[i];
+        if (c.life <= 0) continue;
+        c.life -= dt;
+        const h = c.hole, dx = h.x - c.x, dz = h.z - c.z, d = Math.hypot(dx, dz) || 1e-3;
+        const over = d < h.r * 0.95;
+        // swirl toward the hole; over the opening there is no floor
+        const pull = 6 + h.r * 2;
+        c.vx += ((dx * pull + dz * pull * 0.8) / d) * dt;
+        c.vz += ((dz * pull - dx * pull * 0.8) / d) * dt;
+        c.vx *= 1 - dt * 1.5; c.vz *= 1 - dt * 1.5;
+        c.vy -= 16 * dt;
+        c.x += c.vx * dt; c.y += c.vy * dt; c.z += c.vz * dt;
+        if (!over && c.y < 0.2) { c.y = 0.2; c.vy = Math.abs(c.vy) * 0.3; }
+        c.rx += c.spin * dt; c.ry += c.spin * 0.7 * dt;
+        const s = c.y < -3 || c.life <= 0 ? 0 : c.size * Math.min(1, c.life * 2);
+        if (!s) c.life = 0;
+        else activeChunks++;
+        _q4.setFromEuler(_e4.set(c.rx, c.ry, 0));
+        this.mesh.setMatrixAt(i, _m4.compose(_p4.set(c.x, c.y, c.z), _q4, _s4.setScalar(s)));
+      }
+      this.mesh.instanceMatrix.needsUpdate = true;
+      this.mesh.visible = activeChunks > 0;
     }
-    this.mesh.instanceMatrix.needsUpdate = true;
-    for (let i = 0; i < PUFFS; i++) {
-      if (this.plife[i] <= 0) { this.alpha[i] = 0; continue; }
-      this.plife[i] -= dt;
-      const j = i * 3, f = Math.max(0, this.plife[i] / this.pmax[i]);
-      this.pos[j] += this.vel[j] * dt; this.pos[j + 1] += this.vel[j + 1] * dt; this.pos[j + 2] += this.vel[j + 2] * dt;
-      this.vel[j] *= 1 - dt * 1.2; this.vel[j + 2] *= 1 - dt * 1.2;
-      this.size[i] += this.grow[i] * dt;
-      this.alpha[i] *= f > 0.02 ? 1 - dt * (0.6 / Math.max(0.2, this.pmax[i])) : 0;
+    if (this.puffs.visible) {
+      let activePuffs = 0;
+      for (let i = 0; i < PUFFS; i++) {
+        if (this.plife[i] <= 0) continue;
+        this.plife[i] -= dt;
+        if (this.plife[i] > 0) activePuffs++;
+        const j = i * 3, f = Math.max(0, this.plife[i] / this.pmax[i]);
+        this.pos[j] += this.vel[j] * dt; this.pos[j + 1] += this.vel[j + 1] * dt; this.pos[j + 2] += this.vel[j + 2] * dt;
+        this.vel[j] *= 1 - dt * 1.2; this.vel[j + 2] *= 1 - dt * 1.2;
+        this.size[i] += this.grow[i] * dt;
+        this.alpha[i] *= f > 0.02 ? 1 - dt * (0.6 / Math.max(0.2, this.pmax[i])) : 0;
+      }
+      const c = this.cloud;
+      c.pos.needsUpdate = c.size.needsUpdate = c.alpha.needsUpdate = c.col.needsUpdate = true;
+      if (activePuffs === 0) this.puffs.visible = false;
     }
-    const c = this.cloud;
-    c.pos.needsUpdate = c.size.needsUpdate = c.alpha.needsUpdate = c.col.needsUpdate = true;
   }
 }
 

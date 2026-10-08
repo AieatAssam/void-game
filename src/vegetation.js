@@ -4,7 +4,7 @@
 import * as THREE from 'three/webgpu';
 import {
   texture, uv, vec3, vec4, attribute, positionGeometry, positionLocal, positionWorld, normalViewGeometry, sin, cos,
-  mix, smoothstep, max, dot, normalize, pow, length, time, uniform, mx_noise_float, cameraPosition, int, fract,
+  mix, smoothstep, max, dot, normalize, pow, length, time, uniform, mx_noise_float, cameraPosition, int, fract, float,
 } from 'three/tsl';
 import { pbrCol, pbrNrm, pbrRha, L, uvGrad } from './pbr.js';
 import { world } from './surface.js';
@@ -35,7 +35,7 @@ export const gust = (wxz) => {
 /** Extra thrash near the player's hole (it pulls at everything around it). */
 const holeRustle = (wxz) => {
   const h = world.hole;
-  return smoothstep(h.z.add(5), h.z.add(0.5), length(wxz.sub(h.xy))).mul(h.z.greaterThan(0).select(1, 0));
+  return float(1).sub(smoothstep(h.z.add(0.5), h.z.add(5), length(wxz.sub(h.xy)))).mul(h.z.greaterThan(0).select(1, 0));
 };
 
 // ---------- tiny seeded rng ----------
@@ -350,4 +350,3 @@ export function installVegetation(assets) {
     a.meta.tris = a.flatVariants[0][0].index.count / 3;
   }
 }
-

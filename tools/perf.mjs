@@ -1,8 +1,8 @@
 // Draw calls + triangles (incl. shadow pass) after a few seconds of play: node tools/perf.mjs "<query>" [waitMs]
 // Renders through the real loop (not headless), so numbers match the ?fps overlay. Use PORT for another server.
-import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
+import { chromium, channel } from './browser.mjs';
 const [query = '', wait = '15000'] = process.argv.slice(2);
-const b = await chromium.launch({ headless: true, channel: 'chromium', args: ['--ignore-gpu-blocklist'] });
+const b = await chromium.launch({ headless: true, channel, args: ['--ignore-gpu-blocklist'] });
 const p = await b.newPage({ viewport: { width: 1280, height: 720 } });
 await p.goto(`http://127.0.0.1:${process.env.PORT || 5174}/?webgl&nothumbs${query}`);
 await p.waitForSelector('#menu:not([hidden])', { timeout: 900000 });

@@ -52,7 +52,6 @@ const NATION_A = ['Val', 'Kor', 'Ar', 'Ton', 'Mer', 'Sel', 'Dra', 'Ish', 'Nor', 
 const NATION_B = ['oria', 'andia', 'esh', 'ova', 'ium', 'ara', 'ista', 'enne', 'oth', 'uvia', 'land', 'mark', 'ria', 'ana', 'ensk', 'ora'];
 
 const smoothstep = (a, b, x) => smooth(a, b, x);
-const lerp = (a, b, k) => a + (b - a) * k;
 
 /**
  * makePlanet(seed) -> { elevation(d, fine), climate(d, e), biome(d, e, T, M), habitability(d, e, T, M), nation(d), nationEdge(d), clouds(d),

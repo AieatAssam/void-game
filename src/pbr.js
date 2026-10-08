@@ -6,7 +6,7 @@ import * as THREE from 'three/webgpu';
 import { Q } from './quality.js';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import {
-  texture, vec2, vec3, float, abs, pow, dot, cross, dFdx, dFdy, sign, max, positionView, normalViewGeometry, uniformArray,
+  texture, vec2, vec3, vec4, float, abs, pow, dot, cross, dFdx, dFdy, sign, max, positionView, normalViewGeometry, uniformArray,
   mx_noise_float, time, cos, sin, select, Fn, Loop, normalize, cameraPosition,
 } from 'three/tsl';
 
@@ -69,6 +69,22 @@ function arrayTexture(srgb) {
 export const pbrCol = arrayTexture(true);
 export const pbrNrm = arrayTexture(false);
 export const pbrRha = arrayTexture(false);
+// Shared tiled normal/crest field for the lake and globe water shaders.
+export const waterDetail = new THREE.Texture();
+export const WATER_UV_SCALE = 0.005; // one baked tile spans 200 m: the coarse sea pattern must not repeat every street
+waterDetail.wrapS = waterDetail.wrapT = THREE.RepeatWrapping;
+waterDetail.minFilter = THREE.LinearMipmapLinearFilter;
+waterDetail.magFilter = THREE.LinearFilter;
+waterDetail.generateMipmaps = true;
+waterDetail.colorSpace = THREE.NoColorSpace;
+waterDetail.anisotropy = 8;
+export const CAUSTICS_ENABLED = !Q.software && typeof location !== 'undefined' && new URLSearchParams(location.search).has('caustics');
+export const causticDetail = new THREE.Texture();
+causticDetail.wrapS = causticDetail.wrapT = THREE.RepeatWrapping;
+causticDetail.minFilter = THREE.LinearMipmapLinearFilter;
+causticDetail.magFilter = THREE.LinearFilter;
+causticDetail.generateMipmaps = true;
+causticDetail.colorSpace = THREE.NoColorSpace;
 // Mean albedo per layer (linear): the detail is divided by it so a swatch keeps its palette colour on average.
 export const layerMean = uniformArray(LAYERS.map(() => new THREE.Vector3(0.5, 0.5, 0.5)), 'vec3');
 
@@ -120,7 +136,17 @@ async function loadKTX2(onProgress) {
 
 /** Fetch every layer and fill the arrays. Materials can be built before this resolves; nothing renders before it. */
 export async function loadPBR(onProgress) {
-  if (COMPRESSION) return loadKTX2(onProgress);
+  const loadWaterDetail = new THREE.TextureLoader().loadAsync(`${base}textures/water/water-detail.png`).then((loaded) => {
+    waterDetail.image = loaded.image;
+    waterDetail.needsUpdate = true;
+    loaded.dispose();
+  });
+  const loadCaustics = CAUSTICS_ENABLED ? new THREE.TextureLoader().loadAsync(`${base}textures/terrain/caustics.png`).then((loaded) => {
+    causticDetail.image = loaded.image;
+    causticDetail.needsUpdate = true;
+    loaded.dispose();
+  }) : Promise.resolve();
+  if (COMPRESSION) { await Promise.all([loadKTX2(onProgress), loadWaterDetail, loadCaustics]); return; }
   let done = 0;
   await Promise.all(LAYERS.map(async (name, i) => {
     const [col, nrm, rha] = await Promise.all(['col', 'nrm', 'rha'].map((k) => readImage(`${base}tex/${name}_${k}.jpg`)));
@@ -135,6 +161,7 @@ export async function loadPBR(onProgress) {
     onProgress?.(++done / LAYERS.length);
   }));
   for (const t of [pbrCol, pbrNrm, pbrRha]) t.needsUpdate = true;
+  await Promise.all([loadWaterDetail, loadCaustics]);
 }
 
 // ---------- surface gradient helpers (view space) ----------
@@ -215,29 +242,33 @@ const fullTriplanar = (p, n, layer, scale) => {
   return { col, rough: rha.x, height: rha.y, ao: rha.z, grad };
 };
 
-/** Animated water relief in world xz: layered travelling waves + noise chop. Returns view-space gradient. */
-export const waterGrad = (pw) => {
+/** Broad directional swells plus one mip-filtered tangent normal. Returns world xz slopes. */
+export const waterSlope = (pw, base = null, fineOffset = null) => {
   const t = time;
-  const { r1, r2 } = surfaceBasis();
-  // analytic slopes of a few directional waves
-  let sx = float(0), sz = float(0);
-  const waves = [[0.8, 0.6, 1.3, 0.035, 1.2], [-0.5, 0.86, 2.1, 0.022, 1.7], [0.2, -0.98, 3.7, 0.012, 2.3], [-0.9, -0.3, 6.1, 0.006, 3.1]];
-  for (const [dxw, dzw, k, a, s] of waves) {
-    const ph = pw.x.mul(dxw * k).add(pw.z.mul(dzw * k)).add(t.mul(s));
-    const d = cos(ph).mul(a * k);
-    sx = sx.add(d.mul(dxw));
-    sz = sz.add(d.mul(dzw));
-  }
+  const n = base ?? texture(waterDetail, pw.xz.mul(WATER_UV_SCALE).add(vec2(t.mul(0.009), t.mul(-0.006))));
+  const normalZ = max(n.b.mul(2).sub(1), 0.4);
+  const swellA = cos(pw.x.mul(0.05).add(pw.z.mul(0.02)).add(t.mul(0.75)));
+  const swellB = cos(pw.x.mul(-0.013).add(pw.z.mul(0.045)).sub(t.mul(0.52)));
+  let sx = n.r.mul(2).sub(1).div(normalZ)
+    .add(swellA.mul(0.16)).add(swellB.mul(-0.08));
+  let sz = n.g.mul(2).sub(1).div(normalZ)
+    .add(swellA.mul(0.1)).add(swellB.mul(0.14));
   if (Q.surface !== 'lite') {
-  // fine chop from gradient noise (finite difference in world space)
-  const e = 0.05, np = vec3(pw.x.mul(3.1), t.mul(0.6), pw.z.mul(3.1));
-  const n0 = mx_noise_float(np);
-  sx = sx.add(mx_noise_float(np.add(vec3(e * 3.1, 0, 0))).sub(n0).div(e).mul(0.012));
-  sz = sz.add(mx_noise_float(np.add(vec3(0, 0, e * 3.1))).sub(n0).div(e).mul(0.012));
+    const fine = texture(waterDetail, pw.xz.mul(WATER_UV_SCALE * 2.4).add(fineOffset ?? vec2(t.mul(-0.02), t.mul(0.015))));
+    const fineZ = max(fine.b.mul(2).sub(1), 0.4);
+    sx = sx.add(fine.r.mul(2).sub(1).div(fineZ).mul(0.2));
+    sz = sz.add(fine.g.mul(2).sub(1).div(fineZ).mul(0.2));
   }
+  return vec2(sx, sz);
+};
+
+/** Returns the water slope as a view-space surface gradient for arbitrary surfaces. */
+export const waterGrad = (pw, base = null) => {
+  const { r1, r2 } = surfaceBasis();
+  const slopes = waterSlope(pw, base);
   const dx = dFdx(pw), dy = dFdy(pw);
   const gX = r1.mul(dx.x).add(r2.mul(dy.x)), gZ = r1.mul(dx.z).add(r2.mul(dy.z));
-  return gX.mul(sx).add(gZ.mul(sz));
+  return gX.mul(slopes.x).add(gZ.mul(slopes.y));
 };
 
 /** Low-frequency world-space variation to break up texture repetition (value ~0.5, soft). */

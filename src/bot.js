@@ -124,7 +124,7 @@ export function humanBot() {
           // close to the marked settlement: its own buildings first (it ate barns and windmills round the capital's edge)
           if (!goal.far) sc *= e.home === goal.q ? 4 : 0.3;
         }
-        cands.push([sc * (human ? 0.85 + 0.3 * Math.random() : 1), e]); // (a little taste: not always the arithmetic best)
+        cands.push([sc * (0.85 + 0.3 * Math.random()), e]); // (a little taste: not always the arithmetic best)
       }
       cands.sort((a, b) => b[0] - a[0]);
       const pick = cands.length ? cands[Math.min(cands.length - 1, Math.floor(Math.random() ** 2 * 4))][1] : null;

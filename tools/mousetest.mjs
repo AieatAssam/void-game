@@ -1,8 +1,8 @@
 // Mouse-control check: point the real mouse at edible things near the hole and see whether they get swallowed.
 // node tools/mousetest.mjs "<query>" [targets=6] [sloppy=0]  (sloppy: static targets, aim 4 m past with the rim MISS m wide, default 0.15)   (game time is stepped headlessly, so it runs the same without a GPU)
-import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
+import { chromium, channel } from './browser.mjs';
 const [query = '', n = '6', sloppy = '0'] = process.argv.slice(2);
-const b = await chromium.launch({ headless: true, channel: 'chromium', args: ['--ignore-gpu-blocklist'] });
+const b = await chromium.launch({ headless: true, channel, args: ['--ignore-gpu-blocklist'] });
 const p = await b.newPage({ viewport: { width: 1280, height: 720 } });
 p.on('pageerror', (e) => console.log('pageerror', e.message.slice(0, 300)));
 await p.goto(`http://127.0.0.1:${process.env.PORT || 5174}/?webgl&nothumbs&q=low&grass=0${query}`);

@@ -96,6 +96,7 @@ export const debugMethods = {
       /** Back to the start of the run (bite map, units, hole, ledger, trail): for balance sweeps in one page load. */
       reset() {
         self.finaleReset(ctx); ctx.pain?.clear(); self.cities?.reset();
+        self.tearAnticipateAt = -9; document.getElementById('size')?.classList.remove('anticipate');
         W.bite.restore(self.snap0); W.bite.jobs.length = 0; W.bite.events.length = 0; W.bite.tflag.fill(0); W.bite.nTouched = 0; W.bite.pullAt = 0; W.bite.stat = { tears: 0, pulls: 0, parcelTears: 0 }; self.rim = 0; self.dustMoved = 0;
         W.placeAt(W.P.startDir, W.P.city); W.h0Set = false; W.job = null; W.patchInfo = null; W.nStamps = 0; W.globe.trailData.fill(0); W.globe.trailTex.needsUpdate = true;
         W.capMode = false; hole.capMode = false; W.globe.hidePatch?.(); hole.area = Math.PI * self.r0 * self.r0; hole.sx = hole.sz = 0;

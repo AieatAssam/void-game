@@ -70,6 +70,14 @@ export function gulp(tier) {
   tone('sine', f, f * 0.45, 0.12 + Math.min(tier, 8) * 0.03, 0.4);
 }
 
+let lastCapture = 0;
+/** A light onset tick for ordinary captures; one voice at most every 120 ms. */
+export function captureOnset() {
+  if (!ctx || ctx.currentTime - lastCapture < 0.12) return;
+  lastCapture = ctx.currentTime;
+  tone('triangle', 520, 340, 0.07, 0.045);
+}
+
 export function hurt() {
   tone('square', 160, 50, 0.3, 0.3);
   tone('sine', 90, 40, 0.4, 0.6);
@@ -194,6 +202,10 @@ function noise(dur, lp, vol, delay = 0, hp = 0) {
   live++; src.onended = () => { live--; g.disconnect(); };
 }
 let lastTear = 0;
+/** A restrained rising cue while a large tear wave is being prepared. */
+export function tearAnticipate() {
+  tone('sine', 180, 260, 0.16, 0.07);
+}
 /** A district / island: a crack of rock and a gulp (k 0..1 size). */
 export function tear(k = 0.3, semi = 0) { // (semi: a semitone per combo level)
   if (!ctx || ctx.currentTime - lastTear < 0.12) return;
@@ -496,3 +508,55 @@ export async function levelProbe(scenario = 'nuke', secs = 6) {
   return out;
 }
 if (typeof window !== 'undefined') window.__sfxProbe = levelProbe;
+
+// ---------- Phase 4 (docs/PHASE4.md): the cosmos ----------
+const SP_ROOT = [41.2, 43.65, 49, 55, 58.27, 65.41, 73.42, 77.78, 87.31, 98, 110]; // the drone's root per tier: it climbs a step each time the scale jumps
+const PENT = [0, 2, 4, 7, 9];
+let sp = null;
+/** Resume a context that was created before the first gesture (?space starts without a click). */
+export function wake() { if (ctx && ctx.state === 'suspended') ctx.resume(); }
+export const space = {
+  /** The bed: a sub drone, a slow open fifth, and a band of "solar wind" that follows how fast the hole moves. */
+  start() {
+    if (!ctx || sp) return;
+    if (!noiseBuf) noise(0.01, 100, 0.0001);
+    const t = ctx.currentTime, out = ctx.createGain(); out.gain.value = 0; out.gain.setTargetAtTime(1, t, 3); out.connect(master);
+    const osc = (type, f, dest) => { const o = ctx.createOscillator(); o.type = type; o.frequency.value = f; o.connect(dest); o.start(); return o; };
+    const sg = ctx.createGain(); sg.gain.value = 0.2; sg.connect(out); const sub = osc('sine', SP_ROOT[0], sg);
+    const pg = ctx.createGain(); pg.gain.value = 0.05; const trem = ctx.createGain(); trem.gain.value = 0.6; pg.connect(trem); trem.connect(out);
+    const lfo = ctx.createOscillator(), lg = ctx.createGain(); lfo.frequency.value = 0.09; lg.gain.value = 0.4; lfo.connect(lg).connect(trem.gain); lfo.start();
+    const pad = [2, 3, 4.5].map((m) => osc('sine', SP_ROOT[0] * m * 2, pg));
+    const wf = ctx.createBiquadFilter(); wf.type = 'bandpass'; wf.frequency.value = 500; wf.Q.value = 0.6; const wg = ctx.createGain(); wg.gain.value = 0.0;
+    const n = ctx.createBufferSource(); n.buffer = noiseBuf; n.loop = true; n.connect(wf).connect(wg).connect(out); n.start();
+    sp = { out, sub, pad, wf, wg, tier: 0 };
+  },
+  /** Every frame: speed 0..1 (wind), tier 1..11 (root), nibble 0..1 (the crunch of something huge being eaten). */
+  set(speed = 0, tier = 1, nib = 0) {
+    if (!ctx || !sp) return;
+    const t = ctx.currentTime, i = Math.max(0, Math.min(10, tier - 1));
+    if (sp.tier !== i) { sp.tier = i; sp.sub.frequency.setTargetAtTime(SP_ROOT[i], t, 1.8); sp.pad.forEach((o, k) => o.frequency.setTargetAtTime(SP_ROOT[i] * [2, 3, 4.5][k] * 2, t, 1.8)); }
+    sp.wg.gain.setTargetAtTime(0.02 + 0.16 * speed * speed, t, 0.15); sp.wf.frequency.setTargetAtTime(380 + 1500 * speed, t, 0.2);
+    grind.set(nib, 1 + Math.floor(i / 4));
+  },
+  stop() { if (!ctx || !sp) return; sp.out.gain.setTargetAtTime(0, ctx.currentTime, 0.4); grind.stop(); const s = sp; sp = null; setTimeout(() => { try { s.sub.stop(); s.pad.forEach((o) => o.stop()); s.out.disconnect(); } catch { /* already gone */ } }, 2500); },
+  /** A chain note: pentatonic, climbing two octaves with the count. */
+  chain(n) { const k = Math.min(n, 14), f = 392 * 2 ** ((PENT[k % 5] + 12 * Math.floor(k / 5)) / 12); tone('sine', f, f * 1.003, 0.22, 0.2); tone('triangle', f * 2, f * 2, 0.14, 0.05); },
+  power(kind) {
+    if (kind === 'magnet') { tone('sine', 280, 900, 0.5, 0.25); tone('triangle', 560, 1800, 0.45, 0.08, 0.05); tone('sine', 900, 900, 0.35, 0.12, 0.4); }
+    else if (kind === 'surge') { noiseUp(0.6, 3200, 0.3); tone('sawtooth', 110, 660, 0.55, 0.1); tone('square', 330, 990, 0.4, 0.05, 0.1); }
+    else if (kind === 'shield') [523, 659, 784, 1046].forEach((f, i) => { tone('sine', f, f, 0.9, 0.16, i * 0.06); tone('triangle', f * 2, f * 2, 0.5, 0.04, i * 0.06); });
+    else { boom(1); noiseUp(0.5, 5000, 0.4); tone('sine', 62, 22, 1.8, 0.8, 0.15); [523, 784, 1046].forEach((f, i) => tone('sine', f, f, 1.2, 0.1, 0.3 + i * 0.08)); }
+  },
+  flareWarn() { for (let i = 0; i < 2; i++) { tone('sawtooth', 240, 520, 0.7, 0.14, i * 0.8); tone('square', 120, 260, 0.7, 0.04, i * 0.8); } },
+  flareHit() { noise(0.5, 2600, 0.6); tone('sine', 95, 24, 1.0, 0.9); tone('sawtooth', 300, 40, 0.6, 0.15); },
+  storm() { noiseUp(1.5, 2400, 0.35); windRush(2.2); for (let i = 0; i < 4; i++) tone('triangle', 900 - i * 120, 300, 0.3, 0.05, 0.3 + i * 0.25); },
+  ion() { noiseUp(0.7, 4200, 0.3); tone('sawtooth', 160, 880, 0.7, 0.08); tone('sine', 880, 1320, 0.4, 0.08, 0.3); },
+  /** The tier-up: a rising open chord on the new root, a sub swell and a shimmer. */
+  tierUp(n = 1) {
+    const r = SP_ROOT[Math.min(10, n)] * 4;
+    [1, 1.5, 2, 3, 4].forEach((m, i) => { tone('sine', r * m, r * m * 1.002, 3.2, 0.15 - i * 0.015, i * 0.12); tone('triangle', r * m * 2.001, r * m * 2, 2.4, 0.03, 0.3 + i * 0.12); });
+    tone('sine', SP_ROOT[Math.min(10, n)], SP_ROOT[Math.min(10, n)] * 0.5, 3.4, 0.7); noiseUp(2.2, 6000, 0.25);
+  },
+  gulpBig(k = 0.5) { tone('sine', 140 - 80 * k, 30, 0.5 + 0.6 * k, 0.5 + 0.3 * k); noise(0.18, 1800, 0.15 + 0.2 * k); },
+  victory() { chord(); choir(1); tone('sine', 36, 24, 6, 0.6, 0.2); },
+};

@@ -95,15 +95,18 @@ export class Pool {
   /** Write render-space positions, sizes and alphas (after the world's frame is placed): q = planet -> render rotation, off = the group's position. */
   flush(q, off) {
     const c = this.cloud, pos = c.pos.array, size = c.size.array, al = c.alpha.array, col = c.col.array;
+    let liveCount = 0;
     for (let i = 0; i < this.n; i++) {
       const t = this.age[i] / this.life[i];
       if (t >= 1) { size[i] = 0; al[i] = 0; if (this.add) col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = 0; continue; }
+      liveCount++;
       v1.set(this.P[i * 3], this.P[i * 3 + 1], this.P[i * 3 + 2]).applyQuaternion(q).add(off);
       pos[i * 3] = v1.x; pos[i * 3 + 1] = v1.y; pos[i * 3 + 2] = v1.z;
       size[i] = this.s0[i] + (this.s1[i] - this.s0[i]) * Math.sqrt(t);
       if (this.add) { const f = this.a0[i] * (1 - t) * (1 - t); col[i * 3] = this.C[i * 3] * f; col[i * 3 + 1] = this.C[i * 3 + 1] * f; col[i * 3 + 2] = this.C[i * 3 + 2] * f; }
       else { al[i] = this.a0[i] * Math.min(1, t * 12) * (1 - t * t); col[i * 3] = this.C[i * 3]; col[i * 3 + 1] = this.C[i * 3 + 1]; col[i * 3 + 2] = this.C[i * 3 + 2]; }
     }
+    this.sprite.visible = liveCount > 0;
     c.pos.needsUpdate = c.size.needsUpdate = c.alpha.needsUpdate = c.col.needsUpdate = true;
   }
 }
