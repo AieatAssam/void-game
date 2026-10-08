@@ -237,7 +237,7 @@ export class SpaceGame {
     this.rhalo = holeHalo(); this.rhalo.material.userData.U.uK.value = 0.55; this.rhalo.material.userData.U.uHeat.value = 0.95; this.rhalo.material.depthTest = false; this.rhalo.renderOrder = 49; this.rhalo.visible = false;
     this.root.add(this.bh, this.halo, this.rbh, this.rhalo);
     scene.add(this.root);
-    { const seed = num('seed', 7), runs = save.cosmos?.runs | 0, mut = qs.get('mut') in MUTATORS ? qs.get('mut') : mutatorFor(seed, runs), legacy = qs.get('legacy') in LEGACY ? qs.get('legacy') : save.cosmos?.legacy;
+    { const seed = num('seed', 7), runs = save.cosmos?.runs | 0, daily = qs.has('daily'), mut = qs.get('mut') in MUTATORS ? qs.get('mut') : mutatorFor(seed, daily ? 1 : runs), legacy = daily ? null : qs.get('legacy') in LEGACY ? qs.get('legacy') : save.cosmos?.legacy; this.daily = daily;
       this.seed = num('seed', 7); this.mut = mut; this.legacy = legacy in LEGACY ? legacy : null; this.k = makeK(mut, this.legacy); }
     this.initExtras(ctx); this.untouch = installTouch(this, ctx);
     camera.fov = ctx.baseFov; camera.near = 0.5; camera.far = 6000; camera.updateProjectionMatrix();

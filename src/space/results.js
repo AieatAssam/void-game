@@ -39,7 +39,7 @@ export function scoreSpace(g, time) {
   const dust = Object.values(parts).reduce((a, b) => a + b, 0), dev = devRun() || g.devUsed || /[?&](bot|tier|simx)\b/.test(location.search); // (a bot, a skipped tier or a debug hook: practice, nothing is banked)
   const before = save.cosmos?.stars | 0, c = save.cosmos ??= { runs: 0, fastest: 0, stars: 0 };
   let record = false;
-  if (!dev) { c.runs++; if (!c.fastest || time < c.fastest) { c.fastest = Math.round(time); record = true; } c.stars |= mask; save.dust = (save.dust || 0) + dust; persist(); }
+  if (!dev) { c.runs++; if (g.daily) { const k = String(g.seed); c.daily ??= {}; if (!c.daily[k] || time < c.daily[k]) { c.daily[k] = Math.round(time); record = true; } } else if (!c.fastest || time < c.fastest) { c.fastest = Math.round(time); record = true; } c.stars |= mask; save.dust = (save.dust || 0) + dust; persist(); }
   return { mask, before, nStars, parts, dust: dev ? 0 : dust, record, dev, best: c.fastest };
 }
 
@@ -49,7 +49,7 @@ export function showSpaceResults(g, ctx, { onAgain, onMenu }) {
   const st = document.createElement('style'); st.textContent = CSS;
   const el = document.createElement('div'); el.id = 'spres';
   const total = s.tierTimes.reduce((a, b) => a + b, 0) || 1, hue = (i) => `hsl(${250 + i * 9}deg 55% ${36 + (i % 2) * 6}%)`;
-  el.innerHTML = `<div class="pn"><h1>THE UNIVERSE IS CONSUMED</h1><div class="sub">${g.mut && g.mut !== 'none' ? MUTATORS[g.mut].name + ' · ' : ''}${R.record ? 'new fastest · ' : ''}${R.dev ? 'practice run · nothing banked' : `+${R.dust} void dust`}</div>
+  el.innerHTML = `<div class="pn"><h1>THE UNIVERSE IS CONSUMED</h1><div class="sub">${g.daily ? 'daily universe · ' : ''}${g.mut && g.mut !== 'none' ? MUTATORS[g.mut].name + ' · ' : ''}${R.record ? 'new fastest · ' : ''}${R.dev ? 'practice run · nothing banked' : `+${R.dust} void dust`}</div>
   <div class="big"><div><b>${fmt(time)}</b><small>time</small></div><div><b>${g.swallowed.toLocaleString('en')}</b><small>swallowed</small></div><div><b>${s.peakChain}</b><small>best chain</small></div><div><b>${s.rivalsEaten}</b><small>rivals eaten</small></div><div><b>${s.flaresDodged}/${s.flaresDodged + s.flareHits}</b><small>flares dodged</small></div><div><b>${s.powerups}</b><small>power-ups</small></div></div>
   <div><h3>Time per tier</h3><div class="tiers">${s.tierTimes.map((t, i) => `<i style="flex:${t};background:${hue(i)}" title="${TIERS[i].name} ${fmt(t)}">${t / total > 0.07 ? TIERS[i].name : ''}</i>`).join('')}</div></div>
   <div class="two"><div><h3>Stars · ${R.nStars}/${STARS.length}</h3><div class="st">${STARS.map(([t], i) => `<i class="${R.mask >> i & 1 ? 'on' : ''}${(R.mask >> i & 1) && !(R.before >> i & 1) && !R.dev ? ' new' : ''}">${R.mask >> i & 1 ? '★' : '☆'} ${t}</i>`).join('')}</div></div>
