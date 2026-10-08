@@ -207,6 +207,12 @@ export function buildTier(tier, seed) {
     if (o.key) o.w *= 1.5;
     total += o.w; bodies.push(o);
   });
+  // a few golden bodies: a rare, bright, fat meal worth five times its size (the arrow likes them)
+  const cands = bodies.filter((b) => !b.key && b.k !== K.prop && b.k !== K.comet && b.b >= 0.15 && b.b <= 0.75);
+  for (let i = 0; i < 4 && cands.length; i++) {
+    const o = cands.splice((rnd() * cands.length) | 0, 1)[0];
+    total += o.w * 4; o.w *= 5; o.gold = true; o.A = [1, 0.82, 0.3]; o.B = [0.9, 0.5, 0.1]; o.name = o.name ? `golden ${o.name}` : 'a golden body';
+  }
   return { bodies, total, key: bodies.find((b) => b.key) || null };
 }
 
