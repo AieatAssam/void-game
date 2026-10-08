@@ -162,7 +162,7 @@ export const extraMethods = {
     const el = this.puEl; if (!el) return;
     const hb = document.getElementById('hud')?.getBoundingClientRect().bottom; if (hb) el.style.top = `${Math.round(hb + 6)}px`; // (under the HUD, wherever it wrapped to)
     const on = KINDS.filter((k) => this.pu.active[k] > 0);
-    el.innerHTML = [...(this.stunT > 0 ? [`<span style="background:#5a1a1acc;color:#ffb0a0;padding:3px 10px;border-radius:999px">DAZED</span>`] : []), ...on.map((k) => `<span style="background:#0d0820cc;color:${POW[k].css};border:1.5px solid ${POW[k].css};padding:3px 10px;border-radius:999px">${POW[k].name} ${this.pu.active[k].toFixed(0)}</span>`)].join('');
+    el.innerHTML = [...(this.frenzyT > 0 ? [`<span style="background:#3a1a00cc;color:#ffd070;border:1.5px solid #ffb030;padding:3px 10px;border-radius:999px">FRENZY ×2 ${this.frenzyT.toFixed(0)}</span>`] : []), ...(this.stunT > 0 ? [`<span style="background:#5a1a1acc;color:#ffb0a0;padding:3px 10px;border-radius:999px">DAZED</span>`] : []), ...on.map((k) => `<span style="background:#0d0820cc;color:${POW[k].css};border:1.5px solid ${POW[k].css};padding:3px 10px;border-radius:999px">${POW[k].name} ${this.pu.active[k].toFixed(0)}</span>`)].join('');
   },
 };
 

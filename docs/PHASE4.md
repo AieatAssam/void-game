@@ -68,3 +68,5 @@ Files: `src/space.js` (loop, eat rules, camera, lens, HUD), `src/space/tiers.js`
 ## 4. Replayability (branch `feature/cosmos-replay`)
 
 `src/space/modes.js`: a seeded **mutator** per universe (Calm, Flare season, Predator, Twitch, Feast, Iron run, Quiet cosmos; the first universe is always Calm; `?mut=` forces one) and six **legacy perks** (Wide mouth, Sprinter, Chain keeper, Fireproof, Hunter, Lucky): the results screen offers three, the pick carries into the next universe (saved; `?legacy=` for tests). Both only change multipliers (`g.k`). A **Daily universe** (menu button, `?space&seed=<date>&daily=1`) is the same universe and mutator for everyone, no legacy perk, one best time per day. The menu buttons appear once a world has been eaten or a cosmos run finished. The software profile gets lighter spheres.
+
+**Fun additions:** four *golden bodies* per tier (rare, sparkling, worth five times their size; the arrow prefers them) and a **frenzy** at chains of 10/25/50 (everything pays double for 6 s). The results screen counts goldens.

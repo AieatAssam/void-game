@@ -317,6 +317,7 @@ export class SpaceGame {
     const [sx, sz] = this.phase === 'play' ? (qs.has('bot') ? this.autoSteer() : window.__bot ? window.__bot(hole, ctx.city) : ctx.steer()) : [0, 0];
     hole.sx = steerAxis(hole.sx || 0, sx, controlDt); hole.sz = steerAxis(hole.sz || 0, sz, controlDt);
     this.comboT -= dt; if (this.comboT <= 0) this.combo = 0;
+    this.frenzyT = Math.max(0, (this.frenzyT || 0) - dt);
     this.boostT = Math.max(0, this.boostT - dt);
     const sp = SPEED * r * this.k.speed * (state.mods?.speed ?? 1) * (this.boostT > 0 ? 1.6 : 1) * (this.pw('surge') ? 1.7 : 1) * (this.stunT > 0 ? 0.45 : 1);
     const dx = hole.sx * sp * moveDt, dz = hole.sz * sp * moveDt;
@@ -383,7 +384,7 @@ export class SpaceGame {
 
   /** Credit w (weight) toward the tier; `part`: a nibble (no gulp). */
   pay(o, w, ctx, part = false) {
-    this.eatenW += this.k.pay * (this.pw('surge') ? 1.25 : 1) * w * (o.eph || o.storm ? 1 : Math.max(0.1, Math.min(1, (o.b0 / this.r) / 0.1) ** 0.8)); // (dust is worth less the bigger the hole is: no farming specks, and no runaway)
+    this.eatenW += this.k.pay * (this.frenzyT > 0 ? 2 : 1) * (this.pw('surge') ? 1.25 : 1) * w * (o.eph || o.storm ? 1 : Math.max(0.1, Math.min(1, (o.b0 / this.r) / 0.1) ** 0.8)); // (dust is worth less the bigger the hole is: no farming specks, and no runaway)
     if (part) return;
     this.swallowed++; this.tierGulps++;
     const { sfx, sparks } = ctx, big = Math.min(1, o.b / this.r);
@@ -395,6 +396,7 @@ export class SpaceGame {
     if (big > 0.06 && this.t - (this.gulpT || -9) > 0.07) { this.gulpT = this.t; sfx.gulp(Math.min(8, 1 + Math.round(big * 6))); } // (dust is silent, and a swarm is not a machine gun)
     if (big > 0.06) sparks.burst(0, 0, 1, 0.3 + big);
     this.flare = Math.max(this.flare || 0, 0.35 + big);
+    if (o.gold) { ctx.card('GOLDEN', 'A FAT MEAL'); this.flare = Math.max(this.flare || 0, 1.4); ctx.sfx.space.power('shield'); navigator.vibrate?.(40); this.stats.golds = (this.stats.golds | 0) + 1; }
     if (o.name && o.b >= 0.4 * this.r) ctx.news.say?.(`${o.name} is gone.`);
     if (o.model === 'monolith') { this.eatenW += this.total * this.tier.goal * 0.03; ctx.card('THE MONOLITH', 'IT WAS ALWAYS GOING TO BE EATEN'); ctx.sfx.space.victory?.(); }
     if (o.b > 0.4 * this.r) ctx.state.shake = Math.max(ctx.state.shake || 0, 0.25 + 0.3 * big);
@@ -406,6 +408,7 @@ export class SpaceGame {
     const n = this.combo;
     if (n >= 2) ctx.sfx.space.chain(n);
     if (n >= 3) { const el = document.getElementById('combo'); if (el) { el.textContent = `×${n} chain`; el.style.fontSize = `${Math.min(46, 18 + n * 1.6)}px`; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); } }
+    if ((n === 10 || n === 25 || n === 50) && !(this.frenzyT > 0)) { this.frenzyT = 6; ctx.card('FRENZY', 'EVERYTHING PAYS DOUBLE'); ctx.sfx.space.ion(); }
     if (n % 5 === 0) {
       this.eatenW += this.total * this.tier.goal * Math.min(0.006, 0.002 + 0.0002 * n); this.flare = Math.max(this.flare || 0, 1.1);
       ctx.state.shake = Math.max(ctx.state.shake || 0, 0.22); ctx.sfx.gulp(0);
@@ -587,6 +590,10 @@ export class SpaceGame {
         _p.set(px, 0, pz); _m.compose(_p, _q, _s); this.gal.mesh.setMatrixAt(ng, _m);
         gA[gi] = o.k === K.cloud ? 3 : o.tile; gA[gi + 1] = (o.k === K.cloud ? 0.55 : 1) * (1 + 2.5 * heat) / (1 + 0.03 * s * s); gC[gi] = o.A[0]; gC[gi + 1] = o.A[1]; gC[gi + 2] = o.A[2]; ng++; // (a sprite much bigger than the view stacks to white: its surface brightness falls with its size)
         continue;
+      }
+      if (o.gold && s > 0.02 && ngl < CAPG - 2) { // a golden body sparkles
+        const gi = ngl * 4, gs = s * 3.6, ga = this.glow.aC.array; _p.set(px, -0.01, pz); _q.identity(); _s.set(gs, 1, gs); _m.compose(_p, _q, _s); this.glow.mesh.setMatrixAt(ngl, _m);
+        ga[gi] = 1; ga[gi + 1] = 0.8; ga[gi + 2] = 0.3; ga[gi + 3] = 1.5 + 0.7 * Math.sin(this.t * 5 + o.id); ngl++;
       }
       if ((o.k === K.star || o.k === K.cluster) && s > 0.012 && ngl < CAPG - 2) { // glare, behind the disc
         const gi = ngl * 4, gs = s * (o.k === K.star ? 1.3 + 3 / (1 + s) : 3.0 / (1 + 0.1 * s)), bright = (o.k === K.star ? 1.0 : 0.7) * (1 + 2 * heat) / (1 + 0.004 * s * s);
