@@ -61,6 +61,9 @@ export async function createRenderer(canvas) {
 export const sunDir = uniform(new THREE.Vector3(-0.5, 0.8, 0.3).normalize());
 export const sunCol = uniform(new THREE.Color(0xffffff));
 export const causticDaylight = uniform(1);
+// for unlit shaders that shade themselves (the hole's well, its debris): sun intensity / pi, and the sky fill (hemi sky x intensity)
+export const sunLux = uniform(1.4);
+export const skyFill = uniform(new THREE.Color(0.3, 0.32, 0.36));
 const fogCol = uniform(new THREE.Color(0xc6d8ea));
 const fogDensity = uniform(0.003);
 const fogNear = uniform(20);
@@ -131,6 +134,8 @@ export function applyTime(look, renderer, name, toyMaterial) {
   sun.color.set(t.sun);
   sunCol.value.set(t.sun);
   sun.intensity = t.sunI;
+  sunLux.value = t.sunI / Math.PI;
+  skyFill.value.set(t.hemiSky).multiplyScalar(t.hemiI);
   causticDaylight.value = t.night ? 0 : Math.min(1, t.sunI / 5);
   hemi.color.set(t.hemiSky);
   hemi.groundColor.set(t.hemiGround);
