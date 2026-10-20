@@ -10,7 +10,7 @@ import {
   Fn, vec2, vec3, vec4, float, int, uniform, texture, attribute, positionGeometry, positionLocal, normalize, dot, cross, length, sqrt, exp,
   pow, max, min, abs, atan, acos, cos, mix, smoothstep, clamp, select, step, sin, mx_noise_float, mx_noise_vec3,
   mx_fractal_noise_float, mx_worley_noise_float, mx_cell_noise_vec3, instancedBufferAttribute, uv, cameraPosition,
-  floor, fract, If, Discard, positionWorld, dFdx, dFdy, fwidth, sign, log2, uniformArray,
+  floor, fract, If, Loop, Discard, positionWorld, dFdx, dFdy, fwidth, sign, log2, uniformArray,
 } from 'three/tsl';
 import { makePlanet, bakeRows, faceDir, dirFace, R, SQ_MIN, SQ_STEP, decodeHeight } from './planetgen.js';
 import { MAX_HOLES } from './hole.js';
@@ -175,7 +175,7 @@ function atmosphere(ro, rd, tmax, L, n, k = float(1)) {
 // ---------------------------------------------------------------- the material
 /** Uniforms shared by the globe, the patch (and later the minimap globe). */
 function planetUniforms() {
-  return {
+  const u = {
     uSun: uniform(new THREE.Vector3(0.8, 0.25, 0.55).normalize()), uCam: uniform(new THREE.Vector3(0, 0, 3)),
     uRelief: uniform(3), uDetail: uniform(1), uCloudRot: uniform(new THREE.Vector2(1, 0)), uBorders: uniform(0), uClouds: uniform(1),
     uHoles: Array.from({ length: MAX_HOLES }, () => uniform(new THREE.Vector4(0, 1, 0, 2))), uTime: uniform(0),
@@ -203,6 +203,7 @@ function planetUniforms() {
     uScarP: Array.from({ length: 12 }, () => uniform(new THREE.Vector4(0, 0, 0, 0))), // start time (uTime), life (s; 0 = unused), ring speed (rad/s), kind (0 nuke, 1 rod, 2 swallow)
     uZone: Array.from({ length: 20 }, () => uniform(new THREE.Vector4(0, 1, 0, 0))), // dir.xyz, outer radius (rad)
     uZoneP: Array.from({ length: 20 }, () => uniform(new THREE.Vector4(0, 0, 0, 0))), // inner (swallow) radius (rad), alpha (0 = unused), lock progress (0 = tracking, then 0..1), kind (0 danger, 1 fallout, 2 ripe, 3 tsunami front (inner = band width), 4 laser spot (lock = heat), 5 ash)
+    uScarN: uniform(0), uZoneN: uniform(0), // slots in use (1 + the highest live index), set every frame by PlanetGlobe.update()
     uStrafe: uniform(new THREE.Vector4(0, 1, 0, 0)), uStrafeA: uniform(new THREE.Vector4(1, 0, 0, 0)), uStrafeP: uniform(new THREE.Vector4(0, 0, 0, 0)), // great-circle band: normal.xyz + half width (rad); start dir.xyz + length (rad); alpha, head (0..1), lock
     uGcellA: uniform(1e4), uGfr: uniform(0), uGroundK: uniform(1), uGroundM: uniform(1), // (K: parcels, hedges, rows, street grids, lakes, rivers = the close ground; M: relief, woods, settlements = the km-scale ground that a landmass keeps)
     // close-ground pattern scale: cells per face unit, octave blend, strength
@@ -211,6 +212,12 @@ function planetUniforms() {
     uFault: uniform(0), uPeel: uniform(new THREE.Vector4(0, 1, 0, -1)), // (peel: unit direction of the hole in planet space, the angle (rad) within which the sea is gone; w < 0 = off)
     uSunK: uniform(1),
   };
+  // The shader loops over the threat slots at run time (src/threat.js still writes u.uScar[i] etc.: the arrays share their
+  // Vector4s). Unrolled, the 12 scar and 20 zone bodies were most of the planet's fragment shader: with ?off=threat a
+  // SwiftShader planet frame went from ~3.4 s to 0.3 s, and a bigger shader means fewer pixels in flight on a phone GPU.
+  const arr = (list) => uniformArray(list.map((q) => q.value), 'vec4');
+  u.aScar = arr(u.uScar); u.aScarP = arr(u.uScarP); u.aZone = arr(u.uZone); u.aZoneP = arr(u.uZoneP);
+  return u;
 }
 
 // ---------------------------------------------------------------- the ground (patch): baked patterns, scanned layers, relief
@@ -703,8 +710,8 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
     }
     // ---- threats (§5): scorch + racing ring per scar, telegraph rings per zone, the strafe band
     if (!OFF.has('threat')) {
-      for (let i = 0; i < 12; i++) {
-        const s = u.uScar[i], p = u.uScarP[i], age = u.uTime.sub(p.x);
+      Loop({ start: int(0), end: int(u.uScarN), type: 'int', condition: '<' }, ({ i }) => {
+        const s = u.aScar.element(i), p = u.aScarP.element(i), age = u.uTime.sub(p.x);
         If(p.y.greaterThan(0).and(age.greaterThan(0)).and(age.lessThan(p.y)), () => {
           const th = acos(clamp(dot(dir, s.xyz), -1, 1)), A = s.w, kind = p.w, burn = select(kind.lessThan(1.5).or(kind.greaterThan(2.5)), float(1), float(0));
           const life = float(1).sub(smoothstep(p.y.mul(0.4), p.y, age));
@@ -718,9 +725,9 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
           const rc = select(kind.lessThan(0.5), vec3(1.0, 0.72, 0.36), select(kind.lessThan(1.5), vec3(1.0, 0.95, 0.88), vec3(0.62, 0.42, 1.0)));
           col.addAssign(rc.mul(band.mul(3.2).add(tail.mul(0.1))).mul(rf).mul(select(kind.greaterThan(2.5), float(0), float(1))));
         });
-      }
-      for (let i = 0; i < 20; i++) {
-        const z = u.uZone[i], q = u.uZoneP[i];
+      });
+      Loop({ start: int(0), end: int(u.uZoneN), type: 'int', condition: '<' }, ({ i }) => {
+        const z = u.aZone.element(i), q = u.aZoneP.element(i);
         If(q.y.greaterThan(0.001), () => { // (uniform: an empty slot is one branch for the whole screen)
         If(dot(dir, z.xyz).greaterThan(cos(min(z.w.mul(1.1).add(1e-4), 3.1))), () => { // (no noise, no trig past the zone's own disc)
           const th = acos(clamp(dot(dir, z.xyz), -1, 1)).toVar(), A = z.w, lock = q.z, fall = q.w, wd = max(A.mul(0.03), 1e-5); // (.toVar(): a shared node first used inside an If branch is emitted there, and read as 0 by the others)
@@ -761,7 +768,7 @@ export function planetMaterial({ surf, night, bite, trail = null, gt = null, N =
           col.addAssign(gz.mul(q.y));
         });
         });
-      }
+      });
       const sa = u.uStrafeP.x;
       If(sa.greaterThan(0.001), () => {
         const n = u.uStrafe.xyz, e1 = u.uStrafeA.xyz, e2 = cross(n, e1), across = abs(dot(dir, n)), hw = u.uStrafe.w, len = u.uStrafeA.w;
@@ -1075,6 +1082,13 @@ export class PlanetGlobe {
     this.globe.worldToLocal(this._v);
     this.u.uCam.value.copy(this._v);
     this.u.uTime.value = this._t;
+    { // threat slots in use: the shader loops up to the highest live one (a scar is live while its age is inside its life)
+      const u = this.u; let n = 0;
+      for (let i = 0; i < u.uScarP.length; i++) { const p = u.uScarP[i].value, age = this._t - p.x; if (p.y > 0 && age > 0 && age < p.y) n = i + 1; }
+      u.uScarN.value = n; n = 0;
+      for (let i = 0; i < u.uZoneP.length; i++) if (u.uZoneP[i].value.y > 0.001) n = i + 1;
+      u.uZoneN.value = n;
+    }
     this.u.uPx.value = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / viewH;
     const a = this._t * 0.004;
     this.u.uCloudRot.value.set(Math.cos(a), Math.sin(a));
@@ -1100,5 +1114,8 @@ export class PlanetGlobe {
     for (const t of [this.surfTex, this.nightTex, this.biteTex, this.trailTex, ...Object.values(this.gt)]) t.dispose();
     for (const g of [this.globe.geometry, this.patch.geometry, this.atmo.geometry, this.moon.geometry, this.dome.geometry]) g.dispose();
     for (const m of [this.material, this.patchMat, this.atmo.material, this.moon.material, this.dome.material, this.stars.material]) m.dispose();
+    // and whatever else was hung on the globe or the sky (shards, markers): the planet is never shown again
+    for (const root of [this.group, this.sky]) root?.traverse((o) => { if (!o.isSprite) o.geometry?.dispose(); // (sprites share one geometry)
+      for (const m of [o.material].flat()) m?.dispose?.(); });
   }
 }

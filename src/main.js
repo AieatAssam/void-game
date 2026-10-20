@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { createRenderer, createScene, followSun, applyTime, setFogRange, TIMES } from './look.js';
-import { loadAll, loadPack, loadPacks, packReady, pedTime, glow } from './assets.js';
+import { loadAll, loadPack, loadPacks, packReady, pedTime, glow, releaseAssets } from './assets.js';
 import { City, rng, BUILDINGS, PEOPLE, moodFor, forcedMood, SHADOW_LAYER } from './city.js';
 import { packsFor, PACK_LABEL, MOOD_PACKS } from './packs.js';
 import { Hole, holeField } from './hole.js';
@@ -23,7 +23,7 @@ import { Pain } from './pain.js';
 import { Sparks, Debris, SMOKE, Wisps, Birds, Rubble } from './fx.js';
 import { surfaceTime, surfaceOn, world, lightsTime, lightsPulse, viewScale } from './surface.js';
 import { Grass } from './grass.js';
-import { Q } from './quality.js';
+import { Q, FPS_CAP, frameGate } from './quality.js';
 import { PERKS, DRAFT_AT, offerPerks, modsFor } from './perks.js';
 import { HEAT, heatMods, heatPay, heatMax, heatBest, recordHeat } from './heat.js';
 import { today as todaysContracts, streak, scoreContracts } from './contracts.js';
@@ -170,12 +170,14 @@ const randomSeed = () => (Math.random() * 2 ** 31) | 0;
 const BOT = location.search.includes('bot');
 // Phase 2 (docs/PHASE2.md): clearing the town breaks the hole out into the countryside. Bot balance runs keep the old
 // ending unless they ask (?region starts straight in Phase 2; ?nophase2 turns it off).
-const START_REGION = /[?&]region\b/.test(location.search);
+// ?phase=1..4: jump straight to a phase (2 = ?region, 3 = ?planet, 4 = ?space; 1 is the town, from the menu as usual)
+const JUMP = +new URLSearchParams(location.search).get('phase') || 0;
+const START_REGION = /[?&]region\b/.test(location.search) || JUMP === 2;
 const PHASE2 = !/[?&]nophase2\b/.test(location.search) && (!BOT || START_REGION);
 // Phase 3 (docs/PHASE3.md): the planet. ?planet starts straight in at 1.4 km (?r=metres, ?view=pole); the module set is src/planet*.js
-const START_PLANET = /[?&]planet(&|$)/.test(location.search) && !/[?&]nophase3\b/.test(location.search);
+const START_PLANET = (/[?&]planet(&|$)/.test(location.search) || JUMP === 3) && !/[?&]nophase3\b/.test(location.search);
 // Phase 4 (docs/PHASE4.md): the cosmos. ?space[&tier=n] starts straight in (the finale's "Devour the sky" button too); src/space.js owns the world
-const START_SPACE = /[?&]space(&|$|=)/.test(location.search);
+const START_SPACE = /[?&]space(&|$|=)/.test(location.search) || JUMP === 4;
 let spaceGame = null;
 // The Ascension (src/ascend.js): when the capital falls, Phase 2 ends in the cinematic and the planet; bot balance runs keep the old ending unless they ask (?planet)
 const PHASE3 = !/[?&]nophase3\b/.test(location.search) && (!BOT || START_PLANET);
@@ -358,6 +360,12 @@ window.__setNextSeed = (sd) => { nextSeed = sd; }; // (bot suites replay the sam
 window.__nextSettlement = () => (state.phase === 2 ? nextSettlement() : null); // (what the arrow shows: the human-like bot follows it) // (runtime balance tuning between suite runs: no file edits, no hot reloads)
 window.__BUILDINGS = BUILDINGS;
 window.__assist = (x, z) => rimMagnet(x, z); // (the human-like bot steers through the same aids a player gets)
+// ?perfhook: a snapshot for tools/perf-phases.mjs (phase, quality notch, renderer.info)
+if (/[?&]perfhook\b/.test(location.search)) window.__perfHook = () => {
+  const i = renderer.info, g = post.gov;
+  return { phase: state.phase, tier: Q.tier, notch: g ? g.notch : 0, notchLabel: g ? g.label : '0', pr: renderer.getPixelRatio(), cap: FPS_CAP,
+    draws: i.render.drawCalls, tris: i.render.triangles, geometries: i.memory.geometries, textures: i.memory.textures, govLog: g?.log.slice(-10) };
+};
 window.__info = () => { const r = renderer.info.render; return { calls: r.drawCalls, tris: r.triangles, frameCalls: r.frameCalls }; };
 if (location.search.includes('bot')) { installBot(); installHumanRun(); }
 
@@ -520,23 +528,32 @@ function showAim(x, z, snap) {
 }
 
 // ---------- HUD ----------
+// The HUD runs every frame. Each DOM write, even of the same text, dirties style and layout, so write only on change
+// (numbers rounded to what is visible), and read the HUD's height at most twice a second: reading it after the writes
+// forced a full layout on every frame.
+const setText = (el, v) => { if (el._t !== v) { el._t = v; el.textContent = v; } };
+const setHTML = (el, v) => { if (el._h !== v) { el._h = v; el.innerHTML = v; } };
+const setHidden = (el, v) => { if (el.hidden !== v) el.hidden = v; };
+const setStyle = (el, k, v) => { const c = (el._s ??= {}); if (c[k] !== v) { c[k] = v; if (k[0] === '-') el.style.setProperty(k, v); else el.style[k] = v; } };
+let hudB = 0, hudBAt = -1e9;
+const hudBottom = () => { const now = performance.now(); if (now - hudBAt > 500) { hudBAt = now; hudB = $('hud').getBoundingClientRect().bottom; } return hudB; };
 function hud() {
-  $('size').querySelector('b').textContent = hole.r.toFixed(2);
-  $('eaten').querySelector('b').textContent = state.eaten;
-  $('hunger').style.width = `${state.belly * 100}%`;
+  setText($('size').querySelector('b'), hole.r.toFixed(2));
+  setText($('eaten').querySelector('b'), String(state.eaten));
+  setStyle($('hunger'), 'width', `${(state.belly * 100).toFixed(1)}%`);
   $('hunger').parentElement.classList.toggle('low', state.belly < 0.3);
-  $('stars').firstChild.textContent = '★'.repeat(director.stars) + '☆'.repeat(Math.max(0, (director.max ?? 4) - director.stars));
-  $('noto').style.width = `${director.noto}%`; // notoriety: how hard the city is looking for you
+  setText($('stars').firstChild, '★'.repeat(director.stars) + '☆'.repeat(Math.max(0, (director.max ?? 4) - director.stars)));
+  setStyle($('noto'), 'width', `${(+director.noto || 0).toFixed(1)}%`); // notoriety: how hard the city is looking for you
   const cr = state.crave;
-  $('crave').hidden = !cr;
+  setHidden($('crave'), !cr);
   if (cr) {
-    $('crave').innerHTML = `Craving <b>${cr.got}/${cr.need}</b> ${cr.label}<i style="width:${(cr.t / cr.T) * 100}%"></i>`;
+    setHTML($('crave'), `Craving <b>${cr.got}/${cr.need}</b> ${cr.label}<i style="width:${((cr.t / cr.T) * 100).toFixed(1)}%"></i>`);
     $('crave').classList.toggle('low', cr.t < 5);
   }
-  $('left').querySelector('b').textContent = state.left;
+  setText($('left').querySelector('b'), String(state.left));
   // endgame compass: point at the nearest standing building when only a few remain
   const arrow = $('arrow');
-  arrow.hidden = !(state.left > 0 && state.left <= 5);
+  setHidden(arrow, !(state.left > 0 && state.left <= 5));
   if (!arrow.hidden) {
     let best = null, bd = Infinity;
     for (const e of city.entities) {
@@ -546,7 +563,7 @@ function hud() {
     }
     if (best) {
       const a = Math.atan2(best.z - hole.z, best.x - hole.x), rad = Math.min(innerWidth, innerHeight) * 0.36;
-      arrow.style.transform = `translate(${Math.cos(a) * rad}px, ${Math.sin(a) * rad}px) rotate(${a}rad)`;
+      setStyle(arrow, 'transform', `translate(${(Math.cos(a) * rad).toFixed(1)}px, ${(Math.sin(a) * rad).toFixed(1)}px) rotate(${a.toFixed(3)}rad)`);
     }
   }
   const pu = powerups.items[0];
@@ -590,15 +607,15 @@ function hud() {
   const st = [state.reverse > 0 && 'Controls reversed', state.jam > 0 && (director.seal?.state === 'drop' ? 'The lid is coming down' : 'Jammed'), state.wet > 0 && 'Wet concrete · losing size', state.flooded && 'High tide · belly drains faster',
     director.bonusT > 0 && 'Spotted'].filter(Boolean);
   const c = CARDS[state.card];
-  $('card').hidden = state.card === 'none';
-  $('card').textContent = state.card === 'rush' ? `${c.name} · ${clock(Math.max(0, 300 - state.time))}` : `${c.name} ×${c.mult}`;
+  setHidden($('card'), state.card === 'none');
+  setText($('card'), state.card === 'rush' ? `${c.name} · ${clock(Math.max(0, 300 - state.time))}` : `${c.name} ×${c.mult}`);
   const limit = state.mode === 'blitz' ? BLITZ : state.hm.limit;
   if (limit) st.unshift(`⏱ ${clock(Math.max(0, limit - state.time))}`);
   if (state.happy > 0) st.unshift(`🍹 Happy Hour ${Math.ceil(state.happy)}s`);
   if (state.phase === 2 && city.surface) st.push(city.surface);
   const seal = director.seal;
   if (seal && (seal.state === 'in' || seal.state === 'hover')) st.unshift(`⚠ Sealing in ${Math.ceil(seal.left)}s: grow past ${P2.recover} m`);
-  $('status').textContent = st.join(' · ');
+  setText($('status'), st.join(' · '));
   $('status').classList.toggle('good', state.happy > 0 || (!!limit && st.length === 1));
 }
 
@@ -611,16 +628,16 @@ function edgeArrow(id, target, glyph, color) {
     el.innerHTML = `<b>➜</b><i></i>`;
     document.body.append(el);
   }
-  el.hidden = !target || !state.playing;
+  setHidden(el, !target || !state.playing);
   if (el.hidden) return;
   const a = Math.atan2(target[1] - hole.z, target[0] - hole.x), rad = Math.min(innerWidth, innerHeight) * 0.4;
   let ay = Math.sin(a) * rad;
-  const hb = $('hud').classList.contains('p3') ? $('hud').getBoundingClientRect().bottom + 44 - innerHeight / 2 : -1e9; // (Phase 3: keep the arrow and its label below the HUD pills)
+  const hb = $('hud').classList.contains('p3') ? hudBottom() + 44 - innerHeight / 2 : -1e9; // (Phase 3: keep the arrow and its label below the HUD pills)
   if (ay < hb) ay = hb;
-  el.style.transform = `translate(${Math.cos(a) * rad}px, ${ay}px)`;
-  el.firstChild.style.transform = `rotate(${a}rad)`;
-  el.lastChild.textContent = glyph;
-  el.style.setProperty('--c', color);
+  setStyle(el, 'transform', `translate(${(Math.cos(a) * rad).toFixed(1)}px, ${ay.toFixed(1)}px)`);
+  setStyle(el.firstChild, 'transform', `rotate(${a.toFixed(3)}rad)`);
+  setText(el.lastChild, glyph);
+  setStyle(el, '--c', color);
 }
 
 /** Active power-ups: an icon with a draining radial timer each. */
@@ -633,8 +650,8 @@ function powerChips() {
     chipsEl.dataset.key = key;
     chipsEl.replaceChildren(...list.map((c) => Object.assign(document.createElement('span'), { className: 'chip', innerHTML: `<i></i><b>${c.icon}</b>`, title: c.name })));
   }
-  list.forEach((c, i) => { const el = chipsEl.children[i]; el.style.setProperty('--p', c.left / c.T); el.style.setProperty('--c', c.color); });
-  chipsEl.hidden = !list.length || !state.playing;
+  list.forEach((c, i) => { const el = chipsEl.children[i]; setStyle(el, '--p', (c.left / c.T).toFixed(3)); setStyle(el, '--c', c.color); });
+  setHidden(chipsEl, !list.length || !state.playing);
 }
 
 // ---------- abilities: Space / right-click / E, or the on-screen buttons (touch) ----------
@@ -656,11 +673,11 @@ function renderAbilityButtons() {
 }
 function abilityHud() {
   const box = abilBox();
-  box.hidden = !state.playing || state.phase === 3 || !abilities.list.length;
+  setHidden(box, !state.playing || state.phase === 3 || !abilities.list.length);
   abilities.list.forEach((a, i) => {
     const el = box.children[i];
     if (!el) return;
-    el.style.setProperty('--p', 1 - a.left / a.cd);
+    setStyle(el, '--p', (1 - a.left / a.cd).toFixed(3));
     el.classList.toggle('ready', a.left <= 0);
   });
 }
@@ -1155,7 +1172,10 @@ const planetCtx = () => planetCtxObj ??= ({
     powerups = { dispose() {}, items: [], active: {}, chips: () => [], update: () => [], nearest: () => null, twin: null, gapK: 1 };
     grass = { group: new THREE.Group(), layers: [], dispose() {}, update() {} };
     scene.add(grass.group);
+    releaseAssets(assets, ['planet']); // (the town and island models: Phase 3 only draws the planet pack)
   },
+  /** Phase 4: no pack model is drawn again. */
+  releaseAssets: (keep = []) => releaseAssets(assets, keep),
 });
 async function enterSpace() {
   starting = true;
@@ -1673,8 +1693,9 @@ function perfOverlay(jsMs, subMs) {
     + `CPU js ${a.avgJs.toFixed(1)} ms · submit ${a.avgSubmit.toFixed(1)} ms · GPU ${renderer.backend.trackTimestamp ? (perf.gpu == null ? '…' : `${perf.gpu.toFixed(1)} ms`) : 'n/a'}\n`
     + `${r.drawCalls} draws · ${tris} tris · ${perfTag()}\n`
     + `${Q.tier} · ${renderer.backend.isWebGPUBackend ? 'WebGPU' : 'WebGL2'} · ${renderer.getPixelRatio()}x · ${renderer.domElement.width}×${renderer.domElement.height}\n`
-    + `AO ${o.ao ? `${o.aoRes}x` : 'off'} · bloom ${o.bloom ? 'on' : 'off'} · grass ${grass.layers.length ? (post.lowSpec ? 'half' : 'on') : 'off'}`
-    + (post.steps ? `\nfallback: ${post.steps.join(' → ')}` : '')
+    + `AO ${o.ao && post.aoLive !== false && !post.aoOff ? `${o.aoRes.toFixed(2)}x` : 'off'} · bloom ${o.bloom && post.bloomLive !== false ? 'on' : 'off'} · shadows 1/${o.shadowEvery} · grass ${grass.layers.length ? (post.lowSpec ? 'half' : 'on') : 'off'}`
+    + `\nquality notch ${post.gov ? post.gov.label : '0'}${post.gov?.off ? ' (held: ?nowatch)' : ''} · cap ${FPS_CAP || 'off'}`
+    + (post.steps ? `\nsteps: ${post.steps.join(' → ')}` : '')
     + (fpsEl.dataset.bisect ? `\n\n${fpsEl.dataset.bisect}` : '');
   // graph: the last 10 s of frame times (green under 16.7 ms, amber to 33, red above), guide lines at 60 and 30 fps
   const g = fpsGraph.getContext('2d'), W = fpsGraph.width, H = fpsGraph.height, y = (ms) => H - Math.min(H, (ms / 100) * H);
@@ -1688,8 +1709,12 @@ function perfOverlay(jsMs, subMs) {
     g.fillRect(x, y(v), Math.max(1, W / 600), H - y(v));
   }
 }
-renderer.setAnimationLoop(() => {
+const gate = frameGate(); // (phones: at most 60 rendered frames a second, whatever the panel's refresh rate; ?fpscap=N)
+let lastPhase = 0;
+renderer.setAnimationLoop((now) => {
   if (window.__pause) return; // (dev: step with __tick / __snap)
+  if (!gate(now ?? performance.now())) return;
+  if (state.phase !== lastPhase) { lastPhase = state.phase; post.resetGovernor(state.phase); } // (a new phase costs differently: old failures don't apply)
   const t0 = fpsEl && performance.now();
   if (fpsEl) perf.sub = 0;
   const wallDt = timer.getDelta();
@@ -2037,6 +2062,7 @@ function frame(dt, wallDt = dt) {
   }
   city.mixers.forEach((m) => m.update(dt));
   city.syncBatches();
+  hole.townHalf = city.half ?? 0; hole.lowSpec = post.lowSpec; // (the cut under roads shows asphalt; low spec halves the debris)
   hole.update(dt, state.time, Math.max(0, 0.5 - state.belly) * 2, city.groundSpan(hole.x, hole.z, hole.r), city.groundTilt?.(hole.x, hole.z, hole.r));
 
   // camera: pull back as the hole grows
@@ -2105,6 +2131,7 @@ function frame(dt, wallDt = dt) {
   lightsTime.value += dt;
   lightsPulse.value = 0.85 + 0.15 * Math.sin(lightsTime.value * 2.2);
   surfaceTime.value += dt;
+  for (const q of rivals.list) q.hole.townHalf = city.half ?? 0;
   for (const q of rivals.list) q.hole.update(dt, state.time, 0, city.groundSpan(q.hole.x, q.hole.z, q.hole.r), city.groundTilt?.(q.hole.x, q.hole.z, q.hole.r));
   const tw = powerups.twin;
   if (tw) tw.update(dt, state.time, 0, city.groundSpan(tw.x, tw.z, tw.r));
@@ -2121,3 +2148,4 @@ function frame(dt, wallDt = dt) {
 }
 
 if (START_PLANET || START_SPACE) start(undefined, false, null, 'city'); // ?planet / ?space: straight in, no menu
+else if (JUMP === 2) start(undefined, false, null, 'city'); // ?phase=2: straight into the countryside

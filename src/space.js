@@ -26,6 +26,8 @@ const sm = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (
 const TAU = Math.PI * 2;
 const CAP = 1500, CAPG = 700, CAPR = 96, CAPT = 24; // instances (bodies in range + falling + chunks)
 const CHUNKS = 48; // nibbled bits in flight
+/** Upload the first n elements of an attribute only (nothing when n is 0: an empty range list would mean the whole array). */
+function upload(attr, n) { if (!n) return; attr.clearUpdateRanges(); attr.addUpdateRange(0, n); attr.needsUpdate = true; }
 const _fr = new THREE.Frustum(), _pm = new THREE.Matrix4(), _sp = new THREE.Sphere();
 const BASE_DIST = 19, PITCH = THREE.MathUtils.degToRad(56), SPEED = 0.95, NIB = 0.9;
 const LY = 9.4607e12;
@@ -216,6 +218,7 @@ export class SpaceGame {
     const { scene, camera, post, state, hole, sun, renderer, look } = ctx;
     this.ctx = ctx;
     if (state.phase === 1) ctx.dropTown(); // (?space: straight from the menu; after Phase 3 the town is long gone)
+    ctx.releaseAssets?.(); // (the planet pack too: nothing in the cosmos draws a pack model)
     this.saved = { bg: scene.background, fog: scene.fogNode, env: scene.environmentIntensity, near: camera.near, far: camera.far, sky: look.sky.visible, envSky: look.envSky.visible };
     scene.background = new THREE.Color(0x000000); scene.fogNode = null; scene.environmentIntensity = 0; look.sky.visible = false; look.envSky.visible = false;
     sun.intensity = 0; sun.shadow.autoUpdate = false;
@@ -664,8 +667,11 @@ export class SpaceGame {
       nh++;
     }
     hi.count = nh; lo.count = nl; this.bg.count = nb; this.bg.instanceMatrix.needsUpdate = true; this.hideRest(this.tails, nt, CAPT); this.hideRest(this.rings, nr, CAPR); for (const k in this.props) { const pm = this.props[k]; pm.visible = this.propUse.has(k); if (pm.visible) this.hideRest(pm, cnt[k] | 0, pm.instanceMatrix.count); this.props[k].instanceMatrix.needsUpdate = true; } this.gal.mesh.count = ng; ngl = this.extrasDraw(ctx, ir, ngl); this.glow.mesh.count = ngl; this.glow.mesh.instanceMatrix.needsUpdate = true; this.glow.aC.needsUpdate = true; this.gal.mesh.instanceMatrix.needsUpdate = true; this.gal.aT.needsUpdate = this.gal.aC.needsUpdate = true;  // (tails and rings draw their full capacity, the spare instances collapsed: the WebGPU backend sizes an instance buffer from the first non-zero count it sees)
-    for (const o of [hi, lo, this.tails, this.rings]) o.instanceMatrix.needsUpdate = true;
-    for (const bm of [this.bmHi, this.bmLo, this.bmBg]) bm.aT.needsUpdate = bm.aA.needsUpdate = bm.aB.needsUpdate = true;
+    // the two body meshes upload only the instances drawn (of 1,500): full-capacity uploads were ~400 KB a frame and the top
+    // JS entry of this phase in a 4x-throttled profile (bufferSubData)
+    for (const [o, bm, n] of [[hi, this.bmHi, nh], [lo, this.bmLo, nl]]) { upload(o.instanceMatrix, n * 16); for (const a of [bm.aT, bm.aA, bm.aB]) upload(a, n * 4); }
+    for (const o of [this.tails, this.rings]) o.instanceMatrix.needsUpdate = true;
+    this.bmBg.aT.needsUpdate = this.bmBg.aA.needsUpdate = this.bmBg.aB.needsUpdate = true;
     // dust: stream past the hole
     const P = this.dust.geometry.attributes.position, a = P.array, mx = this.moved || 0;
     if (mx) {

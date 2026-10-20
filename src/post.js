@@ -35,7 +35,7 @@ import { lut3D } from 'three/addons/tsl/display/Lut3DNode.js';
 import { radialBlur } from 'three/addons/tsl/display/radialBlur.js';
 import { sunDir, sunCol } from './look.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
-import { Q } from './quality.js';
+import { Q, Governor } from './quality.js';
 import { lensNodes, lensUniforms } from './blackhole.js';
 
 const _sp = new THREE.Vector3();
@@ -49,7 +49,6 @@ function nested(r, fn, depth = 1) {
   rc.get = function (t, m) { return get.call(this, t, m, depth); };
   try { return fn(); } finally { rc.get = get; }
 }
-const NOWATCH = typeof location !== 'undefined' && location.search.includes('nowatch'); // profiling: hold the tier as set
 
 export class Post {
   constructor(renderer, scene, camera) {
@@ -193,7 +192,8 @@ export class Post {
 
   /** Switch AO off / on without rebuilding the pipeline (a rebuild is a ~1 s freeze while its shaders compile): its share goes to 0 and its buffers shrink to nothing. The planet (Phase 3) has no use for it. */
   suspendAO(off) {
-    const disabled = off || !this.opts.ao;
+    this.aoSuspended = !!off;
+    const disabled = off || !this.opts.ao || this.aoLive === false; // (aoLive: the governor's AO step)
     this.aoOff = disabled; this.aoShare.value = disabled ? 0 : 1;
     if (this.aoPass) this.aoPass.updateBeforeType = disabled ? 'none' : 'frame';
     if (this.aoRtt) this.aoRtt.autoUpdate = !disabled;
@@ -290,84 +290,66 @@ export class Post {
   }
 
   /**
-   * Watch the frame rate while playing and shed the least visible cost first, one notch per slow stretch:
-   * resolution -> shadow cadence / shafts -> AO resolution -> grass density / LOD0 -> AO / bloom / grain contribution.
-   * Runtime steps adjust uniforms and resolution only; rebuilding the graph recompiles shaders and freezes play.
+   * The adaptive quality governor (src/quality.js: Governor) reads the real frame time of each rendered frame and moves
+   * along one ladder: render scale first (~10% steps between the tier's ceiling and floor), then feature steps, least
+   * visible first, and back up when there is headroom, with a memory of notches that failed. Every step only changes
+   * uniforms, pass resolutions and update flags: rebuilding the graph recompiles shaders and freezes play.
    */
+  governor() {
+    if (this.gov) return this.gov;
+    const maxPR = Math.min(devicePixelRatio, Q.dpr, Q.software ? Math.sqrt(Q.pixelBudget / (innerWidth * innerHeight)) : Q.dpr);
+    const minPR = Math.min(maxPR, Math.max(Q.software ? 0.4 : 0.75, maxPR * 0.5));
+    this.top = { ...this.opts }; // (the tier's own settings: notch 0 restores exactly these)
+    this.gov = new Governor({ maxPR, minPR, startPR: this.renderer.getPixelRatio(), opts: this.top });
+    return this.gov;
+  }
+
   watch() {
-    if (!this.enabled || NOWATCH || this.paused) return; // (paused: the GPU bisect is measuring)
+    if (!this.enabled || this.paused) return; // (paused: the GPU bisect and the Ascension are measuring / filming)
     // real frame time (the game's dt is clamped and slowed by hit-stop, so it can't be trusted for this)
     const now = performance.now(), ft = this.lastT ? now - this.lastT : 16.7;
     this.lastT = now;
-    if (ft > 250) {
-      // Ignore an isolated hitch, but sustained visible stalls are real overload. Once three
-      // consecutive severe frames confirm it, count them as 250 ms samples (4 fps) so the
-      // existing one-second quality window can lower quality instead of waiting forever.
-      if (++this.longFrames < 3) return;
-      this.frames++;
-      this.time += 0.25;
-      if (this.time < 1) return;
-    } else {
-      this.longFrames = 0;
-      this.frames++; this.time += ft / 1000;
+    const g = this.governor(), to = g.sample(ft, now);
+    if (g.fps) this.fps = g.fps; // (the background slicers throttle on this)
+    if (to < 0) return;
+    this.applyNotch();
+    console.info(`quality: notch ${g.label} at ${g.mean.toFixed(1)} ms a frame, ${g.pr}x`);
+  }
+
+  /** Put the governor's current notch into effect: pixel ratio and feature steps (each one reversible). */
+  applyNotch() {
+    const g = this.gov, top = this.top, o = this.opts, on = new Set(g.steps), r = this.renderer;
+    if (Math.abs(r.getPixelRatio() - g.pr) > 1e-3) r.setPixelRatio(g.pr);
+    o.shadowEvery = Math.max(top.shadowEvery, on.has('shadow4') ? 4 : on.has('shadow3') ? 3 : on.has('shadow2') ? 2 : 1);
+    if (top.shafts) {
+      const sh = !on.has('shafts');
+      o.shafts = sh; this.shaftScale = sh ? 1 : 0; this.shafts = (this.presetShafts || 0) * this.shaftScale;
+      if (!sh) { this.shaftK.value = 0; if (this.rayRtts) for (const t of this.rayRtts) t.autoUpdate = false; }
     }
-    if (this.time < 1) return;
-    const fps = this.frames / this.time;
-    this.frames = this.time = 0;
-    this.fps = fps;
-    const r = this.renderer, o = this.opts, pr = r.getPixelRatio();
-    // Dynamic resolution first: trim the render scale in small steps until frames hold ~60, and give it back when
-    // there is headroom. Only below the resolution floor do whole features go, least visible first.
-    const maxPR = Math.min(devicePixelRatio, Q.dpr, Q.software ? Math.sqrt(Q.pixelBudget / (innerWidth * innerHeight)) : Q.dpr);
-    const minPR = Math.min(maxPR, Math.max(Q.software ? 0.4 : 0.75, maxPR * 0.5));
-    // Below 56: trim the render scale. Whole features go only once the scale is on the floor and frames are under 52.
-    if (fps < 56 && (fps < 52 || pr > minPR + 0.01)) {
-      this.good = 0;
-      if (fps >= 35 && ++this.bad < 2) return; // one slow window is a hitch, not a verdict: two in a row step down
-      if (pr > minPR + 0.01) {
-        this.bad = 0;
-        // the ratio that failed: no climbing back to it for 45 s, doubling at each failure up to 5 min, or the
-        // watchdog hunts up and down around it and every probe costs a few slow seconds
-        this.ceil = pr; this.ceilAt = performance.now(); this.hold = Math.min(300000, (this.hold || 22500) * 2);
-        r.setPixelRatio(Math.max(minPR, pr * (fps < 35 ? 0.8 : 0.9)));
-        this.scaled = true;
-        return;
-      }
-      if ((this.cool = (this.cool || 0) - 1) > 0) return; // one feature step per 3 s at most
-      this.cool = 3;
-      let step;
-      if (o.shadowEvery < 3) { o.shadowEvery++; step = `shadows every ${o.shadowEvery} frames`; } // (first: no rebuild, no freeze)
-      else if (o.shafts) {
-        o.shafts = false; this.shaftScale = 0; this.shafts = 0; this.shaftK.value = 0;
-        if (this.rayRtts) for (const t of this.rayRtts) t.autoUpdate = false;
-        step = 'shafts off';
-      }
-      else if (o.ao && o.aoRes > 0.3) { o.aoRes = 0.3; step = 'AO 0.3x'; }
-      else if (!this.lowSpec) { this.lowSpec = true; step = 'half grass, no LOD0'; }
-      else if (o.ao) { o.ao = false; this.suspendAO(false); step = 'AO off'; }
-      else if (o.bloom) {
-        o.bloom = false; this.bloomScale.value = 0;
-        if (this.bloomPass) this.bloomPass.updateBeforeType = 'none';
-        step = 'bloom off';
-      }
-      else if (o.grain) { o.grain = false; this.grainK.value = 0; step = 'grain off'; }
-      else return;
-      this.steps = [...(this.steps || []), step];
-      console.info(`low fps (${fps.toFixed(0)}): ${step}`);
-      return;
-    }
-    this.bad = 0;
-    // hysteresis: stay under the failing ratio for `hold`, then try again
-    const cap = this.ceil && performance.now() - this.ceilAt < this.hold ? this.ceil - 0.05 : maxPR;
-    if (fps >= 58 && pr < Math.min(maxPR, cap) - 0.01 && ++this.good >= 5) { // steady for 5 s: take some sharpness back
-      this.good = 0;
-      r.setPixelRatio(Math.min(maxPR, cap, pr + 0.1));
-    }
+    o.aoRes = on.has('aoBloomRes') ? top.aoRes * 0.7 : top.aoRes; // (render() applies it)
+    this.bloomPass?.setResolutionScale(on.has('aoBloomRes') ? 0.25 : 0.5);
+    this.lowSpec = Q.software || on.has('lowSpec');
+    this.aoLive = top.ao && !on.has('ao');
+    this.suspendAO(this.aoSuspended);
+    this.bloomLive = top.bloom && !on.has('bloom');
+    this.bloomScale.value = this.bloomLive ? 1 : 0;
+    if (this.bloomPass) this.bloomPass.updateBeforeType = this.bloomLive ? 'frame' : 'none';
+    this.grainK.value = on.has('grain') ? 0 : 1;
+    this.steps = g.steps.length ? g.features.slice(0, g.steps.length).map((f) => f[1]) : null;
+  }
+
+  /** A new phase: what failed in the last one says nothing about this one, and the phase may cap the render scale (Q.phaseDpr). */
+  resetGovernor(phase) {
+    if (!this.enabled) return;
+    const g = this.governor();
+    g.reset();
+    if (!g.off && g.ceiling(Q.phaseDpr[phase] ?? Infinity)) this.applyNotch(); // (?nowatch: held as set)
   }
 
   /** New time of day: bake its LUT and set its shaft strength. */
   setPreset(t) {
     bakeLut(this.lutTex, t.lut);
+    this.presetShafts = t.shafts || 0;
     this.shafts = (t.shafts || 0) * this.shaftScale;
   }
 

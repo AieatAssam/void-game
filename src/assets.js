@@ -118,6 +118,29 @@ export function loadPack(assets, name, onProgress, { gentle = false } = {}) {
   return packJobs.get(name);
 }
 
+/**
+ * Free the models the rest of the run never draws again: once the town is dropped (Phase 3, or ?space) only `keep` packs
+ * are used, and leaving the planet or the cosmos reloads the page. Every model the town and the island drew kept its GPU
+ * buffers (three LODs each): measured on a full run, 370 of the 530 geometries the planet held. Returns what was freed.
+ */
+export function releaseAssets(assets, keep = []) {
+  const geos = new Set(), kept = new Set(), each = (a, f) => { for (const s of [a.scene, a.lod, a.lod2]) s?.traverse((o) => o.geometry && f(o.geometry)); };
+  for (const [name, a] of Object.entries(assets)) {
+    if (keep.includes(a.meta.pack)) { each(a, (g) => kept.add(g)); continue; }
+    each(a, (g) => geos.add(g));
+    delete assets[name];
+  }
+  let bytes = 0, n = 0;
+  for (const g of geos) {
+    if (kept.has(g)) continue;
+    for (const k in g.attributes) bytes += g.attributes[k].array?.byteLength || 0;
+    bytes += g.index?.array.byteLength || 0;
+    g.dispose(); n++;
+  }
+  console.info(`assets: released ${n} geometries (${(bytes / 1048576).toFixed(1)} MB of vertex data)`);
+  return { geometries: n, bytes };
+}
+
 /** Load several packs; progress is the average over them. */
 export async function loadPacks(assets, names, onProgress) {
   const p = Object.fromEntries(names.map((n) => [n, 0]));

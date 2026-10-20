@@ -146,9 +146,13 @@ export class Rivals {
       const h = rv.hole;
       if (rv.dead) { rv.label.hidden = true; continue; }
       _v.set(h.x, 0.5, h.z - h.r - 0.5).project(camera);
-      rv.label.hidden = _v.z > 1 || Math.abs(_v.x) > 1.1 || Math.abs(_v.y) > 1.1;
-      rv.label.style.transform = `translate(${(_v.x * 0.5 + 0.5) * innerWidth}px, ${(-_v.y * 0.5 + 0.5) * innerHeight}px) translate(-50%, -100%)`;
-      rv.label.textContent = `${rv.name} · ${h.r.toFixed(1)} m`;
+      // (written only when they change: the same text or transform written every frame still re-runs style and layout)
+      const hide = _v.z > 1 || Math.abs(_v.x) > 1.1 || Math.abs(_v.y) > 1.1, el = rv.label;
+      if (el.hidden !== hide) el.hidden = hide;
+      if (hide) continue;
+      const tf = `translate(${((_v.x * 0.5 + 0.5) * innerWidth).toFixed(1)}px, ${((-_v.y * 0.5 + 0.5) * innerHeight).toFixed(1)}px) translate(-50%, -100%)`, tx = `${rv.name} · ${h.r.toFixed(1)} m`;
+      if (el._tf !== tf) { el._tf = tf; el.style.transform = tf; }
+      if (el._tx !== tx) { el._tx = tx; el.textContent = tx; }
     }
   }
 

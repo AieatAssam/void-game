@@ -23,19 +23,20 @@ export function installLadder() {
   el.innerHTML = `<div class="ax"><div class="ln"></div>${MARKS.map(([l, n]) => `<div class="mk" style="left:${100 * (l - LO) / (HI - LO)}%" data-l="${l}"><b>${n}</b></div>`).join('')}<div class="ptr"></div></div><div class="rd"></div>`;
   document.body.appendChild(el);
   const ptr = el.querySelector('.ptr'), ln = el.querySelector('.ln'), rd = el.querySelector('.rd'), mks = [...el.querySelectorAll('.mk')];
-  let shown = LO, lastOn = -1, tick = 0;
+  let shown = LO, lastOn = -1, tick = 0, lastP = '', lastLabel = '';
   return {
     /** logR: log10 of the hole's radius in km. */
     update(logR, label) {
       if (innerWidth <= 560 && tick-- <= 0) { tick = 30; const hb = document.getElementById('hud')?.getBoundingClientRect().bottom || 60; el.style.top = `${Math.round(hb + 34)}px`; } else if (innerWidth > 560) el.style.top = '';
       shown += (logR - shown) * 0.12; // (the pointer glides: a gulp is a surge, not a jump)
       const p = 100 * (shown - LO) / (HI - LO);
-      ptr.style.left = `${p}%`; ln.style.setProperty('--p', `${p}%`);
+      const ps = `${p.toFixed(2)}%`; // (written only on change, like the label below: per-frame DOM writes re-run style and layout)
+      if (ps !== lastP) { lastP = ps; ptr.style.left = ps; ln.style.setProperty('--p', ps); }
       let on = 0; mks.forEach((m, i) => { if (+m.dataset.l < shown) on = i + 1; }); // (only the last thing you passed and the next one are named: they would overlap otherwise)
       mks.forEach((m, i) => { m.classList.toggle('on', i === on - 1); m.classList.toggle('near', i === on); });
       let passed = null;
       if (on !== lastOn) { if (lastOn >= 0 && on > lastOn) passed = SAY[on - 1]; lastOn = on; el.animate([{ transform: 'translateX(-50%) scale(1.08)' }, { transform: 'translateX(-50%) scale(1)' }], { duration: 350, easing: 'ease-out' }); }
-      rd.innerHTML = label;
+      if (label !== lastLabel) { lastLabel = label; rd.innerHTML = label; }
       return passed; // (a mark just outgrown: the game shows a card)
     },
     dispose() { el.remove(); st.remove(); },
