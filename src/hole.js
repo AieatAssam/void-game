@@ -15,9 +15,10 @@ export function holeField() {
 }
 
 // Ground layers at the lip, top down, per surface (linear colour): the skin, its bed, then shared topsoil and subsoil
-const ASPHALT = [0.045, 0.045, 0.05], GRAVEL = [0.17, 0.155, 0.14];
-const PAVING = [0.5, 0.39, 0.34], SANDBED = [0.4, 0.31, 0.2];
-const TURF = [0.07, 0.15, 0.035], ROOTS = [0.13, 0.08, 0.045];
+// (toy-bright on purpose: the cut has to read at a glance from the gameplay camera, so each layer is a clear step in value)
+const ASPHALT = [0.05, 0.05, 0.06], GRAVEL = [0.3, 0.28, 0.26];
+const PAVING = [0.42, 0.34, 0.29], SANDBED = [0.44, 0.33, 0.17];
+const TURF = [0.09, 0.26, 0.035], ROOTS = [0.15, 0.085, 0.04];
 
 /**
  * The well: a cut through the ground, then the void. The top of the wall is a cross-section of what the hole is cut
@@ -50,27 +51,33 @@ function voidMaterial(skin) {
     const pw = positionWorld.xz, half = u.uTown;
     const l = mod(pw.add(half), 40).sub(20).abs(), lm = max(l.x, l.y);
     const inTown = step(abs(pw.x).max(abs(pw.y)), half.sub(0.01));
-    const road = inTown.mul(step(15.3, lm)), walk = inTown.mul(step(12.9, lm)).mul(float(1).sub(road));
+    const road = inTown.mul(smoothstep(15.1, 15.5, lm)), walk = inTown.mul(smoothstep(12.7, 13.1, lm)).mul(float(1).sub(road)); // (soft joins: no hard-edged patch on the wall)
     const skinC = mix(mix(vec3(...TURF), vec3(...PAVING), walk), vec3(...ASPHALT), road);
     const bedC = mix(mix(vec3(...ROOTS), vec3(...SANDBED), walk), vec3(...GRAVEL), road);
     const n = mx_noise_float(vec3(ang.mul(7), lu.mul(3), 0.5)).mul(0.5).add(0.5);
     const band = sin(lu.mul(9).add(n.mul(3))).mul(0.5).add(0.5);
-    const top = mix(vec3(0.26, 0.17, 0.1), vec3(0.17, 0.11, 0.065), band), sub = mix(vec3(0.3, 0.2, 0.13), vec3(0.15, 0.12, 0.11), band);
+    const top = mix(vec3(0.3, 0.165, 0.07), vec3(0.21, 0.11, 0.045), band), sub = mix(vec3(0.52, 0.3, 0.13), vec3(0.4, 0.22, 0.09), band);
     const pebble = step(0.78, mx_noise_float(vec3(ang.mul(55).mul(u.uR.pow(0.5)), lu.mul(14), 3.1)).mul(0.5).add(0.5));
-    const earth = mix(skinC, bedC, smoothstep(0.12, 0.17, lu.add(n.mul(0.03)))).toVar();
+    const earth = mix(skinC, bedC, smoothstep(0.24, 0.29, lu.add(n.mul(0.03)))).toVar();
     earth.assign(mix(earth, top, smoothstep(0.55, 0.65, lu.add(n.mul(0.12)))));
     earth.assign(mix(earth, sub, smoothstep(1.05, 1.2, lu.add(n.mul(0.2)))));
     earth.mulAssign(n.mul(0.4).add(0.8));
-    earth.addAssign(vec3(0.16, 0.14, 0.12).mul(pebble).mul(smoothstep(0.15, 0.3, lu)));
+    earth.addAssign(vec3(0.22, 0.2, 0.17).mul(pebble).mul(smoothstep(0.15, 0.3, lu)));
+    // dark seams where one layer meets the next (a toy cake slice), and a pale cut line along the very top
+    const seam = (at, w) => float(1).sub(smoothstep(0, w, abs(lu.add(n.mul(0.06)).sub(at))));
+    earth.mulAssign(float(1).sub(max(max(seam(0.265, 0.025), seam(0.6, 0.035)), seam(1.12, 0.04)).mul(0.55)));
+    earth.assign(mix(earth, earth.mul(1.6).add(0.12), float(1).sub(smoothstep(0.015, 0.05, lu)).mul(smoothstep(0.0, 0.01, lu))));
     // ---- light: the inward normal faces the sun on the far wall; the lip's shadow reaches 2 r cos(a) tan(elev) down it
     const nIn = normalize(vP.xz).negate(), sh = sunDir.xz, sh2 = max(dot(sh, sh), 1e-4);
     const lam = max(dot(nIn, sh), 0), shD = u.uR.mul(2).mul(lam).mul(max(sunDir.y, 0)).div(sh2);
     const lit = float(1).sub(smoothstep(shD.mul(0.9), shD.add(u.uBand.mul(0.08)), depthM));
     const sky = float(1).div(float(1).add(depthM.div(u.uR.mul(0.9)))); // (how much sky a point on the wall sees)
     const lip = smoothstep(0.0, 0.06, lu).mul(0.4).add(0.6); // (contact shade right under the rim)
-    const shade = sunCol.mul(sunLux).mul(lam).mul(lit).add(skyFill.mul(sky.mul(sky)).mul(0.9)).mul(lip);
+    // (a floor keeps the cut legible on dim tiers and in the lip's shadow; the sun still models it on top)
+    const shade = max(sunCol.mul(sunLux).mul(lam).mul(lit).add(skyFill.mul(sky.mul(sky)).mul(0.9)), vec3(0.48)).mul(lip);
     const edge = smoothstep(1.55, 1.85, lu.add(n.mul(0.35)));
-    return vec4(mix(earth.mul(shade), col, edge), 1);
+    const torn = float(1).sub(smoothstep(0.0, 0.12, abs(lu.add(n.mul(0.35)).sub(1.6)))).mul(float(1).sub(edge)); // a dark ragged line where earth gives way to void
+    return vec4(mix(earth.mul(shade).mul(float(1).sub(torn.mul(0.7))), col, edge), 1);
   })();
   mat.userData.u = u;
   return mat;
@@ -242,7 +249,7 @@ export class Hole {
     const vu = this.voidMat.userData.u;
     vu.uDepth.value = depth;
     vu.uR.value = r || 1e-3;
-    vu.uBand.value = Math.min(0.3 + r * 0.12, 2.7 + r * 0.06); // (layer unit, m: the cut stays readable from a 0.45 m start to a 150 m pit)
+    vu.uBand.value = Math.min(0.3 + r * 0.45, 3 + r * 0.2); // (layer unit, m: about a radius of cut earth, so the band reads from the gameplay camera, from a 0.45 m start to a 150 m pit)
     vu.uTown.value = this.townHalf;
     this.occl.position.set(this.x, this.ry + 0.015, this.z);
     this.occl.scale.setScalar(r * p || 1e-3);
@@ -259,10 +266,12 @@ export class Hole {
       du.uN.value = this.lowSpec ? CHIPS / 2 : CHIPS;
     }
     const vac = this.vac || 0;
-    this.swirl.visible = vac > 0.01;
+    // the whirlpool never fully stops on the player's hole: a resting swirl always shows, each bite spins it up
+    const idle = this.slot === 0 && this.rim.visible && r > 0 ? 0.32 : 0;
+    this.swirl.visible = idle > 0 || vac > 0.01;
     this.swirl.position.set(this.x, this.ry + 0.03, this.z);
     this.swirl.scale.setScalar(r || 1e-3);
-    this.swirlMat.userData.u.uVac.value = vac * 1.4;
+    this.swirlMat.userData.u.uVac.value = Math.max(idle, vac * 1.4);
     this.swirlMat.userData.u.uReach.value = (1.4 + vac * 0.5 + 1.2 / Math.max(r, 0.1)) * (this.reach || 1); // same reach as city.js pulls
     this.ghostU.value += ((this.ghost > 0 ? 1 : 0) - this.ghostU.value) * Math.min(1, dt * 6);
     this.ghost_.material.opacity = 0.55 * (1 - this.ghostU.value * 0.6);
