@@ -5,9 +5,7 @@ import {
   Fn, vec2, vec3, vec4, float, uniform, instancedBufferAttribute, varying, normalize, dot, cross, length, max, min, mix, smoothstep, clamp, pow, sin, abs, floor, fract, positionLocal, positionGeometry, positionView,
   normalView, vertexColor, mx_noise_float, mx_fractal_noise_float, mx_cell_noise_vec3, select, uv, dFdx, dFdy, atan, exp, cubeTexture, mat3, texture,
 } from 'three/tsl';
-import { TIERS, K, buildTier, looseRock, rng } from './space/tiers.js';
-import { steerAxis } from './phase2.js';
-import { portraitK } from './phase3.js';
+import { TIERS, K, buildTier, looseRock, rng, weight } from './space/tiers.js';
 import { holeSphere, holeHalo } from './blackhole.js';
 import { Q } from './quality.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -16,6 +14,8 @@ import { showSpaceResults } from './space/results.js';
 import { installTouch } from './space/touch.js';
 import { botMethods } from './space/bot.js';
 import { installLadder, ladderFmt } from './space/ladder.js';
+import { PITCH_DEG, AIM, SHARE0, shareAt, distFor, speedAt, V_OLD, ACCEL, BRAKE, FUEL_TAU, fuelGain, NIB_FUEL, jetK } from './space/frame.js';
+import { herd, BURST } from './space/near.js';
 import { makeK, mutatorFor, MUTATORS, LEGACY } from './space/modes.js';
 import { save } from './meta.js';
 
@@ -29,8 +29,10 @@ const CHUNKS = 48; // nibbled bits in flight
 /** Upload the first n elements of an attribute only (nothing when n is 0: an empty range list would mean the whole array). */
 function upload(attr, n) { if (!n) return; attr.clearUpdateRanges(); attr.addUpdateRange(0, n); attr.needsUpdate = true; }
 const _fr = new THREE.Frustum(), _pm = new THREE.Matrix4(), _sp = new THREE.Sphere();
-const BASE_DIST = 19, PITCH = THREE.MathUtils.degToRad(56), SPEED = 0.95, NIB = 0.9;
+const PITCH = THREE.MathUtils.degToRad(PITCH_DEG), NIB = 0.9; // (the speed comes from the framing: src/space/frame.js speedAt)
 const LY = 9.4607e12;
+// the one line that tells a first-time player why the hole is fast (shown when phase 4 starts, from the finale or ?space)
+const JET_LINE = 'Each thing you eat fires your jets and speeds you up for a few seconds.';
 const km = (v) => ladderFmt(v);
 const _m = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _e = new THREE.Euler(), _y = new THREE.Vector3(0, 1, 0), _c = new THREE.Vector3();
 
@@ -80,19 +82,26 @@ function bodyMaterial(U) {
   return { m, aT, aA, aB };
 }
 
-/** Comet tails (ion + dust), one instanced quad per comet lying in the plane, root at the head. */
+/** Comet tails (ion + dust), one instanced quad per comet lying in the plane, root at the head. The last slot is the hole's own jet (aJ.x = 1): the same quad and draw,
+ *  a narrow blue-white plume behind the hole whose knots stream outward (aJ.y gain, aJ.z the knots' phase). */
 function tailMaterial() {
+  const aJ = new THREE.InstancedBufferAttribute(new Float32Array(CAPT * 4), 4).setUsage(THREE.DynamicDrawUsage);
   const m = new THREE.MeshBasicNodeMaterial({ fog: false, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+  const J = varying(instancedBufferAttribute(aJ), 'vTailJ');
   m.colorNode = Fn(() => {
     const u = uv().x, v = uv().y.sub(0.5).mul(2), body = pow(float(1).sub(u), 1.6), edge = pow(clamp(float(1).sub(abs(v)), 0, 1), 1.3);
     const streak = mx_noise_float(vec3(u.mul(9), v.mul(5), 0.7)).mul(0.5).add(0.75);
     const ion = vec3(0.45, 0.7, 1.0).mul(body).mul(pow(clamp(float(1).sub(abs(v).mul(1.6)), 0, 1), 2.2)).mul(1.5);
     const dust = vec3(1.0, 0.86, 0.6).mul(body).mul(edge).mul(0.5);
-    return vec4(ion.add(dust).mul(streak).mul(smoothstep(0.0, 0.04, u)), 1);
+    const comet = ion.add(dust).mul(streak).mul(smoothstep(0.0, 0.04, u));
+    // the jet: a hot core and a violet sheath, knots running out along it, fading to the tip
+    const knots = mx_noise_float(vec3(u.mul(7).sub(J.z), v.mul(1.5), 3.1)).mul(0.6).add(0.7), fade = pow(float(1).sub(u), 1.4).mul(smoothstep(0.0, 0.08, u));
+    const jet = vec3(0.8, 0.92, 1.0).mul(exp(v.mul(4.5).pow(2).negate())).mul(1.6).add(vec3(0.5, 0.4, 1.0).mul(exp(v.mul(2).pow(2).negate())).mul(0.45));
+    return vec4(select(J.x.greaterThan(0.5), jet.mul(knots).mul(fade).mul(J.y), comet), 1);
   })();
   const g = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0.5, 0, 0);
   const mesh = new THREE.InstancedMesh(g, m, CAPT);
-  mesh.frustumCulled = false; mesh.count = 0; mesh.renderOrder = 5;
+  mesh.frustumCulled = false; mesh.count = 0; mesh.renderOrder = 5; mesh.userData.aJ = aJ;
   return mesh;
 }
 
@@ -195,10 +204,12 @@ class Sky {
   dispose() { this.rt.dispose(); this.mesh.geometry.dispose(); this.mesh.material.dispose(); this.scene.children[0].geometry.dispose(); this.scene.children[0].material.dispose(); }
 }
 
+// the dust box in r, fitted to the framing (src/space/frame.js): x +-24 (a landscape screen is +-19 r at its top edge), z from -50 to +14 round -18 (a portrait phone sees 43 r ahead and 9 r behind)
+const DUST = [24, -18, 32];
 /** Motion cue: a drift of dust round the hole that streams past as it moves (scale is told by this and by what falls in, not by the camera). */
 function dustField(n) {
   const pos = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) { pos[i * 3] = (Math.random() - 0.5) * 70; pos[i * 3 + 1] = (Math.random() - 0.5) * 8 - 1; pos[i * 3 + 2] = (Math.random() - 0.5) * 70; }
+  for (let i = 0; i < n; i++) { pos[i * 3] = (Math.random() - 0.5) * 2 * DUST[0]; pos[i * 3 + 1] = (Math.random() - 0.5) * 8 - 1; pos[i * 3 + 2] = DUST[1] + (Math.random() - 0.5) * 2 * DUST[2]; }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
   const m = new THREE.PointsNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: false, size: 2.2 });
   m.colorNode = vec4(0.62, 0.7, 1.0, 0.5);
@@ -209,7 +220,7 @@ function dustField(n) {
 // ------------------------------------------------------------------------------------------------ the game
 export class SpaceGame {
   constructor() {
-    this.tierIdx = 0; this.fields = null; this.t = 0; this.r = 1; this.hx = 0; this.hz = 0; this.swallowed = 0; this.camDist = 0; this.lead = new THREE.Vector2();
+    this.tierIdx = 0; this.fields = null; this.t = 0; this.r = 1; this.hx = 0; this.hz = 0; this.swallowed = 0; this.camDist = 0; this.lead = new THREE.Vector2(); this.fuel = 0; this.v0 = speedAt(0); this.vk = this.v0 / V_OLD;
     this.sim = Math.max(1, Math.min(30, num('simx', 1))); this.combo = 0; this.comboT = 0; this.boostT = 0; this.stormT = 0; this.storm = null; this.pitchK = 0; this.eatenW = 0; this.chunkT = 0; this.chunks = []; this.phase = 'play'; this.sweepT = 0; this.flashK = 0; this.hud = { t: 0 };
   }
 
@@ -238,7 +249,7 @@ export class SpaceGame {
     this.props = await loadProps(this.U, maxN); for (const m of Object.values(this.props)) this.root.add(m);
     this.glow = glowMaterial(); this.root.add(this.glow.mesh);
     this.tails = tailMaterial(); this.rings = ringMaterial(this.U); this.root.add(this.tails, this.rings);
-    this.dust = dustField(Q.tier === 'low' ? 220 : 420); this.root.add(this.dust);
+    this.dust = dustField(Q.tier === 'low' ? 220 : 420); this.root.add(this.dust); // (the box is 48 x 64 r against the old 70 x 70: a little denser, and it reaches the top of a portrait screen)
     this.bh = holeSphere(); this.bh.visible = true; this.bh.material.userData.U.uK.value = 1; this.bh.material.depthTest = false; this.bh.material.depthWrite = false; this.bh.renderOrder = 50;
     this.halo = holeHalo(); this.halo.visible = true; this.halo.material.userData.U.uK.value = 0.8; this.halo.material.depthTest = false; this.halo.renderOrder = 51;
     this.rbh = holeSphere(); this.rbh.material = this.rbh.material.clone(); this.rbh.material.userData.U = this.bh.material.userData.U; // (the rival: the same void, a hot orange rim)
@@ -261,8 +272,19 @@ export class SpaceGame {
     state.playing = true;
     document.getElementById('load')?.setAttribute('hidden', '');
     ctx.card(`TIER ${this.tier.id}`, this.tier.name.toUpperCase());
-    if (this.tierIdx === num('tier', 1) - 1 && (this.mut !== 'none' || this.legacy)) setTimeout(() => ctx.hint(`${this.mut !== 'none' ? MUTATORS[this.mut].name + ' · ' + MUTATORS[this.mut].blurb : ''}${this.mut !== 'none' && this.legacy ? ' · ' : ''}${this.legacy ? LEGACY[this.legacy].name : ''}`), 3600);
-    setTimeout(() => ctx.hint(this.tierIdx === 0 ? 'Swallow what fits · bigger things are eaten from the rim' : this.tier.blurb), 1800);
+    const lines = [JET_LINE, this.tierIdx === 0 ? 'Swallow what fits · bigger things are eaten from the rim' : this.tier.blurb]; // (the jet line first: it is why the hole is fast, docs/PHASE4.md §8)
+    if (this.mut !== 'none' || this.legacy) lines.push(`${this.mut !== 'none' ? MUTATORS[this.mut].name + ' · ' + MUTATORS[this.mut].blurb : ''}${this.mut !== 'none' && this.legacy ? ' · ' : ''}${this.legacy ? LEGACY[this.legacy].name : ''}`);
+    this.says(ctx, lines, 1800);
+  }
+
+  /** Hints one after another (a hint shows for 4.5 s and a newer one cuts it off), waiting out the first-touch steering hint (src/space/touch.js sets touchHintT). */
+  says(ctx, lines, wait) {
+    const next = () => {
+      if (!lines.length || ctx.state.phase !== 4) return;
+      const busy = (this.touchHintT || 0) + 4600 - performance.now(); if (busy > 0) { setTimeout(next, busy); return; }
+      ctx.hint(lines.shift()); setTimeout(next, 4800);
+    };
+    setTimeout(next, wait);
   }
 
   /** A fresh field for tier i: the hole starts at r = 1 (its radius at the start of the tier, `unit` km). */
@@ -273,16 +295,16 @@ export class SpaceGame {
     this.hx = tier.start[0]; this.hz = tier.start[1];
     const S = this.S; S.a.value.set(...tier.sky.a); S.b.value.set(...tier.sky.b); S.k.value = tier.sky.k; S.o.value.set(seed * 1.3, tier.id * 7.1, 0); this.sky?.bake();
     this.sunAt = tier.sun === 'key' ? this.field.key : tier.sun;
-    this.phase = 'play'; this.sweepT = 0; this.tierGulps = 0; this.combo = 0; this.comboT = 0; this.boostT = 0; this.storm = null; this.stormT = 22 + this.t * 0; this.rnd = rng(seed * 31 + tier.id); this.rival = null; this.rivalT = 18 * this.k.rivalT; this.rivalHit = 0; this.hb = null; // (the human bot's clock is the tier's)
+    this.phase = 'play'; this.sweepT = 0; this.tierGulps = 0; this.fuel = 0; this.combo = 0; this.comboT = 0; this.boostT = 0; this.storm = null; this.stormT = 22 + this.t * 0; this.rnd = rng(seed * 31 + tier.id); this.hrnd = rng(seed * 53 + tier.id); this.herdT = 0.25; this.herdO = { hx: 0, hz: 0, w: (b, k) => weight(b, k, tier.wexp ?? 0.65), view: 1, moves: BURST, moved: 0, reused: 0 }; this.rival = null; this.rivalT = 18 * this.k.rivalT; this.rivalHit = 0; this.hb = null; // (the human bot's clock is the tier's)
     this.ctx.state.tier = tier.id;
     this.rings.visible = this.bodies.some((b) => b.ring); // (no ring bodies in this tier: the ring mesh is not drawn at all)
     this.propUse = new Set(this.bodies.filter((b) => b.k === K.prop).map((b) => b.model)); // (a model this tier never uses is not drawn at all)
   }
 
   placeCamera(dt) {
-    const { camera } = this.ctx, portrait = portraitK(camera.aspect);
-    const rp = Math.min(1, Math.max(0, Math.log(this.r) / Math.log(this.tier.growth))), tight = 1 - 0.36 * rp * rp * (3 - 2 * rp); // (the camera closes in as the tier goes on: the hole visibly swells, about 1.5x, then the tier-up steps back)
-    let want = BASE_DIST * this.ctx.LENS * portrait * tight;
+    const { camera } = this.ctx;
+    const rp = Math.min(1, Math.max(0, Math.log(this.r) / Math.log(this.tier.growth))); // (the camera closes in as the tier goes on: the hole swells from 0.13 to 0.16 of the screen's short side, then the tier-up steps back)
+    let want = distFor(shareAt(rp), camera.aspect, camera.fov, PITCH); // (src/space/frame.js: a fixed share of the short side, portrait or landscape)
     for (const o of this.bodies) { // a body much bigger than the hole that we are inside: the camera climbs out of it
       if (o.state || o.b / this.r < 7 || o.k >= K.galaxy) continue; // (flat sprites do not engulf the camera)
       const dx = o.x - this.hx, dz = o.z - this.hz, d = Math.hypot(dx, dz) / this.r, b = o.b / this.r;
@@ -292,7 +314,7 @@ export class SpaceGame {
     const pitch = this.pitch = PITCH + (0.2 - PITCH) * this.pitchK, d = this.camDist * (1 + 0.6 * this.pitchK), hz = Math.cos(pitch) * d, st = this.ctx.state, tr = st.shake || 0, sh = tr * tr * d * 0.012;
     this.lead.x += ((this.ctx.hole.sx || 0) * 0.5 - this.lead.x) * Math.min(1, dt * 4); this.lead.y += ((this.ctx.hole.sz || 0) * 0.5 - this.lead.y) * Math.min(1, dt * 4);
     camera.position.set(this.lead.x + (sh ? Math.sin(this.t * 41) * sh : 0), Math.sin(pitch) * d, this.lead.y + hz);
-    camera.up.set(0, 1, 0); camera.lookAt(this.lead.x, 0, this.lead.y - 0.16 * d); // (aimed ahead: the hole rides low in the frame)
+    camera.up.set(0, 1, 0); camera.lookAt(this.lead.x, 0, this.lead.y - AIM * d); // (aimed ahead: the hole rides low in the frame)
     camera.near = Math.max(0.5, d * 0.03); camera.far = 6000;
     camera.updateProjectionMatrix(); camera.updateMatrixWorld();
   }
@@ -325,12 +347,18 @@ export class SpaceGame {
 
   step(dt, ctx, controlDt, moveDt) {
     const { state, hole } = ctx, r = this.r, tier = this.tier;
-    const [sx, sz] = this.phase === 'play' ? (qs.has('bot') ? this.steerBot() : window.__bot ? window.__bot(hole, ctx.city) : ctx.steer()) : [0, 0];
-    hole.sx = steerAxis(hole.sx || 0, sx, controlDt); hole.sz = steerAxis(hole.sz || 0, sz, controlDt);
+    let [sx, sz] = this.phase === 'play' ? (qs.has('bot') ? this.steerBot() : window.__bot ? window.__bot(hole, ctx.city) : ctx.steer()) : [0, 0];
+    { const l = Math.hypot(sx, sz); if (l > 1) { sx /= l; sz /= l; } } // (two keys at once are not faster: the stick's length is at most 1, an analogue drag keeps its own)
+    { // the stick's velocity (a share of top speed, its length is the stick's) approaches the input: up to speed in about 0.18 s, stopped in about 0.15 s when let go (src/space/frame.js)
+      const k = 1 - Math.exp(-Math.max(0, controlDt) / (sx || sz ? ACCEL : BRAKE)); hole.sx = (hole.sx || 0) + (sx - (hole.sx || 0)) * k; hole.sz = (hole.sz || 0) + (sz - (hole.sz || 0)) * k;
+      if (!sx && !sz && Math.abs(hole.sx) + Math.abs(hole.sz) < 1e-3) hole.sx = hole.sz = 0;
+    }
     this.comboT -= dt; if (this.comboT <= 0) this.combo = 0;
     this.frenzyT = Math.max(0, (this.frenzyT || 0) - dt);
     this.boostT = Math.max(0, this.boostT - dt);
-    const sp = SPEED * r * this.k.speed * (state.mods?.speed ?? 1) * (this.boostT > 0 ? 1.6 : 1) * (this.pw('surge') ? 1.7 : 1) * (this.stunT > 0 ? 0.45 : 1);
+    this.fuel *= Math.exp(-dt / FUEL_TAU); // (the jets: what you ate comes back out and pushes, src/space/frame.js)
+    this.v0 = speedAt(clamp01(Math.log(r) / Math.log(tier.growth))); this.vk = this.v0 / V_OLD; // (top speed in r/s from the framing, and how much faster than the old 0.95 r/s that is)
+    const sp = this.v0 * r * this.k.speed * (state.mods?.speed ?? 1) * (this.boostT > 0 ? 1.6 : 1) * jetK(this.fuel) * (this.pw('surge') ? 1.7 : 1) * (this.stunT > 0 ? 0.45 : 1);
     const dx = hole.sx * sp * moveDt, dz = hole.sz * sp * moveDt;
     this.hx += dx; this.hz += dz; hole.vx = moveDt > 0 ? dx / moveDt : 0; hole.vz = moveDt > 0 ? dz / moveDt : 0; hole.x = hole.z = 0;
     this.moved = (this.moved || 0) + Math.hypot(dx, dz) / r;
@@ -343,13 +371,17 @@ export class SpaceGame {
       else if (o.vx || o.vz) {
         if (CRE[o.model]) { // creatures weave, and the small ones bolt when you come near (slower than you: they can be caught)
           const fx = o.x - this.hx, fz = o.z - this.hz, fd = Math.hypot(fx, fz) || 1, flee = CRE[o.model][0], near = flee > 0 && fd < 10 * r && o.b <= 0.9 * r;
-          const sp = near ? flee * r : CRE[o.model][1] * o.b, wob = Math.sin(this.t * 1.3 + o.id) * 0.35, ax = near ? fx / fd : Math.cos(o.spin), az = near ? fz / fd : Math.sin(o.spin);
+          const sp = near ? flee * this.vk * r : CRE[o.model][1] * o.b, wob = Math.sin(this.t * 1.3 + o.id) * 0.35, ax = near ? fx / fd : Math.cos(o.spin), az = near ? fz / fd : Math.sin(o.spin);
           const tx = (ax - az * wob) * sp, tz = (az + ax * wob) * sp; o.vx += (tx - o.vx) * Math.min(1, dt * 2.5); o.vz += (tz - o.vz) * Math.min(1, dt * 2.5);
           o.heading = Math.atan2(o.vz, o.vx);
         }
         o.x += o.vx * dt; o.z += o.vz * dt; if (F && o.x * o.x + o.z * o.z > (F * 1.5) ** 2) { o.x -= 2 * o.x * 0.9; o.z -= 2 * o.z * 0.9; } } // (comets wrap round the solar tiers' field; the scale-aware fields just drift)
       o.spin += o.spinV * dt;
       if (o.eph && (o.eph -= dt) <= 0) { o.state = 2; this.live--; }
+    }
+    if (this.phase === 'play' && (this.herdT -= dt) <= 0) { // the field near the hole is kept readable for the hole's current size (src/space/near.js: real sizes, only places change, and only off screen)
+      const O = this.herdO, hl = Math.hypot(hole.sx, hole.sz); O.hx = hl > 0.1 ? hole.sx / hl : 0; O.hz = hl > 0.1 ? hole.sz / hl : 0; O.view = SHARE0 / shareAt(clamp01(Math.log(r) / Math.log(tier.growth))); // (streamed with the hole: spots ahead of the heading, eaten bodies reused, the disc as wide as the view)
+      this.herdT = 0.25; herd(this.bodies, this.hx, this.hz, r, this.hrnd, this.offScreen ??= (x, z, b) => { _sp.center.set((x - this.hx) / this.r, 0, (z - this.hz) / this.r); _sp.radius = 3.6 * b / this.r + 1; return !_fr.intersectsSphere(_sp); }, O); this.live += O.reused; O.moves = 0; // (the tier's first pass had the BURST budget)
     }
     if (this.phase === 'play') { this.stormStep(dt, ctx); this.rivalStep(dt, ctx); } this.extrasStep(dt, ctx);
     // ---- the hole against the bodies
@@ -366,12 +398,12 @@ export class SpaceGame {
       if (d > 8 * r + b && this.phase === 'play') continue;
       if (b <= 0.85 * r) {
         const reach = (this.pw('magnet') ? 7 : 3.4) * this.k.reach * r + b;
-        if (d < reach && this.phase === 'play') { const k = 1 - Math.max(0, d - b) / reach, pull = (this.pw('magnet') ? 4 : 2.8) * r * k * k * dt; if (d > 1e-6) { o.x -= ex / d * pull; o.z -= ez / d * pull; o.orbit = false; o.vx = o.vz = 0; } }
+        if (d < reach && this.phase === 'play') { const k = 1 - Math.max(0, d - b) / reach, pull = Math.min(d, (this.pw('magnet') ? 4 : 2.8) * this.vk * r * k * k * dt); if (d > 1e-6) { o.x -= ex / d * pull; o.z -= ez / d * pull; o.orbit = false; o.vx = o.vz = 0; } } // (the pull keeps pace with the hole: 2.8 r/s peak against the old 0.95 r/s, x vk now; never past the centre)
         if (d < r + 0.15 * b) this.capture(o, ex, ez, d, r);
       } else if (d < b + 0.5 * r) { // too big to swallow: eaten from the rim, a chunk at a time
         const s = clamp01((b + 0.5 * r - d) / r), dh = Math.min(o.hp, NIB * (o.key ? 1.4 : 1) * (r / b) ** 2 * s * dt);
         if (dh > 0) {
-          this.nibS = Math.max(this.nibS, s * Math.min(1, 0.25 * b / r)); o.hp -= dh; o.b = o.b0 * Math.cbrt(Math.max(o.hp, 0.02)); this.pay(o, o.w * dh, ctx, true);
+          this.nibS = Math.max(this.nibS, s * Math.min(1, 0.25 * b / r)); o.hp -= dh; o.b = o.b0 * Math.cbrt(Math.max(o.hp, 0.02)); this.pay(o, o.w * dh, ctx, true); if (this.fuel < NIB_FUEL) this.fuel += (NIB_FUEL - this.fuel) * Math.min(1, dt * 2 * s); // (nibbling feeds the jets too, up to NIB_FUEL)
           if (this.chunkT <= 0) { this.chunkT = 0.05; this.spawnChunk(o, ex, ez, d, r); }
           state.shake = Math.max(state.shake || 0, Math.min(0.3, 0.05 + 0.2 * (o.b / r) / 6));
         }
@@ -409,6 +441,7 @@ export class SpaceGame {
     this.swallowed++; this.tierGulps++;
     const { sfx, sparks } = ctx, big = Math.min(1, o.b / this.r);
     const play = this.phase === 'play';
+    if (play) this.fuel += (1 - this.fuel) * fuelGain(big); // (every gulp feeds the jets: diminishing returns, it never reaches 1)
     if (big > 0.06 && play) this.chain(ctx, o);
     if (o.storm && this.storm) this.storm.eaten++;
     if (big > 0.5 && play) ctx.sfx.space.gulpBig(Math.min(1, big));
@@ -491,7 +524,7 @@ export class SpaceGame {
       const dx = o.x - R.x, dz = o.z - R.z, d2 = dx * dx + dz * dz;
       if (d2 < best) { best = d2; tx = dx; tz = dz; }
     }
-    const tl = Math.hypot(tx, tz) || 1, sp = 0.55 * this.k.rivalSpeed * R.b; // (slower than you: it can always be outrun)
+    const tl = Math.hypot(tx, tz) || 1, sp = 0.55 * this.vk * this.k.rivalSpeed * R.b; // (slower than you: it can always be outrun)
     R.vx += (tx / tl * sp - R.vx) * Math.min(1, dt * 2.5); R.vz += (tz / tl * sp - R.vz) * Math.min(1, dt * 2.5);
     R.x += R.vx * dt; R.z += R.vz * dt;
     for (const o of this.bodies) { // it eats
@@ -514,7 +547,8 @@ export class SpaceGame {
   /** A warp gate: a jump ahead along your heading, a burst of speed, a chain link. */
   warp(ctx) {
     const h = ctx.hole, l = Math.hypot(h.sx || 0, h.sz || 0), dx = l > 0.1 ? h.sx / l : 0, dz = l > 0.1 ? h.sz / l : -1;
-    this.hx += dx * 12 * this.r; this.hz += dz * 12 * this.r; this.boostT = 3.5; this.flare = 2; this.flashK = Math.max(this.flashK, 0.5);
+    this.hx += dx * 3.5 * this.v0 * this.r; this.hz += dz * 3.5 * this.v0 * this.r; // (3.5 s of travel ahead, about 36 r: past the top of a portrait screen)
+    this.boostT = 3.5; this.flare = 2; this.flashK = Math.max(this.flashK, 0.5);
     ctx.card('WARP JUMP', 'HOLD ON'); ctx.sfx.space.ion(); ctx.state.shake = Math.max(ctx.state.shake || 0, 0.4); navigator.vibrate?.([30, 20, 60]);
   }
 
@@ -649,10 +683,10 @@ export class SpaceGame {
         const c = o.k === K.world ? [0.45, 0.65, 1.0] : o.A; ga[gi] = c[0]; ga[gi + 1] = c[1]; ga[gi + 2] = c[2]; ga[gi + 3] = -(o.k === K.world ? 0.9 : 0.5) / (1 + 0.01 * s * s); ngl++;
       }
       const small = s < 0.05, huge = s > 5 && nb < 12;
-      if (o.k === K.comet && o.state === 0 && nt < CAPT) { // the tail, away from the sun
+      if (o.k === K.comet && o.state === 0 && nt < CAPT - 1) { // the tail, away from the sun (the last slot is the jet's)
         let tx = o.x - sx, tz = o.z - sz; const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl;
         const len = o.tail * 1.0 * (o.b * ir + 0.15) * 10 * Math.min(1, 2.5 * ir ** 0.3), wid = Math.max(0.25, o.b * ir * 6);
-        _p.set(px, 0, pz); _q.setFromAxisAngle(_y, -Math.atan2(tz, tx)); _s.set(len, 1, wid); _m.compose(_p, _q, _s); this.tails.setMatrixAt(nt++, _m);
+        _p.set(px, 0, pz); _q.setFromAxisAngle(_y, -Math.atan2(tz, tx)); _s.set(len, 1, wid); _m.compose(_p, _q, _s); const aj = this.tails.userData.aJ.array; aj[nt * 4] = 0; this.tails.setMatrixAt(nt++, _m);
       }
       if (o.ring && o.state === 0 && nr < CAPR) { _p.set(px, 0, pz); _e.set(0.38, o.spin * 0.02, 0.1); _q.setFromEuler(_e); const rs = s * 2.25; _s.set(rs, rs, rs); _m.compose(_p, _q, _s); this.rings.setMatrixAt(nr++, _m); }
       if (huge) put(this.bg, this.bmBg, nb++, o.k, o, px, pz, s, sy, sz2, yaw, heat, tilt);
@@ -666,6 +700,16 @@ export class SpaceGame {
       const at = this.bmHi.aT.array, aa = this.bmHi.aA.array, ab = this.bmHi.aB.array, i = nh * 4; at[i] = 0; at[i + 1] = c.spin; at[i + 2] = 2; at[i + 3] = 0; aa[i] = c.A[0]; aa[i + 1] = c.A[1]; aa[i + 2] = c.A[2]; aa[i + 3] = 1; ab[i] = c.B[0]; ab[i + 1] = c.B[1]; ab[i + 2] = c.B[2]; ab[i + 3] = e;
       nh++;
     }
+    { // the jet: what the hole ate comes back out behind it and pushes (src/space/frame.js jetK); longer with speed, brighter for a couple of seconds after a gulp
+      const hs = ctx.hole, v = Math.min(1, Math.hypot(hs.sx || 0, hs.sz || 0)), f = this.fuel, aj = this.tails.userData.aJ.array, i = nt * 4;
+      if (v > 0.1) this.jetA = Math.atan2(-hs.sz, -hs.sx); // (opposite the travel; it keeps its last heading while you coast)
+      if (this.phase === 'play' && (v > 0.03 || f > 0.02)) {
+        const len = (1.5 + 3.5 * v) * (1 + 0.6 * f), wid = 0.9 + 0.5 * f; // (in r: 1.5 r idle, 5 r at full stick, 8 r with full fuel; the hole hides the first r. On a phone, 27 px per r at the start of a tier)
+        _p.set(0, 0, 0); _q.setFromAxisAngle(_y, -(this.jetA ?? Math.PI / 2)); _s.set(len, 1, wid); _m.compose(_p, _q, _s); this.tails.setMatrixAt(nt++, _m);
+        aj[i] = 1; aj[i + 1] = Math.min(2, (0.15 + 0.55 * v) * (1 + 2.6 * f)); aj[i + 2] = this.t * (3 + 6 * v); // (gain: 0.7 cruising, about 1.5 after a good gulp, capped at 2 so it never washes out what it crosses)
+      }
+      this.tails.userData.aJ.needsUpdate = true;
+    }
     hi.count = nh; lo.count = nl; this.bg.count = nb; this.bg.instanceMatrix.needsUpdate = true; this.hideRest(this.tails, nt, CAPT); this.hideRest(this.rings, nr, CAPR); for (const k in this.props) { const pm = this.props[k]; pm.visible = this.propUse.has(k); if (pm.visible) this.hideRest(pm, cnt[k] | 0, pm.instanceMatrix.count); this.props[k].instanceMatrix.needsUpdate = true; } this.gal.mesh.count = ng; ngl = this.extrasDraw(ctx, ir, ngl); this.glow.mesh.count = ngl; this.glow.mesh.instanceMatrix.needsUpdate = true; this.glow.aC.needsUpdate = true; this.gal.mesh.instanceMatrix.needsUpdate = true; this.gal.aT.needsUpdate = this.gal.aC.needsUpdate = true;  // (tails and rings draw their full capacity, the spare instances collapsed: the WebGPU backend sizes an instance buffer from the first non-zero count it sees)
     // the two body meshes upload only the instances drawn (of 1,500): full-capacity uploads were ~400 KB a frame and the top
     // JS entry of this phase in a 4x-throttled profile (bufferSubData)
@@ -676,7 +720,7 @@ export class SpaceGame {
     const P = this.dust.geometry.attributes.position, a = P.array, mx = this.moved || 0;
     if (mx) {
       const hs = ctx.hole, ddx = (this.lastHx ?? this.hx) - this.hx, ddz = (this.lastHz ?? this.hz) - this.hz;
-      for (let i = 0; i < a.length; i += 3) { a[i] += ddx * ir; a[i + 2] += ddz * ir; a[i] = ((a[i] + 35) % 70 + 70) % 70 - 35; a[i + 2] = ((a[i + 2] + 35) % 70 + 70) % 70 - 35; }
+      for (let i = 0; i < a.length; i += 3) { a[i] += ddx * ir; a[i + 2] += ddz * ir; a[i] = ((a[i] + DUST[0]) % (2 * DUST[0]) + 2 * DUST[0]) % (2 * DUST[0]) - DUST[0]; const zz = a[i + 2] - DUST[1] + DUST[2]; a[i + 2] = (zz % (2 * DUST[2]) + 2 * DUST[2]) % (2 * DUST[2]) - DUST[2] + DUST[1]; }
       P.needsUpdate = true;
     }
     this.lastHx = this.hx; this.lastHz = this.hz; this.moved = 0;

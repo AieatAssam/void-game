@@ -34,7 +34,7 @@ export function installTouch(g, ctx) {
   c.addEventListener('pointerdown', down); c.addEventListener('pointermove', move); c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
   let shown = false;
   try { shown = localStorage.getItem('void-space-touch') === '1'; } catch { /* storage blocked */ }
-  const first = (e) => { if (e.pointerType === 'mouse' || shown) return; shown = true; try { localStorage.setItem('void-space-touch', '1'); } catch { /* storage blocked */ } ctx.hint('Drag anywhere to steer · the farther you drag, the faster'); };
+  const first = (e) => { if (e.pointerType === 'mouse' || shown) return; shown = true; try { localStorage.setItem('void-space-touch', '1'); } catch { /* storage blocked */ } g.touchHintT = performance.now(); ctx.hint('Drag anywhere to steer · the farther you drag, the faster'); };
   c.addEventListener('pointerdown', first, { once: false });
   return () => { c.removeEventListener('pointerdown', down); c.removeEventListener('pointermove', move); c.removeEventListener('pointerup', up); c.removeEventListener('pointercancel', up); c.removeEventListener('pointerdown', first); el.remove(); st.remove(); };
 }
