@@ -1,5 +1,5 @@
 // Phase 4 adversity and power-ups (docs/PHASE4.md), mixed into SpaceGame (src/space.js): flares, tidal pulls from huge bodies, and four power-ups. Nothing here can end a run or trap
-// the hole: a flare shoves you clear and stuns you for a second, a tidal pull is slower than your speed, and every penalty is a few percent of the tier.
+// the hole: a flare shoves you clear and stuns you for a second, a tidal pull is slower than your speed (a third of it at most), and every penalty is a few percent of the tier.
 import * as THREE from 'three/webgpu';
 import { Fn, vec3, vec4, float, uniform, length, smoothstep, positionGeometry, exp, abs, mix } from 'three/tsl';
 import { K, looseProp } from './tiers.js';
@@ -58,7 +58,7 @@ export const extraMethods = {
         if (o.state || o.b < 3.5 * r || o.k >= K.galaxy) continue;
         const dx = o.x - this.hx, dz = o.z - this.hz, d = Math.hypot(dx, dz), reach = 1.8 * o.b;
         if (d > reach || d < 1e-6) continue;
-        const k = (1 - d / reach) ** 2 * 0.2 * r; px += dx / d * k; pz += dz / d * k;
+        const k = (1 - d / reach) ** 2 * 0.2 * this.vk * r; // (x vk: the pull keeps its share of your speed) px += dx / d * k; pz += dz / d * k;
       }
       this.hx += px * dt; this.hz += pz * dt;
     }

@@ -10,7 +10,7 @@ export const rng = (a) => () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Mat
 const hex = (h) => [((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255];
 const TAU = Math.PI * 2;
 /** Weight of a body: what it pays toward the tier's progress. Sub-linear in size so the swarms of small things matter, comets pay extra. */
-const weight = (b, k, a = 0.65) => Math.pow(b, a) * (k === K.comet ? 2.2 : 1) * (b < 0.05 ? 0.3 : 1);
+export const weight = (b, k, a = 0.65) => Math.pow(b, a) * (k === K.comet ? 2.2 : 1) * (b < 0.05 ? 0.3 : 1);
 
 const ROCK = [[0x8a8178, 0x5e564e], [0x9c8f7d, 0x6b5f52], [0x77716b, 0x4b4742], [0xa89c88, 0x7a6b58], [0x6f6a73, 0x45414a], [0xb08a68, 0x7d5b3f], [0x8b8f94, 0x575c63]];
 const ICE = [[0xdfe8ee, 0xa9bccb], [0xcfd8e0, 0x8fa4b8], [0xe8e2d8, 0xb8aea0]];
@@ -21,6 +21,14 @@ function swarm(rnd, B, n, lo, hi, a0, a1, ice = 0.15) {
     const a = a0 + rnd() * (a1 - a0), pal = rnd() < ice ? ICE : ROCK, c = pal[(rnd() * pal.length) | 0];
     B({ k: K.rock, a, ang: rnd() * TAU, om: 0.0042 / Math.sqrt(a / 40) * (0.8 + rnd() * 0.4), b: lo * Math.pow(hi / lo, rnd()), A: c[0], B: c[1], p1: 1 + rnd() * 3, p2: rnd() });
   }
+}
+
+/**
+ * n generic bodies of real sizes (tier units, log-uniform in [lo, hi]) orbiting between a0 and a1: the solar tiers' r grows x4 .. x8, and the named worlds alone leave nothing of
+ * the hole's size late in the tier (src/space/near.js herds these in when they fit). look(s) returns { k, A, B, p1, name }.
+ */
+function rogues(rnd, B, n, lo, hi, a0, a1, look) {
+  for (let i = 0; i < n; i++) { const a = a0 + rnd() * (a1 - a0), s = lo * Math.pow(hi / lo, rnd()); B({ ...look(s), a, ang: rnd() * TAU, om: 0.003 / Math.sqrt(a / 40), b: s, p2: rnd() }); }
 }
 
 /** Log-uniform size in [lo, hi]. */
@@ -35,21 +43,21 @@ const pick = (rnd, a) => a[(rnd() * a.length) | 0];
 /** A point in a disc of radius f. */
 const spot = (rnd, f) => { const a = rnd() * TAU, d = f * Math.sqrt(rnd()); return [Math.cos(a) * d, Math.sin(a) * d]; };
 /**
- * A scale-aware field: n bodies with log-uniform sizes in [lo, hi]; a body of size s lives in a disc of radius max(14, 17 s) round the start (about four of its own sizes between neighbours), so there is always a neighbour of about the
+ * A scale-aware field: n bodies with log-uniform sizes in [lo, hi]; a body of size s lives in a disc of radius max(12, 18 s) round the start (closer than the old max(18, 28 s): 2.4x the density; src/space/near.js streams it round the hole as it travels), so there is always a neighbour of about the
  * hole's size at any stage of the tier. spec(s) returns the body's kind and look. They drift slowly (a tenth of their own size a second).
  */
 let DENS = 1; // (set per tier by buildTier: how many times the listed body counts)
 function field(rnd, B, n, lo, hi, spec) {
   n = Math.round(n * DENS);
   for (let i = 0; i < n; i++) {
-    const s = lo * Math.pow(hi / lo, rnd()), [x, z] = spot(rnd, Math.max(18, 28 * s)), o = spec(s), v = 0.1 * s * (rnd() - 0.5) * 2, v2 = 0.1 * s * (rnd() - 0.5) * 2;
+    const s = lo * Math.pow(hi / lo, rnd()), [x, z] = spot(rnd, Math.max(12, 18 * s)), o = spec(s), v = 0.1 * s * (rnd() - 0.5) * 2, v2 = 0.1 * s * (rnd() - 0.5) * 2;
     B({ ...o, b: s, x, z, vx: v, vz: v2 });
   }
 }
 /** n hero props (a Blender model, art/space/build_props.py), sizes log-uniform in [lo, hi], placed like field() does. */
 function props(rnd, B, model, name, n, lo, hi) {
   for (let i = 0; i < n; i++) {
-    const s = lo * Math.pow(hi / lo, rnd()), [x, z] = spot(rnd, Math.max(18, 28 * s));
+    const s = lo * Math.pow(hi / lo, rnd()), [x, z] = spot(rnd, Math.max(12, 18 * s));
     B({ k: K.prop, model, name, b: s, x, z, vx: 0.05 * s * (rnd() - 0.5) * 2, vz: 0.05 * s * (rnd() - 0.5) * 2, A: 0xffffff, B: 0xffffff });
   }
 }
@@ -78,6 +86,9 @@ export const TIERS = [
         const c = ice ? ICE[i % 3] : big && names[i] !== 'Mercury' ? [0xc9966a, 0x7a4f35] : ROCK[i % ROCK.length];
         B({ k: names[i] === 'Mars' || names[i] === 'Titan' ? K.world : K.rock, a, ang: rnd() * TAU, om: 0.0035 / Math.sqrt(a / 40), b: sizes[i], A: c[0], B: c[1], p1: 2 + rnd() * 2, p2: rnd(), name: names[i] });
       }
+      // stray moons (1,500-3,500 km: the Moon to Mars) and a few rogue worlds the size of Venus and Earth (4,000-6,500 km): food for the end of the tier, threats at its start
+      rogues(rnd, B, 30, 0.6, 1.4, 20, 60, (s) => { const c = s > 1 ? [0xc9966a, 0x7a4f35] : ROCK[(rnd() * ROCK.length) | 0]; return { k: s > 1.1 ? K.world : K.rock, A: c[0], B: c[1], p1: 2 + rnd() * 2, name: 'a stray moon' }; });
+      rogues(rnd, B, 5, 1.6, 2.6, 24, 60, () => ({ k: K.world, A: 0x6a8fb8, B: 0x3a4f6a, p1: 3, name: 'a rogue world' }));
       // comets: a head, a tail away from the sun, on a slow flyby (they wrap round the field)
       for (let i = 0; i < 9; i++) {
         const ang = rnd() * TAU, d = 30 + rnd() * 40, sp = 0.5 + rnd() * 0.7, tw = (rnd() - 0.5) * 1.2;
@@ -102,6 +113,9 @@ export const TIERS = [
         const a = 22 + rnd() * 36;
         B({ k, a, ang: rnd() * TAU, om: 0.0034 / Math.sqrt(a / 40), b, A, B: Bc, p1: k === K.giant ? 6 : 2 + rnd() * 2, p2: rnd(), name, ring: name === 'Uranus' });
       }
+      // rogue worlds, Mars-sized to mini-Neptunes (3,500-28,000 km), and three rogue giants (40,000-70,000 km, Saturn to Jupiter): the hole outgrows the ice giants inside this tier
+      rogues(rnd, B, 22, 0.35, 2.8, 22, 60, (s) => s < 1.2 ? { k: K.world, ...pick(rnd, [{ A: 0x6a8fb8, B: 0x3a4f6a }, { A: 0xb88a6a, B: 0x6a4a3a }, { A: 0x8ab89a, B: 0x3a6a4a }]), p1: 3, name: 'a rogue world' } : { k: K.giant, A: 0x9ab8d8, B: 0x5a6f9a, p1: 6, name: 'a rogue world' });
+      rogues(rnd, B, 3, 4, 7, 30, 60, () => ({ k: K.giant, A: 0xd8b890, B: 0x8a6a4a, p1: 10, name: 'a rogue giant' }));
       for (let i = 0; i < 7; i++) {
         const ang = rnd() * TAU, d = 30 + rnd() * 40, sp = 0.5 + rnd() * 0.6;
         B({ k: K.comet, x: Math.cos(ang) * d, z: Math.sin(ang) * d, vx: -Math.cos(ang) * sp, vz: -Math.sin(ang) * sp, b: 0.03 + rnd() * 0.05, A: 0x8d95a0, B: 0x5a606a, p1: 1, p2: rnd(), tail: 5 + rnd() * 5 });
@@ -127,6 +141,9 @@ export const TIERS = [
         const [name, k, b, A, Bc, bands, ring] = W[i], a = orbit[i] ?? 24 + rnd() * 44;
         B({ k, a, ang: rnd() * TAU, om: 0.0032 / Math.sqrt(a / 40), b, A, B: Bc, p1: bands || 2 + rnd() * 2, p2: rnd(), name, ring: !!ring });
       }
+      // intruders from the neighbourhood: brown dwarfs (60,000-104,000 km, about Jupiter's size) and red dwarfs (100,000-240,000 km, 0.15-0.35 Suns): what a hole of 100,000+ km eats before the Sun
+      rogues(rnd, B, 12, 1.5, 2.6, 26, 66, () => ({ k: K.giant, A: 0x9a5a48, B: 0x4a2228, p1: 8, name: 'a brown dwarf' }));
+      rogues(rnd, B, 12, 2.5, 6, 30, 66, () => ({ k: K.star, A: 0xff9a6a, B: 0xc8401e, p1: 3, name: 'a red dwarf' }));
       for (let i = 0; i < 6; i++) {
         const ang = rnd() * TAU, d = 40 + rnd() * 30, sp = 0.5 + rnd() * 0.6;
         B({ k: K.comet, x: Math.cos(ang) * d, z: Math.sin(ang) * d, vx: -Math.cos(ang) * sp, vz: -Math.sin(ang) * sp, b: 0.02 + rnd() * 0.03, A: 0x8d95a0, B: 0x5a606a, p1: 1, p2: rnd(), tail: 5 + rnd() * 5 });
@@ -240,4 +257,5 @@ export function looseProp(tier, model, b, x, z, A = 0xcfe4ff) {
 }
 
 // Balance (human-like bot suites, docs/PHASE4.md section 5): the scale-aware tiers got denser and longer so each takes minutes, not seconds.
-for (const t of TIERS) if (t.id >= 4) { t.dens = t.id === 7 || t.id === 9 || t.id === 10 ? 2.4 : t.id === 11 ? 1.9 : 1.6; t.goal = t.id === 8 ? 0.75 : t.id === 11 ? 0.85 : 0.88; t.minTime = 100; } // (the hole may not swell faster than ln(growth) / minTime a second: a tier lasts at least a hundred seconds)
+for (const t of TIERS) t.minTime = 120; // (every tier now, at least 108 s each (G^0.9 at 0.9 x 120 s): the hole crosses a screen in 1.5 s and the field is streamed round it, so travel no longer paces the solar tiers)
+for (const t of TIERS) if (t.id >= 4) { t.dens = t.id === 7 || t.id === 9 || t.id === 10 ? 2.4 : t.id === 11 ? 1.9 : 1.6; t.goal = t.id === 8 ? 0.75 : t.id === 11 ? 0.85 : 0.88; } // (the hole may not swell faster than ln(growth) / minTime a second: a tier lasts at least a hundred seconds)
